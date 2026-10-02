@@ -36,9 +36,10 @@ import (
 const api = "https://discord.com/api/v10"
 
 // invitePerms is what skua's modules need in a channel: View Channel, Send
-// Messages, Embed Links, Attach Files (the mood thumbnails). A module that
-// needs more adds its bit here in the same PR.
-const invitePerms = 1<<10 | 1<<11 | 1<<14 | 1<<15
+// Messages, Embed Links, Attach Files (the mood thumbnails), Manage Webhooks
+// (/echo's per-channel webhook). A module that needs more adds its bit here
+// in the same PR.
+const invitePerms = 1<<10 | 1<<11 | 1<<14 | 1<<15 | 1<<29
 
 type application struct {
 	ID    string `json:"id"`
