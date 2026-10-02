@@ -25,7 +25,10 @@ one page and lists the principles and the experiments.
   source or the generator and rerun it; don't edit the output PNGs.
 
 Adding a module: implement `core.Module`, declare its intents honestly in `Want`
-(Required vs Optional), and append it to `all` in `main.go`. If it needs a table, add
+(Required vs Optional), and append it to `all` in `main.go`. It ships with handler
+tests: `internal/core/coretest` builds the interaction and records replies, and a test
+that needs REST sets `e.Client().Rest` to a fake embedding `rest.Rest`. CI fails any
+`internal/` package under 85% coverage. If it needs a table, add
 the migration runner in `internal/store` along with the first migration.
 
 ## Commands
@@ -33,7 +36,7 @@ the migration runner in `internal/store` along with the first migration.
 ```sh
 go build ./... && go vet ./...
 golangci-lint run
-go test ./... -race -cover
+scripts/coverage.sh                    # race tests + 85% floor per internal/ package
 govulncheck ./...
 go run ./tools/sprites                 # regenerate internal/brand/assets
 go test ./internal/guard -bench . -run x
@@ -51,8 +54,9 @@ and the PR title becomes the commit, so it should read like one (`feat(guard): .
 One change per PR. Branches are deleted on merge.
 
 CI (`.github/workflows/ci.yml`) runs on every PR and every push to `main`: vet, lint,
-race tests, govulncheck, gitleaks, the prose check (no em dashes, ellipsis characters
-or curly quotes anywhere; run its grep before committing), and an arm64 Docker build.
+race tests under a per-package coverage floor, govulncheck, gitleaks, the prose check
+(no em dashes, ellipsis characters or curly quotes anywhere; run its grep before
+committing), and an arm64 Docker build.
 Those are the required checks. On `main` it then pushes
 `ghcr.io/6586x57890143/skua:<sha>` and deploys to foundry as `deploy` into
 `/home/deploy/skua`, using the `VPS_HOST`/`VPS_SSH_KEY` repository secrets. The deploy only runs while the repository variable `DEPLOY_ENABLED` is
