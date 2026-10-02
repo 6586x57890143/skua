@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"strings"
@@ -14,10 +15,10 @@ import (
 
 type mod struct{ cmds []Command }
 
-func (mod) Name() string                                    { return "test" }
-func (mod) Want() intents.Want                              { return intents.Want{} }
-func (m mod) Commands() []Command                           { return m.cmds }
-func run(*events.ApplicationCommandInteractionCreate) error { return nil }
+func (mod) Name() string                                                     { return "test" }
+func (mod) Want() intents.Want                                               { return intents.Want{} }
+func (m mod) Commands() []Command                                            { return m.cmds }
+func run(context.Context, *events.ApplicationCommandInteractionCreate) error { return nil }
 
 func TestAddRefusesMalformed(t *testing.T) {
 	cases := map[string]Command{

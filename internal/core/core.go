@@ -3,10 +3,12 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -33,12 +35,20 @@ const (
 	Admin
 )
 
-// Command is one top-level slash command.
+// Command is one top-level slash command. Run's ctx ends when Discord would
+// stop waiting for the first response, so REST calls made with
+// rest.WithCtx(ctx) fail in time to say why instead of leaving the member
+// on "the application did not respond". A handler that defers and keeps
+// working past that derives its own with context.WithoutCancel.
 type Command struct {
 	Create discord.SlashCommandCreate
 	Tier   Tier
-	Run    func(e *events.ApplicationCommandInteractionCreate) error
+	Run    func(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error
 }
+
+// respondBy is Discord's 3s initial-response window, less room for the
+// error reply itself.
+const respondBy = 2500 * time.Millisecond
 
 // Router owns registration and dispatch. Not safe for Add after Freeze.
 type Router struct {
@@ -93,7 +103,9 @@ func (r *Router) OnCommand(e *events.ApplicationCommandInteractionCreate) {
 	}
 	err := errDenied
 	if r.allowed(e, c.Tier) {
-		err = c.Run(e)
+		ctx, cancel := context.WithTimeout(context.Background(), respondBy)
+		defer cancel()
+		err = c.Run(ctx, e)
 	}
 	if err != nil {
 		if !errors.Is(err, errDenied) {
