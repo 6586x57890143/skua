@@ -20,8 +20,9 @@ one page and lists the principles and the experiments.
   feathers to the umber ramp, neutral greys to slate) for the profile picture, and cuts
   the bird out of its frame for every mood icon. The banner is computed from shapes,
   banded light and a fixed hash. Style: high resolution pixel art, flat fields, cool
-  grey frame, the bird the only warmth. Edit the source or the generator and rerun it;
-  don't edit the output PNGs.
+  grey frame, the bird the only warmth. Every PNG is written indexed at best
+  compression, and `internal/brand` fails if an embedded icon reaches 10 KB. Edit the
+  source or the generator and rerun it; don't edit the output PNGs.
 
 Adding a module: implement `core.Module`, declare its intents honestly in `Want`
 (Required vs Optional), and append it to `all` in `main.go`. If it needs a table, add

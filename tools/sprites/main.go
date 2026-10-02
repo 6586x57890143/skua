@@ -127,6 +127,34 @@ func drawScaled(img *image.NRGBA, grid []string, ox, oy int, pal map[byte]color.
 	}
 }
 
+// paletted returns img as an indexed image, which pixel art always fits: an
+// indexed PNG is a fraction of the size of a true colour one. Over 256
+// colours is a generator bug, so it fails loudly rather than quietly
+// shipping a large file.
+func paletted(img *image.NRGBA) image.Image {
+	index := map[color.NRGBA]uint8{}
+	var pal color.Palette
+	b := img.Bounds()
+	out := image.NewPaletted(b, nil)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			c := img.NRGBAAt(x, y)
+			i, ok := index[c]
+			if !ok {
+				if len(pal) == 256 {
+					log.Fatal("more than 256 colours in one image; quantise before writing")
+				}
+				i = uint8(len(pal))
+				index[c] = i
+				pal = append(pal, c)
+			}
+			out.SetColorIndex(x, y, i)
+		}
+	}
+	out.Palette = pal
+	return out
+}
+
 // writeScaled upscales nearest-neighbour by k, so every logical pixel stays
 // a hard square.
 func writeScaled(path string, src *image.NRGBA, k int) error {
@@ -141,7 +169,8 @@ func writeScaled(path string, src *image.NRGBA, k int) error {
 	if err != nil {
 		return err
 	}
-	if err := png.Encode(f, dst); err != nil {
+	enc := png.Encoder{CompressionLevel: png.BestCompression}
+	if err := enc.Encode(f, paletted(dst)); err != nil {
 		_ = f.Close()
 		return err
 	}
