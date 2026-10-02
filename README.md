@@ -1,4 +1,4 @@
-<img src="internal/brand/assets/skua_avatar.png" width="96" align="right" alt="skua">
+![skua](art/skua_banner.png)
 
 # skua
 
