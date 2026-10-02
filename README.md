@@ -23,6 +23,20 @@ go run ./cmd/skua       # Postgres optional: set SKUA_DATABASE_URL
 docker compose up --build
 ```
 
+## Go live
+
+After the first merge to `main` has built the image:
+
+```sh
+go run ./tools/setup
+```
+
+It asks for the bot token (hidden), checks it with Discord, makes the application's
+owner the bootstrap admin, writes both to the host, sets the bot's avatar and banner,
+reports the privileged intents, deploys through GitHub Actions, waits for the bot to
+connect, and prints the invite link. Safe to run again at any time, for example to
+rotate the token.
+
 ## Deploy
 
 Merging to `main` builds an arm64 image to GHCR and deploys it to the host with

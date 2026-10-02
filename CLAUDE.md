@@ -37,6 +37,7 @@ go test ./internal/guard -bench . -run x
 
 cp .env.example .env && docker compose up --build   # local bot + Postgres
 go run ./cmd/skua                                   # native, DB optional
+go run ./tools/setup                                # go live / rotate the token: .env, profile, deploy, invite
 scripts/deploy.sh                                   # manual path: commit first; deploys HEAD via foundry-deploy
 ```
 
