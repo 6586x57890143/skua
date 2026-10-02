@@ -19,9 +19,13 @@ import (
 //   - the bird's warm-neutral feathers map by brightness onto the umber
 //     ramp, topping out in the golden hackle tone;
 //   - cool greys (the bill, the darker wing feathers) map onto slate;
-//   - the near-black outline and the eye's glint are left alone.
+//   - the near-black outline and the eye's glint snap to the outline ink
+//     and bone.
 
 const avatarSource = "art/source/skua_avatar_source.png"
+
+// lumStep is the brightness quantum the recolour snaps to.
+const lumStep = 12.0
 
 // frameAt reports whether a source pixel is the navy field or the lavender
 // halo rather than the bird: the frame is blue-shifted by about 35, the bird
@@ -73,16 +77,23 @@ var (
 // the pixel was frame, so the bird can be cut out for the mood icons.
 func recolor(c color.NRGBA) (color.NRGBA, bool) {
 	l := lum(c)
+	// Brightness is snapped to steps before any mapping, so each ramp yields
+	// a few dozen fixed tones rather than a smooth gradient: that is what
+	// keeps the result pixel art, and keeps it under 256 colours.
+	q := math.Round(l/lumStep) * lumStep
 	switch {
 	case frameAt(c):
-		// Field is about 66 bright, halo about 140.
-		return mix(fieldInk, haloInk, (l-70)/65), true
-	case l < 14 || l > 190:
-		return c, false // outline and glint
+		// Field is about 66 bright, halo about 140; the blend between them
+		// is only there for the halo's edge pixels, so four steps do.
+		return mix(fieldInk, haloInk, math.Round((l-70)/65*3)/3), true
+	case l < 14:
+		return lineInk, false // outline
+	case l > 190:
+		return bone[1], false // the eye's glint
 	case int(c.B)-int(c.R) > 1:
-		return gradient(slateStops, l), false
+		return gradient(slateStops, q), false
 	default:
-		return gradient(featherStops, l), false
+		return gradient(featherStops, q), false
 	}
 }
 
