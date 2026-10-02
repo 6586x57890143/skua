@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -16,6 +17,8 @@ import (
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/skua/internal/core"
+	"github.com/6586x57890143/skua/internal/core/coretest"
 	"github.com/6586x57890143/skua/internal/guard"
 )
 
@@ -193,7 +196,7 @@ func TestEchoRefuses(t *testing.T) {
 		{"text channels", opts{channelType: int(discord.ChannelTypeGuildPublicThread), perms: permSend}},
 		{"timed out", opts{perms: permSend, until: "2999-01-01T00:00:00Z"}},
 		{"can't send", opts{perms: discord.PermissionViewChannel}},
-		{"Manage Webhooks", opts{perms: permSend, appPms: discord.PermissionSendMessages}},
+		{"manage webhooks", opts{perms: permSend, appPms: discord.PermissionSendMessages}},
 	}
 	for _, c := range cases {
 		f := &fake{}
@@ -368,5 +371,38 @@ func TestMarkdownThatWouldForgeTheMarkerIsPostedAsTyped(t *testing.T) {
 	}
 	if want := `-\# echoed through skua by @mod` + marker("a_b"); f.sent[0].Content != want {
 		t.Errorf("posted %q, want %q", f.sent[0].Content, want)
+	}
+}
+
+// The router, not the handler, decides what a member reads: a handler test
+// that checks the returned error stays green even when the router would
+// replace it with a generic failure. So refusals are checked where they
+// land, through core.Router, as the reply the member gets.
+func TestRefusalsReachTheMemberThroughTheRouter(t *testing.T) {
+	cases := []struct {
+		name string
+		edit func(member map[string]any)
+		want string
+	}{
+		{"timed out", func(m map[string]any) { m["communication_disabled_until"] = "2999-01-01T00:00:00Z" },
+			"✗ you're timed out, so you can't send messages here yet"},
+		{"no send permission", func(m map[string]any) { m["permissions"] = "0" },
+			"✗ you can't send messages in this channel"},
+	}
+	for _, c := range cases {
+		r := core.NewRouter(0, nil, slog.New(slog.DiscardHandler))
+		if err := r.Add(New(guard.New())); err != nil {
+			t.Fatal(err)
+		}
+		e, sent := coretest.Event(t, "echo", func(p map[string]any) {
+			member := p["member"].(map[string]any)
+			member["permissions"] = fmt.Sprint(int64(permSend))
+			c.edit(member)
+			p["data"].(map[string]any)["options"] = []any{map[string]any{"name": "message", "type": 3, "value": "hi"}}
+		})
+		r.OnCommand(e)
+		if len(*sent) != 1 || (*sent)[0].Content != c.want {
+			t.Errorf("%s: the member got %+v, want %q", c.name, *sent, c.want)
+		}
 	}
 }

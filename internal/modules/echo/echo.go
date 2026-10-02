@@ -79,10 +79,10 @@ func (m *Module) Commands() []core.Command {
 	return []core.Command{{
 		Create: discord.SlashCommandCreate{
 			Name:        "echo",
-			Description: "Send a message under your own name",
+			Description: "send a message under your own name",
 			Contexts:    []discord.InteractionContextType{discord.InteractionContextTypeGuild},
 			Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionString{
-				Name: "message", Description: "What to say", Required: true, MaxLength: new(maxText),
+				Name: "message", Description: "what to say", Required: true, MaxLength: new(maxText),
 			}},
 		},
 		Tier: core.Public,
@@ -90,7 +90,14 @@ func (m *Module) Commands() []core.Command {
 	}}
 }
 
-var errEmpty = errors.New("there is nothing to send")
+// What a member reads when echo says no. Each is a core.Tell, so the router
+// shows it as written; anything else reaches them as a generic failure.
+var (
+	errEmpty = core.Tell("there is nothing to send")
+	// errBusy is the guild's webhook budget or breaker, not the member's.
+	errBusy    = core.Tell("skua is sending a lot in this server right now; try again in a couple of minutes")
+	errNotSent = core.Tell("your message didn't go through; try again in a moment")
+)
 
 // clean rewrites text so it can be posted as it was meant, never refusing
 // it: the member sees their message go out, not an error about markdown.
@@ -151,28 +158,28 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	}
 	member, guild := e.Member(), e.GuildID()
 	if member == nil || guild == nil {
-		return errors.New("/echo only works in a server")
+		return core.Tell("/echo only works in a server")
 	}
 	ch := e.Channel()
 	switch ch.Type() {
 	case discord.ChannelTypeGuildText, discord.ChannelTypeGuildNews, discord.ChannelTypeGuildVoice:
 	default:
-		return errors.New("/echo works in text channels, not threads or forum posts")
+		return core.Tell("/echo works in text channels, not threads or forum posts")
 	}
 	// Echo is for the restriction Discord applied, never a way around the
 	// ones this server applied.
 	if t := member.CommunicationDisabledUntil; t != nil && t.After(time.Now()) {
-		return errors.New("you're timed out, so you can't send messages here yet")
+		return core.Tell("you're timed out, so you can't send messages here yet")
 	}
 	if !member.Permissions.Has(discord.PermissionSendMessages) {
-		return errors.New("you can't send messages in this channel")
+		return core.Tell("you can't send messages in this channel")
 	}
 	if p := e.AppPermissions(); p == nil || !p.Has(discord.PermissionManageWebhooks) {
-		return errors.New("skua can't post here yet: it needs Manage Webhooks in this channel")
+		return core.Tell("skua can't post here yet: it needs manage webhooks in this channel")
 	}
 	wait, undo := m.slowmode(ch, member)
 	if wait > 0 {
-		return fmt.Errorf("slowmode is on: you can send again in %s", wait.Round(time.Second))
+		return core.Tell(fmt.Sprintf("slowmode is on: you can send again in %s", wait.Round(time.Second)))
 	}
 	// Discord charges slowmode only for a message that went out.
 	defer func() {
@@ -183,7 +190,7 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	// Per member before per guild, so one member cannot spend the whole
 	// guild's webhook budget and lock everyone else out.
 	if err := m.guard.Allow(member.User.ID, guard.EchoMember); err != nil {
-		return errors.New("you're sending too fast; try again in a minute")
+		return core.Tell("you're sending too fast; try again in a couple of minutes")
 	}
 
 	msg := discord.WebhookMessageCreate{
@@ -213,7 +220,7 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 			return err
 		}
 		if err := m.guard.Allow(*guild, guard.WebhookExecute); err != nil {
-			return err
+			return errBusy
 		}
 		_, err = r.CreateWebhookMessage(h.id, h.token, msg, rest.CreateWebhookMessageParams{}, opt)
 		m.guard.Report(*guild, struggling(err))
@@ -223,7 +230,7 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("your message didn't go through: %w", err)
+			return fmt.Errorf("%w: %w", errNotSent, err)
 		}
 		// The echo is up. If the delete fails, the member alone is left
 		// with a stale "thinking"; failing here would undo their slowmode
@@ -287,7 +294,7 @@ func (m *Module) hook(r rest.Rest, opt rest.RequestOpt, guild, ch, app snowflake
 		}
 	}
 	if err := m.guard.Allow(guild, guard.WebhookCreate); err != nil {
-		return hook{}, err
+		return hook{}, errBusy
 	}
 	in, err := r.CreateWebhook(ch, discord.WebhookCreate{Name: "skua echo"}, opt)
 	m.guard.Report(guild, struggling(err))

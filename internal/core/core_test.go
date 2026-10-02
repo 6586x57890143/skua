@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -100,14 +101,14 @@ func TestOnCommandTiers(t *testing.T) {
 		if ran != c.ran {
 			t.Errorf("%s: ran = %v", c.name, ran)
 		}
-		if !c.ran && (len(*sent) != 1 || (*sent)[0].Content != "✗ not allowed") {
+		if !c.ran && (len(*sent) != 1 || (*sent)[0].Content != "✗ only this server's admins can use /a") {
 			t.Errorf("%s: refusal reply = %+v", c.name, *sent)
 		}
 	}
 }
 
 func TestOnCommandReportsErrorsWhereTheMemberWillSeeThem(t *testing.T) {
-	fail := errors.New("boom @everyone")
+	fail := fmt.Errorf("wrapped: %w", Tell("boom @everyone"))
 
 	// Before any response: the error is the initial response, ephemeral
 	// and ping-free.
@@ -137,6 +138,39 @@ func TestOnCommandReportsErrorsWhereTheMemberWillSeeThem(t *testing.T) {
 	r.OnCommand(e)
 	if len(*sent) != 1 || len(f.followups) != 1 || f.followups[0] != "✗ boom @everyone" {
 		t.Errorf("error after responding: sent=%+v followups=%q", *sent, f.followups)
+	}
+}
+
+func TestOnCommandHidesErrorsThatAreNotATell(t *testing.T) {
+	raw := errors.New(`POST /webhooks: 403 Forbidden {"message": "Missing Permissions"}`)
+	r := router(t, Command{Tier: Public, Run: func(context.Context, *events.ApplicationCommandInteractionCreate) error { return raw }})
+	e, sent := coretest.Event(t, "a", nil)
+	r.OnCommand(e)
+	if len(*sent) != 1 || (*sent)[0].Content != "✗ "+failed {
+		t.Fatalf("raw error reply = %+v", *sent)
+	}
+}
+
+func TestOnCommandShowsAWrappedTellAndLogsItsCause(t *testing.T) {
+	var log strings.Builder
+	r := NewRouter(0, nil, slog.New(slog.NewTextHandler(&log, nil)))
+	cause := errors.New(`403 Forbidden {"message": "Missing Permissions"}`)
+	if err := r.Add(mod{[]Command{{
+		Create: discord.SlashCommandCreate{Name: "a"},
+		Tier:   Public,
+		Run: func(context.Context, *events.ApplicationCommandInteractionCreate) error {
+			return fmt.Errorf("%w: %w", Tell("your message didn't go through"), cause)
+		},
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	e, sent := coretest.Event(t, "a", nil)
+	r.OnCommand(e)
+	if len(*sent) != 1 || (*sent)[0].Content != "✗ your message didn't go through" {
+		t.Fatalf("wrapped Tell reply = %+v", *sent)
+	}
+	if !strings.Contains(log.String(), "Missing Permissions") {
+		t.Fatalf("the cause was not logged: %q", log.String())
 	}
 }
 
