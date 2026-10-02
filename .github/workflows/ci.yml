@@ -164,15 +164,17 @@ jobs:
             docker compose -f docker-compose.prod.yml pull bot
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
             docker logout ghcr.io
-            # Written only once the tag is actually running: the file is read at the moment somebody needs
-            # to roll back, so it must name a version that exists on the host.
+            # Written only once the tag is actually running: the file is
+            # read at the moment somebody needs to roll back, so it must
+            # name a version that exists on the host.
             [ -f deployed-tag.env ] && cp deployed-tag.env previous-tag.env
             echo "SKUA_IMAGE_TAG=$IMAGE_TAG" > deployed-tag.env
             # Dangling skua layers older than a week only: the previous
             # release survives for a rollback, and the label keeps this from
             # racing another repo's pull on the same daemon, which fails with
             # `lease does not exist`.
-            docker image prune -f --filter "until=168h"               --filter "label=org.opencontainers.image.source=https://github.com/6586x57890143/skua"
+            docker image prune -f --filter "until=168h" \
+              --filter "label=org.opencontainers.image.source=https://github.com/6586x57890143/skua"
             docker compose -f docker-compose.prod.yml ps
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
