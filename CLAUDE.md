@@ -25,7 +25,10 @@ one page and lists the principles and the experiments.
   source or the generator and rerun it; don't edit the output PNGs.
 
 Adding a module: implement `core.Module`, declare its intents honestly in `Want`
-(Required vs Optional), and append it to `all` in `main.go`. It ships with handler
+(Required vs Optional) and its channel permissions in `Perms` (only what skua does as
+itself; interaction replies need none), and append it to `all` in `main.go`. skua writes
+the union of the running modules' `Perms` into the app's install settings at boot, which
+is what https://skua.melting.lol asks a server for. It ships with handler
 tests: `internal/core/coretest` builds the interaction and records replies, and a test
 that needs REST sets `e.Client().Rest` to a fake embedding `rest.Rest`. CI fails any
 `internal/` package under 85% coverage. If it needs a table, add
@@ -43,7 +46,7 @@ go test ./internal/guard -bench . -run x
 
 cp .env.example .env && docker compose up --build   # local bot + Postgres
 go run ./cmd/skua                                   # native, DB optional
-go run ./tools/setup                                # go live / rotate the token: .env, profile, deploy, install defaults
+go run ./tools/setup                                # go live / rotate the token: .env, profile, deploy
 (cd web && wrangler deploy)                         # skua.melting.lol invite redirect; only when web/ changes
 scripts/deploy.sh                                   # manual path: commit first; deploys HEAD via foundry-deploy
 ```

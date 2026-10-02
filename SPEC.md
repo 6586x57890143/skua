@@ -13,7 +13,9 @@ to tell whether it worked, and the log is below.
 2. **Ask Discord, don't assume.** Intents come from the portal's application flags
    (`internal/intents`). skua identifies with `wants ∩ granted`, never more, so close
    code 4014 cannot happen. A module missing a required intent is skipped by name. The
-   portal is re-read every 10 minutes, and a change restarts the process.
+   portal is re-read every 10 minutes, and a change restarts the process. The same goes
+   the other way: at boot skua writes the app's install settings from what its running
+   modules declare in `Perms`, so the invite asks for exactly what is in use.
 3. **Fail closed, cheaply.** A command with no tier fails boot. Admin means the
    bootstrap user, the Administrator bit, or the guild owner, and nothing else.
    `internal/guard` caps writes per guild and per op with one CAS (~7ns, 0 allocs), and

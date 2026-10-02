@@ -96,16 +96,3 @@ func TestEnvScript(t *testing.T) {
 		t.Fatalf("temp files left behind: %v", left)
 	}
 }
-
-// The bare install link asks for exactly this, so it must stay guild-only
-// and carry invitePerms as Discord's string form.
-func TestInstallDefaults(t *testing.T) {
-	b, err := json.Marshal(installDefaults())
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := `{"integration_types_config":{"0":{"oauth2_install_params":{"permissions":"536923136","scopes":["applications.commands","bot"]}}}}`
-	if string(b) != want {
-		t.Fatalf("got  %s\nwant %s", b, want)
-	}
-}

@@ -34,12 +34,13 @@ go run ./tools/setup
 It asks for the bot token (hidden), checks it with Discord, makes the application's
 owner the bootstrap admin, writes both to the host, sets the bot's avatar and banner,
 reports the privileged intents, deploys through GitHub Actions, waits for the bot to
-connect, and sets the app's default install settings. Safe to run again at any time,
-for example to rotate the token.
+connect, and prints the invite. Safe to run again at any time, for example to rotate
+the token.
 
 Then add skua to a server from **https://skua.melting.lol**. That is `web/`, a Worker
-that redirects to Discord's install link; the scopes and permissions it asks for are the
-ones setup wrote, so a module's new permission reaches the link on the next setup run.
+that redirects to Discord's install link. What that link asks for is written by skua
+itself at every boot: the bot and its slash commands, plus the permissions the running
+modules declare. A module's new permission reaches the link on the deploy that ships it.
 
 ## Deploy
 
