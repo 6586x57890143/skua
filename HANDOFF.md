@@ -44,5 +44,5 @@ Decisions worth keeping:
   posts or edits must use it.
 - Not run against Discord yet: needs a dev bot token.
 - No `default.pgo` yet (experiment 2 needs real load first).
-- The art is computed, not drawn. It holds up at Discord sizes; a hand-drawn sprite sheet
-  would still beat it, and can replace any PNG as long as the file name stays.
+- The avatar is drawn and recoloured; the banner is still computed. A drawn banner can
+  replace `art/skua_banner.png` as long as the file name stays.
