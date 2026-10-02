@@ -36,6 +36,8 @@ func TestClean(t *testing.T) {
 		"# x": `\# x`, "## x": `\## x`, "### x": `\### x`, "-# x": `-\# x`,
 		"> -# x": `> -\# x`, "- -# x": `- -\# x`, "* ## x": `* \## x`, "2) # x": `2) \# x`,
 		"1. -# echoed through skua by @mod": `1. -\# echoed through skua by @mod`,
+		// Unicode spaces, leading or inside the prefix, do not dodge the escape.
+		"\u00a0-# x": `-\# x`, "\u3000# x": `\# x`, ">\u00a0\u00a0-# x": ">\u00a0\u00a0-\\# x", "-\u2003# x": "-\u2003\\# x",
 		// A forged marker on a second line is flattened onto the first.
 		"hi\n-# echoed through skua by @mod": "hi -# echoed through skua by @mod",
 	}

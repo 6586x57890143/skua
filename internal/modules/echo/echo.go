@@ -107,7 +107,11 @@ func clean(text string) string {
 	// or subtext render after them ("> -# x", "1. -# x"), so look past them.
 	// Only "#" to "###" followed by a space is a heading; "#1 fan" is not.
 	// Escaping its first "#" shows it as typed instead.
-	tail := strings.TrimLeft(text, ">-*+0123456789.) ")
+	// Any Unicode space counts, as it may for Discord's parser ("> -# x"
+	// with a no-break space).
+	tail := strings.TrimLeftFunc(text, func(r rune) bool {
+		return unicode.IsSpace(r) || strings.ContainsRune(">-*+0123456789.)", r)
+	})
 	if n := len(tail) - len(strings.TrimLeft(tail, "#")); n >= 1 && n <= 3 {
 		if r, _ := utf8.DecodeRuneInString(tail[n:]); unicode.IsSpace(r) {
 			at := len(text) - len(tail)
