@@ -25,7 +25,9 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/core"
+	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
+	"github.com/6586x57890143/skua/internal/modules/echo"
 	"github.com/6586x57890143/skua/internal/modules/status"
 	"github.com/6586x57890143/skua/internal/store"
 )
@@ -103,6 +105,7 @@ func run(log *slog.Logger) error {
 			}
 			return client.Gateway.Latency()
 		}),
+		echo.New(guard.New()),
 	}
 
 	wants := make(map[string]intents.Want, len(all))

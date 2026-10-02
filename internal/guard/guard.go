@@ -33,6 +33,7 @@ const (
 	ChannelEdit
 	MemberEdit
 	WebhookExecute
+	WebhookCreate
 	opCount
 )
 
@@ -44,6 +45,8 @@ var caps = [opCount]int64{
 	ChannelEdit:    60,
 	MemberEdit:     120,
 	WebhookExecute: 300,
+	// One per channel, ever, in normal use.
+	WebhookCreate: 20,
 }
 
 const (
