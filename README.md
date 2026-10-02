@@ -44,6 +44,6 @@ modules declare. A module's new permission reaches the link on the deploy that s
 
 ## Deploy
 
-Merging to `main` builds an arm64 image to GHCR and deploys it to the host with
+Merging to `main` builds an amd64 and arm64 image to GHCR and deploys it to the host with
 Docker Compose, once the repository variable `DEPLOY_ENABLED` is `true`.
 `scripts/deploy.sh` is the manual path.

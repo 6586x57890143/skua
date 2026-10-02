@@ -67,13 +67,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
-      # arm64 only: foundry is the one host, and it is aarch64. The builder
-      # stage runs on the runner's own platform and cross-compiles, and the
-      # final stage is a COPY, so no QEMU is needed.
+      # amd64 and arm64, so moving to a host of either kind is a deploy, not
+      # a rebuild (foundry is aarch64). The builder stage runs on the
+      # runner's own platform and cross-compiles, and the final stage is a
+      # COPY onto a multi-arch base index, so no QEMU is needed.
       - uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -97,7 +98,7 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           tags: |
             ghcr.io/6586x57890143/skua:latest

@@ -33,7 +33,7 @@ to tell whether it worked, and the log is below.
 |---|---|
 | Discord | `disgoorg/disgo` v0.19, zstd-stream gateway compression (its default), every cache off except guilds |
 | Database | Postgres 16 via `pgx/v5` `pgxpool`, optional, no tables yet |
-| Build | Go 1.27, `CGO_ENABLED=0 -trimpath -s -w`, distroless nonroot, PGO from `cmd/skua/default.pgo` when present |
+| Build | Go 1.27, amd64 and arm64 images, `CGO_ENABLED=0 -trimpath -s -w`, distroless nonroot, PGO from `cmd/skua/default.pgo` when present |
 | Deploy | `scripts/deploy.sh`: builds natively on `foundry` (arm64) from `git archive`, compose, rollback via `previous-tag.env` |
 
 ## Experiments
