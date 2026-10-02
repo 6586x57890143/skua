@@ -23,3 +23,23 @@ func TestEveryMoodHasItsFile(t *testing.T) {
 		t.Fatalf("unknown colour got %s, want the info icon", f.Name)
 	}
 }
+
+// Every embedded icon is uploaded with a reply and compiled into the
+// binary, so its size is a budget, not a detail. tools/sprites writes them
+// as indexed PNGs; a change that regresses to true colour fails here.
+func TestEmbeddedAssetsStaySmall(t *testing.T) {
+	const budget = 10 << 10
+	entries, err := assets.ReadDir("assets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Size() >= budget {
+			t.Errorf("%s is %d bytes, over the %d byte budget", e.Name(), info.Size(), budget)
+		}
+	}
+}
