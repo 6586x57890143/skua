@@ -3,13 +3,16 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/intents"
@@ -33,12 +36,20 @@ const (
 	Admin
 )
 
-// Command is one top-level slash command.
+// Command is one top-level slash command. Run's ctx ends when Discord would
+// stop waiting for the first response, so REST calls made with
+// rest.WithCtx(ctx) fail in time to say why instead of leaving the member
+// on "the application did not respond". A handler that defers and keeps
+// working past that derives its own with context.WithoutCancel.
 type Command struct {
 	Create discord.SlashCommandCreate
 	Tier   Tier
-	Run    func(e *events.ApplicationCommandInteractionCreate) error
+	Run    func(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error
 }
+
+// respondBy is Discord's 3s initial-response window, less room for the
+// error reply itself.
+const respondBy = 2500 * time.Millisecond
 
 // Router owns registration and dispatch. Not safe for Add after Freeze.
 type Router struct {
@@ -91,15 +102,37 @@ func (r *Router) OnCommand(e *events.ApplicationCommandInteractionCreate) {
 	if !ok {
 		return
 	}
+	// Once a handler has answered or deferred, the error has to go out as a
+	// followup: a second initial response is refused and nobody sees it.
+	responded := false
+	respond := e.Respond
+	e.Respond = func(t discord.InteractionResponseType, d discord.InteractionResponseData, opts ...rest.RequestOpt) error {
+		err := respond(t, d, opts...)
+		responded = responded || err == nil
+		return err
+	}
 	err := errDenied
 	if r.allowed(e, c.Tier) {
-		err = c.Run(e)
+		// Anchored to when Discord created the interaction, so time spent
+		// queued before dispatch is not silently spent twice.
+		ctx, cancel := context.WithDeadline(context.Background(), e.ID().Time().Add(respondBy))
+		defer cancel()
+		err = c.Run(ctx, e)
+	}
+	if err == nil {
+		return
+	}
+	if !errors.Is(err, errDenied) {
+		r.log.Warn("command failed", "command", name, "err", err)
+	}
+	msg := discord.MessageCreate{Content: "✗ " + err.Error(), Flags: discord.MessageFlagEphemeral, AllowedMentions: NoPings()}
+	if responded {
+		_, err = e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), msg)
+	} else {
+		err = e.CreateMessage(msg)
 	}
 	if err != nil {
-		if !errors.Is(err, errDenied) {
-			r.log.Warn("command failed", "command", name, "err", err)
-		}
-		_ = e.CreateMessage(discord.MessageCreate{Content: "✗ " + err.Error(), Flags: discord.MessageFlagEphemeral, AllowedMentions: NoPings()})
+		r.log.Warn("reporting a command error", "command", name, "err", err)
 	}
 }
 

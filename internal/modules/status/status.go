@@ -58,7 +58,7 @@ func (m *Module) Commands() []core.Command {
 	}
 }
 
-func (m *Module) ping(e *events.ApplicationCommandInteractionCreate) error {
+func (m *Module) ping(_ context.Context, e *events.ApplicationCommandInteractionCreate) error {
 	return e.CreateMessage(discord.MessageCreate{
 		Content:         fmt.Sprintf("pong · gateway %s", m.latency().Round(time.Millisecond)),
 		Flags:           discord.MessageFlagEphemeral,
@@ -66,7 +66,7 @@ func (m *Module) ping(e *events.ApplicationCommandInteractionCreate) error {
 	})
 }
 
-func (m *Module) status(e *events.ApplicationCommandInteractionCreate) error {
+func (m *Module) status(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error {
 	p := m.probe()
 	color := brand.ColorOK
 	var b strings.Builder
@@ -81,7 +81,7 @@ func (m *Module) status(e *events.ApplicationCommandInteractionCreate) error {
 	if m.db == nil {
 		b.WriteString("**database** none configured\n")
 	} else {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		start := time.Now()
 		err := m.db.Ping(ctx)
 		cancel()
