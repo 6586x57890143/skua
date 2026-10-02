@@ -75,7 +75,7 @@ func run(host, dir, repo, admin string, noProfile, noDeploy bool) error {
 			return fmt.Errorf("%s is not on PATH", tool)
 		}
 	}
-	if out, err := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host, "test -f "+dir+"/.env && echo ok").CombinedOutput(); err != nil || !strings.Contains(string(out), "ok") {
+	if out, err := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host, "test -f "+remoteDir(dir)+"/.env && echo ok").CombinedOutput(); err != nil || !strings.Contains(string(out), "ok") {
 		return fmt.Errorf("cannot reach ~/%s/.env on %s (%s)", dir, host, strings.TrimSpace(string(out)))
 	}
 	ok("ssh %s, gh", host)
@@ -220,12 +220,13 @@ func discord(token, method, path string, body, out any) error {
 	return nil
 }
 
-// writeEnv sets the two values in the host's .env, replacing existing lines
-// or appending missing ones, and leaves everything else in the file alone.
-// Values travel on stdin and reach awk through the environment, so neither
-// shows in a process listing.
-func writeEnv(host, dir, token, admin string) error {
-	const script = `set -eu
+// envScript sets DISCORD_BOT_TOKEN and SKUA_BOOTSTRAP_ADMIN_USER_ID in
+// "$HOME/$1/.env", reading the two values from its stdin. Existing lines
+// are replaced, missing ones appended, everything else left byte for byte.
+// The values reach awk through ENVIRON, so they are never argv and never
+// interpreted: & \ / $ = in a token all come out literally. A temp file
+// and mv keep the file whole if anything fails, under umask 077.
+const envScript = `set -eu
 cd "$HOME/$1"
 IFS= read -r TOK; IFS= read -r ADM; export TOK ADM
 umask 077
@@ -239,19 +240,25 @@ awk 'BEGIN { t = 0; a = 0 }
     if (!a) print "SKUA_BOOTSTRAP_ADMIN_USER_ID=" ENVIRON["ADM"]
   }' .env > "$tmp"
 mv "$tmp" .env`
-	return writeEnvVia(host, dir, script, token, admin)
+
+// writeEnv sets the two values in the host's .env, replacing existing lines
+// or appending missing ones, and leaves everything else in the file alone.
+// Values travel on stdin and reach awk through the environment, so neither
+// shows in a process listing.
+func writeEnv(host, dir, token, admin string) error {
+	return writeEnvVia(host, dir, envScript, token, admin)
 }
 
 // writeEnvVia puts the script in a file first and then runs it with the
 // values on stdin: two ssh calls, but neither has to share its stdin between
 // a program and that program's input.
 func writeEnvVia(host, dir, script, token, admin string) error {
-	put := exec.Command("ssh", "-o", "BatchMode=yes", host, "umask 077; cat > \"$HOME/"+dir+"/.setup.sh\"")
+	put := exec.Command("ssh", "-o", "BatchMode=yes", host, "umask 077; cat > "+remoteDir(dir)+"/.setup.sh")
 	put.Stdin = strings.NewReader(script + "\n")
 	if out, err := put.CombinedOutput(); err != nil {
 		return fmt.Errorf("copying the setup script: %v %s", err, out)
 	}
-	runIt := exec.Command("ssh", "-o", "BatchMode=yes", host, "sh \"$HOME/"+dir+"/.setup.sh\" "+dir+"; s=$?; rm -f \"$HOME/"+dir+"/.setup.sh\"; exit $s")
+	runIt := exec.Command("ssh", "-o", "BatchMode=yes", host, "sh "+remoteDir(dir)+"/.setup.sh "+shq(dir)+"; s=$?; rm -f "+remoteDir(dir)+"/.setup.sh; exit $s")
 	runIt.Stdin = strings.NewReader(token + "\n" + admin + "\n")
 	if out, err := runIt.CombinedOutput(); err != nil {
 		return fmt.Errorf("updating .env: %v %s", err, out)
@@ -320,7 +327,7 @@ func deploy(repo, host, dir string) error {
 	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		out, _ := exec.Command("ssh", "-o", "BatchMode=yes", host,
-			"cd "+dir+" && docker compose -f docker-compose.prod.yml logs --since 3m bot 2>&1 | tail -n 50").Output()
+			"cd "+remoteDir(dir)+" && docker compose -f docker-compose.prod.yml logs --since 3m bot 2>&1 | tail -n 50").Output()
 		logs := string(out)
 		switch {
 		case strings.Contains(logs, "skua is up"):
@@ -333,6 +340,12 @@ func deploy(repo, host, dir string) error {
 	}
 	return fmt.Errorf("no \"skua is up\" within 90s; ssh %s 'cd %s && docker compose -f docker-compose.prod.yml logs bot'", host, dir)
 }
+
+// shq single-quotes s for a remote shell.
+func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// remoteDir is the host directory as a remote shell expression.
+func remoteDir(dir string) string { return `"$HOME"/` + shq(dir) }
 
 func gh(args ...string) error {
 	out, err := exec.Command("gh", args...).CombinedOutput()
