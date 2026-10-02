@@ -4,8 +4,7 @@
 //
 // Asking for a privileged intent the portal has not switched on gets close
 // code 4014, and the gateway library reconnect-loops on it while the process
-// looks healthy. merlin needed a ready-watchdog to catch that. skua never
-// asks: it reads the application's flags first and identifies with the
+// looks healthy, so catching it needs a ready-watchdog. skua never asks: it reads the application's flags first and identifies with the
 // intersection, so the failure cannot happen.
 package intents
 

@@ -1,8 +1,8 @@
 # skua spec
 
-skua is merlin's lean sibling: a Discord bot that exists to try things. It keeps
-merlin's spine and drops its weight. When an experiment proves itself here, it can be
-ported to merlin, which carries the community's real exposure.
+skua is a lean Discord bot that exists to try things: new Discord surfaces, faster
+Go, sharper safety at no measurable cost. Every experiment is a hypothesis with a way
+to tell whether it worked, and the log is below.
 
 ## Principles
 
@@ -42,8 +42,8 @@ Each one is a hypothesis with a way to tell whether it worked. Record the result
 |---|---|---|
 | 1 | zstd-stream gateway compression | **On**, disgo's default. Compare bytes/s against `zlib-stream` with `gateway.WithCompression` |
 | 2 | PGO: capture 30s of CPU from `SKUA_PPROF` under real load into `cmd/skua/default.pgo` | open |
-| 3 | GCRA guard in place of merlin's mutex governor | **Done**, 6.9ns/op, 0 allocs under `RunParallel` |
-| 4 | Intent probe in place of merlin's `WatchReady` watchdog | **Done**, pending a live portal-toggle test |
+| 3 | GCRA cells instead of a mutex-guarded sliding window | **Done**, 6.9ns/op, 0 allocs under `RunParallel` |
+| 4 | Intent probe instead of a gateway-ready watchdog | **Done**, pending a live portal-toggle test |
 
 ## Milestones
 
