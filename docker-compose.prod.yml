@@ -1,3 +1,8 @@
+# Pinned, not taken from the directory name: the volume is always
+# skua_pgdata, so a deploy from any other directory (a new host, a renamed
+# checkout) finds the same database instead of silently starting an empty one.
+name: skua
+
 services:
   bot:
     # Pinned to the exact commit CI built. Rollback, on foundry as deploy:
