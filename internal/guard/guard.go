@@ -3,7 +3,7 @@
 // correct feature does is a bug, a bad config or an attack, and none of
 // those should get the application rate limited or flagged by Discord.
 //
-// It is merlin's discordguard governor rebuilt for the hot path. Each
+// It is built for the hot path. Each
 // (guild, op) budget is a GCRA cell: a single int64 holding the
 // theoretical arrival time, advanced with one compare-and-swap. No mutex,
 // no allocation after a key's first use, and no background refill
@@ -36,7 +36,7 @@ const (
 	opCount
 )
 
-// caps are per guild per hour, copied from merlin's opCaps: well above a
+// caps are per guild per hour: well above a
 // bad afternoon, well below "the bot did something nobody asked for".
 var caps = [opCount]int64{
 	MessageSend:    120,

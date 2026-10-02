@@ -27,8 +27,8 @@ Decisions worth keeping:
   manual `scripts/deploy.sh` builds on foundry itself from `git archive`, under the
   same image name and directory, so the two paths never disagree about what is running.
 - **The prune is label-scoped.** GitHub concurrency groups are per repository, so
-  nothing serialises skua's deploy against merlin's or peregrine's on the shared
-  daemon. An unscoped prune racing a sibling's pull is what broke peregrine once.
+  nothing serialises skua's deploy against other projects deploying to the same
+  daemon. An unscoped prune racing another project's pull fails with `lease does not exist`.
 - **The database is optional.** Without `SKUA_DATABASE_URL` skua runs with no DB and
   `/status` says so. That makes the test bed cheap to run anywhere.
 
@@ -42,5 +42,5 @@ Decisions worth keeping:
   posts or edits must use it.
 - Not run against Discord yet: needs a dev bot token.
 - No `default.pgo` yet (experiment 2 needs real load first).
-- The sprites are hand-drawn 32x32 grids. A proper drawn sheet, cut the way merlin's
-  was, can replace them without code changes as long as the file names stay the same.
+- The art is computed, not drawn. It holds up at Discord sizes; a hand-drawn sprite sheet
+  would still beat it, and can replace any PNG as long as the file name stays.

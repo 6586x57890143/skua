@@ -2,9 +2,9 @@
 
 # skua
 
-A minimal, fast, modular Discord bot in Go, and the experiment bed for
-[merlin](https://github.com/6586x57890143/merlin). Built on
-[disgo](https://github.com/disgoorg/disgo) and [pgx v5](https://github.com/jackc/pgx).
+A minimal, fast, modular Discord bot in Go, and a test bed for what Discord bots can
+do. Built on [disgo](https://github.com/disgoorg/disgo) and
+[pgx v5](https://github.com/jackc/pgx).
 
 - Identifies only with the gateway intents the Developer Portal has actually granted,
   read from the application's flags, and restarts itself when a toggle changes.

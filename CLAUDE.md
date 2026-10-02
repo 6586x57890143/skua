@@ -3,7 +3,7 @@
 ## What this is
 
 `skua` is a minimal, fast Discord bot in Go (disgo, pgx v5) and a test bed for
-experiments before they reach `active/merlin`. Read [`SPEC.md`](./SPEC.md) first. It is
+Discord experiments. Read [`SPEC.md`](./SPEC.md) first. It is
 one page and lists the principles and the experiments.
 
 - `cmd/skua/main.go`: wiring only.
@@ -15,9 +15,11 @@ one page and lists the principles and the experiments.
 - `internal/brand`: palette and mood icons. The mood comes from the embed colour.
   Always send the `*discord.File` that `brand.Embed` returns with its embed.
 - `internal/modules/*`: features. `status` is the reference module.
-- `tools/sprites`: all the pixel art. The moods are text grids, and the profile picture
-  and banner (`art/`, not embedded) are shapes plus a fixed per-pixel noise, so every
-  run is identical. Edit and rerun it; don't edit the PNGs.
+- `tools/sprites`: all the pixel art, computed from shapes, banded light and a fixed
+  hash, so every run is identical. One bust drawing is the profile picture (on its
+  halo, `art/`) and every mood icon (with a badge, embedded); the banner is in `art/`
+  too. Style: high resolution pixel art, flat fields, 2px clusters, cool grey frame,
+  the bird the only warmth. Edit and rerun it; don't edit the PNGs.
 
 Adding a module: implement `core.Module`, declare its intents honestly in `Want`
 (Required vs Optional), and append it to `all` in `main.go`. If it needs a table, add
@@ -49,8 +51,7 @@ race tests, govulncheck, gitleaks, the prose check (no em dashes, ellipsis chara
 or curly quotes anywhere; run its grep before committing), and an arm64 Docker build.
 Those are the required checks. On `main` it then pushes
 `ghcr.io/6586x57890143/skua:<sha>` and deploys to foundry as `deploy` into
-`/home/deploy/skua`, using the same `VPS_HOST`/`VPS_SSH_KEY` secrets as merlin and
-peregrine. The deploy only runs while the repository variable `DEPLOY_ENABLED` is
+`/home/deploy/skua`, using the `VPS_HOST`/`VPS_SSH_KEY` repository secrets. The deploy only runs while the repository variable `DEPLOY_ENABLED` is
 `true`; otherwise it skips green with a notice.
 
 Rollback, and the manual path, are in `docker-compose.prod.yml` and `scripts/deploy.sh`.

@@ -1,5 +1,4 @@
-// Package brand is skua's palette and mood icons. As in merlin, the mood is
-// derived from the embed's colour rather than passed beside it, so the two
+// Package brand is skua's palette and mood icons. The mood is derived from the embed's colour rather than passed beside it, so the two
 // cannot disagree, and the attachment is derived from the finished embed so
 // an attachment:// URL never points at nothing.
 package brand
@@ -11,7 +10,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 )
 
-// The palette. Darker and colder than merlin's: slate night, steel, and
+// The palette: slate night, steel, and
 // muted signal colours that match the badge on each icon.
 const (
 	ColorPrimary = 0x1E2228
