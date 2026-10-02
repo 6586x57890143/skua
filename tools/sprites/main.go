@@ -19,11 +19,6 @@ import (
 	"strings"
 )
 
-const (
-	size  = 32
-	scale = 8
-)
-
 // ink is the palette: a dark, cold skua, near-black outline, mottled umber
 // body, slate hooked bill, bone wing flash.
 var ink = map[byte]color.NRGBA{
@@ -39,44 +34,8 @@ var ink = map[byte]color.NRGBA{
 	'h': {0x4A, 0x52, 0x5C, 0xFF}, // hook
 }
 
-// bird faces left, perched. '.' is transparent.
-var bird = []string{
-	"",
-	"",
-	"...............kkkkkkkk",
-	"............kkkdmdmdlmdkkk",
-	"..........kkdmdlmdmdmdmdmdkk",
-	".........kdmdmdmdmlmdmdnmdmdk",
-	"........kdmlmdmdmdmdmdmdmndmdk",
-	".......kdmdmdmdmdlmdmdnmdmdmdk",
-	"......kdmdmdmlmdmdmdmdmdmnmdmdk",
-	"......kdmdmdmdmdmdmdnmdmdmdmdmk",
-	".....kdmdmdlmdnkkkkndmdmdnmdmdk",
-	".....kdmdmdmdnkweekmdlmdmdmdndk",
-	".....kdmdmdmdnkeeeknmdmdmdmdmdk",
-	".....kdmlmdmdmkkeekmdmdmnmdmdmdk",
-	"...kkkbbbdmdmdnkkknmdmdmdmdnmdk",
-	".kkbBBBBbbbdmdmdmdmlmdmdmdmdmdk",
-	"kBBBBBbbbbbbkdmdmdmdmdmdnmdmdmdk",
-	"kbBbbbbbbbbbbkdmdmdlmdmdmdmdmdmk",
-	"khbkkkkkkbbbbkdmdmdmdmdmnmdmdmdk",
-	"khbkbbbbbbbbkdmdmdmdmdmdmdmdmdmk",
-	"khk.kkkkkkkkkdmdmdmlmdmdmdmdnmdk",
-	".k.......kdmdmdmdmdmdmdmdmdmdmdk",
-	".........kdmdlmdmdmdmdmnmdmdmdmd",
-	"..........kdmdmdmdmdmdmdmdmdmdmd",
-	"..........kdmdmdmdmlmdmdmdmdnmdm",
-	"...........kdmdmdmdmdmdmdmdmdmdm",
-	"...........kddmdmdmdmdmnmdmdmdmd",
-	"............kddmdmdmdmdmdmdmdmdm",
-	"............kdddmdmlmdmdmdmdmdmd",
-	".............kdddmdmdmdmdmdnmdmd",
-	".............kddddmdmdmdmdmdmdmd",
-	"..............kdddddmdmdmdmdmdmd",
-}
-
 // Each mood is a bone glyph on a rounded badge of the mood colour, lower
-// left, the same place merlin wears its badge.
+// left.
 var glyphs = map[string][]string{
 	"ok":     {".....w", "....ww", "w..ww.", "wwww..", ".ww...", ""},
 	"error":  {"ww..ww", ".wwww.", "..ww..", ".wwww.", "ww..ww", ""},
@@ -114,26 +73,25 @@ func main() {
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		log.Fatal(err)
 	}
+	// Every mood is the profile bust with its badge at lower left, drawn at
+	// 2x so the badge's pixels match the bust's.
 	for mood, g := range glyphs {
-		img := image.NewNRGBA(image.Rect(0, 0, size, size))
-		draw(img, bird, 0, 0, ink)
-		draw(img, badge, 1, 22, map[byte]color.NRGBA{'k': ink['k'], 'x': moodInk[mood]})
-		draw(img, g, 3, 24, ink)
-		if err := write(filepath.Join(out, "skua_"+mood+".png"), img); err != nil {
+		img := bust()
+		drawScaled(img, badge, 2, 42, map[byte]color.NRGBA{'k': ink['k'], 'x': moodInk[mood]}, 2)
+		drawScaled(img, g, 6, 46, ink, 2)
+		if err := writeScaled(filepath.Join(out, "skua_"+mood+".png"), img, 4); err != nil {
 			log.Fatal(err)
 		}
 	}
-	img := image.NewNRGBA(image.Rect(0, 0, size, size))
-	draw(img, bird, 0, 0, ink)
-	if err := write(filepath.Join(out, "skua_avatar.png"), img); err != nil {
+	if err := writeScaled(filepath.Join(out, "skua_avatar.png"), bust(), 4); err != nil {
 		log.Fatal(err)
 	}
 	// Profile art lives outside the embedded assets: the binary never sends
-	// it, only scripts/setup.sh uploads it and the README shows it.
+	// it, only tools/setup uploads it and the README shows it.
 	if err := os.MkdirAll("art", 0o755); err != nil {
 		log.Fatal(err)
 	}
-	if err := writeScaled(filepath.Join("art", "skua_pfp.png"), pfp(), 25); err != nil {
+	if err := writeScaled(filepath.Join("art", "skua_pfp.png"), pfp(), 16); err != nil {
 		log.Fatal(err)
 	}
 	if err := writeScaled(filepath.Join("art", "skua_banner.png"), banner(), 4); err != nil {
@@ -141,22 +99,29 @@ func main() {
 	}
 }
 
-func draw(img *image.NRGBA, grid []string, ox, oy int, pal map[byte]color.NRGBA) {
+// drawScaled paints a text grid with each cell k pixels square. '.' is
+// transparent; any other character must be in pal.
+func drawScaled(img *image.NRGBA, grid []string, ox, oy int, pal map[byte]color.NRGBA, k int) {
 	for y, row := range grid {
-		if ox+len(row) > img.Bounds().Dx() {
+		if ox+len(row)*k > img.Bounds().Dx() {
 			log.Fatalf("row %d is %d wide: %q", y, len(row), row)
 		}
 		for x := range len(row) {
-			if c, ok := pal[row[x]]; ok {
-				img.SetNRGBA(ox+x, oy+y, c)
-			} else if row[x] != '.' {
-				log.Fatalf("unknown ink %q at %d,%d", row[x], x, y)
+			c, ok := pal[row[x]]
+			if !ok {
+				if row[x] != '.' {
+					log.Fatalf("unknown ink %q at %d,%d", row[x], x, y)
+				}
+				continue
+			}
+			for dy := range k {
+				for dx := range k {
+					img.SetNRGBA(ox+x*k+dx, oy+y*k+dy, c)
+				}
 			}
 		}
 	}
 }
-
-func write(path string, src *image.NRGBA) error { return writeScaled(path, src, scale) }
 
 // writeScaled upscales nearest-neighbour by k, so every logical pixel stays
 // a hard square.
