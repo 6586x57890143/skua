@@ -6,6 +6,7 @@ require (
 	github.com/disgoorg/disgo v0.19.6
 	github.com/disgoorg/snowflake/v2 v2.0.3
 	github.com/jackc/pgx/v5 v5.11.0
+	golang.org/x/term v0.46.0
 )
 
 require (
