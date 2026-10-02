@@ -98,6 +98,8 @@ func run(log *slog.Logger) error {
 
 	var client *bot.Client
 	var probe status.Probe
+	// One guard for every writer: its breaker is per guild across modules.
+	g := guard.New()
 	all := []core.Module{
 		status.New(func() status.Probe { return probe }, db, func() time.Duration {
 			if client == nil || client.Gateway == nil {
@@ -105,7 +107,7 @@ func run(log *slog.Logger) error {
 			}
 			return client.Gateway.Latency()
 		}),
-		echo.New(guard.New()),
+		echo.New(g),
 	}
 
 	wants := make(map[string]intents.Want, len(all))

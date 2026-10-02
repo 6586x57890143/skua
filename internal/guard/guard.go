@@ -34,6 +34,9 @@ const (
 	MemberEdit
 	WebhookExecute
 	WebhookCreate
+	// EchoMember is keyed by member ID, not guild: one member's share of
+	// the guild's WebhookExecute budget.
+	EchoMember
 	opCount
 )
 
@@ -47,6 +50,7 @@ var caps = [opCount]int64{
 	WebhookExecute: 300,
 	// One per channel, ever, in normal use.
 	WebhookCreate: 20,
+	EchoMember:    30,
 }
 
 const (

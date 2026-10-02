@@ -7,6 +7,10 @@
 // to click, and a username cannot be made to look like a mod's. check keeps
 // every echo to one line that cannot start a heading or subtext, so the
 // marker is always the last line and the only subtext.
+//
+// Known gaps, deliberately open: webhook posts skip AutoMod and the
+// channel's slowmode. The per-member guard cap bounds the damage; whether
+// echo should run text past AutoMod's rules first is a product call.
 package echo
 
 import (
@@ -83,9 +87,9 @@ func check(text string) (string, error) {
 	}) {
 		return "", errMultiline
 	}
-	// Quote and list prefixes still let a heading or subtext render after
-	// them ("> -# x", "- # x"), so look past them.
-	if strings.HasPrefix(strings.TrimLeft(text, ">-*+ "), "#") {
+	// Quote and list prefixes, ordered ones included, still let a heading
+	// or subtext render after them ("> -# x", "1. -# x"), so look past them.
+	if strings.HasPrefix(strings.TrimLeft(text, ">-*+0123456789.) "), "#") {
 		return "", errHeading
 	}
 	if len([]rune(text)) > maxText {
@@ -128,12 +132,21 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	if p := e.AppPermissions(); p == nil || !p.Has(discord.PermissionManageWebhooks) {
 		return errors.New("skua needs Manage Webhooks in this channel")
 	}
+	// Per member before per guild, so one member cannot spend the whole
+	// guild's webhook budget and lock everyone else out.
+	if err := m.guard.Allow(member.User.ID, guard.EchoMember); err != nil {
+		return errors.New("you are echoing too fast; try again later")
+	}
 
 	msg := discord.WebhookMessageCreate{
 		Content:         text + marker(member.User.Username),
 		Username:        member.EffectiveName(),
 		AvatarURL:       member.EffectiveAvatarURL(),
 		AllowedMentions: core.NoPings(),
+	}
+	// A webhook would unfurl links the member could not embed themselves.
+	if !member.Permissions.Has(discord.PermissionEmbedLinks) {
+		msg.Flags = discord.MessageFlagSuppressEmbeds
 	}
 	r, opt := e.Client().Rest, rest.WithCtx(ctx)
 	for attempt := 0; ; attempt++ {
@@ -144,7 +157,7 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 		if err := m.guard.Allow(*guild, guard.WebhookExecute); err != nil {
 			return err
 		}
-		_, err = r.CreateWebhookMessage(h.id, h.token, msg, rest.CreateWebhookMessageParams{Wait: true}, opt)
+		_, err = r.CreateWebhookMessage(h.id, h.token, msg, rest.CreateWebhookMessageParams{}, opt)
 		m.guard.Report(*guild, struggling(err))
 		// A mod deleted the webhook: forget it and make another, once.
 		if isCode(err, rest.JSONErrorCodeUnknownWebhook) && attempt == 0 {
@@ -160,6 +173,10 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 
 // hook returns this channel's webhook: cached, else the one skua already
 // owns there (so a restart reuses it), else a new one.
+//
+// ponytail: two first echoes in one channel at the same moment can each
+// create a webhook, against Discord's 15 per channel. Both work and later
+// lookups settle on one; a per-channel singleflight is the fix if it bites.
 func (m *Module) hook(r rest.Rest, opt rest.RequestOpt, guild, ch, app snowflake.ID) (hook, error) {
 	if v, ok := m.hooks.Load(ch); ok {
 		return v.(hook), nil
