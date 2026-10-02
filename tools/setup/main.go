@@ -35,11 +35,10 @@ import (
 
 const api = "https://discord.com/api/v10"
 
-// invitePerms is what skua's modules need in a channel: View Channel, Send
-// Messages, Embed Links, Attach Files (the mood thumbnails), Manage Webhooks
-// (/echo's per-channel webhook). A module that needs more adds its bit here
-// in the same PR.
-const invitePerms = 1<<10 | 1<<11 | 1<<14 | 1<<15 | 1<<29
+// inviteURL is web/'s Worker, which redirects to Discord's bare install
+// link. That link asks for the app's Default Install Settings, which skua
+// itself writes at every boot from what its running modules declare.
+const inviteURL = "https://skua.melting.lol"
 
 type application struct {
 	ID    string `json:"id"`
@@ -141,7 +140,7 @@ func run(host, dir, repo, admin string, noProfile, noDeploy bool) error {
 	}
 
 	step("invite")
-	fmt.Printf("    https://discord.com/oauth2/authorize?client_id=%s&scope=bot+applications.commands&permissions=%d\n", app.ID, invitePerms)
+	fmt.Printf("    %s  (redirects to https://discord.com/oauth2/authorize?client_id=%s)\n", inviteURL, app.ID)
 	if !app.BotPublic {
 		fmt.Println("    The app is private, so only its owner can add it, which is the right default for a test bed.")
 	}

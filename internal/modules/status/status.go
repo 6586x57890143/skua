@@ -43,6 +43,9 @@ func (*Module) Name() string { return "status" }
 
 func (*Module) Want() intents.Want { return intents.Want{Required: gateway.IntentGuilds} }
 
+// Perms is none: /ping and /status only reply to interactions.
+func (*Module) Perms() discord.Permissions { return 0 }
+
 func (m *Module) Commands() []core.Command {
 	return []core.Command{
 		{

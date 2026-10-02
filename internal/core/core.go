@@ -23,6 +23,9 @@ import (
 type Module interface {
 	Name() string
 	Want() intents.Want
+	// Perms is what the module needs skua's role to hold in a channel.
+	// Interaction replies need none; only calls skua makes as itself do.
+	Perms() discord.Permissions
 	Commands() []Command
 }
 
