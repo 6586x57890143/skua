@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,23 @@ const api = "https://discord.com/api/v10"
 // (/echo's per-channel webhook). A module that needs more adds its bit here
 // in the same PR.
 const invitePerms = 1<<10 | 1<<11 | 1<<14 | 1<<15 | 1<<29
+
+// inviteURL is web/'s Worker, which redirects to Discord's bare install link
+// (client_id only). That link asks for whatever the app's Default Install
+// Settings say, and installDefaults writes those from invitePerms on every
+// run, so the short link can never drift from the code.
+const inviteURL = "https://skua.melting.lol"
+
+// installDefaults is guild install only: leaving out "1" (user install)
+// switches it off, since skua's commands are guild-only.
+func installDefaults() map[string]any {
+	return map[string]any{"integration_types_config": map[string]any{
+		"0": map[string]any{"oauth2_install_params": map[string]any{
+			"scopes":      []string{"applications.commands", "bot"},
+			"permissions": strconv.Itoa(invitePerms),
+		}},
+	}}
+}
 
 type application struct {
 	ID    string `json:"id"`
@@ -141,7 +159,11 @@ func run(host, dir, repo, admin string, noProfile, noDeploy bool) error {
 	}
 
 	step("invite")
-	fmt.Printf("    https://discord.com/oauth2/authorize?client_id=%s&scope=bot+applications.commands&permissions=%d\n", app.ID, invitePerms)
+	if err := discord(token, http.MethodPatch, "/applications/@me", installDefaults(), nil); err != nil {
+		return fmt.Errorf("setting the install defaults: %w", err)
+	}
+	ok("guild install with bot + applications.commands, permissions %d", invitePerms)
+	fmt.Printf("    %s  (redirects to https://discord.com/oauth2/authorize?client_id=%s)\n", inviteURL, app.ID)
 	if !app.BotPublic {
 		fmt.Println("    The app is private, so only its owner can add it, which is the right default for a test bed.")
 	}
