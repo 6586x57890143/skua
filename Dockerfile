@@ -13,6 +13,9 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags=
 # commit produces the same image, and the tag lookup is off the path.
 # gcr.io/distroless/static-debian12:nonroot as of 2026-08-26.
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+# Links the GHCR package to the repository, which is what lets the
+# workflow's GITHUB_TOKEN push to it.
+LABEL org.opencontainers.image.source=https://github.com/6586x57890143/skua
 COPY --from=builder /out/skua /skua
 USER nonroot:nonroot
 ENTRYPOINT ["/skua"]

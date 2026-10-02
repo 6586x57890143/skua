@@ -1,0 +1,22 @@
+version: 2
+# Grouped so a week of minor and patch bumps is one PR per ecosystem, not
+# a dozen. Majors still arrive alone, since those are the ones to read.
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      go-minor:
+        update-types: [minor, patch]
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions-minor:
+        update-types: [minor, patch]

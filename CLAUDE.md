@@ -34,11 +34,22 @@ go test ./internal/guard -bench . -run x
 
 cp .env.example .env && docker compose up --build   # local bot + Postgres
 go run ./cmd/skua                                   # native, DB optional
-scripts/deploy.sh                                   # commit first; deploys HEAD to ssh foundry
+scripts/deploy.sh                                   # manual path: commit first; deploys HEAD via foundry-deploy
 ```
 
-CI (`.github/workflows/ci.yml`) runs vet, lint, race tests, govulncheck, gitleaks, the
-prose check (no em dashes, ellipsis characters or curly quotes anywhere), and an arm64
-Docker build. Run the prose grep from that file before committing.
+## GitHub and deploy
 
-There is deliberately no remote yet. Don't add one or push without being asked.
+Public repo `6586x57890143/skua`. `main` takes changes only through PRs, squash merged,
+and the PR title becomes the commit, so it should read like one (`feat(guard): ...`).
+One change per PR. Branches are deleted on merge.
+
+CI (`.github/workflows/ci.yml`) runs on every PR and every push to `main`: vet, lint,
+race tests, govulncheck, gitleaks, the prose check (no em dashes, ellipsis characters
+or curly quotes anywhere; run its grep before committing), and an arm64 Docker build.
+Those are the required checks. On `main` it then pushes
+`ghcr.io/6586x57890143/skua:<sha>` and deploys to foundry as `deploy` into
+`/home/deploy/skua`, using the same `VPS_HOST`/`VPS_SSH_KEY` secrets as merlin and
+peregrine. The deploy only runs while the repository variable `DEPLOY_ENABLED` is
+`true`; otherwise it skips green with a notice.
+
+Rollback, and the manual path, are in `docker-compose.prod.yml` and `scripts/deploy.sh`.

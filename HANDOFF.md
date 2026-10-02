@@ -6,7 +6,8 @@ Written 2026-10-02. Read this with `CLAUDE.md` and `SPEC.md`.
 
 | Branch | State |
 |---|---|
-| `main` | Milestone 0. Local only, no remote. |
+| `main` | Milestone 0, pushed to `github.com/6586x57890143/skua`. |
+| `ci/deploy-foundry` | The CI/CD pipeline and repo hygiene. PR #1. |
 
 ## What M0 did
 
@@ -22,22 +23,24 @@ Decisions worth keeping:
   commands, and owning the map is what lets `Add` refuse an unset tier at boot.
 - **The re-probe exits instead of reconnecting.** It's a single `return`, and compose's
   `restart: unless-stopped` does the rest. A clean exit is logged at info, not error.
-- **Images build on foundry.** Local Docker was not running and foundry is arm64.
-  `git archive | ssh foundry docker build -` builds natively, needs no registry, and
-  refuses a dirty tree, so what runs is always a commit.
+- **CI builds arm64 only and pushes to GHCR. foundry pulls by commit SHA.** The
+  manual `scripts/deploy.sh` builds on foundry itself from `git archive`, under the
+  same image name and directory, so the two paths never disagree about what is running.
+- **The prune is label-scoped.** GitHub concurrency groups are per repository, so
+  nothing serialises skua's deploy against merlin's or peregrine's on the shared
+  daemon. An unscoped prune racing a sibling's pull is what broke peregrine once.
 - **The database is optional.** Without `SKUA_DATABASE_URL` skua runs with no DB and
   `/status` says so. That makes the test bed cheap to run anywhere.
 
 ## Not done yet, deliberately
 
-- No GitHub remote, so CI has never run and there is no GHCR/CI deploy. The script is
-  the deploy path.
+- The deploy is held: `DEPLOY_ENABLED` is unset until `/home/deploy/skua/.env` exists
+  on foundry with a real bot token. Merges still build and push the image.
 - No migration runner or tables: nothing needs one.
 - The guard is built and tested, but nothing routes through it yet. `/ping` and
   `/status` only answer interactions, which aren't write-capped. The first module that
   posts or edits must use it.
-- Not run against Discord yet: needs a dev bot token in `.env`. Not deployed to foundry
-  yet: needs `~/skua/.env` there.
+- Not run against Discord yet: needs a dev bot token.
 - No `default.pgo` yet (experiment 2 needs real load first).
 - The sprites are hand-drawn 32x32 grids. A proper drawn sheet, cut the way merlin's
   was, can replace them without code changes as long as the file names stay the same.
