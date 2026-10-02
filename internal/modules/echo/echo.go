@@ -65,6 +65,12 @@ func (*Module) Name() string { return "echo" }
 // Want is empty: everything echo reads arrives in the interaction.
 func (*Module) Want() intents.Want { return intents.Want{} }
 
+// Perms is what finding or creating the per-channel webhook takes. Posting
+// through it needs nothing further.
+func (*Module) Perms() discord.Permissions {
+	return discord.PermissionViewChannel | discord.PermissionManageWebhooks
+}
+
 func (m *Module) Commands() []core.Command {
 	return []core.Command{{
 		Create: discord.SlashCommandCreate{

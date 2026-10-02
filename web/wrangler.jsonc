@@ -1,0 +1,16 @@
+{
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "skua-invite",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-15",
+  "workers_dev": false,
+  // The Discord application ID is public; it is in every invite link.
+  "vars": { "APP_ID": "1555546158426755102" },
+  // melting.lol is a zone on this account. The custom_domain creates DNS and the
+  // cert, and the explicit route outranks the zone's dashboard-only wildcard
+  // `*.melting.lol/*` -> contest, which would otherwise swallow this host.
+  "routes": [
+    { "pattern": "skua.melting.lol", "custom_domain": true },
+    { "pattern": "skua.melting.lol/*", "zone_name": "melting.lol" }
+  ]
+}
