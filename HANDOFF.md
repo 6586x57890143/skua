@@ -39,9 +39,15 @@ Decisions worth keeping:
   token to foundry, flips the variable, deploys and prints the invite. Merges until then
   still build and push the image.
 - No migration runner or tables: nothing needs one.
-- The guard is built and tested, but nothing routes through it yet. `/ping` and
-  `/status` only answer interactions, which aren't write-capped. The first module that
-  posts or edits must use it.
+- `/echo` (milestone 1) is the first module that writes through the guard: webhook
+  posts and creations per guild, plus a per-member `EchoMember` cap so one member
+  cannot spend a guild's budget. `main` builds one guard and hands it to every module.
+- Webhook posts skip Discord's AutoMod and slowmode, so echo applies them itself.
+  Slowmode is done: per channel and member, with Manage Messages and Manage Channels
+  exempt. AutoMod is not yet: skua's automod will be rung 0 (which skips webhook
+  messages) plus a rung 1 regex suite. Echo must screen its text through rung 1 before
+  posting and refuse on a match, taking the matcher as a constructor argument when the
+  automod module lands.
 - Not run against Discord yet: needs a dev bot token.
 - No `default.pgo` yet (experiment 2 needs real load first).
 - The avatar is drawn and recoloured; the banner is still computed. A drawn banner can

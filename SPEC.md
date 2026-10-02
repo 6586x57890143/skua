@@ -50,3 +50,4 @@ Each one is a hypothesis with a way to tell whether it worked. Record the result
 | # | Milestone | State |
 |---|---|---|
 | 0 | Scaffold: router, intents probe, guard, pgx, brand, `/ping` `/status`, deploy | done |
+| 1 | `/echo`: a chat-restricted member posts one line through a per-channel webhook, marked with their username (merlin M12's test bed) | in review |

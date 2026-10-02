@@ -25,7 +25,9 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/core"
+	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
+	"github.com/6586x57890143/skua/internal/modules/echo"
 	"github.com/6586x57890143/skua/internal/modules/status"
 	"github.com/6586x57890143/skua/internal/store"
 )
@@ -96,6 +98,8 @@ func run(log *slog.Logger) error {
 
 	var client *bot.Client
 	var probe status.Probe
+	// One guard for every writer: its breaker is per guild across modules.
+	g := guard.New()
 	all := []core.Module{
 		status.New(func() status.Probe { return probe }, db, func() time.Duration {
 			if client == nil || client.Gateway == nil {
@@ -103,6 +107,7 @@ func run(log *slog.Logger) error {
 			}
 			return client.Gateway.Latency()
 		}),
+		echo.New(g),
 	}
 
 	wants := make(map[string]intents.Want, len(all))
