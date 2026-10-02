@@ -1,9 +1,10 @@
 services:
   bot:
-    # Pinned to the commit deploy.sh built. Rolling back is editing
-    # deployed-tag.env (or copying previous-tag.env over it) and re-running
-    # `docker compose -f docker-compose.prod.yml up -d`.
-    image: skua:${SKUA_IMAGE_TAG:-latest}
+    # Pinned to the exact commit CI built. Rollback, on foundry as deploy:
+    #   cd ~/skua && cp previous-tag.env deployed-tag.env
+    #   set -a; . ./deployed-tag.env; set +a
+    #   docker compose -f docker-compose.prod.yml up -d
+    image: ghcr.io/6586x57890143/skua:${SKUA_IMAGE_TAG:-latest}
     read_only: true
     cap_drop:
       - ALL
