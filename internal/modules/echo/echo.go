@@ -102,9 +102,9 @@ func check(text string) (string, error) {
 	// Quote and list prefixes, ordered ones included, still let a heading
 	// or subtext render after them ("> -# x", "1. -# x"), so look past them.
 	// Only "#" to "###" followed by a space is a heading; "#1 fan" is not.
-	rest := strings.TrimLeft(text, ">-*+0123456789.) ")
-	if n := len(rest) - len(strings.TrimLeft(rest, "#")); n >= 1 && n <= 3 {
-		if r, _ := utf8.DecodeRuneInString(rest[n:]); unicode.IsSpace(r) {
+	tail := strings.TrimLeft(text, ">-*+0123456789.) ")
+	if n := len(tail) - len(strings.TrimLeft(tail, "#")); n >= 1 && n <= 3 {
+		if r, _ := utf8.DecodeRuneInString(tail[n:]); unicode.IsSpace(r) {
 			return "", errHeading
 		}
 	}
@@ -122,7 +122,7 @@ func marker(username string) string {
 	return "\n-# echoed through skua by @" + markdown.Replace(username)
 }
 
-func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error {
+func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteractionCreate) (err error) {
 	text, err := check(e.SlashCommandInteractionData().String("text"))
 	if err != nil {
 		return err
@@ -148,9 +148,16 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	if p := e.AppPermissions(); p == nil || !p.Has(discord.PermissionManageWebhooks) {
 		return errors.New("skua needs Manage Webhooks in this channel")
 	}
-	if wait := m.slowmode(ch, member); wait > 0 {
+	wait, undo := m.slowmode(ch, member)
+	if wait > 0 {
 		return fmt.Errorf("slowmode is on here; try again in %s", wait.Round(time.Second))
 	}
+	// Discord charges slowmode only for a message that went out.
+	defer func() {
+		if err != nil {
+			undo()
+		}
+	}()
 	// Per member before per guild, so one member cannot spend the whole
 	// guild's webhook budget and lock everyone else out.
 	if err := m.guard.Allow(member.User.ID, guard.EchoMember); err != nil {
@@ -190,29 +197,36 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	}
 }
 
-// slowmode applies the channel's slowmode as Discord would to a message:
-// it returns how long the member must still wait, or 0 and records this
-// echo as their latest. Members who could manage messages or the channel
-// are exempt, as Discord exempts them.
-func (m *Module) slowmode(ch discord.InteractionChannel, member *discord.ResolvedMember) time.Duration {
+// slowmode applies the channel's slowmode as Discord would to a message.
+// It returns how long the member must still wait, or 0 having recorded this
+// echo as their latest, plus an undo for when the echo then fails. Members
+// who could manage messages or the channel are exempt, as Discord exempts
+// them.
+func (m *Module) slowmode(ch discord.InteractionChannel, member *discord.ResolvedMember) (time.Duration, func()) {
 	c, ok := ch.MessageChannel.(discord.GuildMessageChannel)
 	if !ok || c.RateLimitPerUser() <= 0 ||
 		member.Permissions.Has(discord.PermissionManageMessages) || member.Permissions.Has(discord.PermissionManageChannels) {
-		return 0
+		return 0, func() {}
 	}
 	window := time.Duration(c.RateLimitPerUser()) * time.Second
 	k, now := slow{ch.ID(), member.User.ID}, m.now()
 	prev, loaded := m.last.Swap(k, now)
-	if !loaded {
-		return 0
+	// Put their real last echo back, unless a concurrent echo of theirs
+	// has already replaced ours.
+	undo := func() {
+		if loaded {
+			m.last.CompareAndSwap(k, now, prev)
+		} else {
+			m.last.CompareAndDelete(k, now)
+		}
 	}
-	if wait := prev.(time.Time).Add(window).Sub(now); wait > 0 {
-		// Inside the window: put their real last echo back, unless a
-		// concurrent echo of theirs has already replaced ours.
-		m.last.CompareAndSwap(k, now, prev)
-		return wait
+	if loaded {
+		if wait := prev.(time.Time).Add(window).Sub(now); wait > 0 {
+			undo()
+			return wait, nil
+		}
 	}
-	return 0
+	return 0, undo
 }
 
 // hook returns this channel's webhook: cached, else the one skua already

@@ -303,7 +303,15 @@ func TestEchoHonoursSlowmode(t *testing.T) {
 			}
 		}
 	}
-	if len(f.sent) != 7 {
-		t.Errorf("sent %d echoes, want 7", len(f.sent))
+	// A failed post does not charge the window.
+	f.execErrs = []error{errors.New("discord is down")}
+	if _, err := run(t, m, f, opts{perms: permSend, slowmode: 30, user: "8"}); err == nil {
+		t.Fatal("the failing post succeeded")
+	}
+	if _, err := run(t, m, f, opts{perms: permSend, slowmode: 30, user: "8"}); err != nil {
+		t.Errorf("a failed echo started the slowmode window: %v", err)
+	}
+	if len(f.sent) != 8 {
+		t.Errorf("sent %d echoes, want 8", len(f.sent))
 	}
 }
