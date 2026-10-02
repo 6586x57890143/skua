@@ -41,6 +41,9 @@ import (
 // username escaped at worst to 64.
 const maxText = 1800
 
+// postBy bounds the webhook calls once the interaction is deferred.
+const postBy = 10 * time.Second
+
 type hook struct {
 	id    snowflake.ID
 	token string
@@ -180,6 +183,16 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	if !member.Permissions.Has(discord.PermissionEmbedLinks) {
 		msg.Flags = discord.MessageFlagSuppressEmbeds
 	}
+	// Seamless: a silent ephemeral defer holds the interaction open and is
+	// deleted once the echo is up, so the channel shows only the echo. A
+	// failure from here on reaches the member as a followup in its place.
+	if err := e.DeferCreateMessage(true); err != nil {
+		return err
+	}
+	// Deferred, the interaction token is good for 15 minutes, so the posts
+	// no longer race the 3s window.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), postBy)
+	defer cancel()
 	r, opt := e.Client().Rest, rest.WithCtx(ctx)
 	for attempt := 0; ; attempt++ {
 		h, err := m.hook(r, opt, *guild, ch.ID(), e.ApplicationID())
@@ -199,7 +212,11 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 		if err != nil {
 			return fmt.Errorf("posting the echo: %w", err)
 		}
-		return e.CreateMessage(discord.MessageCreate{Content: "✓ echoed", Flags: discord.MessageFlagEphemeral, AllowedMentions: core.NoPings()})
+		// The echo is up. If the delete fails, the member alone is left
+		// with a stale "thinking"; failing here would undo their slowmode
+		// and report an error for an echo that went out.
+		_ = r.DeleteInteractionResponse(e.ApplicationID(), e.Token(), opt)
+		return nil
 	}
 }
 

@@ -64,11 +64,13 @@ const (
 	permAll  = discord.PermissionSendMessages | discord.PermissionEmbedLinks
 )
 
-// fake stands in for Discord: the three webhook calls echo makes, and
-// nothing else. Each queued error is returned by one CreateWebhookMessage
-// call, in order.
+// fake stands in for Discord: the webhook calls echo makes and the delete
+// of its deferred response, nothing else. Each queued error is returned by
+// one CreateWebhookMessage call, in order.
 type fake struct {
 	rest.Rest
+	deleteErr  error
+	deletes    int
 	owned      []discord.Webhook
 	execErrs   []error
 	lists      int
@@ -101,6 +103,11 @@ func (f *fake) CreateWebhookMessage(id snowflake.ID, _ string, m discord.Webhook
 	return nil, nil
 }
 
+func (f *fake) DeleteInteractionResponse(snowflake.ID, string, ...rest.RequestOpt) error {
+	f.deletes++
+	return f.deleteErr
+}
+
 func incoming(id, appID string) discord.IncomingWebhook {
 	var w discord.IncomingWebhook
 	if err := json.Unmarshal([]byte(`{"id":"`+id+`","type":1,"token":"t`+id+`","application_id":"`+appID+`"}`), &w); err != nil {
@@ -117,8 +124,8 @@ type opts struct {
 	user          string
 }
 
-// run sends one /echo through m and returns the initial response's content
-// and the handler's error.
+// run sends one /echo through m and returns the initial response, as
+// "deferred ephemeral" or its content, and the handler's error.
 func run(t *testing.T, m *Module, f *fake, o opts) (string, error) {
 	t.Helper()
 	if o.text == "" {
@@ -148,8 +155,12 @@ func run(t *testing.T, m *Module, f *fake, o opts) (string, error) {
 	e := &events.ApplicationCommandInteractionCreate{
 		GenericEvent:                  events.NewGenericEvent(&bot.Client{Rest: f}, 0, 0),
 		ApplicationCommandInteraction: i,
-		Respond: func(_ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
-			reply = d.(discord.MessageCreate).Content
+		Respond: func(kind discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
+			mc := d.(discord.MessageCreate)
+			reply = mc.Content
+			if kind == discord.InteractionResponseTypeDeferredCreateMessage && mc.Flags.Has(discord.MessageFlagEphemeral) {
+				reply = "deferred ephemeral"
+			}
 			return nil
 		},
 	}
@@ -184,8 +195,11 @@ func TestEchoPostsThroughANewWebhookThenTheCachedOne(t *testing.T) {
 	f := &fake{}
 	m := New(guard.New())
 	reply, err := run(t, m, f, opts{perms: permSend, until: "2000-01-01T00:00:00Z"}) // an expired timeout is fine
-	if err != nil || reply != "✓ echoed" {
-		t.Fatalf("reply %q, err %v", reply, err)
+	if err != nil || reply != "deferred ephemeral" {
+		t.Fatalf("reply %q, err %v; want a silent ephemeral defer", reply, err)
+	}
+	if f.deletes != 1 {
+		t.Errorf("deferred response deleted %d times, want once so only the echo shows", f.deletes)
 	}
 	got := f.sent[0]
 	if got.Content != "hello"+marker("a_b") || got.Username != "Nick" || got.AvatarURL == "" {
@@ -313,5 +327,20 @@ func TestEchoHonoursSlowmode(t *testing.T) {
 	}
 	if len(f.sent) != 8 {
 		t.Errorf("sent %d echoes, want 8", len(f.sent))
+	}
+}
+
+func TestEchoThatWentOutIsNotAFailureWhenTheDeleteIs(t *testing.T) {
+	f := &fake{deleteErr: errors.New("discord is down")}
+	if _, err := run(t, New(guard.New()), f, opts{perms: permSend}); err != nil || len(f.sent) != 1 {
+		t.Fatalf("err %v, sent %d: a posted echo must not report failure", err, len(f.sent))
+	}
+}
+
+func TestRefusalsAnswerAtOnceWithoutDeferring(t *testing.T) {
+	f := &fake{}
+	reply, err := run(t, New(guard.New()), f, opts{perms: discord.PermissionViewChannel})
+	if err == nil || reply != "" || f.deletes != 0 {
+		t.Fatalf("reply %q, err %v, deletes %d: a refusal should reach the router undeferred", reply, err, f.deletes)
 	}
 }
