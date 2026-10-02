@@ -13,7 +13,9 @@ one page and lists the principles and the experiments.
 - `internal/guard`: per-guild per-op GCRA caps plus a breaker. Route new Discord writes
   through `Allow`/`Report`.
 - `internal/brand`: palette and mood icons. The mood comes from the embed colour.
-  Always send the `*discord.File` that `brand.Embed` returns with its embed.
+  Always send the `*discord.File` that `brand.Embed` returns with its embed. `voice.go`
+  is her status line, rotated on the re-probe tick; `voice_test` holds every line to the
+  shared bird voice (lowercase, no oxford commas or generated-text punctuation).
 - `internal/modules/*`: features. `status` is the reference module.
 - `tools/sprites`: all the art. The avatar is drawn: `art/source/skua_avatar_source.png`
   is the original, and the generator recolours it into the palette (frame to grey,
