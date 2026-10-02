@@ -1,0 +1,6 @@
+.env
+/skua
+/skua.exe
+deployed-tag.env
+previous-tag.env
+coverage.out

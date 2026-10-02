@@ -1,0 +1,41 @@
+services:
+  bot:
+    # Pinned to the commit deploy.sh built. Rolling back is editing
+    # deployed-tag.env (or copying previous-tag.env over it) and re-running
+    # `docker compose -f docker-compose.prod.yml up -d`.
+    image: skua:${SKUA_IMAGE_TAG:-latest}
+    read_only: true
+    cap_drop:
+      - ALL
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Also what makes an intent change in the Developer Portal take effect:
+    # skua exits cleanly when it sees one and comes back re-identified.
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  postgres:
+    image: postgres:16-alpine
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: skua
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+    restart: unless-stopped
+    mem_limit: 256m
+
+volumes:
+  pgdata:
