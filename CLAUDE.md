@@ -46,6 +46,7 @@ the migration runner in `internal/store` along with the first migration.
 go build ./... && go vet ./...
 golangci-lint run
 scripts/coverage.sh                    # race tests + 85% floor per internal/ package
+scripts/prose.sh                       # CI's punctuation check
 govulncheck ./...
 go run ./tools/sprites                 # regenerate internal/brand/assets
 go test ./internal/guard -bench . -run x
@@ -65,13 +66,40 @@ One change per PR. Branches are deleted on merge.
 
 CI (`.github/workflows/ci.yml`) runs on every PR and every push to `main`: vet, lint,
 race tests under a per-package coverage floor, govulncheck, gitleaks, the prose check
-(no em dashes, ellipsis characters or curly quotes anywhere; run its grep before
-committing), and a Docker build for the deploy host's platform (`VPS_PLATFORM`, written by
-`tools/setup`; arm64 by default).
-Those are the required checks. On `main` it then pushes
+(`scripts/prose.sh`: no em dashes, ellipsis characters or curly quotes anywhere), and
+a Docker build for the deploy host's platform (`VPS_PLATFORM`, written by
+`tools/setup`; arm64 by default). Those are the required checks, and they are strict:
+a PR must be up to date with `main` to merge. On `main` it then pushes
 `ghcr.io/6586x57890143/skua:<sha>` and deploys to the host as `VPS_USER` into `VPS_DIR`
 (repository variables, defaulting to foundry's `deploy` and `/home/deploy/skua`; `tools/setup`
 writes them), using the `VPS_HOST`/`VPS_SSH_KEY` repository secrets. The deploy only runs while the repository variable `DEPLOY_ENABLED` is
 `true`; otherwise it skips green with a notice.
 
 Rollback, and the manual path, are in `docker-compose.prod.yml` and `scripts/deploy.sh`.
+
+## Working in parallel
+
+Several agents work on skua at once. The rules that keep them out of each other's way:
+
+- **Never work in the main checkout** (`C:\files\sdb\active\skua`). It stays on a clean
+  `main` for reading and reviewing. `.claude/settings.json` denies file edits there.
+  Each branch gets its own worktree in `C:\files\sdb\active\skua.worktrees\<name>`:
+  `git worktree add -b <branch> ../skua.worktrees/<name> origin/main`. Not a session
+  scratchpad, which other sessions can't see and which gets wiped. Not `EnterWorktree`,
+  which nests worktrees inside the main checkout. After the merge, run
+  `git worktree remove` and delete the local branch.
+- **Claim work with a draft PR** as soon as the branch has a commit. `gh pr list` is the
+  record of who is doing what. Check it before you start, and don't take on a change
+  another open PR already touches.
+- **`main` moves under you.** Rebase on `origin/main` before asking for review, and again
+  whenever the PR falls behind (`gh pr update-branch`, or rebase and force-push your
+  own branch). Before changing a shared contract (`core`, `guard`, `brand`), grep its
+  callers on current `main`, not on your branch's base.
+- **Shared files:** in `all` (`main.go`), `SPEC.md` and `HANDOFF.md`, edit only your own
+  line or row. On a conflict in generated PNGs, don't pick a side: rerun
+  `go run ./tools/sprites` on the rebased branch.
+- **One bot per token.** Two processes on the same `DISCORD_BOT_TOKEN` both receive every
+  interaction and race to answer it. Tests need no token. Run a live bot only when you
+  have checked that no other session is running one. Give each local Postgres its own
+  port with `SKUA_PG_PORT` in that worktree's `.env`.
+- Stage paths explicitly, never `git add -A`. Auto-merge only after review.

@@ -1,0 +1,5 @@
+{
+  "permissions": {
+    "deny": ["Edit(//c/files/sdb/active/skua/**)"]
+  }
+}
