@@ -4,9 +4,10 @@
 //
 // That line is the whole transparency story. It carries the username, not
 // the display name the post already wears: a webhook message has no profile
-// to click, and a username cannot be made to look like a mod's. check keeps
-// every echo to one line that cannot start a heading or subtext, so the
-// marker is always the last line and the only subtext.
+// to click, and a username cannot be made to look like a mod's. clean
+// rewrites every echo into one line that renders no heading or subtext, so
+// the marker is always the last line and the only subtext. It rewrites
+// rather than refuses: the member's only feedback is their message.
 //
 // Webhook posts skip Discord's AutoMod and slowmode, so echo applies both
 // itself. Slowmode is honoured per channel and member. skua's automod
@@ -78,10 +79,10 @@ func (m *Module) Commands() []core.Command {
 	return []core.Command{{
 		Create: discord.SlashCommandCreate{
 			Name:        "echo",
-			Description: "Post one line through skua under your own name",
+			Description: "Send a message under your own name",
 			Contexts:    []discord.InteractionContextType{discord.InteractionContextTypeGuild},
 			Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionString{
-				Name: "text", Description: "One line", Required: true, MaxLength: new(maxText),
+				Name: "message", Description: "What to say", Required: true, MaxLength: new(maxText),
 			}},
 		},
 		Tier: core.Public,
@@ -89,38 +90,46 @@ func (m *Module) Commands() []core.Command {
 	}}
 }
 
-var (
-	errEmpty     = errors.New("nothing to echo")
-	errMultiline = errors.New("an echo is one line")
-	errHeading   = errors.New("an echo cannot start with # or -#")
-)
+var errEmpty = errors.New("there is nothing to send")
 
-// check returns text ready to post, or why it cannot be. It is the only
-// thing between a member and a forged marker, so it refuses rather than
-// rewrites.
-func check(text string) (string, error) {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return "", errEmpty
-	}
-	if strings.ContainsFunc(text, func(r rune) bool {
-		return unicode.IsControl(r) || unicode.In(r, unicode.Zl, unicode.Zp)
-	}) {
-		return "", errMultiline
-	}
+// clean rewrites text so it can be posted as it was meant, never refusing
+// it: the member sees their message go out, not an error about markdown.
+// It is still the only thing between a member and a forged marker, so the
+// result is always one line that renders no heading or subtext.
+func clean(text string) string {
+	text = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.In(r, unicode.Zl, unicode.Zp) {
+			return ' '
+		}
+		return r
+	}, text))
 	// Quote and list prefixes, ordered ones included, still let a heading
 	// or subtext render after them ("> -# x", "1. -# x"), so look past them.
 	// Only "#" to "###" followed by a space is a heading; "#1 fan" is not.
+	// Escaping its first "#" shows it as typed instead.
 	tail := strings.TrimLeft(text, ">-*+0123456789.) ")
 	if n := len(tail) - len(strings.TrimLeft(tail, "#")); n >= 1 && n <= 3 {
 		if r, _ := utf8.DecodeRuneInString(tail[n:]); unicode.IsSpace(r) {
-			return "", errHeading
+			at := len(text) - len(tail)
+			text = text[:at] + `\` + text[at:]
 		}
 	}
-	if len([]rune(text)) > maxText {
-		return "", fmt.Errorf("an echo is at most %d characters", maxText)
+	// Discord holds the client to maxText; this is for the API.
+	if r := []rune(text); len(r) > maxText {
+		text = strings.TrimSpace(string(r[:maxText]))
 	}
-	return text, nil
+	return text
+}
+
+// name is what the webhook posts as. Discord refuses webhook names that
+// contain "discord" or "clyde"; such a member posts as their username
+// rather than not at all.
+func name(m *discord.ResolvedMember) string {
+	n := strings.ToLower(m.EffectiveName())
+	if strings.Contains(n, "discord") || strings.Contains(n, "clyde") {
+		return m.User.Username
+	}
+	return m.EffectiveName()
 }
 
 var markdown = strings.NewReplacer(`\`, `\\`, `_`, `\_`, `*`, `\*`, `~`, `\~`, "`", "\\`", `|`, `\|`, `>`, `\>`)
@@ -132,9 +141,9 @@ func marker(username string) string {
 }
 
 func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteractionCreate) (err error) {
-	text, err := check(e.SlashCommandInteractionData().String("text"))
-	if err != nil {
-		return err
+	text := clean(e.SlashCommandInteractionData().String("message"))
+	if text == "" {
+		return errEmpty
 	}
 	member, guild := e.Member(), e.GuildID()
 	if member == nil || guild == nil {
@@ -144,22 +153,22 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	switch ch.Type() {
 	case discord.ChannelTypeGuildText, discord.ChannelTypeGuildNews, discord.ChannelTypeGuildVoice:
 	default:
-		return errors.New("/echo only works in text channels, not threads or forums")
+		return errors.New("/echo works in text channels, not threads or forum posts")
 	}
 	// Echo is for the restriction Discord applied, never a way around the
 	// ones this server applied.
 	if t := member.CommunicationDisabledUntil; t != nil && t.After(time.Now()) {
-		return errors.New("you are timed out here")
+		return errors.New("you're timed out, so you can't send messages here yet")
 	}
 	if !member.Permissions.Has(discord.PermissionSendMessages) {
-		return errors.New("you cannot send messages in this channel")
+		return errors.New("you can't send messages in this channel")
 	}
 	if p := e.AppPermissions(); p == nil || !p.Has(discord.PermissionManageWebhooks) {
-		return errors.New("skua needs Manage Webhooks in this channel")
+		return errors.New("skua can't post here yet: it needs Manage Webhooks in this channel")
 	}
 	wait, undo := m.slowmode(ch, member)
 	if wait > 0 {
-		return fmt.Errorf("slowmode is on here; try again in %s", wait.Round(time.Second))
+		return fmt.Errorf("slowmode is on: you can send again in %s", wait.Round(time.Second))
 	}
 	// Discord charges slowmode only for a message that went out.
 	defer func() {
@@ -170,12 +179,12 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	// Per member before per guild, so one member cannot spend the whole
 	// guild's webhook budget and lock everyone else out.
 	if err := m.guard.Allow(member.User.ID, guard.EchoMember); err != nil {
-		return errors.New("you are echoing too fast; try again later")
+		return errors.New("you're sending too fast; try again in a minute")
 	}
 
 	msg := discord.WebhookMessageCreate{
 		Content:         text + marker(member.User.Username),
-		Username:        member.EffectiveName(),
+		Username:        name(member),
 		AvatarURL:       member.EffectiveAvatarURL(),
 		AllowedMentions: core.NoPings(),
 	}
@@ -210,7 +219,7 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("posting the echo: %w", err)
+			return fmt.Errorf("your message didn't go through: %w", err)
 		}
 		// The echo is up. If the delete fails, the member alone is left
 		// with a stale "thinking"; failing here would undo their slowmode
