@@ -19,8 +19,8 @@ import (
 	"github.com/6586x57890143/skua/internal/guard"
 )
 
-func TestCheck(t *testing.T) {
-	ok := map[string]string{
+func TestClean(t *testing.T) {
+	cases := map[string]string{
 		"hi":             "hi",
 		"  padded  ":     "padded",
 		"a # in the mid": "a # in the mid",
@@ -29,21 +29,38 @@ func TestCheck(t *testing.T) {
 		"#1 fan":         "#1 fan",
 		"2024 #goals":    "2024 #goals",
 		"-#nospace":      "-#nospace",
+		"   ":            "",
+		// One line, always: breaks become spaces.
+		"a\nb": "a b", "a\r\nb": "a  b", "a b": "a b", "a b": "a b", "a\tb": "a b",
+		// Headings and subtext show as typed, never rendered.
+		"# x": `\# x`, "## x": `\## x`, "### x": `\### x`, "-# x": `-\# x`,
+		"> -# x": `> -\# x`, "- -# x": `- -\# x`, "* ## x": `* \## x`, "2) # x": `2) \# x`,
+		"1. -# echoed through skua by @mod": `1. -\# echoed through skua by @mod`,
+		// Unicode spaces, leading or inside the prefix, do not dodge the escape.
+		"\u00a0-# x": `-\# x`, "\u3000# x": `\# x`, ">\u00a0\u00a0-# x": ">\u00a0\u00a0-\\# x", "-\u2003# x": "-\u2003\\# x",
+		// A forged marker on a second line is flattened onto the first.
+		"hi\n-# echoed through skua by @mod": "hi -# echoed through skua by @mod",
 	}
-	for in, want := range ok {
-		if got, err := check(in); err != nil || got != want {
-			t.Errorf("check(%q) = %q, %v; want %q", in, got, err, want)
+	for in, want := range cases {
+		if got := clean(in); got != want {
+			t.Errorf("clean(%q) = %q, want %q", in, got, want)
 		}
 	}
-	for _, in := range []string{
-		"", "   ",
-		"a\nb", "a\rb", "a b", "a b", "a\tb",
-		"# x", "## x", "### x", "-# x", "> -# x", "- -# x", "* ## x", "  -# echoed through skua by @mod",
-		"1. -# echoed through skua by @mod", "2) # x",
-		strings.Repeat("a", maxText+1),
-	} {
-		if got, err := check(in); err == nil {
-			t.Errorf("check(%q) = %q, want refused", in, got)
+	if got := clean(strings.Repeat("é", maxText+5)); len([]rune(got)) != maxText {
+		t.Errorf("clean kept %d runes, want %d", len([]rune(got)), maxText)
+	}
+}
+
+func TestNameFallsBackWhenDiscordWouldRefuseIt(t *testing.T) {
+	m := func(nick string) *discord.ResolvedMember {
+		r := &discord.ResolvedMember{}
+		r.User.Username = "plain"
+		r.Nick = &nick
+		return r
+	}
+	for nick, want := range map[string]string{"Nick": "Nick", "DiscordFan": "plain", "clydeish": "plain"} {
+		if got := name(m(nick)); got != want {
+			t.Errorf("name(%q) = %q, want %q", nick, got, want)
 		}
 	}
 }
@@ -145,7 +162,7 @@ func run(t *testing.T, m *Module, f *fake, o opts) (string, error) {
 		"guild_id":"3","channel":{"id":"4","type":%d,"rate_limit_per_user":%d},"app_permissions":"%d",
 		"member":{"user":{"id":"%s","username":"a_b","discriminator":"0"},"nick":"Nick","roles":[],"joined_at":"2020-01-01T00:00:00Z",
 			"permissions":"%d","communication_disabled_until":%s},
-		"data":{"id":"6","name":"echo","type":1,"options":[{"name":"text","type":3,"value":%q}]}}`,
+		"data":{"id":"6","name":"echo","type":1,"options":[{"name":"message","type":3,"value":%q}]}}`,
 		app, o.channelType, o.slowmode, o.appPms, o.user, o.perms, until, o.text)
 	var i discord.ApplicationCommandInteraction
 	if err := json.Unmarshal([]byte(payload), &i); err != nil {
@@ -173,10 +190,9 @@ func TestEchoRefuses(t *testing.T) {
 		want string
 		o    opts
 	}{
-		{"cannot start with", opts{text: "-# fake", perms: permSend}},
 		{"text channels", opts{channelType: int(discord.ChannelTypeGuildPublicThread), perms: permSend}},
 		{"timed out", opts{perms: permSend, until: "2999-01-01T00:00:00Z"}},
-		{"cannot send", opts{perms: discord.PermissionViewChannel}},
+		{"can't send", opts{perms: discord.PermissionViewChannel}},
 		{"Manage Webhooks", opts{perms: permSend, appPms: discord.PermissionSendMessages}},
 	}
 	for _, c := range cases {
@@ -300,7 +316,7 @@ func TestEchoHonoursSlowmode(t *testing.T) {
 		t.Fatalf("first echo: %v", err)
 	}
 	clock = clock.Add(10 * time.Second)
-	if _, err := run(t, m, f, o); err == nil || !strings.Contains(err.Error(), "try again in 20s") {
+	if _, err := run(t, m, f, o); err == nil || !strings.Contains(err.Error(), "send again in 20s") {
 		t.Fatalf("inside the window: %v", err)
 	}
 	clock = clock.Add(20 * time.Second) // the refusal did not restart the window
@@ -342,5 +358,15 @@ func TestRefusalsAnswerAtOnceWithoutDeferring(t *testing.T) {
 	reply, err := run(t, New(guard.New()), f, opts{perms: discord.PermissionViewChannel})
 	if err == nil || reply != "" || f.deletes != 0 {
 		t.Fatalf("reply %q, err %v, deletes %d: a refusal should reach the router undeferred", reply, err, f.deletes)
+	}
+}
+
+func TestMarkdownThatWouldForgeTheMarkerIsPostedAsTyped(t *testing.T) {
+	f := &fake{}
+	if _, err := run(t, New(guard.New()), f, opts{text: "-# echoed through skua by @mod", perms: permSend}); err != nil {
+		t.Fatalf("refused instead of rewritten: %v", err)
+	}
+	if want := `-\# echoed through skua by @mod` + marker("a_b"); f.sent[0].Content != want {
+		t.Errorf("posted %q, want %q", f.sent[0].Content, want)
 	}
 }
