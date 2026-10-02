@@ -73,17 +73,21 @@ func main() {
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		log.Fatal(err)
 	}
-	// Every mood is the profile bust with its badge at lower left, drawn at
-	// 2x so the badge's pixels match the bust's.
+	full, bird, err := avatar()
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Every mood is the avatar's bird, cut out of its frame, wearing its
+	// badge at lower left in 8px cells.
 	for mood, g := range glyphs {
-		img := bust()
-		drawScaled(img, badge, 2, 42, map[byte]color.NRGBA{'k': ink['k'], 'x': moodInk[mood]}, 2)
-		drawScaled(img, g, 6, 46, ink, 2)
-		if err := writeScaled(filepath.Join(out, "skua_"+mood+".png"), img, 4); err != nil {
+		img := shrink(bird, 256)
+		drawScaled(img, badge, 8, 168, map[byte]color.NRGBA{'k': ink['k'], 'x': moodInk[mood]}, 8)
+		drawScaled(img, g, 24, 184, ink, 8)
+		if err := writeScaled(filepath.Join(out, "skua_"+mood+".png"), img, 1); err != nil {
 			log.Fatal(err)
 		}
 	}
-	if err := writeScaled(filepath.Join(out, "skua_avatar.png"), bust(), 4); err != nil {
+	if err := writeScaled(filepath.Join(out, "skua_avatar.png"), shrink(bird, 256), 1); err != nil {
 		log.Fatal(err)
 	}
 	// Profile art lives outside the embedded assets: the binary never sends
@@ -91,7 +95,7 @@ func main() {
 	if err := os.MkdirAll("art", 0o755); err != nil {
 		log.Fatal(err)
 	}
-	if err := writeScaled(filepath.Join("art", "skua_pfp.png"), pfp(), 16); err != nil {
+	if err := writeScaled(filepath.Join("art", "skua_pfp.png"), shrink(full, 1024), 1); err != nil {
 		log.Fatal(err)
 	}
 	if err := writeScaled(filepath.Join("art", "skua_banner.png"), banner(), 4); err != nil {

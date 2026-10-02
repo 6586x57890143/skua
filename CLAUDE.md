@@ -15,11 +15,13 @@ one page and lists the principles and the experiments.
 - `internal/brand`: palette and mood icons. The mood comes from the embed colour.
   Always send the `*discord.File` that `brand.Embed` returns with its embed.
 - `internal/modules/*`: features. `status` is the reference module.
-- `tools/sprites`: all the pixel art, computed from shapes, banded light and a fixed
-  hash, so every run is identical. One bust drawing is the profile picture (on its
-  halo, `art/`) and every mood icon (with a badge, embedded); the banner is in `art/`
-  too. Style: high resolution pixel art, flat fields, 2px clusters, cool grey frame,
-  the bird the only warmth. Edit and rerun it; don't edit the PNGs.
+- `tools/sprites`: all the art. The avatar is drawn: `art/source/skua_avatar_source.png`
+  is the original, and the generator recolours it into the palette (frame to grey,
+  feathers to the umber ramp, neutral greys to slate) for the profile picture, and cuts
+  the bird out of its frame for every mood icon. The banner is computed from shapes,
+  banded light and a fixed hash. Style: high resolution pixel art, flat fields, cool
+  grey frame, the bird the only warmth. Edit the source or the generator and rerun it;
+  don't edit the output PNGs.
 
 Adding a module: implement `core.Module`, declare its intents honestly in `Want`
 (Required vs Optional), and append it to `all` in `main.go`. If it needs a table, add

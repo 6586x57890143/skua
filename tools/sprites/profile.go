@@ -89,95 +89,6 @@ func solid(c color.NRGBA) func(int, int) color.NRGBA {
 	return func(int, int) color.NRGBA { return c }
 }
 
-// streaked is the shared plumage: dark cap above capY, golden hackles in
-// staggered columns down the neck between capY and chestY, pale streaks on
-// a darker chest below.
-func streaked(x, y int, t float64, capY, chestY int) color.NRGBA {
-	switch {
-	case y < capY:
-		return feathers(x, y, t-0.3)
-	case y < capY+13:
-		return feathers(x, y, t)
-	case y < chestY:
-		if x%3 == 1 && (y+int(hash(x, 0)%5))%6 < 4 {
-			return gold[clampi(int(t*2), 0, 1)]
-		}
-		return feathers(x, y, t-0.1)
-	default:
-		if x%3 == 0 && (y+int(hash(x, 1)%4))%5 < 3 {
-			return tone(umberRamp, t+0.35)
-		}
-		return feathers(x, y, t-0.2)
-	}
-}
-
-// pfp is 64 logical pixels at 16x: the bust facing left on a flat halo.
-func pfp() *image.NRGBA {
-	img := image.NewNRGBA(image.Rect(0, 0, bustSize, bustSize))
-	flat(img, fieldInk)
-	fill(img, func(x, y float64) bool { return math.Hypot(x-33, y-29) <= 27 }, solid(haloInk))
-	over(img, bust())
-	return img
-}
-
-const bustSize = 64
-
-// bust is the bird alone on a transparent 64px canvas: the profile picture
-// puts it on the halo, and every mood icon wears it with a badge.
-func bust() *image.NRGBA {
-	const n = bustSize
-	bird := image.NewNRGBA(image.Rect(0, 0, n, n))
-	head := func(x, y float64) bool { return inEllipse(x, y, 34, 24, 13, 12) }
-	body := poly(25, 29, 18, 37, 12, 45, 9, 52, 12, 57, 22, 60, 44, 60, 54, 57, 57, 50, 53, 40, 46, 31)
-	fill(bird, func(x, y float64) bool { return head(x, y) || body(x, y) }, func(x, y int) color.NRGBA {
-		return streaked(x, y, light(x, y, 32, 34, 28), 18, 44)
-	})
-	// Short, heavy, hooked slate bill: lit culmen, dark gape, a nostril.
-	fill(bird, poly(23, 19, 17, 20, 13, 22, 11, 25, 11, 29, 13, 28, 15, 26, 23, 26), func(x, y int) color.NRGBA {
-		if y <= 21 {
-			return slate[3]
-		}
-		return slate[2]
-	})
-	fill(bird, poly(23, 26, 16, 26, 14, 28, 17, 29, 23, 29), solid(slate[1]))
-	for x := 15; x <= 23; x++ {
-		bird.SetNRGBA(x, 26, lineInk)
-	}
-	bird.SetNRGBA(17, 22, slate[0])
-	bird.SetNRGBA(18, 22, slate[0])
-
-	outlineBird(bird)
-	eye(bird, 25, 18)
-	return bird
-}
-
-// eye is 5x5: a dark ring, a black eye, a bright glint, and a pale crescent
-// under it, the one light mark on a dark face.
-func eye(img *image.NRGBA, x0, y0 int) {
-	for dy := -1; dy <= 5; dy++ {
-		for dx := -1; dx <= 5; dx++ {
-			if (dx == -1 || dx == 5) && (dy == -1 || dy == 5) {
-				continue
-			}
-			img.SetNRGBA(x0+dx, y0+dy, lineInk)
-		}
-	}
-	for dy := range 5 {
-		for dx := range 5 {
-			if (dx == 0 || dx == 4) && (dy == 0 || dy == 4) {
-				continue
-			}
-			img.SetNRGBA(x0+dx, y0+dy, rgb(0x0A0908))
-		}
-	}
-	img.SetNRGBA(x0+1, y0+1, bone[1])
-	img.SetNRGBA(x0+2, y0+1, bone[1])
-	img.SetNRGBA(x0+1, y0+2, bone[0])
-	for dx := range 5 {
-		img.SetNRGBA(x0+dx, y0+6, umberRamp[4])
-	}
-}
-
 // wingSpec is one wing: shoulder and tip on the leading edge, its outline,
 // and a light offset (negative for the far wing).
 type wingSpec struct {
@@ -230,58 +141,80 @@ func paintWing(img *image.NRGBA, w wingSpec) {
 	})
 }
 
-// banner is 320x110 logical pixels at 4x, 1280x440, on a flat field: the
-// skua flying left, far wing raised behind its head, near wing raised wide,
-// tail down, feet hanging, a few speed lines trailing below.
+// banner is 320x110 logical pixels at 4x, 1280x440: the skua seen from
+// above, gliding left across a flat halo disc, wings swept back and spread
+// the full height, the two white primary flashes mirrored. That pair of
+// flashes is how a skua is told apart at a distance, so it is the one thing
+// the banner is built around. A short wake trails off the tail. The bird
+// sits right of centre, clear of where Discord overlaps the avatar.
 func banner() *image.NRGBA {
 	const w, h = 320, 110
+	const cy = 55.0 // the bird's axis; everything below mirrors across it
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
 	flat(img, fieldInk)
-	for i, ln := range [][3]int{{118, 168, 64}, {126, 182, 69}, {112, 160, 74}, {130, 176, 79}, {122, 156, 84}} {
+	fill(img, func(x, y float64) bool { return math.Hypot(x-228, y-cy) <= 50 }, solid(haloInk))
+
+	// Wake: broken lines off the tail, brighter nearer the bird.
+	for i, ln := range [][3]int{{258, 300, 49}, {262, 312, 53}, {256, 296, 57}, {264, 306, 61}} {
 		for x := ln[0]; x < ln[1]; x++ {
-			if (x+7*i)%19 > 14 {
+			if (x+6*i)%15 > 10 {
 				continue
 			}
-			c := streakInk[0]
+			c := streakInk[1]
 			if x > (ln[0]+ln[1])/2 {
-				c = streakInk[1]
+				c = streakInk[0]
 			}
-			img.SetNRGBA(x, ln[2]-(x-ln[0])/12, c)
+			img.SetNRGBA(x, ln[2], c)
 		}
 	}
 
 	bird := image.NewNRGBA(image.Rect(0, 0, w, h))
-	paintWing(bird, wingSpec{sx: 186, sy: 44, tx: 146, ty: 6, shift: -0.15,
-		shape: poly(194, 50, 180, 32, 164, 18, 145, 5, 147, 16, 151, 26, 159, 37, 171, 47, 182, 54)})
+	mirror := func(xy ...float64) func(x, y float64) bool {
+		m := make([]float64, len(xy))
+		for i := range xy {
+			m[i] = xy[i]
+			if i%2 == 1 {
+				m[i] = 2*cy - xy[i]
+			}
+		}
+		return poly(m...)
+	}
+	upper := []float64{203, 50, 210, 32, 222, 16, 236, 4, 243, 8, 239, 22, 233, 36, 227, 49}
+	paintWing(bird, wingSpec{sx: 206, sy: 49, tx: 236, ty: 5, shift: 0.05, shape: poly(upper...)})
+	paintWing(bird, wingSpec{sx: 206, sy: 2*cy - 49, tx: 236, ty: 2*cy - 5, shift: -0.1, shape: mirror(upper...)})
 
-	// Tail first so the body overlaps it, then body, then head.
-	fill(bird, poly(232, 74, 253, 86, 251, 93, 238, 94, 224, 86), func(x, y int) color.NRGBA {
+	// Tail, body and head along the axis, lit from the upper left.
+	fill(bird, poly(232, 50, 251, 52, 253, 55, 251, 58, 232, 60), func(x, y int) color.NRGBA {
 		if (x+y)%4 == 0 {
 			return umberRamp[0]
 		}
 		return umberRamp[1]
 	})
-	fill(bird, poly(180, 40, 200, 43, 222, 54, 238, 72, 236, 84, 222, 87, 196, 75, 176, 60, 170, 51), func(x, y int) color.NRGBA {
-		return streaked(x, y, light(x, y, 200, 58, 30), 0, 66)
+	fill(bird, func(x, y float64) bool { return inEllipse(x, y, 216, cy, 19, 8) }, func(x, y int) color.NRGBA {
+		t := light(x, y, 214, cy, 16)
+		// Golden hackles on the nape run along the body, seen from above.
+		if x < 214 && y%3 == 1 && (x+int(hash(0, y)%5))%6 < 4 {
+			return gold[clampi(int(t*2), 0, 1)]
+		}
+		if (x+(y/4)%2*2)%5 == 0 {
+			return tone(umberRamp, t-0.25) // scalloped mantle
+		}
+		return feathers(x, y, t-0.1)
 	})
-	fill(bird, func(x, y float64) bool { return inEllipse(x, y, 177, 48, 11, 10) }, func(x, y int) color.NRGBA {
-		return streaked(x, y, light(x, y, 175, 48, 11), 44, 200)
+	fill(bird, func(x, y float64) bool { return inEllipse(x, y, 196, cy, 8, 6.5) }, func(x, y int) color.NRGBA {
+		return feathers(x, y, light(x, y, 196, cy, 8)-0.3)
 	})
-	fill(bird, poly(168, 45, 162, 46, 158, 49, 157, 53, 159, 52, 162, 50, 168, 51), func(x, y int) color.NRGBA {
-		if y <= 46 {
+	fill(bird, poly(190, 52.5, 182, 54.5, 181, 55.5, 182, 56, 190, 57.5), func(x, y int) color.NRGBA {
+		if y < 55 {
 			return slate[3]
 		}
 		return slate[2]
 	})
-	fill(bird, poly(168, 51, 162, 51, 161, 53, 168, 54), solid(slate[1]))
-	fill(bird, poly(212, 82, 216, 82, 218, 92, 214, 93), solid(slate[1]))
-	fill(bird, poly(219, 84, 222, 84, 224, 93, 220, 94), solid(slate[2]))
-
-	paintWing(bird, wingSpec{sx: 196, sy: 46, tx: 312, ty: 4, shift: 0.05,
-		shape: poly(190, 46, 210, 34, 232, 21, 270, 8, 312, 3, 306, 12, 286, 22, 262, 34, 240, 46, 222, 58, 204, 60)})
+	bird.SetNRGBA(181, 55, slate[0]) // the hook's tip
 
 	outlineBird(bird)
-	eye(bird, 168, 43)
+	bird.SetNRGBA(193, 51, rgb(0x0A0908)) // eyes, one each side
+	bird.SetNRGBA(193, 58, rgb(0x0A0908))
 	over(img, bird)
 	return img
 }
