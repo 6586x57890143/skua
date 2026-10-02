@@ -34,8 +34,10 @@ Decisions worth keeping:
 
 ## Not done yet, deliberately
 
-- The deploy is held: `DEPLOY_ENABLED` is unset until `/home/deploy/skua/.env` exists
-  on foundry with a real bot token. Merges still build and push the image.
+- The deploy is held (`DEPLOY_ENABLED` unset) until someone runs `go run ./tools/setup`,
+  which needs the bot token typed in and so cannot be done by an agent. It writes the
+  token to foundry, flips the variable, deploys and prints the invite. Merges until then
+  still build and push the image.
 - No migration runner or tables: nothing needs one.
 - The guard is built and tested, but nothing routes through it yet. `/ping` and
   `/status` only answer interactions, which aren't write-capped. The first module that
