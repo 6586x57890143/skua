@@ -15,8 +15,9 @@ one page and lists the principles and the experiments.
 - `internal/brand`: palette and mood icons. The mood comes from the embed colour.
   Always send the `*discord.File` that `brand.Embed` returns with its embed.
 - `internal/modules/*`: features. `status` is the reference module.
-- `tools/sprites`: the pixel art, as text grids. Edit a grid and rerun it, don't edit
-  the PNGs.
+- `tools/sprites`: all the pixel art. The moods are text grids, and the profile picture
+  and banner (`art/`, not embedded) are shapes plus a fixed per-pixel noise, so every
+  run is identical. Edit and rerun it; don't edit the PNGs.
 
 Adding a module: implement `core.Module`, declare its intents honestly in `Want`
 (Required vs Optional), and append it to `all` in `main.go`. If it needs a table, add

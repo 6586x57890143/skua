@@ -128,11 +128,22 @@ func main() {
 	if err := write(filepath.Join(out, "skua_avatar.png"), img); err != nil {
 		log.Fatal(err)
 	}
+	// Profile art lives outside the embedded assets: the binary never sends
+	// it, only scripts/setup.sh uploads it and the README shows it.
+	if err := os.MkdirAll("art", 0o755); err != nil {
+		log.Fatal(err)
+	}
+	if err := writeScaled(filepath.Join("art", "skua_pfp.png"), pfp(), 25); err != nil {
+		log.Fatal(err)
+	}
+	if err := writeScaled(filepath.Join("art", "skua_banner.png"), banner(), 4); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func draw(img *image.NRGBA, grid []string, ox, oy int, pal map[byte]color.NRGBA) {
 	for y, row := range grid {
-		if len(row) > size-ox {
+		if ox+len(row) > img.Bounds().Dx() {
 			log.Fatalf("row %d is %d wide: %q", y, len(row), row)
 		}
 		for x := range len(row) {
@@ -145,11 +156,16 @@ func draw(img *image.NRGBA, grid []string, ox, oy int, pal map[byte]color.NRGBA)
 	}
 }
 
-func write(path string, src *image.NRGBA) error {
-	dst := image.NewNRGBA(image.Rect(0, 0, size*scale, size*scale))
-	for y := range size * scale {
-		for x := range size * scale {
-			dst.SetNRGBA(x, y, src.NRGBAAt(x/scale, y/scale))
+func write(path string, src *image.NRGBA) error { return writeScaled(path, src, scale) }
+
+// writeScaled upscales nearest-neighbour by k, so every logical pixel stays
+// a hard square.
+func writeScaled(path string, src *image.NRGBA, k int) error {
+	b := src.Bounds()
+	dst := image.NewNRGBA(image.Rect(0, 0, b.Dx()*k, b.Dy()*k))
+	for y := range b.Dy() * k {
+		for x := range b.Dx() * k {
+			dst.SetNRGBA(x, y, src.NRGBAAt(x/k, y/k))
 		}
 	}
 	f, err := os.Create(path)
