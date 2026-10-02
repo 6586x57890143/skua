@@ -24,6 +24,7 @@ import (
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
@@ -152,7 +153,10 @@ func run(log *slog.Logger) error {
 
 	client, err = disgo.New(token,
 		bot.WithLogger(log),
-		bot.WithGatewayConfigOpts(gateway.WithIntents(identify)),
+		bot.WithGatewayConfigOpts(
+			gateway.WithIntents(identify),
+			gateway.WithPresenceOpts(gateway.WithCustomActivity(brand.StatusAt(0))),
+		),
 		// Only the guild cache is read (owner lookup); everything else off.
 		bot.WithCacheConfigOpts(cache.WithCaches(cache.FlagGuilds)),
 		bot.WithEventListenerFunc(router.OnCommand),
@@ -169,6 +173,7 @@ func run(log *slog.Logger) error {
 	}
 	log.Info("skua is up", "modules", len(all)-len(skipped), "intents", identify)
 
+	line := 0
 	tick := time.NewTicker(reprobe)
 	defer tick.Stop()
 	for {
@@ -176,6 +181,11 @@ func run(log *slog.Logger) error {
 		case <-ctx.Done():
 			return nil
 		case <-tick.C:
+			// The status line rides the re-probe tick: no loop of its own.
+			line++
+			if err := client.SetPresence(ctx, gateway.WithCustomActivity(brand.StatusAt(line))); err != nil {
+				log.Warn("setting the status line", "err", err)
+			}
 			app, err := probeRest.GetCurrentApplication()
 			if err != nil {
 				log.Warn("re-probing intents", "err", err)
