@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same PR supersedes the older run. main is never
+# cancelled: every commit that lands there is one that gets deployed.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   lint-test:
     runs-on: ubuntu-latest
@@ -59,8 +65,115 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
+      # arm64 only: foundry is the one host, and it is aarch64. The builder
+      # stage runs on the runner's own platform and cross-compiles, and the
+      # final stage is a COPY, so no QEMU is needed.
       - uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/arm64
           push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  push-image:
+    needs: [lint-test, secret-scan, prose, docker-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/arm64
+          cache-from: type=gha
+          tags: |
+            ghcr.io/6586x57890143/skua:latest
+            ghcr.io/6586x57890143/skua:${{ github.sha }}
+
+  deploy:
+    needs: push-image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # One skua deploy at a time. Concurrency groups are per repository, so
+    # this does NOT serialise against merlin's or peregrine's deploys on the
+    # same host; the prune below is label-scoped for that reason. Never
+    # cancelled midway: a queued run that is superseded has not started the
+    # script, which is the safe direction.
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      # Skips (green, with a notice) rather than failing when the host is not
+      # configured, so an unconfigured deploy never reads as a broken build.
+      # DEPLOY_ENABLED is the deliberate switch: set the repository variable
+      # to "true" once /home/deploy/skua/.env exists on foundry with a token,
+      # or every merge would start a bot that crash-loops on a missing token.
+      - name: Check deploy is configured
+        id: vps
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          DEPLOY_ENABLED: ${{ vars.DEPLOY_ENABLED }}
+        run: |
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping deploy: VPS_HOST/VPS_SSH_KEY not set. The image is on GHCR."
+          elif [ "$DEPLOY_ENABLED" != "true" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping deploy: repository variable DEPLOY_ENABLED is not \"true\". The image is on GHCR."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Copy prod compose file
+        if: steps.vps.outputs.configured == 'true'
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: deploy
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "docker-compose.prod.yml"
+          target: "/home/deploy/skua"
+      - name: Pull and restart on foundry
+        if: steps.vps.outputs.configured == 'true'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: deploy
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: GHCR_TOKEN,GHCR_USER,IMAGE_TAG
+          script: |
+            set -e
+            cd /home/deploy/skua
+            test -f .env || { echo "/home/deploy/skua/.env is missing"; exit 1; }
+            export SKUA_IMAGE_TAG="$IMAGE_TAG"
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            docker compose -f docker-compose.prod.yml pull bot
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            docker logout ghcr.io
+            # Written only once the tag is actually running (peregrine learned
+            # this the hard way): the file is read at the moment somebody needs
+            # to roll back, so it must name a version that exists on the host.
+            [ -f deployed-tag.env ] && cp deployed-tag.env previous-tag.env
+            echo "SKUA_IMAGE_TAG=$IMAGE_TAG" > deployed-tag.env
+            # Dangling skua layers older than a week only: the previous
+            # release survives for a rollback, and the label keeps this from
+            # racing a sibling repo's pull on the same daemon, which is how
+            # peregrine's deploy died with `lease does not exist`.
+            docker image prune -f --filter "until=168h"               --filter "label=org.opencontainers.image.source=https://github.com/6586x57890143/skua"
+            docker compose -f docker-compose.prod.yml ps
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          IMAGE_TAG: ${{ github.sha }}
