@@ -115,12 +115,18 @@ jobs:
     concurrency:
       group: deploy-vps
       cancel-in-progress: false
+    # Where on the host, from repository variables that tools/setup writes,
+    # so moving to a host laid out differently needs no workflow change.
+    # The defaults are foundry's. VPS_DIR is absolute: setup asks the host.
+    env:
+      VPS_USER: ${{ vars.VPS_USER || 'deploy' }}
+      VPS_DIR: ${{ vars.VPS_DIR || '/home/deploy/skua' }}
     steps:
       - uses: actions/checkout@v7
       # Skips (green, with a notice) rather than failing when the host is not
       # configured, so an unconfigured deploy never reads as a broken build.
       # DEPLOY_ENABLED is the deliberate switch: set the repository variable
-      # to "true" once /home/deploy/skua/.env exists on foundry with a token,
+      # to "true" once $VPS_DIR/.env exists on the host with a token,
       # or every merge would start a bot that crash-loops on a missing token.
       - name: Check deploy is configured
         id: vps
@@ -143,22 +149,22 @@ jobs:
         uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.VPS_HOST }}
-          username: deploy
+          username: ${{ env.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           source: "docker-compose.prod.yml"
-          target: "/home/deploy/skua"
+          target: ${{ env.VPS_DIR }}
       - name: Pull and restart on foundry
         if: steps.vps.outputs.configured == 'true'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
-          username: deploy
+          username: ${{ env.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: GHCR_TOKEN,GHCR_USER,IMAGE_TAG
+          envs: GHCR_TOKEN,GHCR_USER,IMAGE_TAG,VPS_DIR
           script: |
             set -e
-            cd /home/deploy/skua
-            test -f .env || { echo "/home/deploy/skua/.env is missing"; exit 1; }
+            cd "$VPS_DIR"
+            test -f .env || { echo "$VPS_DIR/.env is missing; run tools/setup against this host"; exit 1; }
             export SKUA_IMAGE_TAG="$IMAGE_TAG"
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             docker compose -f docker-compose.prod.yml pull bot
