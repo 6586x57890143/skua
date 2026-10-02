@@ -42,8 +42,12 @@ Decisions worth keeping:
 - `/echo` (milestone 1) is the first module that writes through the guard: webhook
   posts and creations per guild, plus a per-member `EchoMember` cap so one member
   cannot spend a guild's budget. `main` builds one guard and hands it to every module.
-- Echo's known gaps: webhook posts skip AutoMod and slowmode. Whether echo should check
-  text against the guild's AutoMod rules first is a product call, not yet made.
+- Webhook posts skip Discord's AutoMod and slowmode, so echo applies them itself.
+  Slowmode is done: per channel and member, with Manage Messages and Manage Channels
+  exempt. AutoMod is not yet: skua's automod will be rung 0 (which skips webhook
+  messages) plus a rung 1 regex suite. Echo must screen its text through rung 1 before
+  posting and refuse on a match, taking the matcher as a constructor argument when the
+  automod module lands.
 - Not run against Discord yet: needs a dev bot token.
 - No `default.pgo` yet (experiment 2 needs real load first).
 - The avatar is drawn and recoloured; the banner is still computed. A drawn banner can

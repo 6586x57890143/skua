@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
@@ -25,6 +26,9 @@ func TestCheck(t *testing.T) {
 		"a # in the mid": "a # in the mid",
 		"> quoted":       "> quoted",
 		"1. first":       "1. first",
+		"#1 fan":         "#1 fan",
+		"2024 #goals":    "2024 #goals",
+		"-#nospace":      "-#nospace",
 	}
 	for in, want := range ok {
 		if got, err := check(in); err != nil || got != want {
@@ -34,7 +38,7 @@ func TestCheck(t *testing.T) {
 	for _, in := range []string{
 		"", "   ",
 		"a\nb", "a\rb", "a b", "a b", "a\tb",
-		"# x", "-# x", "> -# x", "- -# x", "* ## x", "  -# echoed through skua by @mod",
+		"# x", "## x", "### x", "-# x", "> -# x", "- -# x", "* ## x", "  -# echoed through skua by @mod",
 		"1. -# echoed through skua by @mod", "2) # x",
 		strings.Repeat("a", maxText+1),
 	} {
@@ -108,6 +112,7 @@ func incoming(id, appID string) discord.IncomingWebhook {
 type opts struct {
 	text, until   string
 	channelType   int
+	slowmode      int
 	perms, appPms discord.Permissions
 	user          string
 }
@@ -130,11 +135,11 @@ func run(t *testing.T, m *Module, f *fake, o opts) (string, error) {
 		until = `"` + o.until + `"`
 	}
 	payload := fmt.Sprintf(`{"id":"1300000000000000000","application_id":"%s","type":2,"token":"tok","version":1,
-		"guild_id":"3","channel":{"id":"4","type":%d},"app_permissions":"%d",
+		"guild_id":"3","channel":{"id":"4","type":%d,"rate_limit_per_user":%d},"app_permissions":"%d",
 		"member":{"user":{"id":"%s","username":"a_b","discriminator":"0"},"nick":"Nick","roles":[],"joined_at":"2020-01-01T00:00:00Z",
 			"permissions":"%d","communication_disabled_until":%s},
 		"data":{"id":"6","name":"echo","type":1,"options":[{"name":"text","type":3,"value":%q}]}}`,
-		app, o.channelType, o.appPms, o.user, o.perms, until, o.text)
+		app, o.channelType, o.slowmode, o.appPms, o.user, o.perms, until, o.text)
 	var i discord.ApplicationCommandInteraction
 	if err := json.Unmarshal([]byte(payload), &i); err != nil {
 		t.Fatal(err)
@@ -268,5 +273,37 @@ func TestStruggling(t *testing.T) {
 		if got := struggling(c.err); got != c.want {
 			t.Errorf("struggling(%v) = %v, want %v", c.err, got, c.want)
 		}
+	}
+}
+
+func TestEchoHonoursSlowmode(t *testing.T) {
+	m, f := New(guard.New()), &fake{}
+	clock := time.Unix(1_000_000, 0)
+	m.now = func() time.Time { return clock }
+	o := opts{perms: permSend, slowmode: 30}
+
+	if _, err := run(t, m, f, o); err != nil {
+		t.Fatalf("first echo: %v", err)
+	}
+	clock = clock.Add(10 * time.Second)
+	if _, err := run(t, m, f, o); err == nil || !strings.Contains(err.Error(), "try again in 20s") {
+		t.Fatalf("inside the window: %v", err)
+	}
+	clock = clock.Add(20 * time.Second) // the refusal did not restart the window
+	if _, err := run(t, m, f, o); err != nil {
+		t.Fatalf("after the window: %v", err)
+	}
+	if _, err := run(t, m, f, opts{perms: permSend, slowmode: 30, user: "6"}); err != nil {
+		t.Errorf("another member shares the window: %v", err)
+	}
+	for _, exempt := range []discord.Permissions{discord.PermissionManageMessages, discord.PermissionManageChannels} {
+		for range 2 {
+			if _, err := run(t, m, f, opts{perms: permSend | exempt, slowmode: 30, user: "7"}); err != nil {
+				t.Errorf("member with %v held to slowmode: %v", exempt, err)
+			}
+		}
+	}
+	if len(f.sent) != 7 {
+		t.Errorf("sent %d echoes, want 7", len(f.sent))
 	}
 }
