@@ -1,4 +1,4 @@
-package echo
+package whisper
 
 import (
 	"errors"
@@ -19,7 +19,7 @@ import (
 const ctApp = "2"
 
 // fetched is what GetWebhookMessage returns, and records reads, edits and
-// deletes of echoes, on top of the posting fake.
+// deletes of whispers, on top of the posting fake.
 func (f *fake) GetWebhookMessage(_ snowflake.ID, _ string, id snowflake.ID, _ ...rest.RequestOpt) (*discord.Message, error) {
 	if f.fetched == nil {
 		return nil, errors.New("no such message")
@@ -55,16 +55,26 @@ func target(t *testing.T, name, content string, webhook int, app string) (*event
 	})
 }
 
-func TestDeleteEchoRemovesOnlyTheMembersOwn(t *testing.T) {
+func TestDeleteWhisperRemovesOnlyTheMembersOwn(t *testing.T) {
 	mine := "hello" + marker("member")
 	f := &fake{owned: []discord.Webhook{incoming("701", ctApp)}}
-	e, _ := target(t, "Delete echo", mine, 701, ctApp)
+	e, _ := target(t, "Delete whisper", mine, 701, ctApp)
 	e.Client().Rest = f
-	if err := newEcho().deleteEcho(t.Context(), e); err != nil {
+	if err := newWhisper().deleteWhisper(t.Context(), e); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.removed) != 1 || f.removed[0] != 8 || f.deletes != 1 {
 		t.Fatalf("removed %v, deferred replies deleted %d: want message 8 gone, silently", f.removed, f.deletes)
+	}
+
+	// Posted before the rename: the old marker still says whose it is, and
+	// only for that member.
+	legacy := func(user string) string { return "hello\n-# echoed through skua by @" + user }
+	if text, ok := byMember(discord.Message{Content: legacy("member")}, "member"); !ok || text != "hello" {
+		t.Errorf("a pre-rename post: %q, %v", text, ok)
+	}
+	if _, ok := byMember(discord.Message{Content: legacy("other")}, "member"); ok {
+		t.Error("someone else's pre-rename post counted as the member's")
 	}
 
 	for name, c := range map[string]struct {
@@ -72,42 +82,42 @@ func TestDeleteEchoRemovesOnlyTheMembersOwn(t *testing.T) {
 		webhook int
 		app     string
 	}{
-		"someone else's echo":      {"hello" + marker("other"), 701, ctApp},
+		"someone else's whisper":   {"hello" + marker("other"), 701, ctApp},
 		"a member's own message":   {"hello" + marker("member"), 0, ""},
 		"another app's webhook":    {"hello" + marker("member"), 701, "999"},
 		"a marker in the middle":   {"x" + marker("member") + " and more", 701, ctApp},
 		"another member, prefixed": {"hello" + marker("amember"), 701, ctApp},
 	} {
 		f := &fake{owned: []discord.Webhook{incoming("701", ctApp)}}
-		e, _ := target(t, "Delete echo", c.content, c.webhook, c.app)
+		e, _ := target(t, "Delete whisper", c.content, c.webhook, c.app)
 		e.Client().Rest = f
-		if err := newEcho().deleteEcho(t.Context(), e); !errors.Is(err, errNotYours) || len(f.removed) != 0 {
+		if err := newWhisper().deleteWhisper(t.Context(), e); !errors.Is(err, errNotYours) || len(f.removed) != 0 {
 			t.Errorf("%s: err %v, removed %v", name, err, f.removed)
 		}
 	}
 }
 
-func TestEditEchoOpensAPrefilledBox(t *testing.T) {
-	e, _ := target(t, "Edit echo", `-\# my words`+marker("member"), 701, ctApp)
+func TestEditWhisperOpensAPrefilledBox(t *testing.T) {
+	e, _ := target(t, "Edit whisper", `-\# my words`+marker("member"), 701, ctApp)
 	var modal discord.ModalCreate
 	e.Respond = func(_ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
 		modal = d.(discord.ModalCreate)
 		return nil
 	}
-	if err := newEcho().editEcho(t.Context(), e); err != nil {
+	if err := newWhisper().editWhisper(t.Context(), e); err != nil {
 		t.Fatal(err)
 	}
-	if modal.CustomID != "echo-edit:701:8" {
+	if modal.CustomID != "whisper-edit:701:8" {
 		t.Errorf("custom ID %q", modal.CustomID)
 	}
 	in := modal.Components[0].(discord.LabelComponent).Component.(discord.TextInputComponent)
 	if in.Value != `-\# my words` || in.MaxLength != maxText || in.Style != discord.TextInputStyleShort {
-		t.Errorf("text input %+v: want the echo minus its marker, one line, capped", in)
+		t.Errorf("text input %+v: want the whisper minus its marker, one line, capped", in)
 	}
 
-	e, _ = target(t, "Edit echo", "hi"+marker("other"), 701, ctApp)
-	if err := newEcho().editEcho(t.Context(), e); !errors.Is(err, errNotYours) {
-		t.Errorf("someone else's echo: %v", err)
+	e, _ = target(t, "Edit whisper", "hi"+marker("other"), 701, ctApp)
+	if err := newWhisper().editWhisper(t.Context(), e); !errors.Is(err, errNotYours) {
+		t.Errorf("someone else's whisper: %v", err)
 	}
 }
 
@@ -117,9 +127,9 @@ func TestSubmitEditRewritesThroughTheSameScreen(t *testing.T) {
 		owned:   []discord.Webhook{incoming("701", ctApp)},
 		fetched: &discord.Message{Content: "old" + marker("member")},
 	}
-	e, _ := coretest.Modal(t, "echo-edit:701:8", map[string]string{"message": "you f4ggot\nlook -# here"}, sendAll)
+	e, _ := coretest.Modal(t, "whisper-edit:701:8", map[string]string{"message": "you f4ggot\nlook -# here"}, sendAll)
 	e.Client().Rest = f
-	if err := newEcho().submitEdit(t.Context(), e); err != nil {
+	if err := newWhisper().submitEdit(t.Context(), e); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.updates) != 1 || f.deletes != 1 {
@@ -140,14 +150,14 @@ func TestSubmitEditRewritesThroughTheSameScreen(t *testing.T) {
 		edit     func(map[string]any)
 		want     string
 	}{
-		"a forged custom ID":   {"echo-edit:nope", "x", nil, sendAll, "out of date"},
-		"a foreign webhook":    {"echo-edit:999:8", "x", nil, sendAll, "your own"},
-		"someone else's echo":  {"echo-edit:701:8", "x", &discord.Message{Content: "old" + marker("other")}, sendAll, "your own"},
-		"a vanished echo":      {"echo-edit:701:8", "x", nil, sendAll, "couldn't be found"},
-		"no Send Messages":     {"echo-edit:701:8", "x", nil, nil, "can't send"},
-		"a grabber link":       {"echo-edit:701:8", "https://grabify.link/x", nil, sendAll, "ip grabber"},
-		"nothing left to post": {"echo-edit:701:8", " \n ", nil, sendAll, "nothing to send"},
-		"a timeout": {"echo-edit:701:8", "x", nil, func(p map[string]any) {
+		"a forged custom ID":     {"whisper-edit:nope", "x", nil, sendAll, "out of date"},
+		"a foreign webhook":      {"whisper-edit:999:8", "x", nil, sendAll, "your own"},
+		"someone else's whisper": {"whisper-edit:701:8", "x", &discord.Message{Content: "old" + marker("other")}, sendAll, "your own"},
+		"a vanished whisper":     {"whisper-edit:701:8", "x", nil, sendAll, "couldn't be found"},
+		"no Send Messages":       {"whisper-edit:701:8", "x", nil, nil, "can't send"},
+		"a grabber link":         {"whisper-edit:701:8", "https://grabify.link/x", nil, sendAll, "ip grabber"},
+		"nothing left to post":   {"whisper-edit:701:8", " \n ", nil, sendAll, "nothing to send"},
+		"a timeout": {"whisper-edit:701:8", "x", nil, func(p map[string]any) {
 			sendAll(p)
 			p["member"].(map[string]any)["communication_disabled_until"] = "2999-01-01T00:00:00Z"
 		}, "timed out"},
@@ -156,20 +166,20 @@ func TestSubmitEditRewritesThroughTheSameScreen(t *testing.T) {
 		f := &fake{owned: []discord.Webhook{incoming("701", ctApp)}, fetched: c.fetched}
 		e, _ := coretest.Modal(t, c.id, map[string]string{"message": c.text}, c.edit)
 		e.Client().Rest = f
-		err := newEcho().submitEdit(t.Context(), e)
+		err := newWhisper().submitEdit(t.Context(), e)
 		if err == nil || !strings.Contains(err.Error(), c.want) || len(f.updates) != 0 {
 			t.Errorf("%s: err %v, updates %d, want %q and nothing changed", name, err, len(f.updates), c.want)
 		}
 	}
 }
 
-func TestEchoOffersItsOwnershipCommandsAndModal(t *testing.T) {
-	m := newEcho()
+func TestWhisperOffersItsOwnershipCommandsAndModal(t *testing.T) {
+	m := newWhisper()
 	var names []string
 	for _, c := range m.Commands() {
 		names = append(names, c.Create.CommandName())
 	}
-	if strings.Join(names, ",") != "echo,Edit echo,Delete echo" {
+	if strings.Join(names, ",") != "whisper,Edit whisper,Delete whisper" {
 		t.Errorf("commands %v", names)
 	}
 	if md := m.Modals(); len(md) != 1 || md[0].ID != editModal {
@@ -181,12 +191,12 @@ func TestEchoOffersItsOwnershipCommandsAndModal(t *testing.T) {
 // be Tells: checked as the reply the member gets, not as a returned error.
 func TestEditRefusalsReachTheMemberThroughTheRouter(t *testing.T) {
 	r := core.NewRouter(0, nil, slog.New(slog.DiscardHandler))
-	if err := r.Add(newEcho()); err != nil {
+	if err := r.Add(newWhisper()); err != nil {
 		t.Fatal(err)
 	}
 	for id, want := range map[string]string{
-		"echo-edit:not-a-snowflake": "✗ that edit box is out of date; open it again",
-		"echo-edit:701:8":           "✗ you can't send messages in this channel",
+		"whisper-edit:not-a-snowflake": "✗ that edit box is out of date; open it again",
+		"whisper-edit:701:8":           "✗ you can't send messages in this channel",
 	} {
 		e, sent := coretest.Modal(t, id, map[string]string{"message": " "}, nil)
 		r.OnModal(e)

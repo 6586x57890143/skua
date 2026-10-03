@@ -59,7 +59,7 @@ type Modals interface {
 }
 
 // Modal handles the submissions of every modal whose custom ID is ID, or
-// starts with ID and a colon ("echo-edit:<channel>:<message>"). The custom
+// starts with ID and a colon ("whisper-edit:<channel>:<message>"). The custom
 // ID arrives from the member's client, so Run re-checks everything it
 // relies on; Discord only promises the modal was one skua opened. Run's ctx
 // is a command's: it ends with the response window.

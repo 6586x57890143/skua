@@ -6,7 +6,7 @@
 // /bird makes one API call and one download, and each replaced message costs
 // a webhook post and a delete, both spent through the guard. The post goes
 // up before the original comes down, so a failure leaves their message where
-// it was. Like echo, every post carries a subtext marker saying what
+// it was. Like whisper, every post carries a subtext marker saying what
 // happened, plus the recording's credit and licence as xeno-canto asks.
 package bird
 

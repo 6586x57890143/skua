@@ -39,21 +39,21 @@ Decisions worth keeping:
   token to foundry, flips the variable, deploys and prints the invite. Merges until then
   still build and push the image.
 - No migration runner or tables: nothing needs one.
-- `/echo` (milestone 1) is the first module that writes through the guard: webhook
-  posts and creations per guild, plus a per-member `EchoMember` cap so one member
+- `/whisper` (milestone 1) is the first module that writes through the guard: webhook
+  posts and creations per guild, plus a per-member `WhisperMember` cap so one member
   cannot spend a guild's budget. `main` builds one guard and hands it to every module.
-- Webhook posts skip Discord's AutoMod and slowmode, so echo applies them itself.
+- Webhook posts skip Discord's AutoMod and slowmode, so whisper applies them itself.
   Slowmode is done: per channel and member, with Manage Messages and Manage Channels
-  exempt. AutoMod's job is done by `internal/filter`: every echo and the display name
+  exempt. AutoMod's job is done by `internal/filter`: every whisper and the display name
   it wears are screened before posting. Slurs are rewritten in place with a harmless
-  word and the echo still goes out; a bot token, phishing link or IP grabber refuses
+  word and the whisper still goes out; a bot token, phishing link or IP grabber refuses
   it. When automod lands, its rung 1 is `filter.Default()` over member messages and its
-  rung 0 skips webhooks, so echo and automod share one definition of a slur. Its
-  rewrite-and-repost goes through the same `webhook.Poster` as echo.
-- Members own their echoes: "Edit echo" and "Delete echo" under Apps on a right-click.
-  No table: an echo is the member's when it came through skua's webhook (skua's
+  rung 0 skips webhooks, so whisper and automod share one definition of a slur. Its
+  rewrite-and-repost goes through the same `webhook.Poster` as whisper.
+- Members own their whispers: "Edit whisper" and "Delete whisper" under Apps on a right-click.
+  No table: a whisper is the member's when it came through skua's webhook (skua's
   application ID on the message) and its last line is the marker with their username.
-  An edit opens a one-line box prefilled with the echo, and the new text passes the
+  An edit opens a one-line box prefilled with the whisper, and the new text passes the
   same gates, cap and filter as a post. Edits aren't charged slowmode, as in Discord.
 - The router takes message commands and modals (`core.Modals`, optional), and
   `webhook.Poster` gets, edits and deletes through skua's own webhooks only.
