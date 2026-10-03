@@ -50,6 +50,13 @@ Decisions worth keeping:
   it. When automod lands, its rung 1 is `filter.Default()` over member messages and its
   rung 0 skips webhooks, so echo and automod share one definition of a slur. Its
   rewrite-and-repost goes through the same `webhook.Poster` as echo.
+- Members own their echoes: "Edit echo" and "Delete echo" under Apps on a right-click.
+  No table: an echo is the member's when it came through skua's webhook (skua's
+  application ID on the message) and its last line is the marker with their username.
+  An edit opens a one-line box prefilled with the echo, and the new text passes the
+  same gates, cap and filter as a post. Edits aren't charged slowmode, as in Discord.
+- The router takes message commands and modals (`core.Modals`, optional), and
+  `webhook.Poster` gets, edits and deletes through skua's own webhooks only.
 - Not run against Discord yet: needs a dev bot token.
 - No `default.pgo` yet (experiment 2 needs real load first).
 - The avatar is drawn and recoloured; the banner is still computed. A drawn banner can

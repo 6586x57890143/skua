@@ -56,6 +56,72 @@ func (p *Poster) Send(ctx context.Context, r rest.Rest, guild, channel, app snow
 	}
 }
 
+// ErrNotOurs is a message that no webhook of skua's in its channel posted.
+var ErrNotOurs = errors.New("webhook: that message is not one skua posted")
+
+// Get fetches a message skua's webhook with id webhookID posted in channel.
+// It reads through the webhook's token, so it needs no channel permission.
+func (p *Poster) Get(ctx context.Context, r rest.Rest, channel, app, webhookID, message snowflake.ID) (*discord.Message, error) {
+	opt := rest.WithCtx(ctx)
+	token, err := p.token(r, opt, channel, app, webhookID)
+	if err != nil {
+		return nil, err
+	}
+	return r.GetWebhookMessage(webhookID, token, message, opt)
+}
+
+// Edit applies update to a message skua's webhook posted, spending the
+// guild's webhook budget like a post.
+func (p *Poster) Edit(ctx context.Context, r rest.Rest, guild, channel, app, webhookID, message snowflake.ID, update discord.WebhookMessageUpdate) error {
+	opt := rest.WithCtx(ctx)
+	token, err := p.token(r, opt, channel, app, webhookID)
+	if err != nil {
+		return err
+	}
+	if err := p.guard.Allow(guild, guard.WebhookExecute); err != nil {
+		return err
+	}
+	_, err = r.UpdateWebhookMessage(webhookID, token, message, update, rest.UpdateWebhookMessageParams{}, opt)
+	p.guard.Report(guild, struggling(err))
+	return err
+}
+
+// Delete removes a message skua's webhook posted.
+func (p *Poster) Delete(ctx context.Context, r rest.Rest, guild, channel, app, webhookID, message snowflake.ID) error {
+	opt := rest.WithCtx(ctx)
+	token, err := p.token(r, opt, channel, app, webhookID)
+	if err != nil {
+		return err
+	}
+	if err := p.guard.Allow(guild, guard.MessageDelete); err != nil {
+		return err
+	}
+	err = r.DeleteWebhookMessage(webhookID, token, message, 0, opt)
+	p.guard.Report(guild, struggling(err))
+	return err
+}
+
+// token is the token of skua's webhook webhookID in channel: the cached
+// one if that is it, else looked up among the channel's webhooks, which
+// also finds a second webhook a creation race left behind. A webhook that
+// is not skua's is ErrNotOurs, whatever posted through it.
+func (p *Poster) token(r rest.Rest, opt rest.RequestOpt, ch, app, webhookID snowflake.ID) (string, error) {
+	if v, ok := p.hooks.Load(ch); ok && v.(hook).id == webhookID {
+		return v.(hook).token, nil
+	}
+	existing, err := r.GetWebhooks(ch, opt)
+	if err != nil {
+		return "", fmt.Errorf("listing webhooks: %w", err)
+	}
+	for _, w := range existing {
+		if in, ok := w.(discord.IncomingWebhook); ok && in.ID() == webhookID && in.ApplicationID != nil && *in.ApplicationID == app && in.Token != "" {
+			p.hooks.LoadOrStore(ch, hook{in.ID(), in.Token})
+			return in.Token, nil
+		}
+	}
+	return "", ErrNotOurs
+}
+
 // hook returns this channel's webhook: cached, else the one skua already
 // owns there (so a restart reuses it), else a new one.
 //
