@@ -18,6 +18,7 @@ import (
 
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/core/coretest"
+	"github.com/6586x57890143/skua/internal/filter"
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/webhook"
 )
@@ -126,7 +127,7 @@ func (f *fake) CreateWebhookMessage(id snowflake.ID, _ string, m discord.Webhook
 // newEcho is echo as main builds it: one guard, shared with the poster.
 func newEcho() *Module {
 	g := guard.New()
-	return New(g, webhook.New(g))
+	return New(g, webhook.New(g), filter.Default())
 }
 
 func (f *fake) DeleteInteractionResponse(snowflake.ID, string, ...rest.RequestOpt) error {
@@ -147,7 +148,7 @@ type opts struct {
 	channelType   int
 	slowmode      int
 	perms, appPms discord.Permissions
-	user          string
+	user, nick    string
 }
 
 // run sends one /echo through m and returns the initial response, as
@@ -160,6 +161,9 @@ func run(t *testing.T, m *Module, f *fake, o opts) (string, error) {
 	if o.user == "" {
 		o.user = "5"
 	}
+	if o.nick == "" {
+		o.nick = "Nick"
+	}
 	if o.appPms == 0 {
 		o.appPms = discord.PermissionManageWebhooks
 	}
@@ -169,10 +173,10 @@ func run(t *testing.T, m *Module, f *fake, o opts) (string, error) {
 	}
 	payload := fmt.Sprintf(`{"id":"1300000000000000000","application_id":"%s","type":2,"token":"tok","version":1,
 		"guild_id":"3","channel":{"id":"4","type":%d,"rate_limit_per_user":%d},"app_permissions":"%d",
-		"member":{"user":{"id":"%s","username":"a_b","discriminator":"0"},"nick":"Nick","roles":[],"joined_at":"2020-01-01T00:00:00Z",
+		"member":{"user":{"id":"%s","username":"a_b","discriminator":"0"},"nick":%q,"roles":[],"joined_at":"2020-01-01T00:00:00Z",
 			"permissions":"%d","communication_disabled_until":%s},
 		"data":{"id":"6","name":"echo","type":1,"options":[{"name":"message","type":3,"value":%q}]}}`,
-		app, o.channelType, o.slowmode, o.appPms, o.user, o.perms, until, o.text)
+		app, o.channelType, o.slowmode, o.appPms, o.user, o.nick, o.perms, until, o.text)
 	var i discord.ApplicationCommandInteraction
 	if err := json.Unmarshal([]byte(payload), &i); err != nil {
 		t.Fatal(err)
@@ -374,12 +378,42 @@ func (p failingPoster) Send(context.Context, rest.Rest, snowflake.ID, snowflake.
 func TestSendFailuresReachTheMemberAsTells(t *testing.T) {
 	cause := errors.New("discord is down")
 	for in, want := range map[error]error{guard.ErrCircuitOpen: errBusy, guard.ErrRateLimited: errBusy, cause: errNotSent} {
-		_, err := run(t, New(guard.New(), failingPoster{in}), &fake{}, opts{perms: permSend})
+		_, err := run(t, New(guard.New(), failingPoster{in}, filter.Default()), &fake{}, opts{perms: permSend})
 		if !errors.Is(err, want) {
 			t.Errorf("Send failing with %v: got %v, want %v", in, err, want)
 		}
 		if want == errNotSent && !errors.Is(err, cause) {
 			t.Errorf("the cause was dropped: %v", err)
 		}
+	}
+}
+
+func TestEchoRewritesSlursAndStillPosts(t *testing.T) {
+	f := &fake{}
+	reply, err := run(t, newEcho(), f, opts{text: "shut up you f4gg0t", nick: "n1gger king", perms: permSend})
+	if err != nil || reply != "deferred ephemeral" || len(f.sent) != 1 {
+		t.Fatalf("reply %q, err %v, sent %d: a slur should be rewritten, not refused", reply, err, len(f.sent))
+	}
+	got := f.sent[0]
+	if !strings.HasPrefix(got.Content, "shut up you ") || !strings.HasSuffix(got.Content, marker("a_b")) {
+		t.Errorf("posted %q: the sentence and the marker must survive", got.Content)
+	}
+	screen := filter.Default()
+	if screen.Check(got.Content).Rewrote || screen.Check(got.Username).Rewrote {
+		t.Errorf("posted %q as %q: a slur got through", got.Content, got.Username)
+	}
+	if !strings.HasSuffix(got.Username, " king") {
+		t.Errorf("display name %q lost the rest of the name", got.Username)
+	}
+}
+
+func TestEchoRefusesWhatCannotBeRewritten(t *testing.T) {
+	f := &fake{}
+	_, err := run(t, newEcho(), f, opts{text: "free nitro https://grabify.link/abc", perms: permSend})
+	if err == nil || !strings.Contains(err.Error(), "ip grabber") || len(f.sent) != 0 {
+		t.Fatalf("err %v, sent %d: a grabber link should be refused and never posted", err, len(f.sent))
+	}
+	if _, ok := errors.AsType[core.Tell](err); !ok {
+		t.Errorf("refusal %v is not a core.Tell, so the member would never read it", err)
 	}
 }
