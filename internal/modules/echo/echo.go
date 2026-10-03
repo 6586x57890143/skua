@@ -16,6 +16,8 @@
 // token or a malicious link refuses it. Nothing is ever posted to delete.
 // The filter is the same one automod's rung 1 runs over member messages
 // (whose rung 0 skips webhooks), so the two cannot disagree.
+//
+// A member can edit or delete their own echoes afterwards (own.go).
 package echo
 
 import (
@@ -54,6 +56,9 @@ type screen interface {
 // poster is the slice of webhook.Poster echo uses.
 type poster interface {
 	Send(ctx context.Context, r rest.Rest, guild, channel, app snowflake.ID, msg discord.WebhookMessageCreate) error
+	Get(ctx context.Context, r rest.Rest, channel, app, webhookID, message snowflake.ID) (*discord.Message, error)
+	Edit(ctx context.Context, r rest.Rest, guild, channel, app, webhookID, message snowflake.ID, update discord.WebhookMessageUpdate) error
+	Delete(ctx context.Context, r rest.Rest, guild, channel, app, webhookID, message snowflake.ID) error
 }
 
 type slow struct{ channel, user snowflake.ID }
@@ -87,7 +92,7 @@ func (*Module) Perms() discord.Permissions {
 }
 
 func (m *Module) Commands() []core.Command {
-	return []core.Command{{
+	return append([]core.Command{{
 		Create: discord.SlashCommandCreate{
 			Name:        "echo",
 			Description: "send a message under your own name",
@@ -98,7 +103,7 @@ func (m *Module) Commands() []core.Command {
 		},
 		Tier: core.Public,
 		Run:  m.echo,
-	}}
+	}}, m.ownCommands()...)
 }
 
 // What a member reads when echo says no. Each is a core.Tell, so the router
@@ -108,6 +113,7 @@ var (
 	// errBusy is the guild's webhook budget or breaker, not the member's.
 	errBusy    = core.Tell("skua is sending a lot in this server right now; try again in a couple of minutes")
 	errNotSent = core.Tell("your message didn't go through; try again in a moment")
+	errTooFast = core.Tell("you're sending too fast; try again in a couple of minutes")
 )
 
 // clean rewrites text so it can be posted as it was meant, never refusing
@@ -182,13 +188,8 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	default:
 		return core.Tell("/echo works in text channels, not threads or forum posts")
 	}
-	// Echo is for the restriction Discord applied, never a way around the
-	// ones this server applied.
-	if t := member.CommunicationDisabledUntil; t != nil && t.After(time.Now()) {
-		return core.Tell("you're timed out, so you can't send messages here yet")
-	}
-	if !member.Permissions.Has(discord.PermissionSendMessages) {
-		return core.Tell("you can't send messages in this channel")
+	if err := gates(member); err != nil {
+		return err
 	}
 	if p := e.AppPermissions(); p == nil || !p.Has(discord.PermissionManageWebhooks) {
 		return core.Tell("skua can't post here yet: it needs manage webhooks in this channel")
@@ -206,7 +207,7 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	// Per member before per guild, so one member cannot spend the whole
 	// guild's webhook budget and lock everyone else out.
 	if err := m.guard.Allow(member.User.ID, guard.EchoMember); err != nil {
-		return core.Tell("you're sending too fast; try again in a couple of minutes")
+		return errTooFast
 	}
 
 	msg := discord.WebhookMessageCreate{
@@ -231,18 +232,36 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	defer cancel()
 	r := e.Client().Rest
 	if err := m.post.Send(ctx, r, *guild, ch.ID(), e.ApplicationID(), msg); err != nil {
-		// The guild's budget or breaker said no: not the member's doing,
-		// and nothing to log. Anything else is logged under errNotSent.
-		if errors.Is(err, guard.ErrRateLimited) || errors.Is(err, guard.ErrCircuitOpen) {
-			return errBusy
-		}
-		return fmt.Errorf("%w: %w", errNotSent, err)
+		return failed(errNotSent, err)
 	}
 	// The echo is up. If the delete fails, the member alone is left with a
 	// stale "thinking"; failing here would undo their slowmode and report an
 	// error for an echo that went out.
 	_ = r.DeleteInteractionResponse(e.ApplicationID(), e.Token(), rest.WithCtx(ctx))
 	return nil
+}
+
+// gates is what this server requires of a member to post here, which echo
+// holds every echo and every edit of one to: echo is for the restriction
+// Discord applied, never a way around the ones the server applied.
+func gates(member *discord.ResolvedMember) error {
+	if t := member.CommunicationDisabledUntil; t != nil && t.After(time.Now()) {
+		return core.Tell("you're timed out, so you can't send messages here yet")
+	}
+	if !member.Permissions.Has(discord.PermissionSendMessages) {
+		return core.Tell("you can't send messages in this channel")
+	}
+	return nil
+}
+
+// failed is what a member reads when a webhook call fails. The guild's
+// budget or breaker saying no is not the member's doing and needs no log;
+// anything else is the given Tell, wrapping the cause for the log.
+func failed(tell core.Tell, err error) error {
+	if errors.Is(err, guard.ErrRateLimited) || errors.Is(err, guard.ErrCircuitOpen) {
+		return errBusy
+	}
+	return fmt.Errorf("%w: %w", tell, err)
 }
 
 // slowmode applies the channel's slowmode as Discord would to a message.
