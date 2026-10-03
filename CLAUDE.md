@@ -66,10 +66,12 @@ One change per PR. Branches are deleted on merge.
 CI (`.github/workflows/ci.yml`) runs on every PR and every push to `main`: vet, lint,
 race tests under a per-package coverage floor, govulncheck, gitleaks, the prose check
 (no em dashes, ellipsis characters or curly quotes anywhere; run its grep before
-committing), and an arm64 Docker build.
+committing), and a Docker build for the deploy host's platform (`VPS_PLATFORM`, written by
+`tools/setup`; arm64 by default).
 Those are the required checks. On `main` it then pushes
-`ghcr.io/6586x57890143/skua:<sha>` and deploys to foundry as `deploy` into
-`/home/deploy/skua`, using the `VPS_HOST`/`VPS_SSH_KEY` repository secrets. The deploy only runs while the repository variable `DEPLOY_ENABLED` is
+`ghcr.io/6586x57890143/skua:<sha>` and deploys to the host as `VPS_USER` into `VPS_DIR`
+(repository variables, defaulting to foundry's `deploy` and `/home/deploy/skua`; `tools/setup`
+writes them), using the `VPS_HOST`/`VPS_SSH_KEY` repository secrets. The deploy only runs while the repository variable `DEPLOY_ENABLED` is
 `true`; otherwise it skips green with a notice.
 
 Rollback, and the manual path, are in `docker-compose.prod.yml` and `scripts/deploy.sh`.
