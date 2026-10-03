@@ -45,16 +45,16 @@ const maxText = 1800
 // postBy bounds the webhook calls once the interaction is deferred.
 const postBy = 10 * time.Second
 
-type hook struct {
-	id    snowflake.ID
-	token string
+// poster is the slice of webhook.Poster echo uses.
+type poster interface {
+	Send(ctx context.Context, r rest.Rest, guild, channel, app snowflake.ID, msg discord.WebhookMessageCreate) error
 }
 
 type slow struct{ channel, user snowflake.ID }
 
 type Module struct {
 	guard *guard.Guard
-	hooks sync.Map // channel snowflake.ID -> hook
+	post  poster
 	// ponytail: never evicted, one entry per member per slowmode channel
 	// they have echoed in. Sweep entries older than six hours (the longest
 	// slowmode) if that ever shows up in a heap profile.
@@ -62,7 +62,9 @@ type Module struct {
 	now  func() time.Time
 }
 
-func New(g *guard.Guard) *Module { return &Module{guard: g, now: time.Now} }
+// New takes the process's one guard, for the per-member cap, and the poster
+// echoes go out through.
+func New(g *guard.Guard, p poster) *Module { return &Module{guard: g, post: p, now: time.Now} }
 
 func (*Module) Name() string { return "echo" }
 
@@ -213,31 +215,20 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	// no longer race the 3s window.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), postBy)
 	defer cancel()
-	r, opt := e.Client().Rest, rest.WithCtx(ctx)
-	for attempt := 0; ; attempt++ {
-		h, err := m.hook(r, opt, *guild, ch.ID(), e.ApplicationID())
-		if err != nil {
-			return err
-		}
-		if err := m.guard.Allow(*guild, guard.WebhookExecute); err != nil {
+	r := e.Client().Rest
+	if err := m.post.Send(ctx, r, *guild, ch.ID(), e.ApplicationID(), msg); err != nil {
+		// The guild's budget or breaker said no: not the member's doing,
+		// and nothing to log. Anything else is logged under errNotSent.
+		if errors.Is(err, guard.ErrRateLimited) || errors.Is(err, guard.ErrCircuitOpen) {
 			return errBusy
 		}
-		_, err = r.CreateWebhookMessage(h.id, h.token, msg, rest.CreateWebhookMessageParams{}, opt)
-		m.guard.Report(*guild, struggling(err))
-		// A mod deleted the webhook: forget it and make another, once.
-		if isCode(err, rest.JSONErrorCodeUnknownWebhook) && attempt == 0 {
-			m.hooks.Delete(ch.ID())
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("%w: %w", errNotSent, err)
-		}
-		// The echo is up. If the delete fails, the member alone is left
-		// with a stale "thinking"; failing here would undo their slowmode
-		// and report an error for an echo that went out.
-		_ = r.DeleteInteractionResponse(e.ApplicationID(), e.Token(), opt)
-		return nil
+		return fmt.Errorf("%w: %w", errNotSent, err)
 	}
+	// The echo is up. If the delete fails, the member alone is left with a
+	// stale "thinking"; failing here would undo their slowmode and report an
+	// error for an echo that went out.
+	_ = r.DeleteInteractionResponse(e.ApplicationID(), e.Token(), rest.WithCtx(ctx))
+	return nil
 }
 
 // slowmode applies the channel's slowmode as Discord would to a message.
@@ -270,53 +261,4 @@ func (m *Module) slowmode(ch discord.InteractionChannel, member *discord.Resolve
 		}
 	}
 	return 0, undo
-}
-
-// hook returns this channel's webhook: cached, else the one skua already
-// owns there (so a restart reuses it), else a new one.
-//
-// ponytail: two first echoes in one channel at the same moment can each
-// create a webhook, against Discord's 15 per channel. Both work and later
-// lookups settle on one; a per-channel singleflight is the fix if it bites.
-func (m *Module) hook(r rest.Rest, opt rest.RequestOpt, guild, ch, app snowflake.ID) (hook, error) {
-	if v, ok := m.hooks.Load(ch); ok {
-		return v.(hook), nil
-	}
-	existing, err := r.GetWebhooks(ch, opt)
-	if err != nil {
-		return hook{}, fmt.Errorf("listing webhooks: %w", err)
-	}
-	for _, w := range existing {
-		if in, ok := w.(discord.IncomingWebhook); ok && in.ApplicationID != nil && *in.ApplicationID == app && in.Token != "" {
-			h := hook{in.ID(), in.Token}
-			m.hooks.Store(ch, h)
-			return h, nil
-		}
-	}
-	if err := m.guard.Allow(guild, guard.WebhookCreate); err != nil {
-		return hook{}, errBusy
-	}
-	in, err := r.CreateWebhook(ch, discord.WebhookCreate{Name: "skua echo"}, opt)
-	m.guard.Report(guild, struggling(err))
-	if err != nil {
-		return hook{}, fmt.Errorf("creating the webhook: %w", err)
-	}
-	h := hook{in.ID(), in.Token}
-	m.hooks.Store(ch, h)
-	return h, nil
-}
-
-// struggling is true only for answers that say Discord is, not the request.
-func struggling(err error) bool {
-	re, ok := errors.AsType[*rest.Error](err)
-	if !ok || re.Response == nil {
-		return false
-	}
-	s := re.Response.StatusCode
-	return s == 429 || s >= 500
-}
-
-func isCode(err error, code rest.JSONErrorCode) bool {
-	re, ok := errors.AsType[*rest.Error](err)
-	return ok && re.Code == code
 }

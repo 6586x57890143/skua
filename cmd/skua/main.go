@@ -31,6 +31,7 @@ import (
 	"github.com/6586x57890143/skua/internal/modules/echo"
 	"github.com/6586x57890143/skua/internal/modules/status"
 	"github.com/6586x57890143/skua/internal/store"
+	"github.com/6586x57890143/skua/internal/webhook"
 )
 
 // reprobe is how often skua re-reads the portal's intent toggles. A change
@@ -108,7 +109,7 @@ func run(log *slog.Logger) error {
 			}
 			return client.Gateway.Latency()
 		}),
-		echo.New(g),
+		echo.New(g, webhook.New(g)),
 	}
 
 	wants := make(map[string]intents.Want, len(all))
