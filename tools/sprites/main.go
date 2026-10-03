@@ -1,11 +1,9 @@
-// Command sprites draws skua's mood icons from hand-authored pixel grids and
-// writes them to internal/brand/assets. Throwaway tooling, kept so the art
-// is reviewable as text and a palette change is one rerun:
+// Command sprites writes all of skua's art: the profile picture and mood
+// icons from the drawn avatar (avatar.go), the banner from shapes
+// (profile.go), and each mood's badge from the text grids below, so the
+// badges are reviewable as text and a palette change is one rerun:
 //
 //	go run ./tools/sprites
-//
-// A drawn sprite sheet can replace these later; brand only cares about the
-// file names.
 package main
 
 import (
@@ -19,29 +17,16 @@ import (
 	"strings"
 )
 
-// ink is the palette: a dark, cold skua, near-black outline, mottled umber
-// body, slate hooked bill, bone wing flash.
-var ink = map[byte]color.NRGBA{
-	'k': {0x0B, 0x0D, 0x10, 0xFF}, // outline
-	'd': {0x2B, 0x25, 0x21, 0xFF}, // dark umber
-	'm': {0x46, 0x3C, 0x34, 0xFF}, // mottle
-	'l': {0x6F, 0x63, 0x58, 0xFF}, // speckle
-	'b': {0x33, 0x39, 0x41, 0xFF}, // bill
-	'B': {0x5A, 0x64, 0x6F, 0xFF}, // bill highlight
-	'e': {0x02, 0x02, 0x03, 0xFF}, // eye
-	'w': {0xE6, 0xE1, 0xD6, 0xFF}, // glint
-	'n': {0x8C, 0x80, 0x72, 0xFF}, // pale streak
-	'h': {0x4A, 0x52, 0x5C, 0xFF}, // hook
-}
-
 // Each mood is a bone glyph on a rounded badge of the mood colour, lower
-// left.
+// left. A glyph is drawn on a 6 by 6 grid, centred in it, and the grid sits
+// one cell inside the badge's 8 by 8 interior, so every glyph is centred in
+// its badge. balanced enforces it.
 var glyphs = map[string][]string{
-	"ok":     {".....w", "....ww", "w..ww.", "wwww..", ".ww...", ""},
-	"error":  {"ww..ww", ".wwww.", "..ww..", ".wwww.", "ww..ww", ""},
-	"warn":   {"..ww..", "..ww..", "..ww..", "", "..ww..", ""},
-	"info":   {"..ww..", "", ".www..", "..ww..", "..ww..", ".wwww."},
-	"notice": {"..ww..", ".wwww.", ".wwww.", "wwwwww", "", "..ww.."},
+	"ok":     {".....w", "....ww", "...ww.", "w.ww..", "wwww..", ".ww..."},
+	"error":  {"ww..ww", ".wwww.", "..ww..", "..ww..", ".wwww.", "ww..ww"},
+	"warn":   {"..ww..", "..ww..", "..ww..", "..ww..", "......", "..ww.."},
+	"info":   {"..ww..", "......", ".www..", "..ww..", "..ww..", ".wwww."},
+	"notice": {"..ww..", ".wwww.", ".wwww.", "wwwwww", "......", "..ww.."},
 	"idle":   {"wwww..", "..w...", ".w....", "wwww..", "....ww", "....ww"},
 }
 
@@ -68,26 +53,35 @@ var moodInk = map[string]color.NRGBA{
 	"idle":   {0x6A, 0x70, 0x7A, 0xFF},
 }
 
+// The badge sits 8px (one badge cell) in from the icon's left and bottom
+// edges; its 10 cells of 8px end at 88 and 248 of 256.
+const cell, badgeX, badgeY = 8, 8, 168
+
 func main() {
 	out := filepath.Join("internal", "brand", "assets")
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		log.Fatal(err)
 	}
-	full, bird, err := avatar()
+	b, err := bird()
 	if err != nil {
 		log.Fatal(err)
 	}
-	// Every mood is the avatar's bird, cut out of its frame, wearing its
-	// badge at lower left in 8px cells.
+	// Every mood is the bird alone, centred, at 2x, wearing its badge.
+	icon := scale(centred(b), 256/grid)
 	for mood, g := range glyphs {
-		img := shrink(bird, 256)
-		drawScaled(img, badge, 8, 168, map[byte]color.NRGBA{'k': ink['k'], 'x': moodInk[mood]}, 8)
-		drawScaled(img, g, 24, 184, ink, 8)
-		if err := writeScaled(filepath.Join(out, "skua_"+mood+".png"), img, 1); err != nil {
+		if err := balanced(g); err != nil {
+			log.Fatalf("glyph %s: %v", mood, err)
+		}
+	}
+	for mood, g := range glyphs {
+		img := scale(icon, 1)
+		drawScaled(img, badge, badgeX, badgeY, map[byte]color.NRGBA{'k': lineInk, 'x': moodInk[mood]}, cell)
+		drawScaled(img, g, badgeX+2*cell, badgeY+2*cell, map[byte]color.NRGBA{'w': bone[1]}, cell)
+		if err := write(filepath.Join(out, "skua_"+mood+".png"), img); err != nil {
 			log.Fatal(err)
 		}
 	}
-	if err := writeScaled(filepath.Join(out, "skua_avatar.png"), shrink(bird, 256), 1); err != nil {
+	if err := write(filepath.Join(out, "skua_avatar.png"), icon); err != nil {
 		log.Fatal(err)
 	}
 	// Profile art lives outside the embedded assets: the binary never sends
@@ -95,12 +89,35 @@ func main() {
 	if err := os.MkdirAll("art", 0o755); err != nil {
 		log.Fatal(err)
 	}
-	if err := writeScaled(filepath.Join("art", "skua_pfp.png"), shrink(full, 1024), 1); err != nil {
+	if err := write(filepath.Join("art", "skua_pfp.png"), scale(pfp(b), 1024/grid)); err != nil {
 		log.Fatal(err)
 	}
-	if err := writeScaled(filepath.Join("art", "skua_banner.png"), banner(), 4); err != nil {
+	if err := write(filepath.Join("art", "skua_banner.png"), scale(banner(), 4)); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// balanced reports whether a glyph is 6 by 6 with equal empty space on
+// opposite sides, which is what centres it in the badge.
+func balanced(g []string) error {
+	if len(g) != 6 {
+		return fmt.Errorf("%d rows, want 6", len(g))
+	}
+	x0, x1, y0, y1 := 6, -1, 6, -1
+	for y, row := range g {
+		if len(row) != 6 {
+			return fmt.Errorf("row %q is not 6 wide", row)
+		}
+		for x := range 6 {
+			if row[x] == 'w' {
+				x0, x1, y0, y1 = min(x0, x), max(x1, x), min(y0, y), max(y1, y)
+			}
+		}
+	}
+	if x0 != 5-x1 || y0 != 5-y1 {
+		return fmt.Errorf("margins left %d right %d top %d bottom %d; it would sit off centre", x0, 5-x1, y0, 5-y1)
+	}
+	return nil
 }
 
 // drawScaled paints a text grid with each cell k pixels square. '.' is
@@ -155,9 +172,9 @@ func paletted(img *image.NRGBA) image.Image {
 	return out
 }
 
-// writeScaled upscales nearest-neighbour by k, so every logical pixel stays
-// a hard square.
-func writeScaled(path string, src *image.NRGBA, k int) error {
+// scale upscales nearest-neighbour by k, so every logical pixel stays a
+// hard square.
+func scale(src *image.NRGBA, k int) *image.NRGBA {
 	b := src.Bounds()
 	dst := image.NewNRGBA(image.Rect(0, 0, b.Dx()*k, b.Dy()*k))
 	for y := range b.Dy() * k {
@@ -165,12 +182,16 @@ func writeScaled(path string, src *image.NRGBA, k int) error {
 			dst.SetNRGBA(x, y, src.NRGBAAt(x/k, y/k))
 		}
 	}
+	return dst
+}
+
+func write(path string, img *image.NRGBA) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	enc := png.Encoder{CompressionLevel: png.BestCompression}
-	if err := enc.Encode(f, paletted(dst)); err != nil {
+	if err := enc.Encode(f, paletted(img)); err != nil {
 		_ = f.Close()
 		return err
 	}

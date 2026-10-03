@@ -9,13 +9,13 @@ import (
 )
 
 // The avatar is drawn, not computed: art/source/skua_avatar_source.png is the
-// original, on a navy field with a lavender halo. This recolours it into
-// skua's scheme, so the source stays the one thing a person edits and the
-// palette stays the one thing this file owns:
+// original, on a navy field with a lavender halo. This lifts the bird out
+// and recolours it into skua's scheme, so the source stays the one thing a
+// person edits and the palette stays the one thing this file owns:
 //
-//   - the frame (anything clearly blue-shifted) becomes the flat field grey
-//     and the halo grey, edge pixels blended between the two by brightness
-//     so the stair-stepped halo keeps its shape;
+//   - the frame (anything clearly blue-shifted) is dropped; the profile
+//     picture redraws it as a flat field and a computed halo disc, centred
+//     on the grid, which the source's hand-stepped halo is not quite;
 //   - the bird's warm-neutral feathers map by brightness onto the umber
 //     ramp, topping out in the golden hackle tone;
 //   - cool greys (the bill, the darker wing feathers) map onto slate;
@@ -73,8 +73,7 @@ var (
 	}
 )
 
-// recolor maps one source pixel into skua's scheme. It also reports whether
-// the pixel was frame, so the bird can be cut out for the mood icons.
+// recolor maps one source pixel into skua's scheme, or reports it as frame.
 func recolor(c color.NRGBA) (color.NRGBA, bool) {
 	l := lum(c)
 	// Brightness is snapped to steps before any mapping, so each ramp yields
@@ -83,9 +82,7 @@ func recolor(c color.NRGBA) (color.NRGBA, bool) {
 	q := math.Round(l/lumStep) * lumStep
 	switch {
 	case frameAt(c):
-		// Field is about 66 bright, halo about 140; the blend between them
-		// is only there for the halo's edge pixels, so four steps do.
-		return mix(fieldInk, haloInk, math.Round((l-70)/65*3)/3), true
+		return color.NRGBA{}, true
 	case l < 14:
 		return lineInk, false // outline
 	case l > 190:
@@ -97,45 +94,104 @@ func recolor(c color.NRGBA) (color.NRGBA, bool) {
 	}
 }
 
-// avatar returns the recoloured avatar at source resolution, and the bird
-// alone on transparency at the same size.
-func avatar() (full, bird *image.NRGBA, err error) {
+// grid is the avatar's logical resolution, in cells across. Every avatar
+// output is a whole multiple of it: the profile picture is 128x8 = 1024 and
+// the mood icons 128x2 = 256, so a cell is always a hard square of one size.
+const grid = 128
+
+// haloR is the halo disc's radius in cells, the source halo's 1041px across
+// 1254 at 128 cells. Centred on the grid, it leaves 11 cells of field on
+// every side.
+const haloR = 53
+
+// bird returns the source's bird, recoloured, on transparency at grid
+// resolution.
+func bird() (*image.NRGBA, error) {
 	f, err := os.Open(avatarSource)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 	src, err := png.Decode(f)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	b := src.Bounds()
-	full = image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
-	bird = image.NewNRGBA(full.Bounds())
+	out := image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
 	for y := range b.Dy() {
 		for x := range b.Dx() {
 			c := color.NRGBAModel.Convert(src.At(b.Min.X+x, b.Min.Y+y)).(color.NRGBA)
-			out, frame := recolor(c)
-			full.SetNRGBA(x, y, out)
-			if !frame {
-				bird.SetNRGBA(x, y, out)
+			if c, frame := recolor(c); !frame {
+				out.SetNRGBA(x, y, c)
 			}
 		}
 	}
-	return full, bird, nil
+	return cells(out, grid), nil
 }
 
-// shrink resamples to n square by nearest neighbour, which keeps hard pixel
-// edges and adds no colours that are not already in the palette.
-func shrink(src *image.NRGBA, n int) *image.NRGBA {
+// cells resamples src onto an n by n grid. A cell is opaque when most of its
+// source pixels are, and then takes the colour most of those have. Nearest
+// neighbour would sample one pixel per cell, and the source's own cells are
+// about 13.5px, not a whole number, so its output mixed cells 1px to 5px
+// wide. This keeps every cell the same size and adds no colour.
+func cells(src *image.NRGBA, n int) *image.NRGBA {
 	b := src.Bounds()
 	dst := image.NewNRGBA(image.Rect(0, 0, n, n))
-	for y := range n {
-		for x := range n {
-			sx := b.Min.X + (2*x+1)*b.Dx()/(2*n)
-			sy := b.Min.Y + (2*y+1)*b.Dy()/(2*n)
-			dst.SetNRGBA(x, y, src.NRGBAAt(sx, sy))
+	for cy := range n {
+		for cx := range n {
+			count := map[color.NRGBA]int{}
+			var best color.NRGBA
+			top, opaque, all := 0, 0, 0
+			for y := cy * b.Dy() / n; y < (cy+1)*b.Dy()/n; y++ {
+				for x := cx * b.Dx() / n; x < (cx+1)*b.Dx()/n; x++ {
+					all++
+					c := src.NRGBAAt(b.Min.X+x, b.Min.Y+y)
+					if c.A == 0 {
+						continue
+					}
+					opaque++
+					count[c]++
+					if count[c] > top {
+						best, top = c, count[c]
+					}
+				}
+			}
+			if 2*opaque > all {
+				dst.SetNRGBA(cx, cy, best)
+			}
 		}
 	}
 	return dst
+}
+
+// pfp is the profile picture at grid resolution: the bird over a halo disc
+// centred on the field.
+func pfp(b *image.NRGBA) *image.NRGBA {
+	img := image.NewNRGBA(b.Bounds())
+	flat(img, fieldInk)
+	fill(img, func(x, y float64) bool { return math.Hypot(x-grid/2, y-grid/2) <= haloR }, solid(haloInk))
+	over(img, b)
+	return img
+}
+
+// centred moves the bird so its bounding box sits in the middle of the grid,
+// to the nearest whole cell.
+func centred(b *image.NRGBA) *image.NRGBA {
+	box := image.Rectangle{}
+	r := b.Bounds()
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			if b.NRGBAAt(x, y).A != 0 {
+				box = box.Union(image.Rect(x, y, x+1, y+1))
+			}
+		}
+	}
+	d := image.Pt((r.Dx()-box.Dx())/2-box.Min.X, (r.Dy()-box.Dy())/2-box.Min.Y)
+	out := image.NewNRGBA(r)
+	for y := box.Min.Y; y < box.Max.Y; y++ {
+		for x := box.Min.X; x < box.Max.X; x++ {
+			out.SetNRGBA(x+d.X, y+d.Y, b.NRGBAAt(x, y))
+		}
+	}
+	return out
 }
