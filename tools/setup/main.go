@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -450,11 +451,17 @@ func pointCI(repo, alias, dir string) error {
 		return fmt.Errorf("gh secret set VPS_HOST: %v %s", err, strings.TrimSpace(string(out)))
 	}
 	ok("VPS_HOST=%s", hostname)
-	abs, err := exec.Command("ssh", "-o", "BatchMode=yes", alias, "cd "+remoteDir(dir)+" && pwd").Output()
-	if err != nil || strings.TrimSpace(string(abs)) == "" {
-		return fmt.Errorf("asking %s where ~/%s is: %v", alias, dir, err)
+	// One round trip: where the directory is, and what the daemon runs on.
+	out, err := exec.Command("ssh", "-o", "BatchMode=yes", alias,
+		"cd "+remoteDir(dir)+" && pwd && docker version --format '{{.Server.Os}}/{{.Server.Arch}}'").Output()
+	if err != nil {
+		return fmt.Errorf("asking %s where ~/%s is and what docker runs on: %v", alias, dir, err)
 	}
-	for _, v := range [][2]string{{"VPS_USER", user}, {"VPS_DIR", strings.TrimSpace(string(abs))}} {
+	abs, platform, err := hostFacts(string(out))
+	if err != nil {
+		return fmt.Errorf("%s: %w", alias, err)
+	}
+	for _, v := range [][2]string{{"VPS_USER", user}, {"VPS_DIR", abs}, {"VPS_PLATFORM", platform}} {
 		if err := gh("variable", "set", v[0], "--body", v[1], "-R", repo); err != nil {
 			return err
 		}
@@ -471,6 +478,25 @@ func pointCI(repo, alias, dir string) error {
 		warn("%s connects through %s; CI will connect to %s directly", alias, p, hostname)
 	}
 	return nil
+}
+
+// platformRE is a buildx platform for one Linux architecture, as
+// `docker version` reports the daemon's: linux/arm64, linux/amd64.
+var platformRE = regexp.MustCompile(`^linux/[a-z0-9_]+$`)
+
+// hostFacts reads pointCI's round trip: the absolute directory on the first
+// line, the daemon's platform on the second. CI builds the image for exactly
+// that platform, so anything else is refused rather than passed on.
+func hostFacts(out string) (dir, platform string, err error) {
+	lines := strings.Split(strings.TrimSpace(strings.ReplaceAll(out, "\r", "")), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "/") {
+		return "", "", fmt.Errorf("expected a directory and a platform, got %q", out)
+	}
+	dir, platform = strings.TrimSpace(lines[0]), strings.TrimSpace(lines[1])
+	if !platformRE.MatchString(platform) {
+		return "", "", fmt.Errorf("docker reports platform %q, not linux/<arch>", platform)
+	}
+	return dir, platform, nil
 }
 
 // proxied names the proxyjump or proxycommand an `ssh -G` config uses, or

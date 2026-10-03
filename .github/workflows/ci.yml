@@ -67,13 +67,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
-      # arm64 only: foundry is the one host, and it is aarch64. The builder
-      # stage runs on the runner's own platform and cross-compiles, and the
-      # final stage is a COPY, so no QEMU is needed.
+      # Built only for the deploy host's platform, which tools/setup reads
+      # from the host's docker daemon into VPS_PLATFORM (foundry, the
+      # default, is aarch64). The builder stage runs on the runner's own
+      # platform and cross-compiles, and the final stage is a COPY onto a
+      # multi-arch base, so no QEMU is needed.
+      # ponytail: an image only runs on the platform it was built for, so
+      # after a move to another architecture, rolling back to a commit from
+      # before the move means rebuilding it (run this workflow on that
+      # commit, or scripts/deploy.sh, which builds on the host itself).
+      # Build both arches here if rollbacks across a move ever matter.
       - uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/arm64
+          platforms: ${{ vars.VPS_PLATFORM || 'linux/arm64' }}
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -97,7 +104,7 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/arm64
+          platforms: ${{ vars.VPS_PLATFORM || 'linux/arm64' }}
           cache-from: type=gha
           tags: |
             ghcr.io/6586x57890143/skua:latest
