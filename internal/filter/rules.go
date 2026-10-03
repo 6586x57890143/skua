@@ -150,7 +150,7 @@ var innocent = regexp.MustCompile(`(?i)^(?:snigger|niggard|gobbledygook|gobblede
 var Blocks = []Block{
 	{
 		// Whoever reads a bot token owns the bot.
-		Reason:  "a Discord bot token",
+		Reason:  "a discord bot token",
 		Pattern: regexp.MustCompile(`\b[A-Za-z0-9_-]{24,28}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}\b`),
 		Gate:    tokenShaped,
 	},
@@ -158,13 +158,13 @@ var Blocks = []Block{
 		// ponytail: a hand list of lookalike names and throwaway TLDs, which
 		// goes stale as campaigns move. A maintained phishing-domain feed,
 		// loaded at boot, is the upgrade.
-		Reason:  "a known Discord phishing link",
+		Reason:  "a known discord phishing link",
 		Pattern: regexp.MustCompile(`(?i)https?://[^\s/]*\b(discord|dlscord|discrod|discocrd|steamcommunlty|discordgift|dicsord)[a-z0-9-]*\.(ru|cf|gq|tk|ml|ga|xyz|top|click|link|monster|shop)\b`),
 		Gate:    hasLink,
 	},
 	{
 		// These services exist for one purpose and are named after it.
-		Reason:  "an IP grabber link",
+		Reason:  "an ip grabber link",
 		Pattern: regexp.MustCompile(`(?i)https?://(?:[a-z0-9-]+\.)?(grabify\.link|iplogger\.(org|com|ru)|blasze\.com|yip\.su|2no\.co|iplis\.ru|ps3cfw\.com)\b`),
 		Gate:    hasLink,
 	},

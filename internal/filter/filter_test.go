@@ -137,9 +137,9 @@ func TestBlocks(t *testing.T) {
 	// exactly what push protection and gitleaks exist to refuse.
 	token := strings.Repeat("A", 26) + "." + strings.Repeat("B", 6) + "." + strings.Repeat("C", 30)
 	for in, want := range map[string]string{
-		"click here lol https://grabify.link/abc123":  "an IP grabber link",
-		"free nitro at https://discord-gift.ru/claim": "a known Discord phishing link",
-		"my token is " + token + " oops":              "a Discord bot token",
+		"click here lol https://grabify.link/abc123":  "an ip grabber link",
+		"free nitro at https://discord-gift.ru/claim": "a known discord phishing link",
+		"my token is " + token + " oops":              "a discord bot token",
 	} {
 		if v := f.Check(in); v.Block != want {
 			t.Errorf("Check(%q).Block = %q, want %q", in, v.Block, want)
