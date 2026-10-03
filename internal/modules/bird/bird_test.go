@@ -99,7 +99,9 @@ func (zeros) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 
 func TestMarker(t *testing.T) {
 	cases := map[string]string{
-		"Eurasian Wren":            `-# @a\_b is an [eurasian wren](<https://xeno-canto.org/42>) for 9m`,
+		"Eurasian Wren":            `-# @a\_b is a [eurasian wren](<https://xeno-canto.org/42>) for 9m`,
+		"Upland Sandpiper":         `-# @a\_b is an [upland sandpiper](<https://xeno-canto.org/42>) for 9m`,
+		"Ural Owl":                 `-# @a\_b is a [ural owl](<https://xeno-canto.org/42>) for 9m`,
 		"Freckle-breasted Wood]pe": `-# @a\_b is a [freckle-breasted wood\]pe](<https://xeno-canto.org/42>) for 9m`,
 	}
 	for en, want := range cases {

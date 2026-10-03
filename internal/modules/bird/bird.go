@@ -298,8 +298,10 @@ var markdown = strings.NewReplacer(`\`, `\\`, `_`, `\_`, `*`, `\*`, `~`, `\~`, "
 func marker(username string, left time.Duration, rec recording) string {
 	mins := max(int(left.Round(time.Minute)/time.Minute), 1)
 	species := strings.ToLower(rec.En)
+	// "eu", "ura" and "uni" sound like "you": a eurasian wren, a ural owl.
 	article := "a"
-	if species != "" && strings.ContainsRune("aeiou", rune(species[0])) {
+	if species != "" && strings.ContainsRune("aeiou", rune(species[0])) &&
+		!strings.HasPrefix(species, "eu") && !strings.HasPrefix(species, "ura") && !strings.HasPrefix(species, "uni") {
 		article = "an"
 	}
 	return fmt.Sprintf("-# @%s is %s [%s](<https://xeno-canto.org/%s>) for %dm",
