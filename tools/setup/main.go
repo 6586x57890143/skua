@@ -60,14 +60,15 @@ type application struct {
 func main() {
 	host := flag.String("host", "foundry-deploy", "ssh alias of the deploy host")
 	dir := flag.String("dir", "skua", "directory on the host, relative to the deploy user's home")
-	repo := flag.String("repo", "6586x57890143/skua", "GitHub repository")
-	admin := flag.String("admin", "", "bootstrap admin user ID (default: the application's owner)")
+	repo := flag.String("repo", "6586x57890143/skua", "github repository")
+	admin := flag.String("admin", "", "bootstrap admin user id (default: the application's owner)")
 	noProfile := flag.Bool("no-profile", false, "leave the bot's avatar and banner alone")
 	noDeploy := flag.Bool("no-deploy", false, "write the host's .env but do not deploy")
 	flag.Parse()
 
 	if err := run(*host, *dir, *repo, *admin, *noProfile, *noDeploy); err != nil {
-		fmt.Fprintln(os.Stderr, "\n✗", err)
+		// The message's own lines line up under its first, in column 2.
+		fmt.Fprintf(os.Stderr, "\n✗ %s\n", strings.ReplaceAll(err.Error(), "\n", "\n  "))
 		os.Exit(1)
 	}
 }
@@ -76,7 +77,7 @@ func run(host, dir, repo, admin string, noProfile, noDeploy bool) error {
 	step("checking tools")
 	for _, tool := range []string{"ssh", "gh"} {
 		if _, err := exec.LookPath(tool); err != nil {
-			return fmt.Errorf("%s is not on PATH", tool)
+			return fmt.Errorf("%s is not on the path", tool)
 		}
 	}
 	fresh, err := probeHost(host, dir, true)
@@ -85,21 +86,30 @@ func run(host, dir, repo, admin string, noProfile, noDeploy bool) error {
 	}
 	ok("ssh %s, docker compose, gh", host)
 
-	token, err := readToken()
+	step("bot token")
+	token, fromEnv, err := readToken()
 	if err != nil {
 		return err
 	}
+	if fromEnv {
+		// Said out loud: a stale token left in the environment otherwise
+		// fails with no prompt and no hint of where it came from.
+		ok("from DISCORD_BOT_TOKEN in the environment")
+	}
 
-	step("checking the token with Discord")
+	step("checking the token with discord")
 	var app application
 	if err := discord(token, http.MethodGet, "/applications/@me", nil, &app); err != nil {
+		if errors.Is(err, errBadToken) && fromEnv {
+			return errors.New("discord rejected the token in DISCORD_BOT_TOKEN (401)\nunset it to be asked for one, or set it to a fresh token from the portal")
+		}
 		return err
 	}
 	ok("%s (application %s)", app.Name, app.ID)
 
 	if admin == "" {
 		if admin = bootstrapAdmin(app); admin == "" {
-			return errors.New("could not tell who owns the application; pass -admin <your user ID>")
+			return errors.New("could not tell who owns the application; pass -admin <your user id>")
 		}
 	}
 	ok("bootstrap admin %s", admin)
@@ -133,28 +143,32 @@ func run(host, dir, repo, admin string, noProfile, noDeploy bool) error {
 		if err := profile(token); err != nil {
 			// Discord rate limits avatar changes hard; a re-run within the
 			// hour hitting it is expected and nothing else depends on it.
-			warn("%v (skipped; rerun later or with -no-profile)", err)
+			warn("%v", err)
+			note("skipped; rerun later, or pass -no-profile")
 		} else {
 			ok("set from art/")
 		}
 	}
 
-	step("privileged intents in the Developer Portal")
+	step("privileged intents in the developer portal")
 	for _, p := range []struct {
 		name      string
 		on, onLim int64
 	}{
-		{"Presence", 1 << 12, 1 << 13},
-		{"Server Members", 1 << 14, 1 << 15},
-		{"Message Content", 1 << 18, 1 << 19},
+		{"presence", 1 << 12, 1 << 13},
+		{"server members", 1 << 14, 1 << 15},
+		{"message content", 1 << 18, 1 << 19},
 	} {
 		state := "off"
 		if app.Flags&(p.on|p.onLim) != 0 {
 			state = "on"
 		}
-		fmt.Printf("    %-16s %s\n", p.name, state)
+		note("%-17s%s", p.name, state)
 	}
-	fmt.Printf("    No current module requires one. skua only asks for what is on, and\n    restarts itself within 10 minutes of a toggle: https://discord.com/developers/applications/%s/bot\n", app.ID)
+	note("")
+	note("no current module requires one; skua only asks for what is on,")
+	note("and restarts itself within 10 minutes of a toggle")
+	note("https://discord.com/developers/applications/%s/bot", app.ID)
 
 	if !noDeploy {
 		if err := deploy(repo, host, dir); err != nil {
@@ -163,11 +177,14 @@ func run(host, dir, repo, admin string, noProfile, noDeploy bool) error {
 	}
 
 	step("invite")
-	fmt.Printf("    %s  (redirects to https://discord.com/oauth2/authorize?client_id=%s)\n", inviteURL, app.ID)
+	note("%s", inviteURL)
+	note("redirects to https://discord.com/oauth2/authorize?client_id=%s", app.ID)
 	if !app.BotPublic {
-		fmt.Println("    The app is private, so only its owner can add it, which is the right default for a test bed.")
+		note("the app is private, so only its owner can add it; the right default for a test bed")
 	}
-	fmt.Println("\n  Then run /status in the server. Commands register the moment skua sees the guild.")
+
+	step("next")
+	note("run /status in the server; commands register the moment skua sees it")
 	return nil
 }
 
@@ -200,31 +217,35 @@ func bootstrapAdmin(app application) string {
 	return ""
 }
 
-func readToken() (string, error) {
+// readToken takes DISCORD_BOT_TOKEN when it is set, and says so through
+// fromEnv; otherwise it asks, with the input hidden.
+func readToken() (token string, fromEnv bool, err error) {
 	if t := strings.TrimSpace(os.Getenv("DISCORD_BOT_TOKEN")); t != "" {
-		return strings.TrimPrefix(t, "Bot "), nil
+		return strings.TrimPrefix(t, "Bot "), true, nil
 	}
-	fmt.Print("\n  Bot token (Developer Portal > Bot > Reset Token; input hidden): ")
+	note("developer portal > bot > reset token, then paste it here")
+	fmt.Print("      token (hidden): ")
 	var raw []byte
-	var err error
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		raw, err = term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Println()
 	} else {
 		raw, err = bufio.NewReader(os.Stdin).ReadBytes('\n')
 		if errors.Is(err, io.EOF) {
 			err = nil
 		}
 	}
+	fmt.Println() // hidden input echoes no newline of its own
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	t := strings.TrimPrefix(strings.TrimSpace(string(raw)), "Bot ")
 	if t == "" {
-		return "", errors.New("no token given")
+		return "", false, errors.New("no token given")
 	}
-	return t, nil
+	return t, false, nil
 }
+
+var errBadToken = errors.New("discord rejected the token (401); copy it again from the portal")
 
 func discord(token, method, path string, body, out any) error {
 	var r io.Reader
@@ -250,7 +271,7 @@ func discord(token, method, path string, body, out any) error {
 	data, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	switch {
 	case res.StatusCode == http.StatusUnauthorized:
-		return errors.New("the token was rejected by Discord (401); copy it again from the portal")
+		return errBadToken
 	case res.StatusCode >= 300:
 		return fmt.Errorf("%s %s: %s %s", method, path, res.Status, strings.TrimSpace(string(data)))
 	}
@@ -372,7 +393,7 @@ func dataURI(path string) (string, error) {
 // deploy switches the hold off, runs CI on main by hand, and waits until the
 // bot on the host logs that it is up.
 func deploy(repo, host, dir string) error {
-	step("deploying through GitHub Actions")
+	step("deploying through github actions")
 	if err := pointCI(repo, host, dir); err != nil {
 		return err
 	}
@@ -396,15 +417,15 @@ func deploy(repo, host, dir string) error {
 		time.Sleep(2 * time.Second)
 	}
 	if id == "" {
-		return errors.New("the dispatched run never appeared; check the Actions tab")
+		return errors.New("the dispatched run never appeared; check the actions tab")
 	}
-	fmt.Printf("    run https://github.com/%s/actions/runs/%s\n", repo, id)
+	note("https://github.com/%s/actions/runs/%s", repo, id)
 	watch := exec.Command("gh", "run", "watch", id, "-R", repo, "--exit-status", "--interval", "10")
 	watch.Stdout, watch.Stderr = io.Discard, os.Stderr
 	if err := watch.Run(); err != nil {
 		return fmt.Errorf("the deploy run failed: gh run view %s -R %s --log-failed", id, repo)
 	}
-	ok("CI and deploy passed")
+	ok("ci and deploy passed")
 
 	step("waiting for skua to come up on " + host)
 	deadline := time.Now().Add(90 * time.Second)
@@ -469,13 +490,13 @@ func pointCI(repo, alias, dir string) error {
 	}
 	names, err := exec.Command("gh", "secret", "list", "-R", repo, "--json", "name", "-q", ".[].name").Output()
 	if err != nil || !strings.Contains("\n"+string(names), "\nVPS_SSH_KEY\n") {
-		warn("VPS_SSH_KEY is not set: add the CI deploy key in the repository settings")
+		warn("VPS_SSH_KEY is not set: add the ci deploy key in the repository settings")
 	}
 	// CI connects straight to VPS_HOST. An alias that only works through a
 	// jump host or a proxy (a tailnet, a bastion) hands CI a name it may
 	// not be able to reach.
 	if p := proxied(string(cfg)); p != "" {
-		warn("%s connects through %s; CI will connect to %s directly", alias, p, hostname)
+		warn("%s connects through %s; ci will connect to %s directly", alias, p, hostname)
 	}
 	return nil
 }
@@ -529,6 +550,10 @@ func gh(args ...string) error {
 	return nil
 }
 
+// The output grid: a step's title in column 2 after its ▸, a result's
+// marker in column 4, and every line of text under a step in column 6,
+// marked or not. An error is ✗ in column 0, like a step.
 func step(s string)           { fmt.Printf("\n▸ %s\n", s) }
 func ok(f string, a ...any)   { fmt.Printf("    ✓ "+f+"\n", a...) }
 func warn(f string, a ...any) { fmt.Printf("    ! "+f+"\n", a...) }
+func note(f string, a ...any) { fmt.Println(strings.TrimRight("      "+fmt.Sprintf(f, a...), " ")) }
