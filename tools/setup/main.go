@@ -5,19 +5,22 @@
 //
 // It asks for the bot token (hidden), checks it against Discord, picks the
 // bootstrap admin (the application's owner unless -admin says otherwise),
-// writes both into .env on the host, gives the bot its avatar and banner,
-// reports the privileged intents the portal has on, switches the GitHub
-// deploy on, runs it, waits for the bot to say it is up, and prints the
-// invite link.
+// writes both into .env on the host (creating it, with a generated database
+// password, on a fresh host), gives the bot its avatar and banner, reports
+// the privileged intents the portal has on, points the GitHub deploy at the
+// host and switches it on, runs it, waits for the bot to say it is up, and
+// prints the invite link. Pointing it at a new ssh alias is how skua moves
+// to another server.
 //
-// The token never appears in a command line, here or on the host: it goes
-// to Discord in a header, to the host over ssh's stdin, and into the file
-// through the environment.
+// No secret appears in a command line, here or on the host: the token goes
+// to Discord in a header, and every value to the host over ssh's stdin, into
+// a umask 077 file that awk reads.
 package main
 
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -75,10 +78,11 @@ func run(host, dir, repo, admin string, noProfile, noDeploy bool) error {
 			return fmt.Errorf("%s is not on PATH", tool)
 		}
 	}
-	if out, err := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host, "test -f "+remoteDir(dir)+"/.env && echo ok").CombinedOutput(); err != nil || !strings.Contains(string(out), "ok") {
-		return fmt.Errorf("cannot reach ~/%s/.env on %s (%s)", dir, host, strings.TrimSpace(string(out)))
+	fresh, err := probeHost(host, dir, true)
+	if err != nil {
+		return err
 	}
-	ok("ssh %s, gh", host)
+	ok("ssh %s, docker compose, gh", host)
 
 	token, err := readToken()
 	if err != nil {
@@ -100,8 +104,26 @@ func run(host, dir, repo, admin string, noProfile, noDeploy bool) error {
 	ok("bootstrap admin %s", admin)
 
 	step("writing " + host + ":~/" + dir + "/.env")
-	if err := writeEnv(host, dir, token, admin); err != nil {
+	set := [][2]string{{"DISCORD_BOT_TOKEN", token}, {"SKUA_BOOTSTRAP_ADMIN_USER_ID", admin}}
+	if fresh {
+		// Only for a new .env: Postgres reads its password once, when the
+		// volume is first created, so changing it later locks the bot out.
+		// ponytail: "no .env" stands in for "no database". A host that lost
+		// its .env but kept skua_pgdata gets a password its database never
+		// saw. Harmless while no module has a table; with the first
+		// migration, also refuse when `docker volume inspect skua_pgdata`
+		// succeeds (the name is fixed by docker-compose.prod.yml's name:).
+		pw, err := password()
+		if err != nil {
+			return err
+		}
+		set = append(set, freshDB(pw)...)
+	}
+	if err := writeEnv(host, dir, set); err != nil {
 		return err
+	}
+	if fresh {
+		ok("new .env with a generated database password")
 	}
 	ok("DISCORD_BOT_TOKEN and SKUA_BOOTSTRAP_ADMIN_USER_ID set")
 
@@ -146,6 +168,23 @@ func run(host, dir, repo, admin string, noProfile, noDeploy bool) error {
 	}
 	fmt.Println("\n  Then run /status in the server. Commands register the moment skua sees the guild.")
 	return nil
+}
+
+// probeHost is one round trip: the host answers, has Docker Compose when
+// needCompose, and either has ~/<dir>/.env or is fresh.
+func probeHost(host, dir string, needCompose bool) (fresh bool, err error) {
+	probe := "test -f " + remoteDir(dir) + "/.env && echo have-env; echo reached"
+	if needCompose {
+		probe = "docker compose version >/dev/null 2>&1 || echo no-compose; " + probe
+	}
+	out, err := exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host, probe).CombinedOutput()
+	switch {
+	case err != nil || !strings.Contains(string(out), "reached"):
+		return false, fmt.Errorf("cannot reach %s over ssh (%s)", host, strings.TrimSpace(string(out)))
+	case strings.Contains(string(out), "no-compose"):
+		return false, fmt.Errorf("docker compose is not installed on %s", host)
+	}
+	return !strings.Contains(string(out), "have-env"), nil
 }
 
 // bootstrapAdmin is who owns the application: the team's owner when a team
@@ -220,46 +259,86 @@ func discord(token, method, path string, body, out any) error {
 	return nil
 }
 
-// envScript sets DISCORD_BOT_TOKEN and SKUA_BOOTSTRAP_ADMIN_USER_ID in
-// "$HOME/$1/.env", reading the two values from its stdin. Existing lines
-// are replaced, missing ones appended, everything else left byte for byte.
-// The values reach awk through ENVIRON, so they are never argv and never
-// interpreted: & \ / $ = in a token all come out literally. A temp file
-// and mv keep the file whole if anything fails, under umask 077.
+// envScript sets KEY=VALUE lines in "$HOME/$1/.env", reading them from its
+// stdin. Existing lines for those keys are replaced, missing ones appended,
+// everything else left byte for byte. A missing directory or .env is
+// created, which is what a fresh host has. The pairs go to a file and awk
+// splits each at its first "=" with substr, so values are never argv and
+// never interpreted: & \ / $ = in a token all come out literally. A temp
+// file and mv keep the file whole if anything fails, under umask 077.
 const envScript = `set -eu
-cd "$HOME/$1"
-IFS= read -r TOK; IFS= read -r ADM; export TOK ADM
 umask 077
+mkdir -p "$HOME/$1"
+cd "$HOME/$1"
+[ -f .env ] || : > .env
+kv=$(mktemp .kv.XXXXXX)
 tmp=$(mktemp .env.XXXXXX)
-awk 'BEGIN { t = 0; a = 0 }
-  /^DISCORD_BOT_TOKEN=/            { print "DISCORD_BOT_TOKEN=" ENVIRON["TOK"]; t = 1; next }
-  /^SKUA_BOOTSTRAP_ADMIN_USER_ID=/ { print "SKUA_BOOTSTRAP_ADMIN_USER_ID=" ENVIRON["ADM"]; a = 1; next }
-  { print }
-  END {
-    if (!t) print "DISCORD_BOT_TOKEN=" ENVIRON["TOK"]
-    if (!a) print "SKUA_BOOTSTRAP_ADMIN_USER_ID=" ENVIRON["ADM"]
-  }' .env > "$tmp"
+trap 'rm -f "$kv" "$tmp"' EXIT
+cat > "$kv"
+awk 'NR == FNR { i = index($0, "="); k = substr($0, 1, i - 1); v[k] = substr($0, i + 1); order[++n] = k; next }
+  { i = index($0, "="); k = substr($0, 1, i - 1)
+    if (i > 1 && (k in v)) { print k "=" v[k]; done[k] = 1; next }
+    print }
+  END { for (j = 1; j <= n; j++) if (!(order[j] in done)) print order[j] "=" v[order[j]] }' "$kv" .env > "$tmp"
 mv "$tmp" .env`
 
-// writeEnv sets the two values in the host's .env, replacing existing lines
-// or appending missing ones, and leaves everything else in the file alone.
-// Values travel on stdin and reach awk through the environment, so neither
-// shows in a process listing.
-func writeEnv(host, dir, token, admin string) error {
-	return writeEnvVia(host, dir, envScript, token, admin)
+// writeEnv sets each key to its value in the host's .env, replacing
+// existing lines or appending missing ones, and leaves everything else in
+// the file alone. Values travel on stdin, so none shows in a process
+// listing.
+func writeEnv(host, dir string, set [][2]string) error {
+	in, err := envLines(set)
+	if err != nil {
+		return err
+	}
+	return writeEnvVia(host, dir, envScript, in)
+}
+
+// envLines is set as envScript's stdin. A newline in a value would split it
+// into a second line, so it is refused rather than written.
+func envLines(set [][2]string) (string, error) {
+	var b strings.Builder
+	for _, kv := range set {
+		if strings.ContainsAny(kv[0], "=\n\r") || strings.ContainsAny(kv[1], "\n\r") {
+			return "", fmt.Errorf("%s: a key or value with a newline or a = in the key cannot go in .env", kv[0])
+		}
+		b.WriteString(kv[0] + "=" + kv[1] + "\n")
+	}
+	return b.String(), nil
+}
+
+// password is 32 random characters from the URL-safe base64 alphabet, so it
+// needs no escaping in .env or in the database URL.
+func password() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// freshDB is what a new .env needs for docker-compose.prod.yml's Postgres,
+// with SKUA_DATABASE_URL matching the password by construction.
+func freshDB(pw string) [][2]string {
+	return [][2]string{
+		{"POSTGRES_USER", "skua"},
+		{"POSTGRES_PASSWORD", pw},
+		{"SKUA_DATABASE_URL", "postgres://skua:" + pw + "@postgres:5432/skua?sslmode=disable"},
+		{"SKUA_LOG_LEVEL", "info"},
+	}
 }
 
 // writeEnvVia puts the script in a file first and then runs it with the
 // values on stdin: two ssh calls, but neither has to share its stdin between
 // a program and that program's input.
-func writeEnvVia(host, dir, script, token, admin string) error {
-	put := exec.Command("ssh", "-o", "BatchMode=yes", host, "umask 077; cat > "+remoteDir(dir)+"/.setup.sh")
+func writeEnvVia(host, dir, script, in string) error {
+	put := exec.Command("ssh", "-o", "BatchMode=yes", host, "umask 077; mkdir -p "+remoteDir(dir)+"; cat > "+remoteDir(dir)+"/.setup.sh")
 	put.Stdin = strings.NewReader(script + "\n")
 	if out, err := put.CombinedOutput(); err != nil {
 		return fmt.Errorf("copying the setup script: %v %s", err, out)
 	}
 	runIt := exec.Command("ssh", "-o", "BatchMode=yes", host, "sh "+remoteDir(dir)+"/.setup.sh "+shq(dir)+"; s=$?; rm -f "+remoteDir(dir)+"/.setup.sh; exit $s")
-	runIt.Stdin = strings.NewReader(token + "\n" + admin + "\n")
+	runIt.Stdin = strings.NewReader(in)
 	if out, err := runIt.CombinedOutput(); err != nil {
 		return fmt.Errorf("updating .env: %v %s", err, out)
 	}
@@ -293,6 +372,9 @@ func dataURI(path string) (string, error) {
 // bot on the host logs that it is up.
 func deploy(repo, host, dir string) error {
 	step("deploying through GitHub Actions")
+	if err := pointCI(repo, host); err != nil {
+		return err
+	}
 	if err := gh("variable", "set", "DEPLOY_ENABLED", "--body", "true", "-R", repo); err != nil {
 		return err
 	}
@@ -346,6 +428,64 @@ func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'
 
 // remoteDir is the host directory as a remote shell expression.
 func remoteDir(dir string) string { return `"$HOME"/` + shq(dir) }
+
+// pointCI makes the repository secret VPS_HOST the machine behind the ssh
+// alias, so moving to a new host is this tool plus the CI key, not a trip
+// to the repository settings. VPS_SSH_KEY stays with the person: a private
+// key never passes through here.
+func pointCI(repo, alias string) error {
+	cfg, err := exec.Command("ssh", "-G", alias).Output()
+	if err != nil {
+		return fmt.Errorf("ssh -G %s: %v", alias, err)
+	}
+	hostname, user := sshField(string(cfg), "hostname"), sshField(string(cfg), "user")
+	if hostname == "" {
+		return fmt.Errorf("ssh -G %s names no hostname", alias)
+	}
+	set := exec.Command("gh", "secret", "set", "VPS_HOST", "-R", repo)
+	set.Stdin = strings.NewReader(hostname)
+	if out, err := set.CombinedOutput(); err != nil {
+		return fmt.Errorf("gh secret set VPS_HOST: %v %s", err, strings.TrimSpace(string(out)))
+	}
+	ok("VPS_HOST=%s", hostname)
+	names, err := exec.Command("gh", "secret", "list", "-R", repo, "--json", "name", "-q", ".[].name").Output()
+	if err != nil || !strings.Contains("\n"+string(names), "\nVPS_SSH_KEY\n") {
+		warn("VPS_SSH_KEY is not set: add the CI deploy key in the repository settings")
+	}
+	// CI connects straight to VPS_HOST. An alias that only works through a
+	// jump host or a proxy (a tailnet, a bastion) hands CI a name it may
+	// not be able to reach.
+	if p := proxied(string(cfg)); p != "" {
+		warn("%s connects through %s; CI will connect to %s directly", alias, p, hostname)
+	}
+	// The workflow logs in as deploy.
+	if user != "deploy" {
+		warn("%s logs in as %q, but CI deploys as \"deploy\"", alias, user)
+	}
+	return nil
+}
+
+// proxied names the proxyjump or proxycommand an `ssh -G` config uses, or
+// is empty when the alias connects directly ("none" means unset).
+func proxied(cfg string) string {
+	for _, key := range []string{"proxyjump", "proxycommand"} {
+		if v := sshField(cfg, key); v != "" && v != "none" {
+			return key + " " + v
+		}
+	}
+	return ""
+}
+
+// sshField is one setting from `ssh -G` output, which is "key value" lines.
+func sshField(cfg, key string) string {
+	for _, line := range strings.Split(cfg, "\n") {
+		// Case-insensitive: OpenSSH 10.5 prints "User kon" beside "hostname x".
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), " "); ok && strings.EqualFold(k, key) {
+			return v
+		}
+	}
+	return ""
+}
 
 func gh(args ...string) error {
 	out, err := exec.Command("gh", args...).CombinedOutput()

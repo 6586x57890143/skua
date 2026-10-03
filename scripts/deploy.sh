@@ -28,7 +28,7 @@ scp -q docker-compose.prod.yml "$host:skua/docker-compose.prod.yml"
 ssh "$host" bash -s -- "$sha" <<'REMOTE'
 set -euo pipefail
 cd ~/skua
-test -f .env || { echo "~/skua/.env is missing; copy .env.example and fill it in" >&2; exit 1; }
+test -f .env || { echo "~/skua/.env is missing; run go run ./tools/setup -host <alias> -no-deploy first" >&2; exit 1; }
 export SKUA_IMAGE_TAG="$1"
 docker compose -f docker-compose.prod.yml up -d --remove-orphans
 # Only after it is running, as in CI.

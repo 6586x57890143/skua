@@ -47,3 +47,25 @@ modules declare. A module's new permission reaches the link on the deploy that s
 Merging to `main` builds an arm64 image to GHCR and deploys it to the host with
 Docker Compose, once the repository variable `DEPLOY_ENABLED` is `true`.
 `scripts/deploy.sh` is the manual path.
+
+## Moving to another server
+
+The host needs Docker with the Compose plugin and an ssh user, nothing else.
+
+1. On the new host, create a `deploy` user that can run `docker`, and put the public
+   half of the CI deploy key (the private half is the `VPS_SSH_KEY` secret) in its
+   `~/.ssh/authorized_keys`.
+2. Locally, add an ssh alias for it, then run setup against it:
+
+   ```sh
+   go run ./tools/setup -host new-alias
+   ```
+
+   On a host with no `~/skua/.env` it creates one with a generated database password
+   and a matching `SKUA_DATABASE_URL`, points the `VPS_HOST` secret at the new machine,
+   deploys and waits for the bot to connect.
+3. Stop the old host with `docker compose -f docker-compose.prod.yml down` in `~/skua`.
+   Two processes with the same token would both answer every command.
+
+There is no data to move yet: no module has a table. The first one that does adds the
+dump and restore step here.
