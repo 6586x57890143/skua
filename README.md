@@ -50,8 +50,7 @@ Docker Compose, once the repository variable `DEPLOY_ENABLED` is `true`.
 
 ## Moving to another server
 
-The host needs Docker with the Compose plugin and an ssh user, nothing else. Images
-are built for amd64 and arm64, so either kind of machine works.
+The host needs Docker with the Compose plugin and an ssh user, nothing else.
 
 1. On the new host, create a `deploy` user that can run `docker`, and put the public
    half of the CI deploy key (the private half is the `VPS_SSH_KEY` secret) in its
