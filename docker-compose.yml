@@ -17,7 +17,7 @@ services:
       POSTGRES_PASSWORD: skua
       POSTGRES_DB: skua
     ports:
-      - "127.0.0.1:5434:5432"
+      - "127.0.0.1:${SKUA_PG_PORT:-5434}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U skua"]
       interval: 5s
