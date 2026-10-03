@@ -20,13 +20,15 @@ lowercase, errors as `core.Tell`, facts on a grid, art on an exact pixel grid.
   shared bird voice (lowercase, no oxford commas or generated-text punctuation).
 - `internal/modules/*`: features. `status` is the reference module.
 - `tools/sprites`: all the art. The avatar is drawn: `art/source/skua_avatar_source.png`
-  is the original, and the generator recolours it into the palette (frame to grey,
-  feathers to the umber ramp, neutral greys to slate) for the profile picture, and cuts
-  the bird out of its frame for every mood icon. The banner is computed from shapes,
-  banded light and a fixed hash. Style: high resolution pixel art, flat fields, cool
-  grey frame, the bird the only warmth. Every PNG is written indexed at best
-  compression, and `internal/brand` fails if an embedded icon reaches 10 KB. Edit the
-  source or the generator and rerun it; don't edit the output PNGs.
+  is the original, and the generator lifts the bird out, recolours it into the palette
+  (feathers to the umber ramp, neutral greys to slate) and resamples it by majority
+  onto a 128-cell grid. The profile picture is that bird over a flat field and a halo
+  disc centred on the grid (8px cells, 1024); every mood icon is the bird centred at
+  2px cells (256) with its badge. The banner is computed from shapes, banded light and
+  a fixed hash. Style: high resolution pixel art, flat fields, cool grey frame, the bird
+  the only warmth. Every PNG is written indexed at best compression, and
+  `internal/brand` fails if an embedded icon reaches 10 KB or leaves its 2px grid. Edit
+  the source or the generator and rerun it; don't edit the output PNGs.
 
 Adding a module: implement `core.Module`, declare its intents honestly in `Want`
 (Required vs Optional) and its channel permissions in `Perms` (only what skua does as

@@ -1,6 +1,7 @@
 package brand
 
 import (
+	"image/png"
 	"io"
 	"strings"
 	"testing"
@@ -40,6 +41,41 @@ func TestEmbeddedAssetsStaySmall(t *testing.T) {
 		}
 		if info.Size() >= budget {
 			t.Errorf("%s is %d bytes, over the %d byte budget", e.Name(), info.Size(), budget)
+		}
+	}
+}
+
+// Every embedded icon is 256px of 2px cells: tools/sprites draws the avatar
+// on a 128 cell grid and scales it by 2, and the badge's 8px cells sit on
+// the same grid. A cell that is not one flat colour is a resampling bug.
+func TestEmbeddedAssetsAreOnTheirGrid(t *testing.T) {
+	const size, k = 256, 2
+	entries, err := assets.ReadDir("assets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		f, err := assets.Open("assets/" + e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		img, err := png.Decode(f)
+		_ = f.Close()
+		if err != nil {
+			t.Fatalf("%s: %v", e.Name(), err)
+		}
+		if b := img.Bounds(); b.Dx() != size || b.Dy() != size {
+			t.Errorf("%s is %dx%d, want %dx%d", e.Name(), b.Dx(), b.Dy(), size, size)
+			continue
+		}
+	cells:
+		for y := 0; y < size; y++ {
+			for x := 0; x < size; x++ {
+				if img.At(x, y) != img.At(x-x%k, y-y%k) {
+					t.Errorf("%s: pixel %d,%d breaks its %dpx cell", e.Name(), x, y, k)
+					break cells
+				}
+			}
 		}
 	}
 }
