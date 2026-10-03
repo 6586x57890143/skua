@@ -4,7 +4,7 @@
 
 ## How it was checked
 
-- [ ] `go vet ./... && golangci-lint run && go test ./... -race`
+- [ ] Rebased on current `origin/main`: `go vet ./... && golangci-lint run && scripts/coverage.sh && scripts/prose.sh`
 - [ ] Tried live against a dev bot (say what you ran), or not applicable
 - [ ] `SPEC.md` experiments/milestones and `HANDOFF.md` updated if this ends a milestone
 
