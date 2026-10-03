@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -39,15 +40,39 @@ const (
 	Admin
 )
 
-// Command is one top-level slash command. Run's ctx ends when Discord would
+// Command is one top-level application command: a slash command, or a
+// message command (right-click, Apps). Run's ctx ends when Discord would
 // stop waiting for the first response, so REST calls made with
 // rest.WithCtx(ctx) fail in time to say why instead of leaving the member
 // on "the application did not respond". A handler that defers and keeps
 // working past that derives its own with context.WithoutCancel.
 type Command struct {
-	Create discord.SlashCommandCreate
+	Create discord.ApplicationCommandCreate
 	Tier   Tier
 	Run    func(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error
+}
+
+// Modals is a Module that opens modals. It is optional, so modules without
+// any implement nothing.
+type Modals interface {
+	Modals() []Modal
+}
+
+// Modal handles the submissions of every modal whose custom ID is ID, or
+// starts with ID and a colon ("echo-edit:<channel>:<message>"). The custom
+// ID arrives from the member's client, so Run re-checks everything it
+// relies on; Discord only promises the modal was one skua opened. Run's ctx
+// is a command's: it ends with the response window.
+type Modal struct {
+	ID  string
+	Run func(ctx context.Context, e *events.ModalSubmitInteractionCreate) error
+}
+
+// cmdKey is how commands are found: Discord lets a slash command and a
+// message command share a name.
+type cmdKey struct {
+	typ  discord.ApplicationCommandType
+	name string
 }
 
 // respondBy is Discord's 3s initial-response window, less room for the
@@ -56,7 +81,8 @@ const respondBy = 2500 * time.Millisecond
 
 // Router owns registration and dispatch. Not safe for Add after Freeze.
 type Router struct {
-	cmds      map[string]Command
+	cmds      map[cmdKey]Command
+	modals    map[string]Modal
 	creates   []discord.ApplicationCommandCreate
 	bootstrap snowflake.ID
 	owner     func(guild snowflake.ID) (snowflake.ID, bool)
@@ -66,23 +92,42 @@ type Router struct {
 // NewRouter takes the bootstrap admin (0 for none) and a guild-owner lookup,
 // which in production is the guild cache.
 func NewRouter(bootstrap snowflake.ID, owner func(snowflake.ID) (snowflake.ID, bool), log *slog.Logger) *Router {
-	return &Router{cmds: map[string]Command{}, bootstrap: bootstrap, owner: owner, log: log}
+	return &Router{cmds: map[cmdKey]Command{}, modals: map[string]Modal{}, bootstrap: bootstrap, owner: owner, log: log}
 }
 
-// Add registers a module's commands, refusing anything malformed.
+// Add registers a module's commands and modals, refusing anything
+// malformed.
 func (r *Router) Add(m Module) error {
 	for _, c := range m.Commands() {
-		name := c.Create.Name
+		if c.Create == nil {
+			return fmt.Errorf("core: a command from %s has no Create", m.Name())
+		}
+		k := cmdKey{c.Create.Type(), c.Create.CommandName()}
 		switch {
 		case c.Tier == tierUnset || c.Tier > Admin:
-			return fmt.Errorf("core: /%s from %s has no valid tier", name, m.Name())
+			return fmt.Errorf("core: /%s from %s has no valid tier", k.name, m.Name())
 		case c.Run == nil:
-			return fmt.Errorf("core: /%s from %s has no handler", name, m.Name())
-		case r.cmds[name].Run != nil:
-			return fmt.Errorf("core: /%s registered twice (second by %s)", name, m.Name())
+			return fmt.Errorf("core: /%s from %s has no handler", k.name, m.Name())
+		case r.cmds[k].Run != nil:
+			return fmt.Errorf("core: /%s registered twice (second by %s)", k.name, m.Name())
 		}
-		r.cmds[name] = c
+		r.cmds[k] = c
 		r.creates = append(r.creates, c.Create)
+	}
+	mm, ok := m.(Modals)
+	if !ok {
+		return nil
+	}
+	for _, md := range mm.Modals() {
+		switch {
+		case md.ID == "" || strings.Contains(md.ID, ":"):
+			return fmt.Errorf("core: modal %q from %s needs an ID with no colon", md.ID, m.Name())
+		case md.Run == nil:
+			return fmt.Errorf("core: modal %s from %s has no handler", md.ID, m.Name())
+		case r.modals[md.ID].Run != nil:
+			return fmt.Errorf("core: modal %s registered twice (second by %s)", md.ID, m.Name())
+		}
+		r.modals[md.ID] = md
 	}
 	return nil
 }
@@ -105,36 +150,74 @@ func (t Tell) Error() string { return string(t) }
 // failed is what the member sees for an error that is not a Tell.
 const failed = "something went wrong on skua's side; try again in a moment"
 
-// OnCommand dispatches one interaction. It never panics out: the gateway
+// OnCommand dispatches one command. It never panics out: the gateway
 // library's dispatch has no recover of its own.
 func (r *Router) OnCommand(e *events.ApplicationCommandInteractionCreate) {
 	name := e.Data.CommandName()
-	defer func() {
-		if p := recover(); p != nil {
-			r.log.Error("command panicked", "command", name, "panic", p, "stack", string(debug.Stack()))
-		}
-	}()
-	c, ok := r.cmds[name]
+	defer r.recover(name)
+	c, ok := r.cmds[cmdKey{e.Data.Type(), name}]
 	if !ok {
 		return
 	}
-	// Once a handler has answered or deferred, the error has to go out as a
-	// followup: a second initial response is refused and nobody sees it.
-	responded := false
-	respond := e.Respond
-	e.Respond = func(t discord.InteractionResponseType, d discord.InteractionResponseData, opts ...rest.RequestOpt) error {
-		err := respond(t, d, opts...)
-		responded = responded || err == nil
-		return err
-	}
+	responded := track(&e.Respond)
 	err := errDenied
 	if r.allowed(e, c.Tier) {
-		// Anchored to when Discord created the interaction, so time spent
-		// queued before dispatch is not silently spent twice.
-		ctx, cancel := context.WithDeadline(context.Background(), e.ID().Time().Add(respondBy))
+		ctx, cancel := deadline(e.ID())
 		defer cancel()
 		err = c.Run(ctx, e)
 	}
+	r.report(name, err, *responded, e.CreateMessage, func(m discord.MessageCreate) error {
+		_, err := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), m)
+		return err
+	})
+}
+
+// OnModal dispatches one modal submission by the part of its custom ID
+// before the first colon. Same guarantees as OnCommand.
+func (r *Router) OnModal(e *events.ModalSubmitInteractionCreate) {
+	id, _, _ := strings.Cut(e.Data.CustomID, ":")
+	defer r.recover(id)
+	md, ok := r.modals[id]
+	if !ok {
+		return
+	}
+	responded := track(&e.Respond)
+	ctx, cancel := deadline(e.ID())
+	defer cancel()
+	err := md.Run(ctx, e)
+	r.report(id, err, *responded, e.CreateMessage, func(m discord.MessageCreate) error {
+		_, err := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), m)
+		return err
+	})
+}
+
+func (r *Router) recover(what string) {
+	if p := recover(); p != nil {
+		r.log.Error("interaction panicked", "handler", what, "panic", p, "stack", string(debug.Stack()))
+	}
+}
+
+// deadline is the response window, anchored to when Discord created the
+// interaction, so time spent queued before dispatch is not spent twice.
+func deadline(id snowflake.ID) (context.Context, context.CancelFunc) {
+	return context.WithDeadline(context.Background(), id.Time().Add(respondBy))
+}
+
+// track wraps a responder to record whether anything answered. Once a
+// handler has answered or deferred, an error has to go out as a followup: a
+// second initial response is refused and nobody sees it.
+func track(respond *events.InteractionResponderFunc) *bool {
+	responded, inner := new(bool), *respond
+	*respond = func(t discord.InteractionResponseType, d discord.InteractionResponseData, opts ...rest.RequestOpt) error {
+		err := inner(t, d, opts...)
+		*responded = *responded || err == nil
+		return err
+	}
+	return responded
+}
+
+// report tells the member what went wrong, where they will see it.
+func (r *Router) report(what string, err error, responded bool, create func(discord.MessageCreate, ...rest.RequestOpt) error, followup func(discord.MessageCreate) error) {
 	if err == nil {
 		return
 	}
@@ -146,21 +229,21 @@ func (r *Router) OnCommand(e *events.ApplicationCommandInteractionCreate) {
 		// A Tell wrapping a cause (fmt.Errorf("%w: %w", tell, err)) still
 		// shows the member only the Tell; the cause is for the log.
 		if err.Error() != text {
-			r.log.Warn("command failed", "command", name, "err", err)
+			r.log.Warn("interaction failed", "handler", what, "err", err)
 		}
 	case errors.Is(err, errDenied):
-		text = "only this server's admins can use /" + name
+		text = "only this server's admins can use /" + what
 	default:
-		r.log.Warn("command failed", "command", name, "err", err)
+		r.log.Warn("interaction failed", "handler", what, "err", err)
 	}
 	msg := discord.MessageCreate{Content: "✗ " + text, Flags: discord.MessageFlagEphemeral, AllowedMentions: NoPings()}
 	if responded {
-		_, err = e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), msg)
+		err = followup(msg)
 	} else {
-		err = e.CreateMessage(msg)
+		err = create(msg)
 	}
 	if err != nil {
-		r.log.Warn("reporting a command error", "command", name, "err", err)
+		r.log.Warn("reporting an interaction error", "handler", what, "err", err)
 	}
 }
 

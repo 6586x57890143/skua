@@ -44,7 +44,7 @@ func (p pinger) Ping(context.Context) error { return p.err }
 func command(t *testing.T, m *Module, name string) discord.MessageCreate {
 	t.Helper()
 	for _, c := range m.Commands() {
-		if c.Create.Name != name {
+		if c.Create.CommandName() != name {
 			continue
 		}
 		e, sent := coretest.Event(t, name, nil)
@@ -142,7 +142,7 @@ func TestModuleContract(t *testing.T) {
 		t.Fatal("status must require only guilds")
 	}
 	for _, c := range m.Commands() {
-		if c.Create.Name == "status" && c.Tier != core.Admin {
+		if c.Create.CommandName() == "status" && c.Tier != core.Admin {
 			t.Fatal("/status must be admin-only")
 		}
 	}

@@ -58,3 +58,50 @@ func Event(t testing.TB, name string, edit func(p map[string]any)) (*events.Appl
 		},
 	}, &sent
 }
+
+// Modal is the submission of a modal whose custom ID is customID, with a
+// text input per entry in values, from the same member, guild and channel
+// as Event. edit and the returned slice work as they do for Event.
+func Modal(t testing.TB, customID string, values map[string]string, edit func(p map[string]any)) (*events.ModalSubmitInteractionCreate, *[]discord.MessageCreate) {
+	t.Helper()
+	var rows []any
+	for id, v := range values {
+		rows = append(rows, map[string]any{"type": 1, "components": []any{
+			map[string]any{"type": 4, "custom_id": id, "value": v},
+		}})
+	}
+	p := map[string]any{
+		"id": snowflake.New(time.Now()).String(), "application_id": "2", "type": 5, "token": "t", "version": 1,
+		"guild_id": "3",
+		"channel":  map[string]any{"id": "4", "type": 0},
+		"member": map[string]any{
+			"user":        map[string]any{"id": "5", "username": "member"},
+			"permissions": "0",
+			"roles":       []any{},
+			"joined_at":   "2026-01-01T00:00:00Z",
+		},
+		"data": map[string]any{"custom_id": customID, "components": rows},
+	}
+	if edit != nil {
+		edit(p)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var i discord.ModalSubmitInteraction
+	if err := json.Unmarshal(raw, &i); err != nil {
+		t.Fatalf("decoding the modal submission: %v", err)
+	}
+	var sent []discord.MessageCreate
+	return &events.ModalSubmitInteractionCreate{
+		GenericEvent:           events.NewGenericEvent(&bot.Client{}, 0, 0),
+		ModalSubmitInteraction: i,
+		Respond: func(_ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
+			if m, ok := d.(discord.MessageCreate); ok {
+				sent = append(sent, m)
+			}
+			return nil
+		},
+	}, &sent
+}
