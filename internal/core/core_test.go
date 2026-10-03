@@ -68,7 +68,7 @@ func (f *fakeRest) CreateFollowupMessage(_ snowflake.ID, _ string, m discord.Mes
 func router(t *testing.T, c Command) *Router {
 	t.Helper()
 	r := NewRouter(9, func(g snowflake.ID) (snowflake.ID, bool) { return 7, g == 3 }, slog.New(slog.DiscardHandler))
-	c.Create.Name = "a"
+	c.Create = discord.SlashCommandCreate{Name: "a"}
 	if err := r.Add(mod{[]Command{c}}); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestOnCommandLogsATellOnlyWhenItCarriesACause(t *testing.T) {
 		if len(*sent) != 1 || (*sent)[0].Content != "✗ your message didn't go through" {
 			t.Fatalf("%s: reply = %+v", c.name, *sent)
 		}
-		if logged := strings.Contains(log.String(), "command failed"); logged != c.logs {
+		if logged := strings.Contains(log.String(), "interaction failed"); logged != c.logs {
 			t.Errorf("%s: logged = %v, want %v: %q", c.name, logged, c.logs, log.String())
 		}
 		if c.logs && !strings.Contains(log.String(), "Missing Permissions") {
@@ -208,5 +208,120 @@ func TestOnCommandSurvivesPanicsAndUnknownCommands(t *testing.T) {
 	r.OnCommand(e)
 	if len(*sent) != 0 {
 		t.Fatalf("an unknown command got a reply: %+v", *sent)
+	}
+}
+
+// modalMod is a Module that also opens modals.
+type modalMod struct {
+	mod
+	modals []Modal
+}
+
+func (m modalMod) Modals() []Modal { return m.modals }
+
+func TestAddRefusesMalformedModals(t *testing.T) {
+	run := func(context.Context, *events.ModalSubmitInteractionCreate) error { return nil }
+	for want, md := range map[string]Modal{
+		"needs an ID":    {Run: run},
+		"no colon":       {ID: "a:b", Run: run},
+		"has no handler": {ID: "a"},
+	} {
+		err := NewRouter(0, nil, slog.Default()).Add(modalMod{modals: []Modal{md}})
+		if err == nil || !strings.Contains(err.Error(), strings.Fields(want)[len(strings.Fields(want))-1]) {
+			t.Errorf("%s: got %v", want, err)
+		}
+	}
+	r := NewRouter(0, nil, slog.Default())
+	if err := r.Add(modalMod{modals: []Modal{{ID: "a", Run: run}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Add(modalMod{modals: []Modal{{ID: "a", Run: run}}}); err == nil || !strings.Contains(err.Error(), "twice") {
+		t.Errorf("a duplicate modal ID: %v", err)
+	}
+	if err := r.Add(mod{[]Command{{Tier: Public}}}); err == nil || !strings.Contains(err.Error(), "no Create") {
+		t.Errorf("a command with no Create: %v", err)
+	}
+}
+
+func TestSlashAndMessageCommandsMayShareAName(t *testing.T) {
+	var ran []string
+	r := NewRouter(0, nil, slog.New(slog.DiscardHandler))
+	if err := r.Add(mod{[]Command{
+		{Create: discord.SlashCommandCreate{Name: "a"}, Tier: Public, Run: func(context.Context, *events.ApplicationCommandInteractionCreate) error {
+			ran = append(ran, "slash")
+			return nil
+		}},
+		{Create: discord.MessageCommandCreate{Name: "a"}, Tier: Public, Run: func(context.Context, *events.ApplicationCommandInteractionCreate) error {
+			ran = append(ran, "message")
+			return nil
+		}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	e, _ := coretest.Event(t, "a", nil)
+	r.OnCommand(e)
+	e, _ = coretest.Event(t, "a", func(p map[string]any) {
+		d := p["data"].(map[string]any)
+		d["type"], d["target_id"] = 3, "8"
+		d["resolved"] = map[string]any{"messages": map[string]any{"8": map[string]any{
+			"id": "8", "channel_id": "4", "content": "hi", "author": map[string]any{"id": "5", "username": "member"},
+		}}}
+	})
+	r.OnCommand(e)
+	if strings.Join(ran, ",") != "slash,message" {
+		t.Errorf("ran %v, want each command once by its own type", ran)
+	}
+}
+
+func TestOnModalRoutesByPrefixAndReportsErrors(t *testing.T) {
+	fail := Tell("boom") // a Tell, so the member reads it as written
+	var got string
+	r := NewRouter(0, nil, slog.New(slog.DiscardHandler))
+	if err := r.Add(modalMod{modals: []Modal{
+		{ID: "edit", Run: func(ctx context.Context, e *events.ModalSubmitInteractionCreate) error {
+			if d, ok := ctx.Deadline(); !ok || !d.Equal(e.ID().Time().Add(respondBy)) {
+				t.Errorf("deadline = %v, want creation time + %v", d, respondBy)
+			}
+			got = e.Data.CustomID + "=" + e.Data.Text("text")
+			return nil
+		}},
+		{ID: "early", Run: func(context.Context, *events.ModalSubmitInteractionCreate) error { return fail }},
+		{ID: "late", Run: func(_ context.Context, e *events.ModalSubmitInteractionCreate) error {
+			if err := e.DeferCreateMessage(true); err != nil {
+				return err
+			}
+			return fail
+		}},
+		{ID: "panics", Run: func(context.Context, *events.ModalSubmitInteractionCreate) error { panic("x") }},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	e, _ := coretest.Modal(t, "edit:4:8", map[string]string{"text": "new words"}, nil)
+	r.OnModal(e)
+	if got != "edit:4:8=new words" {
+		t.Errorf("handler saw %q", got)
+	}
+
+	e, sent := coretest.Modal(t, "early", nil, nil)
+	r.OnModal(e)
+	if len(*sent) != 1 || (*sent)[0].Content != "✗ boom" {
+		t.Errorf("early error: sent %+v", *sent)
+	}
+
+	e, sent = coretest.Modal(t, "late:x", nil, nil)
+	f := &fakeRest{}
+	e.Client().Rest = f
+	r.OnModal(e)
+	if len(*sent) != 1 || len(f.followups) != 1 || f.followups[0] != "✗ boom" {
+		t.Errorf("error after deferring: sent %+v, followups %q", *sent, f.followups)
+	}
+
+	e, _ = coretest.Modal(t, "panics", nil, nil)
+	r.OnModal(e) // must not panic out
+	e, sent = coretest.Modal(t, "nobody", nil, nil)
+	r.OnModal(e)
+	if len(*sent) != 0 {
+		t.Errorf("an unknown modal got a reply: %+v", *sent)
 	}
 }

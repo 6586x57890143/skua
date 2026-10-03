@@ -162,6 +162,7 @@ func run(log *slog.Logger) error {
 		// Only the guild cache is read (owner lookup); everything else off.
 		bot.WithCacheConfigOpts(cache.WithCaches(cache.FlagGuilds)),
 		bot.WithEventListenerFunc(router.OnCommand),
+		bot.WithEventListenerFunc(router.OnModal),
 		bot.WithEventListenerFunc(func(e *events.GuildReady) { register(e.Client(), e.GuildID) }),
 		bot.WithEventListenerFunc(func(e *events.GuildJoin) { register(e.Client(), e.GuildID) }),
 	)
