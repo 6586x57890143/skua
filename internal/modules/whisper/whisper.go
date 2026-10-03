@@ -1,24 +1,24 @@
-// Package echo is /echo: a member Discord has chat-restricted can still run
+// Package whisper is /whisper: a member Discord has chat-restricted can still run
 // slash commands, so they post through a per-channel webhook wearing their
 // display name and avatar, with one subtext line naming who really sent it.
 //
 // That line is the whole transparency story. It carries the username, not
 // the display name the post already wears: a webhook message has no profile
 // to click, and a username cannot be made to look like a mod's. clean
-// rewrites every echo into one line that renders no heading or subtext, so
+// rewrites every whisper into one line that renders no heading or subtext, so
 // the marker is always the last line and the only subtext. It rewrites
 // rather than refuses: the member's only feedback is their message.
 //
-// Webhook posts skip Discord's AutoMod and slowmode, so echo applies both
-// itself. Slowmode is honoured per channel and member. Every echo, and the
+// Webhook posts skip Discord's AutoMod and slowmode, so whisper applies both
+// itself. Slowmode is honoured per channel and member. Every whisper, and the
 // display name it wears, is screened through internal/filter before it is
-// posted: a slur is rewritten in place and the echo still goes out; a bot
+// posted: a slur is rewritten in place and the whisper still goes out; a bot
 // token or a malicious link refuses it. Nothing is ever posted to delete.
 // The filter is the same one automod's rung 1 runs over member messages
 // (whose rung 0 skips webhooks), so the two cannot disagree.
 //
-// A member can edit or delete their own echoes afterwards (own.go).
-package echo
+// A member can edit or delete their own whispers afterwards (own.go).
+package whisper
 
 import (
 	"context"
@@ -48,12 +48,12 @@ const maxText = 1800
 // postBy bounds the webhook calls once the interaction is deferred.
 const postBy = 10 * time.Second
 
-// screen is the slice of filter.Filter echo uses.
+// screen is the slice of filter.Filter whisper uses.
 type screen interface {
 	Check(text string) filter.Verdict
 }
 
-// poster is the slice of webhook.Poster echo uses.
+// poster is the slice of webhook.Poster whisper uses.
 type poster interface {
 	Send(ctx context.Context, r rest.Rest, guild, channel, app snowflake.ID, msg discord.WebhookMessageCreate) error
 	Get(ctx context.Context, r rest.Rest, channel, app, webhookID, message snowflake.ID) (*discord.Message, error)
@@ -68,21 +68,21 @@ type Module struct {
 	post   poster
 	screen screen
 	// ponytail: never evicted, one entry per member per slowmode channel
-	// they have echoed in. Sweep entries older than six hours (the longest
+	// they have whispered in. Sweep entries older than six hours (the longest
 	// slowmode) if that ever shows up in a heap profile.
-	last sync.Map // slow -> time.Time of their last echo there
+	last sync.Map // slow -> time.Time of their last whisper there
 	now  func() time.Time
 }
 
 // New takes the process's one guard, for the per-member cap, the poster
-// echoes go out through, and the screen they pass first.
+// whispers go out through, and the screen they pass first.
 func New(g *guard.Guard, p poster, s screen) *Module {
 	return &Module{guard: g, post: p, screen: s, now: time.Now}
 }
 
-func (*Module) Name() string { return "echo" }
+func (*Module) Name() string { return "whisper" }
 
-// Want is empty: everything echo reads arrives in the interaction.
+// Want is empty: everything whisper reads arrives in the interaction.
 func (*Module) Want() intents.Want { return intents.Want{} }
 
 // Perms is what finding or creating the per-channel webhook takes. Posting
@@ -94,7 +94,7 @@ func (*Module) Perms() discord.Permissions {
 func (m *Module) Commands() []core.Command {
 	return append([]core.Command{{
 		Create: discord.SlashCommandCreate{
-			Name:        "echo",
+			Name:        "whisper",
 			Description: "send a message under your own name",
 			Contexts:    []discord.InteractionContextType{discord.InteractionContextTypeGuild},
 			Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionString{
@@ -102,11 +102,11 @@ func (m *Module) Commands() []core.Command {
 			}},
 		},
 		Tier: core.Public,
-		Run:  m.echo,
+		Run:  m.whisper,
 	}}, m.ownCommands()...)
 }
 
-// What a member reads when echo says no. Each is a core.Tell, so the router
+// What a member reads when whisper says no. Each is a core.Tell, so the router
 // shows it as written; anything else reaches them as a generic failure.
 var (
 	errEmpty = core.Tell("there is nothing to send")
@@ -162,13 +162,13 @@ func name(m *discord.ResolvedMember) string {
 
 var markdown = strings.NewReplacer(`\`, `\\`, `_`, `\_`, `*`, `\*`, `~`, `\~`, "`", "\\`", `|`, `\|`, `>`, `\>`)
 
-// marker is the last line of every echo. The username is escaped so
+// marker is the last line of every whisper. The username is escaped so
 // "a_b_c" cannot render as "a" + italic "b" + "c".
 func marker(username string) string {
-	return "\n-# echoed through skua by @" + markdown.Replace(username)
+	return "\n-# whispered through skua by @" + markdown.Replace(username)
 }
 
-func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteractionCreate) (err error) {
+func (m *Module) whisper(ctx context.Context, e *events.ApplicationCommandInteractionCreate) (err error) {
 	text := clean(e.SlashCommandInteractionData().String("message"))
 	if text == "" {
 		return errEmpty
@@ -180,13 +180,13 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	text = v.Text
 	member, guild := e.Member(), e.GuildID()
 	if member == nil || guild == nil {
-		return core.Tell("/echo only works in a server")
+		return core.Tell("/whisper only works in a server")
 	}
 	ch := e.Channel()
 	switch ch.Type() {
 	case discord.ChannelTypeGuildText, discord.ChannelTypeGuildNews, discord.ChannelTypeGuildVoice:
 	default:
-		return core.Tell("/echo works in text channels, not threads or forum posts")
+		return core.Tell("/whisper works in text channels, not threads or forum posts")
 	}
 	if err := gates(member); err != nil {
 		return err
@@ -206,7 +206,7 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	}()
 	// Per member before per guild, so one member cannot spend the whole
 	// guild's webhook budget and lock everyone else out.
-	if err := m.guard.Allow(member.User.ID, guard.EchoMember); err != nil {
+	if err := m.guard.Allow(member.User.ID, guard.WhisperMember); err != nil {
 		return errTooFast
 	}
 
@@ -221,7 +221,7 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 		msg.Flags = discord.MessageFlagSuppressEmbeds
 	}
 	// Seamless: a silent ephemeral defer holds the interaction open and is
-	// deleted once the echo is up, so the channel shows only the echo. A
+	// deleted once the whisper is up, so the channel shows only the whisper. A
 	// failure from here on reaches the member as a followup in its place.
 	if err := e.DeferCreateMessage(true); err != nil {
 		return err
@@ -234,15 +234,15 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	if err := m.post.Send(ctx, r, *guild, ch.ID(), e.ApplicationID(), msg); err != nil {
 		return failed(errNotSent, err)
 	}
-	// The echo is up. If the delete fails, the member alone is left with a
+	// The whisper is up. If the delete fails, the member alone is left with a
 	// stale "thinking"; failing here would undo their slowmode and report an
-	// error for an echo that went out.
+	// error for a whisper that went out.
 	_ = r.DeleteInteractionResponse(e.ApplicationID(), e.Token(), rest.WithCtx(ctx))
 	return nil
 }
 
-// gates is what this server requires of a member to post here, which echo
-// holds every echo and every edit of one to: echo is for the restriction
+// gates is what this server requires of a member to post here, which whisper
+// holds every whisper and every edit of one to: whisper is for the restriction
 // Discord applied, never a way around the ones the server applied.
 func gates(member *discord.ResolvedMember) error {
 	if t := member.CommunicationDisabledUntil; t != nil && t.After(time.Now()) {
@@ -266,7 +266,7 @@ func failed(tell core.Tell, err error) error {
 
 // slowmode applies the channel's slowmode as Discord would to a message.
 // It returns how long the member must still wait, or 0 having recorded this
-// echo as their latest, plus an undo for when the echo then fails. Members
+// whisper as their latest, plus an undo for when the whisper then fails. Members
 // who could manage messages or the channel are exempt, as Discord exempts
 // them.
 func (m *Module) slowmode(ch discord.InteractionChannel, member *discord.ResolvedMember) (time.Duration, func()) {
@@ -278,7 +278,7 @@ func (m *Module) slowmode(ch discord.InteractionChannel, member *discord.Resolve
 	window := time.Duration(c.RateLimitPerUser()) * time.Second
 	k, now := slow{ch.ID(), member.User.ID}, m.now()
 	prev, loaded := m.last.Swap(k, now)
-	// Put their real last echo back, unless a concurrent echo of theirs
+	// Put their real last whisper back, unless a concurrent whisper of theirs
 	// has already replaced ours.
 	undo := func() {
 		if loaded {

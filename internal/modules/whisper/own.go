@@ -1,4 +1,4 @@
-package echo
+package whisper
 
 import (
 	"context"
@@ -16,29 +16,29 @@ import (
 	"github.com/6586x57890143/skua/internal/webhook"
 )
 
-// Members own what they echo: "Edit echo" and "Delete echo" sit under Apps
-// when an echo is right-clicked. There is no table of who wrote what. The
-// echo says so itself: it came through one of skua's webhooks (Discord
+// Members own what they whisper: "Edit whisper" and "Delete whisper" sit under Apps
+// when a whisper is right-clicked. There is no table of who wrote what. The
+// whisper says so itself: it came through one of skua's webhooks (Discord
 // stamps skua's application ID on it), and its last line is the marker with
-// the member's username, which no one else's echo can end with.
+// the member's username, which no one else's whisper can end with.
 
 // editModal is the custom ID prefix of the edit box; the webhook and the
-// message being edited follow it, "echo-edit:<webhook>:<message>".
-const editModal = "echo-edit"
+// message being edited follow it, "whisper-edit:<webhook>:<message>".
+const editModal = "whisper-edit"
 
 var (
-	errNotYours   = core.Tell("you can only change your own echoes")
+	errNotYours   = core.Tell("you can only change your own whispers")
 	errNotServer  = core.Tell("this only works in a server")
-	errNotDeleted = core.Tell("your echo wasn't deleted; try again in a moment")
-	errNotFound   = core.Tell("your echo couldn't be found; it may have been deleted")
-	errNotChanged = core.Tell("your echo wasn't changed; try again in a moment")
+	errNotDeleted = core.Tell("your whisper wasn't deleted; try again in a moment")
+	errNotFound   = core.Tell("your whisper couldn't be found; it may have been deleted")
+	errNotChanged = core.Tell("your whisper wasn't changed; try again in a moment")
 )
 
 func (m *Module) ownCommands() []core.Command {
 	guild := []discord.InteractionContextType{discord.InteractionContextTypeGuild}
 	return []core.Command{
-		{Create: discord.MessageCommandCreate{Name: "Edit echo", Contexts: guild}, Tier: core.Public, Run: m.editEcho},
-		{Create: discord.MessageCommandCreate{Name: "Delete echo", Contexts: guild}, Tier: core.Public, Run: m.deleteEcho},
+		{Create: discord.MessageCommandCreate{Name: "Edit whisper", Contexts: guild}, Tier: core.Public, Run: m.editWhisper},
+		{Create: discord.MessageCommandCreate{Name: "Delete whisper", Contexts: guild}, Tier: core.Public, Run: m.deleteWhisper},
 	}
 }
 
@@ -47,19 +47,26 @@ func (m *Module) Modals() []core.Modal {
 	return []core.Modal{{ID: editModal, Run: m.submitEdit}}
 }
 
-// ours is an echo skua posted: through a webhook, stamped with skua's
+// ours is a whisper skua posted: through a webhook, stamped with skua's
 // application ID.
 func ours(msg discord.Message, app snowflake.ID) bool {
 	return msg.WebhookID != nil && msg.ApplicationID != nil && *msg.ApplicationID == app
 }
 
-// byMember returns the text of an echo whose marker names username, and
+// byMember returns the text of a whisper whose marker names username, and
 // whether it does.
+//
+// ponytail: also takes the marker from before the rename to whisper
+// ("echoed through skua"), so members still own what they posted then.
+// Drop it once those are old enough that nobody edits them.
 func byMember(msg discord.Message, username string) (string, bool) {
-	return strings.CutSuffix(msg.Content, marker(username))
+	if text, ok := strings.CutSuffix(msg.Content, marker(username)); ok {
+		return text, true
+	}
+	return strings.CutSuffix(msg.Content, "\n-# echoed through skua by @"+markdown.Replace(username))
 }
 
-func (m *Module) deleteEcho(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error {
+func (m *Module) deleteWhisper(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error {
 	msg := e.MessageCommandInteractionData().TargetMessage()
 	member, guild := e.Member(), e.GuildID()
 	if member == nil || guild == nil {
@@ -81,8 +88,8 @@ func (m *Module) deleteEcho(ctx context.Context, e *events.ApplicationCommandInt
 	return nil
 }
 
-// editEcho opens the edit box, prefilled with the echo as it reads now.
-func (m *Module) editEcho(_ context.Context, e *events.ApplicationCommandInteractionCreate) error {
+// editWhisper opens the edit box, prefilled with the whisper as it reads now.
+func (m *Module) editWhisper(_ context.Context, e *events.ApplicationCommandInteractionCreate) error {
 	msg := e.MessageCommandInteractionData().TargetMessage()
 	member := e.Member()
 	if member == nil {
@@ -94,7 +101,7 @@ func (m *Module) editEcho(_ context.Context, e *events.ApplicationCommandInterac
 	}
 	return e.Modal(discord.ModalCreate{
 		CustomID: fmt.Sprintf("%s:%d:%d", editModal, *msg.WebhookID, msg.ID),
-		Title:    "Edit echo",
+		Title:    "Edit whisper",
 		Components: []discord.LayoutComponent{discord.LabelComponent{
 			Label: "Message",
 			Component: discord.TextInputComponent{
@@ -106,7 +113,7 @@ func (m *Module) editEcho(_ context.Context, e *events.ApplicationCommandInterac
 }
 
 // submitEdit applies the edit box. Everything in its custom ID came back
-// from the member's client, so the echo is fetched through skua's webhook
+// from the member's client, so the whisper is fetched through skua's webhook
 // and its marker checked again before anything changes.
 func (m *Module) submitEdit(ctx context.Context, e *events.ModalSubmitInteractionCreate) error {
 	hookID, msgID, ok := parseEdit(e.Data.CustomID)
@@ -128,7 +135,7 @@ func (m *Module) submitEdit(ctx context.Context, e *events.ModalSubmitInteractio
 	if v.Block != "" {
 		return core.Tell("skua won't post that: it contains " + v.Block)
 	}
-	if err := m.guard.Allow(member.User.ID, guard.EchoMember); err != nil {
+	if err := m.guard.Allow(member.User.ID, guard.WhisperMember); err != nil {
 		return errTooFast
 	}
 	if err := e.DeferCreateMessage(true); err != nil {
@@ -145,7 +152,7 @@ func (m *Module) submitEdit(ctx context.Context, e *events.ModalSubmitInteractio
 		return failed(errNotFound, err)
 	}
 	// The webhook is skua's, or Get would have refused; the marker says
-	// whose echo it is.
+	// whose whisper it is.
 	if _, mine := byMember(*msg, member.User.Username); !mine {
 		return errNotYours
 	}

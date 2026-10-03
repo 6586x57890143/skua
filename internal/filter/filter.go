@@ -3,7 +3,7 @@
 // something daft so the sentence still stands) and blocks that cannot be
 // rewritten (credentials and malicious links, refused whole).
 //
-// It is a library rather than a core.Module. Echo screens what it posts
+// It is a library rather than a core.Module. Whisper screens what it posts
 // with it, and automod's rung 1 is meant to be the same Filter run over
 // member messages, so the two can never disagree about what a slur is.
 //
