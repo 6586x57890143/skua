@@ -49,12 +49,12 @@ func (*Module) Perms() discord.Permissions { return 0 }
 func (m *Module) Commands() []core.Command {
 	return []core.Command{
 		{
-			Create: discord.SlashCommandCreate{Name: "ping", Description: "Gateway round trip"},
+			Create: discord.SlashCommandCreate{Name: "ping", Description: "gateway round trip"},
 			Tier:   core.Public,
 			Run:    m.ping,
 		},
 		{
-			Create: discord.SlashCommandCreate{Name: "status", Description: "Intents, database and uptime"},
+			Create: discord.SlashCommandCreate{Name: "status", Description: "intents, database and uptime"},
 			Tier:   core.Admin,
 			Run:    m.status,
 		},
@@ -63,26 +63,24 @@ func (m *Module) Commands() []core.Command {
 
 func (m *Module) ping(_ context.Context, e *events.ApplicationCommandInteractionCreate) error {
 	return e.CreateMessage(discord.MessageCreate{
-		Content:         fmt.Sprintf("pong · gateway %s", m.latency().Round(time.Millisecond)),
+		Content:         "pong · gateway " + gatewayMs(m.latency()),
 		Flags:           discord.MessageFlagEphemeral,
 		AllowedMentions: core.NoPings(),
 	})
 }
 
+// status is a two-column readout in a code block: a monospace grid lines up
+// the same on every client, where how embed fields wrap is up to each
+// client. Anything that is not a short fact goes in a line below the block.
 func (m *Module) status(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error {
 	p := m.probe()
 	color := brand.ColorOK
-	var b strings.Builder
+	var rows [][2]string
+	var notes []string
 
-	fmt.Fprintf(&b, "**privileged granted** %s\n", names(p.Granted&gateway.IntentsPrivileged))
-	fmt.Fprintf(&b, "**identified** %s\n", names(p.Identified))
-	if len(p.Skipped) > 0 {
-		color = brand.ColorWarn
-		fmt.Fprintf(&b, "**skipped modules** %s (a required intent is off in the Developer Portal)\n", strings.Join(p.Skipped, ", "))
-	}
-
+	rows = append(rows, [2]string{"gateway", gatewayMs(m.latency())})
 	if m.db == nil {
-		b.WriteString("**database** none configured\n")
+		rows = append(rows, [2]string{"database", "not configured"})
 	} else {
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		start := time.Now()
@@ -90,21 +88,106 @@ func (m *Module) status(ctx context.Context, e *events.ApplicationCommandInterac
 		cancel()
 		if err != nil {
 			color = brand.ColorError
-			fmt.Fprintf(&b, "**database** unreachable: %s\n", truncate(err.Error(), 200))
+			rows = append(rows, [2]string{"database", "unreachable"})
+			notes = append(notes, "-# database: "+truncate(err.Error(), 200))
 		} else {
-			fmt.Fprintf(&b, "**database** %s\n", time.Since(start).Round(time.Microsecond))
+			rows = append(rows, [2]string{"database", ms(time.Since(start))})
 		}
 	}
-	fmt.Fprintf(&b, "**gateway** %s · **up** %s · %s", m.latency().Round(time.Millisecond),
-		time.Since(m.started).Round(time.Second), runtime.Version())
+	rows = append(rows,
+		[2]string{"uptime", uptime(time.Since(m.started))},
+		[2]string{"intents", names(p.Identified)},
+		[2]string{"privileged", names(p.Granted & gateway.IntentsPrivileged)},
+	)
+	if len(p.Skipped) > 0 {
+		color = brand.ColorWarn
+		rows = append(rows, [2]string{"skipped", strings.Join(p.Skipped, ", ")})
+		notes = append(notes, "skipped modules need an intent that is off in the developer portal")
+	}
+	rows = append(rows, [2]string{"runtime", runtime.Version()})
 
-	embed, file := brand.Embed(color, "skua", b.String())
+	embed, file := brand.Embed(color, "status", readout(rows)+strings.Join(notes, "\n"))
 	return e.CreateMessage(discord.MessageCreate{
 		Embeds:          []discord.Embed{embed},
 		Files:           []*discord.File{file},
 		Flags:           discord.MessageFlagEphemeral,
 		AllowedMentions: core.NoPings(),
 	})
+}
+
+// labelWidth is the label column: the longest label, "privileged", and two
+// spaces. valueWidth holds every line to 40 columns, so the grid needs as
+// little room as the facts in it allow.
+const labelWidth, valueWidth = 12, 28
+
+// readout lays rows out as a code block grid. A value too long for its column
+// wraps after a comma, continuing in the value column.
+func readout(rows [][2]string) string {
+	var b strings.Builder
+	b.WriteString("```\n")
+	for _, r := range rows {
+		for i, line := range wrap(r[1], valueWidth) {
+			label := ""
+			if i == 0 {
+				label = r[0]
+			}
+			fmt.Fprintf(&b, "%-*s%s\n", labelWidth, label, line)
+		}
+	}
+	b.WriteString("```\n")
+	return b.String()
+}
+
+// wrap breaks a comma separated list into lines of at most width, breaking
+// only after a comma. A single item longer than width stays whole and runs
+// past the 40 column grid; every value status shows (intent names, module
+// names, durations) is far shorter.
+func wrap(s string, width int) []string {
+	var lines []string
+	line := ""
+	for i, item := range strings.Split(s, ", ") {
+		if i > 0 {
+			item = ", " + item
+		}
+		if line != "" && len(line)+len(item) > width {
+			lines = append(lines, line+",")
+			item = strings.TrimPrefix(item, ", ")
+			line = ""
+		}
+		line += item
+	}
+	return append(lines, line)
+}
+
+// ms is a round trip in milliseconds: one decimal under 10ms, where the
+// decimal still means something, whole numbers above.
+func ms(d time.Duration) string {
+	if d < 10*time.Millisecond {
+		return fmt.Sprintf("%.1f ms", float64(d)/float64(time.Millisecond))
+	}
+	return fmt.Sprintf("%d ms", d.Milliseconds())
+}
+
+// gatewayMs is the heartbeat round trip, which is 0 until the first
+// heartbeat is acknowledged.
+func gatewayMs(d time.Duration) string {
+	if d == 0 {
+		return "not measured yet"
+	}
+	return ms(d)
+}
+
+// uptime is the two largest units that matter: "45s", "12m", "3h 12m", "2d 4h".
+func uptime(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+	return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
 }
 
 var intentNames = []struct {
@@ -131,7 +214,7 @@ func names(set gateway.Intents) string {
 		}
 	}
 	if rest != 0 {
-		out = append(out, "+others")
+		out = append(out, "others")
 	}
 	if len(out) == 0 {
 		return "none"
