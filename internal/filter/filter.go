@@ -57,8 +57,11 @@ type Rule struct {
 	// across their boundary: "go ok" is "gook". Only for rules long enough
 	// that no innocent pair of words spells them.
 	CrossWords bool
-	// NotIf, when it matches the whole text, cancels this rule's rewrites
-	// in it. For a spelling that is also an ordinary word in some phrase.
+	// NotIf cancels one match when it matches the matched word and the
+	// notIfWindow bytes after it, which is where the phrase that makes it
+	// innocent sits ("chink in", "chink of"). Per match, never per text: a
+	// text-wide veto would let any message that also says the phrase post
+	// every other match in it untouched.
 	NotIf *regexp.Regexp
 	// Subs is drawn from at random per match, and must hold at least one
 	// single-word Sub for matches glued into a longer word.
@@ -69,11 +72,9 @@ type Rule struct {
 type Block struct {
 	Reason  string
 	Pattern *regexp.Regexp
-	// Need and MinLen are cheap preconditions every match satisfies: a
-	// literal the text must contain, and the shortest text that can match.
-	// Most messages fail one, so the pattern never runs on them.
-	Need   string
-	MinLen int
+	// Gate, when set, is a cheap test every text the pattern matches
+	// passes. Most messages fail it, so the pattern never runs on them.
+	Gate func(string) bool
 }
 
 // Verdict is what Check decided about one text.
@@ -180,7 +181,7 @@ func spell(spec string) string {
 // is not worth rewriting.
 func (f *Filter) Check(s string) Verdict {
 	for _, b := range f.blocks {
-		if len(s) < b.MinLen || !strings.Contains(s, b.Need) {
+		if b.Gate != nil && !b.Gate(s) {
 			continue
 		}
 		if b.Pattern.MatchString(s) {
@@ -202,6 +203,9 @@ func (f *Filter) Check(s string) Verdict {
 	return Verdict{Text: out, Rewrote: rewrote}
 }
 
+// notIfWindow is how far past a matched word a Rule's NotIf may look.
+const notIfWindow = 16
+
 // hit is one match to replace, in folded coordinates.
 type hit struct{ a, z, ws, we, rule int }
 
@@ -215,9 +219,6 @@ func (f *Filter) rewrite(s string) (string, bool) {
 		if f.keys[i] != nil && !bytes.Contains(sk, f.keys[i]) {
 			continue
 		}
-		if r.NotIf != nil && r.NotIf.MatchString(fd.text) {
-			continue
-		}
 		for _, m := range f.res[i].FindAllStringIndex(fd.text, -1) {
 			a, z := m[0], trimRight(fd.text, m[0], m[1])
 			if a == z || !r.CrossWords && spansWords(fd.text[a:z]) {
@@ -225,6 +226,9 @@ func (f *Filter) rewrite(s string) (string, bool) {
 			}
 			ws, we := wordBounds(fd.text, a, z)
 			if innocent.MatchString(fd.text[ws:we]) {
+				continue
+			}
+			if r.NotIf != nil && r.NotIf.MatchString(fd.text[ws:min(len(fd.text), we+notIfWindow)]) {
 				continue
 			}
 			hits = append(hits, hit{a, z, ws, we, i})

@@ -112,6 +112,18 @@ func TestLeavesOrdinaryTextAlone(t *testing.T) {
 			t.Errorf("Check(%q) = %+v, want it untouched", in, v)
 		}
 	}
+	// A phrase that spares one match spares only that match: saying "armor"
+	// or "a chink in" elsewhere is not a way to post the rest.
+	exact := first()
+	for in, want := range map[string]string{
+		"you chink, nice armor":                "you chinchilla, nice armor",
+		"a chink in the armour, and you chink": "a chink in the armour, and you chinchilla",
+		"a chink of light shone on the faggot": "a chink of light shone on the frog",
+	} {
+		if got := exact.Check(in).Text; got != want {
+			t.Errorf("Check(%q) = %q, want %q", in, got, want)
+		}
+	}
 	// The veto is the whole word: it spares that word, not whatever is
 	// glued onto it.
 	if !f.Check("sniggernation").Rewrote {

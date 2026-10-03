@@ -1,6 +1,9 @@
 package filter
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 // Rules are the words Discord's guidelines treat as a violation on sight:
 // there is no framing in which one is the word somebody reached for by
@@ -78,8 +81,8 @@ var Rules = []Rule{
 		Key:  "chnc",
 		Spec: "chink[sz5$]?",
 		// The one spelling here that is also an ordinary word: "a chink in
-		// the armour", "a chink of light".
-		NotIf: regexp.MustCompile(`(?i)\bchinks?\s+(in|of|between)\b|\barmou?rs?\b`),
+		// the armour", "a chink of light". Anchored to the matched word.
+		NotIf: regexp.MustCompile(`(?i)^chinks?\s+(in|of|between)\b`),
 		Subs: []Sub{
 			{"chinchilla", "chinchillas"},
 			{"chinstrap penguin", "chinstrap penguins"},
@@ -149,18 +152,39 @@ var Blocks = []Block{
 		// Whoever reads a bot token owns the bot.
 		Reason:  "a Discord bot token",
 		Pattern: regexp.MustCompile(`\b[A-Za-z0-9_-]{24,28}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}\b`),
-		Need:    ".",
-		MinLen:  24 + 1 + 6 + 1 + 27,
+		Gate:    tokenShaped,
 	},
 	{
+		// ponytail: a hand list of lookalike names and throwaway TLDs, which
+		// goes stale as campaigns move. A maintained phishing-domain feed,
+		// loaded at boot, is the upgrade.
 		Reason:  "a known Discord phishing link",
-		Need:    "://",
 		Pattern: regexp.MustCompile(`(?i)https?://[^\s/]*\b(discord|dlscord|discrod|discocrd|steamcommunlty|discordgift|dicsord)[a-z0-9-]*\.(ru|cf|gq|tk|ml|ga|xyz|top|click|link|monster|shop)\b`),
+		Gate:    hasLink,
 	},
 	{
 		// These services exist for one purpose and are named after it.
 		Reason:  "an IP grabber link",
-		Need:    "://",
 		Pattern: regexp.MustCompile(`(?i)https?://(?:[a-z0-9-]+\.)?(grabify\.link|iplogger\.(org|com|ru)|blasze\.com|yip\.su|2no\.co|iplis\.ru|ps3cfw\.com)\b`),
+		Gate:    hasLink,
 	},
+}
+
+func hasLink(s string) bool { return strings.Contains(s, "://") }
+
+// tokenShaped reports two dots exactly seven bytes apart with no space
+// between them, which a token has around its six-character middle part and
+// ordinary prose almost never does.
+func tokenShaped(s string) bool {
+	for i := strings.IndexByte(s, '.'); i >= 0 && i+7 < len(s); {
+		if s[i+7] == '.' && !strings.ContainsAny(s[i+1:i+7], " \t\n") {
+			return true
+		}
+		j := strings.IndexByte(s[i+1:], '.')
+		if j < 0 {
+			break
+		}
+		i += 1 + j
+	}
+	return false
 }
