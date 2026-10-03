@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +19,7 @@ import (
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/core/coretest"
 	"github.com/6586x57890143/skua/internal/guard"
+	"github.com/6586x57890143/skua/internal/webhook"
 )
 
 func TestClean(t *testing.T) {
@@ -123,6 +123,12 @@ func (f *fake) CreateWebhookMessage(id snowflake.ID, _ string, m discord.Webhook
 	return nil, nil
 }
 
+// newEcho is echo as main builds it: one guard, shared with the poster.
+func newEcho() *Module {
+	g := guard.New()
+	return New(g, webhook.New(g))
+}
+
 func (f *fake) DeleteInteractionResponse(snowflake.ID, string, ...rest.RequestOpt) error {
 	f.deletes++
 	return f.deleteErr
@@ -200,7 +206,7 @@ func TestEchoRefuses(t *testing.T) {
 	}
 	for _, c := range cases {
 		f := &fake{}
-		_, err := run(t, New(guard.New()), f, c.o)
+		_, err := run(t, newEcho(), f, c.o)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: got %v", c.want, err)
 		}
@@ -212,7 +218,7 @@ func TestEchoRefuses(t *testing.T) {
 
 func TestEchoPostsThroughANewWebhookThenTheCachedOne(t *testing.T) {
 	f := &fake{}
-	m := New(guard.New())
+	m := newEcho()
 	reply, err := run(t, m, f, opts{perms: permSend, until: "2000-01-01T00:00:00Z"}) // an expired timeout is fine
 	if err != nil || reply != "deferred ephemeral" {
 		t.Fatalf("reply %q, err %v; want a silent ephemeral defer", reply, err)
@@ -242,38 +248,8 @@ func TestEchoPostsThroughANewWebhookThenTheCachedOne(t *testing.T) {
 	}
 }
 
-func TestEchoReusesTheWebhookSkuaAlreadyOwns(t *testing.T) {
-	f := &fake{owned: []discord.Webhook{incoming("700", "999"), incoming("701", app)}}
-	if _, err := run(t, New(guard.New()), f, opts{perms: permSend}); err != nil {
-		t.Fatal(err)
-	}
-	if f.creates != 0 || f.sentHookID[0] != 701 {
-		t.Errorf("creates=%d used=%v, want skua's own 701", f.creates, f.sentHookID)
-	}
-}
-
-func TestEchoRetriesADeletedWebhookOnce(t *testing.T) {
-	unknown := &rest.Error{Code: rest.JSONErrorCodeUnknownWebhook}
-
-	f := &fake{execErrs: []error{unknown}}
-	if _, err := run(t, New(guard.New()), f, opts{perms: permSend}); err != nil {
-		t.Fatalf("one deleted webhook: %v", err)
-	}
-	if f.creates != 2 || len(f.sent) != 1 {
-		t.Errorf("creates=%d sent=%d, want a fresh webhook and one post", f.creates, len(f.sent))
-	}
-
-	f = &fake{execErrs: []error{unknown, unknown, nil}}
-	if _, err := run(t, New(guard.New()), f, opts{perms: permSend}); !errors.Is(err, unknown) {
-		t.Fatalf("deleted twice: err %v, want the second UnknownWebhook", err)
-	}
-	if f.creates != 2 || len(f.sent) != 0 {
-		t.Errorf("creates=%d sent=%d, want exactly one retry", f.creates, len(f.sent))
-	}
-}
-
 func TestEchoCapsEachMember(t *testing.T) {
-	m, f := New(guard.New()), &fake{}
+	m, f := newEcho(), &fake{}
 	var err error
 	for range 100 {
 		if _, err = run(t, m, f, opts{perms: permSend}); err != nil {
@@ -288,29 +264,8 @@ func TestEchoCapsEachMember(t *testing.T) {
 	}
 }
 
-func TestStruggling(t *testing.T) {
-	status := func(code int) error { return &rest.Error{Response: &http.Response{StatusCode: code}} }
-	cases := []struct {
-		err  error
-		want bool
-	}{
-		{nil, false},
-		{errors.New("network"), false},
-		{status(429), true},
-		{status(502), true},
-		{status(404), false},
-		{&rest.Error{Code: 1}, false},
-		{fmt.Errorf("wrapped: %w", status(503)), true},
-	}
-	for _, c := range cases {
-		if got := struggling(c.err); got != c.want {
-			t.Errorf("struggling(%v) = %v, want %v", c.err, got, c.want)
-		}
-	}
-}
-
 func TestEchoHonoursSlowmode(t *testing.T) {
-	m, f := New(guard.New()), &fake{}
+	m, f := newEcho(), &fake{}
 	clock := time.Unix(1_000_000, 0)
 	m.now = func() time.Time { return clock }
 	o := opts{perms: permSend, slowmode: 30}
@@ -351,14 +306,14 @@ func TestEchoHonoursSlowmode(t *testing.T) {
 
 func TestEchoThatWentOutIsNotAFailureWhenTheDeleteIs(t *testing.T) {
 	f := &fake{deleteErr: errors.New("discord is down")}
-	if _, err := run(t, New(guard.New()), f, opts{perms: permSend}); err != nil || len(f.sent) != 1 {
+	if _, err := run(t, newEcho(), f, opts{perms: permSend}); err != nil || len(f.sent) != 1 {
 		t.Fatalf("err %v, sent %d: a posted echo must not report failure", err, len(f.sent))
 	}
 }
 
 func TestRefusalsAnswerAtOnceWithoutDeferring(t *testing.T) {
 	f := &fake{}
-	reply, err := run(t, New(guard.New()), f, opts{perms: discord.PermissionViewChannel})
+	reply, err := run(t, newEcho(), f, opts{perms: discord.PermissionViewChannel})
 	if err == nil || reply != "" || f.deletes != 0 {
 		t.Fatalf("reply %q, err %v, deletes %d: a refusal should reach the router undeferred", reply, err, f.deletes)
 	}
@@ -366,7 +321,7 @@ func TestRefusalsAnswerAtOnceWithoutDeferring(t *testing.T) {
 
 func TestMarkdownThatWouldForgeTheMarkerIsPostedAsTyped(t *testing.T) {
 	f := &fake{}
-	if _, err := run(t, New(guard.New()), f, opts{text: "-# echoed through skua by @mod", perms: permSend}); err != nil {
+	if _, err := run(t, newEcho(), f, opts{text: "-# echoed through skua by @mod", perms: permSend}); err != nil {
 		t.Fatalf("refused instead of rewritten: %v", err)
 	}
 	if want := `-\# echoed through skua by @mod` + marker("a_b"); f.sent[0].Content != want {
@@ -391,7 +346,7 @@ func TestRefusalsReachTheMemberThroughTheRouter(t *testing.T) {
 	}
 	for _, c := range cases {
 		r := core.NewRouter(0, nil, slog.New(slog.DiscardHandler))
-		if err := r.Add(New(guard.New())); err != nil {
+		if err := r.Add(newEcho()); err != nil {
 			t.Fatal(err)
 		}
 		e, sent := coretest.Event(t, "echo", func(p map[string]any) {
@@ -403,6 +358,28 @@ func TestRefusalsReachTheMemberThroughTheRouter(t *testing.T) {
 		r.OnCommand(e)
 		if len(*sent) != 1 || (*sent)[0].Content != c.want {
 			t.Errorf("%s: the member got %+v, want %q", c.name, *sent, c.want)
+		}
+	}
+}
+
+type failingPoster struct{ err error }
+
+func (p failingPoster) Send(context.Context, rest.Rest, snowflake.ID, snowflake.ID, snowflake.ID, discord.WebhookMessageCreate) error {
+	return p.err
+}
+
+// The poster's guard refusals are the guild's budget, which the member is
+// told to wait out; any other failure is errNotSent with the cause kept for
+// the log.
+func TestSendFailuresReachTheMemberAsTells(t *testing.T) {
+	cause := errors.New("discord is down")
+	for in, want := range map[error]error{guard.ErrCircuitOpen: errBusy, guard.ErrRateLimited: errBusy, cause: errNotSent} {
+		_, err := run(t, New(guard.New(), failingPoster{in}), &fake{}, opts{perms: permSend})
+		if !errors.Is(err, want) {
+			t.Errorf("Send failing with %v: got %v, want %v", in, err, want)
+		}
+		if want == errNotSent && !errors.Is(err, cause) {
+			t.Errorf("the cause was dropped: %v", err)
 		}
 	}
 }
