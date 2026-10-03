@@ -1,5 +1,5 @@
 // Package webhook posts on a member's behalf through one webhook per
-// channel that skua owns. Echo uses it now; automod's rewrite, which
+// channel that skua owns. Whisper uses it now; automod's rewrite, which
 // reposts a member's message with a slur replaced, is meant to use the same
 // Poster, so both share one cache and one set of guard budgets.
 package webhook

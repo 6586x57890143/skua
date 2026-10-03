@@ -87,7 +87,7 @@ func TestStatus(t *testing.T) {
 		{"database up", Probe{}, pinger{}, brand.ColorOK, "\ndatabase    0."},
 		{"database down", Probe{}, pinger{errors.New("refused")}, brand.ColorError, "```\n-# database: refused"},
 		{"gateway not measured", Probe{}, nil, brand.ColorOK, "\ngateway     not measured yet\n"},
-		{"module skipped", Probe{Skipped: []string{"echo"}}, nil, brand.ColorWarn, "\nskipped     echo\n"},
+		{"module skipped", Probe{Skipped: []string{"whisper"}}, nil, brand.ColorWarn, "\nskipped     whisper\n"},
 	}
 	for _, c := range cases {
 		m := New(func() Probe { return c.probe }, c.db, func() time.Duration { return 0 })

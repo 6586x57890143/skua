@@ -30,8 +30,8 @@ import (
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
 	"github.com/6586x57890143/skua/internal/modules/bird"
-	"github.com/6586x57890143/skua/internal/modules/echo"
 	"github.com/6586x57890143/skua/internal/modules/status"
+	"github.com/6586x57890143/skua/internal/modules/whisper"
 	"github.com/6586x57890143/skua/internal/store"
 	"github.com/6586x57890143/skua/internal/webhook"
 )
@@ -104,7 +104,7 @@ func run(log *slog.Logger) error {
 	var probe status.Probe
 	// One guard for every writer: its breaker is per guild across modules.
 	g := guard.New()
-	// One poster too: echo and bird share each channel's webhook.
+	// One poster too: whisper and bird share each channel's webhook.
 	hooks := webhook.New(g)
 	all := []core.Module{
 		status.New(func() status.Probe { return probe }, db, func() time.Duration {
@@ -113,7 +113,7 @@ func run(log *slog.Logger) error {
 			}
 			return client.Gateway.Latency()
 		}),
-		echo.New(g, hooks, filter.Default()),
+		whisper.New(g, hooks, filter.Default()),
 		bird.New(g, hooks, filter.Default(), os.Getenv("SKUA_XENO_CANTO_KEY")),
 	}
 
