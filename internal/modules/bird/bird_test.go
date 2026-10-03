@@ -97,17 +97,18 @@ type zeros struct{}
 
 func (zeros) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 
-func TestMarkerAndLicence(t *testing.T) {
-	got := marker("a_b", 9*time.Minute+20*time.Second, recording{ID: "42", En: "Eurasian Wren", Rec: "Jane Doe", Lic: "//creativecommons.org/licenses/by-nc-sa/4.0/"})
-	want := `-# @a\_b is a bird for 9m: eurasian wren · recorded by jane doe · cc by-nc-sa 4.0 · <https://xeno-canto.org/42>`
-	if got != want {
-		t.Fatalf("marker =\n%s\nwant\n%s", got, want)
+func TestMarker(t *testing.T) {
+	cases := map[string]string{
+		"Eurasian Wren":            `-# @a\_b is an [eurasian wren](<https://xeno-canto.org/42>) for 9m`,
+		"Freckle-breasted Wood]pe": `-# @a\_b is a [freckle-breasted wood\]pe](<https://xeno-canto.org/42>) for 9m`,
+	}
+	for en, want := range cases {
+		if got := marker("a_b", 9*time.Minute+20*time.Second, recording{ID: "42", En: en}); got != want {
+			t.Errorf("marker =\n%s\nwant\n%s", got, want)
+		}
 	}
 	if strings.Contains(marker("x", 10*time.Second, recording{}), "for 0m") {
 		t.Fatal("the last seconds read as 0m")
-	}
-	if licence("odd") != "odd" {
-		t.Fatal("an unknown licence was mangled")
 	}
 }
 
@@ -244,7 +245,7 @@ func TestOnEventReplacesThenDeletes(t *testing.T) {
 		t.Fatalf("sent %d, deleted %v", len(p.sent), r.deleted)
 	}
 	s := p.sent[0]
-	if s.Username != "wren_fan" || len(s.Files) != 1 || s.Files[0].Name != "xc42.mp3" || !strings.HasPrefix(s.Content, "-# @wren\\_fan is a bird for 5m: wren") {
+	if s.Username != "wren_fan" || len(s.Files) != 1 || s.Files[0].Name != "xc42.mp3" || s.Content != `-# @wren\_fan is a [wren](<https://xeno-canto.org/42>) for 5m` {
 		t.Fatalf("posted %+v", s)
 	}
 }
