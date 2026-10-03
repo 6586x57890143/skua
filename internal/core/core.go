@@ -92,6 +92,19 @@ func (r *Router) Creates() []discord.ApplicationCommandCreate { return r.creates
 
 var errDenied = errors.New("not allowed")
 
+// Tell is an error written for the member. The router shows a Tell's text
+// as it is, anywhere in the error's chain, and logs whatever else the chain
+// carries; any other error is logged, and the member sees only that
+// something failed on skua's side, so REST bodies and internal wording
+// never reach Discord. A Tell is in skua's voice (UX.md): lowercase, no
+// closing full stop.
+type Tell string
+
+func (t Tell) Error() string { return string(t) }
+
+// failed is what the member sees for an error that is not a Tell.
+const failed = "something went wrong on skua's side; try again in a moment"
+
 // OnCommand dispatches one interaction. It never panics out: the gateway
 // library's dispatch has no recover of its own.
 func (r *Router) OnCommand(e *events.ApplicationCommandInteractionCreate) {
@@ -125,10 +138,22 @@ func (r *Router) OnCommand(e *events.ApplicationCommandInteractionCreate) {
 	if err == nil {
 		return
 	}
-	if !errors.Is(err, errDenied) {
+	text := failed
+	tell, isTell := errors.AsType[Tell](err)
+	switch {
+	case isTell:
+		text = string(tell)
+		// A Tell wrapping a cause (fmt.Errorf("%w: %w", tell, err)) still
+		// shows the member only the Tell; the cause is for the log.
+		if err.Error() != text {
+			r.log.Warn("command failed", "command", name, "err", err)
+		}
+	case errors.Is(err, errDenied):
+		text = "only this server's admins can use /" + name
+	default:
 		r.log.Warn("command failed", "command", name, "err", err)
 	}
-	msg := discord.MessageCreate{Content: "✗ " + err.Error(), Flags: discord.MessageFlagEphemeral, AllowedMentions: NoPings()}
+	msg := discord.MessageCreate{Content: "✗ " + text, Flags: discord.MessageFlagEphemeral, AllowedMentions: NoPings()}
 	if responded {
 		_, err = e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), msg)
 	} else {
