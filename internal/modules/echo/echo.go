@@ -10,12 +10,12 @@
 // rather than refuses: the member's only feedback is their message.
 //
 // Webhook posts skip Discord's AutoMod and slowmode, so echo applies both
-// itself. Slowmode is honoured per channel and member. skua's automod
-// screens member messages with rung 0 (which skips webhooks outright) and
-// a rung 1 regex suite; echo must run its text through rung 1 before
-// posting and refuse on a match, so nothing is ever posted to delete. Until
-// the automod module lands that screen is missing: when it does, echo
-// takes its rung 1 matcher as a constructor argument.
+// itself. Slowmode is honoured per channel and member. Every echo, and the
+// display name it wears, is screened through internal/filter before it is
+// posted: a slur is rewritten in place and the echo still goes out; a bot
+// token or a malicious link refuses it. Nothing is ever posted to delete.
+// The filter is the same one automod's rung 1 runs over member messages
+// (whose rung 0 skips webhooks), so the two cannot disagree.
 package echo
 
 import (
@@ -34,6 +34,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/core"
+	"github.com/6586x57890143/skua/internal/filter"
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
 )
@@ -45,6 +46,11 @@ const maxText = 1800
 // postBy bounds the webhook calls once the interaction is deferred.
 const postBy = 10 * time.Second
 
+// screen is the slice of filter.Filter echo uses.
+type screen interface {
+	Check(text string) filter.Verdict
+}
+
 // poster is the slice of webhook.Poster echo uses.
 type poster interface {
 	Send(ctx context.Context, r rest.Rest, guild, channel, app snowflake.ID, msg discord.WebhookMessageCreate) error
@@ -53,8 +59,9 @@ type poster interface {
 type slow struct{ channel, user snowflake.ID }
 
 type Module struct {
-	guard *guard.Guard
-	post  poster
+	guard  *guard.Guard
+	post   poster
+	screen screen
 	// ponytail: never evicted, one entry per member per slowmode channel
 	// they have echoed in. Sweep entries older than six hours (the longest
 	// slowmode) if that ever shows up in a heap profile.
@@ -62,9 +69,11 @@ type Module struct {
 	now  func() time.Time
 }
 
-// New takes the process's one guard, for the per-member cap, and the poster
-// echoes go out through.
-func New(g *guard.Guard, p poster) *Module { return &Module{guard: g, post: p, now: time.Now} }
+// New takes the process's one guard, for the per-member cap, the poster
+// echoes go out through, and the screen they pass first.
+func New(g *guard.Guard, p poster, s screen) *Module {
+	return &Module{guard: g, post: p, screen: s, now: time.Now}
+}
 
 func (*Module) Name() string { return "echo" }
 
@@ -158,6 +167,11 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 	if text == "" {
 		return errEmpty
 	}
+	v := m.screen.Check(text)
+	if v.Block != "" {
+		return core.Tell("skua won't post that: it contains " + v.Block)
+	}
+	text = v.Text
 	member, guild := e.Member(), e.GuildID()
 	if member == nil || guild == nil {
 		return core.Tell("/echo only works in a server")
@@ -197,7 +211,7 @@ func (m *Module) echo(ctx context.Context, e *events.ApplicationCommandInteracti
 
 	msg := discord.WebhookMessageCreate{
 		Content:         text + marker(member.User.Username),
-		Username:        name(member),
+		Username:        m.screen.Check(name(member)).Text,
 		AvatarURL:       member.EffectiveAvatarURL(),
 		AllowedMentions: core.NoPings(),
 	}

@@ -26,6 +26,7 @@ import (
 
 	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
+	"github.com/6586x57890143/skua/internal/filter"
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
 	"github.com/6586x57890143/skua/internal/modules/echo"
@@ -109,7 +110,7 @@ func run(log *slog.Logger) error {
 			}
 			return client.Gateway.Latency()
 		}),
-		echo.New(g, webhook.New(g)),
+		echo.New(g, webhook.New(g), filter.Default()),
 	}
 
 	wants := make(map[string]intents.Want, len(all))
