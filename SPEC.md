@@ -46,10 +46,12 @@ Each one is a hypothesis with a way to tell whether it worked. Record the result
 | 2 | PGO: capture 30s of CPU from `SKUA_PPROF` under real load into `cmd/skua/default.pgo` | open |
 | 3 | GCRA cells instead of a mutex-guarded sliding window | **Done**, 6.9ns/op, 0 allocs under `RunParallel` |
 | 4 | Intent probe instead of a gateway-ready watchdog | **Done**, pending a live portal-toggle test |
+| 5 | Input filter: Unicode folding, and a consonant-skeleton key that gates each rule's regex, instead of running every rule's ASCII pattern on every message | **Done**: clean message 3.0us and 0 allocs against 14us for every rule in turn (20us as one alternation); catches lookalikes, fullwidth, zero-width, Zalgo and held letters |
 
 ## Milestones
 
 | # | Milestone | State |
 |---|---|---|
 | 0 | Scaffold: router, intents probe, guard, pgx, brand, `/ping` `/status`, deploy | done |
-| 1 | `/echo`: a chat-restricted member posts one line through a per-channel webhook, marked with their username (merlin M12's test bed) | in review |
+| 1 | `/echo`: a chat-restricted member posts one line through a per-channel webhook, marked with their username | done |
+| 2 | `internal/filter` for every module that posts member text; echo screens through it and members can edit and delete their own echoes | in progress |
