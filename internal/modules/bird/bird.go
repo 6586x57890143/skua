@@ -7,7 +7,8 @@
 // a webhook post and a delete, both spent through the guard. The post goes
 // up before the original comes down, so a failure leaves their message where
 // it was. Like whisper, every post carries a subtext marker saying what
-// happened, plus the recording's credit and licence as xeno-canto asks.
+// happened, the species linking to the recording's xeno-canto entry, which
+// carries its credit and licence.
 package bird
 
 import (
@@ -75,9 +76,7 @@ type prank struct {
 type recording struct {
 	ID   string `json:"id"`
 	En   string `json:"en"`
-	Rec  string `json:"rec"`
 	File string `json:"file"`
-	Lic  string `json:"lic"`
 }
 
 type Module struct {
@@ -290,25 +289,23 @@ func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Messa
 	m.guard.Report(guild, struggling(err))
 }
 
-var markdown = strings.NewReplacer(`\`, `\\`, `_`, `\_`, `*`, `\*`, `~`, `\~`, "`", "\\`", `|`, `\|`, `>`, `\>`)
+// markdown escapes brackets too, so a name cannot close the species link.
+var markdown = strings.NewReplacer(`\`, `\\`, `_`, `\_`, `*`, `\*`, `~`, `\~`, "`", "\\`", `|`, `\|`, `>`, `\>`, `[`, `\[`, `]`, `\]`)
 
-// marker is the whole post: who this is, for how long, and the credit.
+// marker is the whole post: who is which bird for how long, the species
+// linking to its xeno-canto entry, which carries the credit and licence.
 // Everything is escaped and lowercase, the link held from unfurling.
 func marker(username string, left time.Duration, rec recording) string {
 	mins := max(int(left.Round(time.Minute)/time.Minute), 1)
-	return fmt.Sprintf("-# @%s is a bird for %dm: %s · recorded by %s · %s · <https://xeno-canto.org/%s>",
-		markdown.Replace(username), mins, markdown.Replace(strings.ToLower(rec.En)),
-		markdown.Replace(strings.ToLower(rec.Rec)), licence(rec.Lic), rec.ID)
-}
-
-// licence turns "//creativecommons.org/licenses/by-nc-sa/4.0/" into
-// "cc by-nc-sa 4.0".
-func licence(lic string) string {
-	parts := strings.Split(strings.Trim(lic, "/"), "/")
-	if len(parts) >= 4 && parts[0] == "creativecommons.org" {
-		return "cc " + strings.Join(parts[2:], " ")
+	species := strings.ToLower(rec.En)
+	// "eu", "ura" and "uni" sound like "you": a eurasian wren, a ural owl.
+	article := "a"
+	if species != "" && strings.ContainsRune("aeiou", rune(species[0])) &&
+		!strings.HasPrefix(species, "eu") && !strings.HasPrefix(species, "ura") && !strings.HasPrefix(species, "uni") {
+		article = "an"
 	}
-	return lic
+	return fmt.Sprintf("-# @%s is %s [%s](<https://xeno-canto.org/%s>) for %dm",
+		markdown.Replace(username), article, markdown.Replace(species), rec.ID, mins)
 }
 
 // struggling is true only for answers that say Discord is, not the request.
