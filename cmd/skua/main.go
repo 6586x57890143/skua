@@ -29,6 +29,7 @@ import (
 	"github.com/6586x57890143/skua/internal/filter"
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
+	"github.com/6586x57890143/skua/internal/modules/bird"
 	"github.com/6586x57890143/skua/internal/modules/echo"
 	"github.com/6586x57890143/skua/internal/modules/status"
 	"github.com/6586x57890143/skua/internal/store"
@@ -103,6 +104,8 @@ func run(log *slog.Logger) error {
 	var probe status.Probe
 	// One guard for every writer: its breaker is per guild across modules.
 	g := guard.New()
+	// One poster too: echo and bird share each channel's webhook.
+	hooks := webhook.New(g)
 	all := []core.Module{
 		status.New(func() status.Probe { return probe }, db, func() time.Duration {
 			if client == nil || client.Gateway == nil {
@@ -110,7 +113,8 @@ func run(log *slog.Logger) error {
 			}
 			return client.Gateway.Latency()
 		}),
-		echo.New(g, webhook.New(g), filter.Default()),
+		echo.New(g, hooks, filter.Default()),
+		bird.New(g, hooks, filter.Default(), os.Getenv("SKUA_XENO_CANTO_KEY")),
 	}
 
 	wants := make(map[string]intents.Want, len(all))
@@ -128,6 +132,8 @@ func run(log *slog.Logger) error {
 		return guild.OwnerID, ok
 	}, log)
 	var running []core.Module
+	// Gateway events reach the running modules that listen for them.
+	var listeners []bot.EventListener
 	for _, m := range all {
 		if slices.Contains(skipped, m.Name()) {
 			continue
@@ -136,6 +142,9 @@ func run(log *slog.Logger) error {
 			return err
 		}
 		running = append(running, m)
+		if l, ok := m.(bot.EventListener); ok {
+			listeners = append(listeners, l)
+		}
 	}
 	// The install link asks for what the running modules declare, so it
 	// follows every module added, removed or skipped. A failure only leaves
@@ -163,6 +172,7 @@ func run(log *slog.Logger) error {
 		bot.WithCacheConfigOpts(cache.WithCaches(cache.FlagGuilds)),
 		bot.WithEventListenerFunc(router.OnCommand),
 		bot.WithEventListenerFunc(router.OnModal),
+		bot.WithEventListeners(listeners...),
 		bot.WithEventListenerFunc(func(e *events.GuildReady) { register(e.Client(), e.GuildID) }),
 		bot.WithEventListenerFunc(func(e *events.GuildJoin) { register(e.Client(), e.GuildID) }),
 	)

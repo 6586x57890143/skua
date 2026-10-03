@@ -55,3 +55,4 @@ Each one is a hypothesis with a way to tell whether it worked. Record the result
 | 0 | Scaffold: router, intents probe, guard, pgx, brand, `/ping` `/status`, deploy | done |
 | 1 | `/echo`: a chat-restricted member posts one line through a per-channel webhook, marked with their username | done |
 | 2 | `internal/filter` for every module that posts member text; echo screens through it and members can edit and delete their own echoes | done |
+| 3 | `/bird` (experimental, admin): for up to an hour every message one member sends is replaced by one short xeno-canto bird recording, posted through skua's webhook as them with a credit line. Needs `SKUA_XENO_CANTO_KEY` | done, not run against Discord or a live key yet |
