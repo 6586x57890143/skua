@@ -4,7 +4,9 @@
 
 `skua` is a minimal, fast Discord bot in Go (disgo, pgx v5) and a test bed for
 Discord experiments. Read [`SPEC.md`](./SPEC.md) first. It is
-one page and lists the principles and the experiments.
+one page and lists the principles and the experiments. Anything a person sees (replies,
+embeds, command descriptions, the setup CLI, the art) follows [`UX.md`](./UX.md): all
+lowercase, errors as `core.Tell`, facts on a grid, art on an exact pixel grid.
 
 - `cmd/skua/main.go`: wiring only.
 - `internal/core`: `Module` interface and the command `Router`. A tier is mandatory, and
