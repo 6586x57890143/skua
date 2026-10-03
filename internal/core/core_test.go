@@ -151,26 +151,38 @@ func TestOnCommandHidesErrorsThatAreNotATell(t *testing.T) {
 	}
 }
 
-func TestOnCommandShowsAWrappedTellAndLogsItsCause(t *testing.T) {
-	var log strings.Builder
-	r := NewRouter(0, nil, slog.New(slog.NewTextHandler(&log, nil)))
+// A Tell is shown as written either way; only one with a cause under it is
+// logged, so a failed post is in the logs and a refusal is not noise there.
+func TestOnCommandLogsATellOnlyWhenItCarriesACause(t *testing.T) {
 	cause := errors.New(`403 Forbidden {"message": "Missing Permissions"}`)
-	if err := r.Add(mod{[]Command{{
-		Create: discord.SlashCommandCreate{Name: "a"},
-		Tier:   Public,
-		Run: func(context.Context, *events.ApplicationCommandInteractionCreate) error {
-			return fmt.Errorf("%w: %w", Tell("your message didn't go through"), cause)
-		},
-	}}}); err != nil {
-		t.Fatal(err)
-	}
-	e, sent := coretest.Event(t, "a", nil)
-	r.OnCommand(e)
-	if len(*sent) != 1 || (*sent)[0].Content != "✗ your message didn't go through" {
-		t.Fatalf("wrapped Tell reply = %+v", *sent)
-	}
-	if !strings.Contains(log.String(), "Missing Permissions") {
-		t.Fatalf("the cause was not logged: %q", log.String())
+	for _, c := range []struct {
+		name string
+		err  error
+		logs bool
+	}{
+		{"bare", Tell("your message didn't go through"), false},
+		{"wrapped", fmt.Errorf("%w: %w", Tell("your message didn't go through"), cause), true},
+	} {
+		var log strings.Builder
+		r := NewRouter(0, nil, slog.New(slog.NewTextHandler(&log, nil)))
+		if err := r.Add(mod{[]Command{{
+			Create: discord.SlashCommandCreate{Name: "a"},
+			Tier:   Public,
+			Run:    func(context.Context, *events.ApplicationCommandInteractionCreate) error { return c.err },
+		}}}); err != nil {
+			t.Fatal(err)
+		}
+		e, sent := coretest.Event(t, "a", nil)
+		r.OnCommand(e)
+		if len(*sent) != 1 || (*sent)[0].Content != "✗ your message didn't go through" {
+			t.Fatalf("%s: reply = %+v", c.name, *sent)
+		}
+		if logged := strings.Contains(log.String(), "command failed"); logged != c.logs {
+			t.Errorf("%s: logged = %v, want %v: %q", c.name, logged, c.logs, log.String())
+		}
+		if c.logs && !strings.Contains(log.String(), "Missing Permissions") {
+			t.Errorf("%s: the cause is not in the log: %q", c.name, log.String())
+		}
 	}
 }
 
