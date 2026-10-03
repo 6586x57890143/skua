@@ -26,6 +26,22 @@ type fake struct {
 	execErrs           []error
 	lists, creates     int
 	sentTo             []snowflake.ID
+	got, edited, gone  []snowflake.ID // message IDs read, updated, deleted
+}
+
+func (f *fake) GetWebhookMessage(_ snowflake.ID, _ string, m snowflake.ID, _ ...rest.RequestOpt) (*discord.Message, error) {
+	f.got = append(f.got, m)
+	return &discord.Message{ID: m}, nil
+}
+
+func (f *fake) UpdateWebhookMessage(_ snowflake.ID, _ string, m snowflake.ID, _ discord.WebhookMessageUpdate, _ rest.UpdateWebhookMessageParams, _ ...rest.RequestOpt) (*discord.Message, error) {
+	f.edited = append(f.edited, m)
+	return nil, nil
+}
+
+func (f *fake) DeleteWebhookMessage(_ snowflake.ID, _ string, m, _ snowflake.ID, _ ...rest.RequestOpt) error {
+	f.gone = append(f.gone, m)
+	return nil
 }
 
 func (f *fake) GetWebhooks(snowflake.ID, ...rest.RequestOpt) ([]discord.Webhook, error) {
@@ -159,5 +175,79 @@ func TestStruggling(t *testing.T) {
 		if got := struggling(c.err); got != c.want {
 			t.Errorf("struggling(%v) = %v, want %v", c.err, got, c.want)
 		}
+	}
+}
+
+func TestGetEditDeleteUseSkuasOwnWebhookOnly(t *testing.T) {
+	ctx := context.Background()
+	// Cached from a post: no lookup needed.
+	p, f := New(guard.New()), &fake{}
+	if err := send(p, f); err != nil {
+		t.Fatal(err)
+	}
+	hook := f.sentTo[0]
+	if _, err := p.Get(ctx, f, 4, app, hook, 50); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Edit(ctx, f, 3, 4, app, hook, 50, discord.WebhookMessageUpdate{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Delete(ctx, f, 3, 4, app, hook, 50); err != nil {
+		t.Fatal(err)
+	}
+	if f.lists != 1 || len(f.got) != 1 || len(f.edited) != 1 || len(f.gone) != 1 {
+		t.Errorf("lists=%d got=%v edited=%v gone=%v, want one of each on the cached token", f.lists, f.got, f.edited, f.gone)
+	}
+
+	// After a restart the cache is empty: the webhook is found by ID among
+	// the channel's, a second one of skua's included.
+	f = &fake{owned: []discord.Webhook{incoming(701, app), incoming(702, app)}}
+	if err := New(guard.New()).Delete(ctx, f, 3, 4, app, 702, 51); err != nil || len(f.gone) != 1 {
+		t.Fatalf("delete through skua's second webhook: err %v, gone %v", err, f.gone)
+	}
+
+	// Someone else's webhook, or another app's, is never ours.
+	f = &fake{owned: []discord.Webhook{incoming(800, 999)}}
+	for _, id := range []snowflake.ID{800, 801} {
+		if err := New(guard.New()).Delete(ctx, f, 3, 4, app, id, 52); !errors.Is(err, ErrNotOurs) {
+			t.Errorf("webhook %d: err %v, want ErrNotOurs", id, err)
+		}
+		if _, err := New(guard.New()).Get(ctx, f, 4, app, id, 52); !errors.Is(err, ErrNotOurs) {
+			t.Errorf("get through webhook %d: err %v, want ErrNotOurs", id, err)
+		}
+		if err := New(guard.New()).Edit(ctx, f, 3, 4, app, id, 52, discord.WebhookMessageUpdate{}); !errors.Is(err, ErrNotOurs) {
+			t.Errorf("edit through webhook %d: err %v, want ErrNotOurs", id, err)
+		}
+	}
+	if len(f.gone)+len(f.edited)+len(f.got) != 0 {
+		t.Error("a foreign webhook's message was touched")
+	}
+
+	boom := errors.New("boom")
+	if err := New(guard.New()).Delete(ctx, &fake{listErr: boom}, 3, 4, app, 701, 53); !errors.Is(err, boom) {
+		t.Errorf("listing failed: err %v", err)
+	}
+}
+
+func TestEditAndDeleteSpendTheGuildsBudget(t *testing.T) {
+	ctx := context.Background()
+	f := &fake{owned: []discord.Webhook{incoming(701, app)}}
+	p := New(guard.New())
+	var err error
+	for range 1000 {
+		if err = p.Delete(ctx, f, 3, 4, app, 701, 1); err != nil {
+			break
+		}
+	}
+	if !errors.Is(err, guard.ErrRateLimited) {
+		t.Errorf("1000 deletes: %v, want the guard's cap", err)
+	}
+	for range 1000 {
+		if err = p.Edit(ctx, f, 3, 4, app, 701, 1, discord.WebhookMessageUpdate{}); err != nil {
+			break
+		}
+	}
+	if !errors.Is(err, guard.ErrRateLimited) {
+		t.Errorf("1000 edits: %v, want the guard's cap", err)
 	}
 }

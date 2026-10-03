@@ -90,6 +90,9 @@ const (
 // one CreateWebhookMessage call, in order.
 type fake struct {
 	rest.Rest
+	fetched    *discord.Message
+	updates    []discord.WebhookMessageUpdate
+	removed    []snowflake.ID
 	deleteErr  error
 	deletes    int
 	owned      []discord.Webhook
@@ -366,7 +369,11 @@ func TestRefusalsReachTheMemberThroughTheRouter(t *testing.T) {
 	}
 }
 
-type failingPoster struct{ err error }
+// failingPoster fails Send; echo never calls the rest from /echo.
+type failingPoster struct {
+	poster
+	err error
+}
 
 func (p failingPoster) Send(context.Context, rest.Rest, snowflake.ID, snowflake.ID, snowflake.ID, discord.WebhookMessageCreate) error {
 	return p.err
@@ -378,7 +385,7 @@ func (p failingPoster) Send(context.Context, rest.Rest, snowflake.ID, snowflake.
 func TestSendFailuresReachTheMemberAsTells(t *testing.T) {
 	cause := errors.New("discord is down")
 	for in, want := range map[error]error{guard.ErrCircuitOpen: errBusy, guard.ErrRateLimited: errBusy, cause: errNotSent} {
-		_, err := run(t, New(guard.New(), failingPoster{in}, filter.Default()), &fake{}, opts{perms: permSend})
+		_, err := run(t, New(guard.New(), failingPoster{err: in}, filter.Default()), &fake{}, opts{perms: permSend})
 		if !errors.Is(err, want) {
 			t.Errorf("Send failing with %v: got %v, want %v", in, err, want)
 		}
