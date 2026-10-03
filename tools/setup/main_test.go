@@ -154,6 +154,26 @@ func TestEnvLinesRefusesNewlines(t *testing.T) {
 	}
 }
 
+func TestHostFacts(t *testing.T) {
+	dir, platform, err := hostFacts("/home/deploy/skua\r\nlinux/arm64\r\n")
+	if err != nil || dir != "/home/deploy/skua" || platform != "linux/arm64" {
+		t.Fatalf("got %q %q %v", dir, platform, err)
+	}
+	for _, out := range []string{
+		"",
+		"/home/deploy/skua\n",                    // docker answered nothing
+		"/home/deploy/skua\nwindows/amd64\n",     // not a Linux daemon
+		"/home/deploy/skua\nlinux/arm64 extra\n", // not one platform
+		"/home/deploy/skua\nlinux/\n",
+		"skua\nlinux/amd64\n", // not absolute
+		"/a\nlinux/amd64\nmore\n",
+	} {
+		if _, _, err := hostFacts(out); err == nil {
+			t.Errorf("hostFacts(%q) accepted it", out)
+		}
+	}
+}
+
 func TestSSHField(t *testing.T) {
 	// The shape OpenSSH 10.5 prints: "User" capitalised, the rest not.
 	cfg := "User deploy\nhostname 203.0.113.7\nport 22\nidentityfile ~/.ssh/id_ed25519\n"

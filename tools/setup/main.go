@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -372,7 +373,7 @@ func dataURI(path string) (string, error) {
 // bot on the host logs that it is up.
 func deploy(repo, host, dir string) error {
 	step("deploying through GitHub Actions")
-	if err := pointCI(repo, host); err != nil {
+	if err := pointCI(repo, host, dir); err != nil {
 		return err
 	}
 	if err := gh("variable", "set", "DEPLOY_ENABLED", "--body", "true", "-R", repo); err != nil {
@@ -429,11 +430,13 @@ func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'
 // remoteDir is the host directory as a remote shell expression.
 func remoteDir(dir string) string { return `"$HOME"/` + shq(dir) }
 
-// pointCI makes the repository secret VPS_HOST the machine behind the ssh
-// alias, so moving to a new host is this tool plus the CI key, not a trip
-// to the repository settings. VPS_SSH_KEY stays with the person: a private
-// key never passes through here.
-func pointCI(repo, alias string) error {
+// pointCI aims the deploy job at the host: the secret VPS_HOST is the
+// machine behind the ssh alias, and the variables VPS_USER and VPS_DIR are
+// who CI logs in as and the absolute directory it deploys into, as the host
+// itself reports it. Moving to a new host is then this tool plus the CI key,
+// not a trip to the repository settings. VPS_SSH_KEY stays with the person:
+// a private key never passes through here.
+func pointCI(repo, alias, dir string) error {
 	cfg, err := exec.Command("ssh", "-G", alias).Output()
 	if err != nil {
 		return fmt.Errorf("ssh -G %s: %v", alias, err)
@@ -448,6 +451,22 @@ func pointCI(repo, alias string) error {
 		return fmt.Errorf("gh secret set VPS_HOST: %v %s", err, strings.TrimSpace(string(out)))
 	}
 	ok("VPS_HOST=%s", hostname)
+	// One round trip: where the directory is, and what the daemon runs on.
+	out, err := exec.Command("ssh", "-o", "BatchMode=yes", alias,
+		"cd "+remoteDir(dir)+" && pwd && docker version --format '{{.Server.Os}}/{{.Server.Arch}}'").Output()
+	if err != nil {
+		return fmt.Errorf("asking %s where ~/%s is and what docker runs on: %v", alias, dir, err)
+	}
+	abs, platform, err := hostFacts(string(out))
+	if err != nil {
+		return fmt.Errorf("%s: %w", alias, err)
+	}
+	for _, v := range [][2]string{{"VPS_USER", user}, {"VPS_DIR", abs}, {"VPS_PLATFORM", platform}} {
+		if err := gh("variable", "set", v[0], "--body", v[1], "-R", repo); err != nil {
+			return err
+		}
+		ok("%s=%s", v[0], v[1])
+	}
 	names, err := exec.Command("gh", "secret", "list", "-R", repo, "--json", "name", "-q", ".[].name").Output()
 	if err != nil || !strings.Contains("\n"+string(names), "\nVPS_SSH_KEY\n") {
 		warn("VPS_SSH_KEY is not set: add the CI deploy key in the repository settings")
@@ -458,11 +477,26 @@ func pointCI(repo, alias string) error {
 	if p := proxied(string(cfg)); p != "" {
 		warn("%s connects through %s; CI will connect to %s directly", alias, p, hostname)
 	}
-	// The workflow logs in as deploy.
-	if user != "deploy" {
-		warn("%s logs in as %q, but CI deploys as \"deploy\"", alias, user)
-	}
 	return nil
+}
+
+// platformRE is a buildx platform for one Linux architecture, as
+// `docker version` reports the daemon's: linux/arm64, linux/amd64.
+var platformRE = regexp.MustCompile(`^linux/[a-z0-9_]+$`)
+
+// hostFacts reads pointCI's round trip: the absolute directory on the first
+// line, the daemon's platform on the second. CI builds the image for exactly
+// that platform, so anything else is refused rather than passed on.
+func hostFacts(out string) (dir, platform string, err error) {
+	lines := strings.Split(strings.TrimSpace(strings.ReplaceAll(out, "\r", "")), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "/") {
+		return "", "", fmt.Errorf("expected a directory and a platform, got %q", out)
+	}
+	dir, platform = strings.TrimSpace(lines[0]), strings.TrimSpace(lines[1])
+	if !platformRE.MatchString(platform) {
+		return "", "", fmt.Errorf("docker reports platform %q, not linux/<arch>", platform)
+	}
+	return dir, platform, nil
 }
 
 // proxied names the proxyjump or proxycommand an `ssh -G` config uses, or
