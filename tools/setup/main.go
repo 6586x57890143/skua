@@ -108,6 +108,11 @@ func run(host, dir, repo, admin string, noProfile, noDeploy bool) error {
 	if fresh {
 		// Only for a new .env: Postgres reads its password once, when the
 		// volume is first created, so changing it later locks the bot out.
+		// ponytail: "no .env" stands in for "no database". A host that lost
+		// its .env but kept skua_pgdata gets a password its database never
+		// saw. Harmless while no module has a table; with the first
+		// migration, also refuse when `docker volume inspect skua_pgdata`
+		// succeeds (the name is fixed by docker-compose.prod.yml's name:).
 		pw, err := password()
 		if err != nil {
 			return err
@@ -268,7 +273,7 @@ cd "$HOME/$1"
 [ -f .env ] || : > .env
 kv=$(mktemp .kv.XXXXXX)
 tmp=$(mktemp .env.XXXXXX)
-trap 'rm -f "$kv"' EXIT
+trap 'rm -f "$kv" "$tmp"' EXIT
 cat > "$kv"
 awk 'NR == FNR { i = index($0, "="); k = substr($0, 1, i - 1); v[k] = substr($0, i + 1); order[++n] = k; next }
   { i = index($0, "="); k = substr($0, 1, i - 1)
@@ -447,6 +452,12 @@ func pointCI(repo, alias string) error {
 	if err != nil || !strings.Contains("\n"+string(names), "\nVPS_SSH_KEY\n") {
 		warn("VPS_SSH_KEY is not set: add the CI deploy key in the repository settings")
 	}
+	// CI connects straight to VPS_HOST. An alias that only works through a
+	// jump host or a proxy (a tailnet, a bastion) hands CI a name it may
+	// not be able to reach.
+	if p := proxied(string(cfg)); p != "" {
+		warn("%s connects through %s; CI will connect to %s directly", alias, p, hostname)
+	}
 	// The workflow logs in as deploy.
 	if user != "deploy" {
 		warn("%s logs in as %q, but CI deploys as \"deploy\"", alias, user)
@@ -454,10 +465,22 @@ func pointCI(repo, alias string) error {
 	return nil
 }
 
+// proxied names the proxyjump or proxycommand an `ssh -G` config uses, or
+// is empty when the alias connects directly ("none" means unset).
+func proxied(cfg string) string {
+	for _, key := range []string{"proxyjump", "proxycommand"} {
+		if v := sshField(cfg, key); v != "" && v != "none" {
+			return key + " " + v
+		}
+	}
+	return ""
+}
+
 // sshField is one setting from `ssh -G` output, which is "key value" lines.
 func sshField(cfg, key string) string {
 	for _, line := range strings.Split(cfg, "\n") {
-		if k, v, ok := strings.Cut(strings.TrimSpace(line), " "); ok && k == key {
+		// Case-insensitive: OpenSSH 10.5 prints "User kon" beside "hostname x".
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), " "); ok && strings.EqualFold(k, key) {
 			return v
 		}
 	}

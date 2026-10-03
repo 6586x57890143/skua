@@ -155,7 +155,8 @@ func TestEnvLinesRefusesNewlines(t *testing.T) {
 }
 
 func TestSSHField(t *testing.T) {
-	cfg := "user deploy\nhostname 203.0.113.7\nport 22\nidentityfile ~/.ssh/id_ed25519\n"
+	// The shape OpenSSH 10.5 prints: "User" capitalised, the rest not.
+	cfg := "User deploy\nhostname 203.0.113.7\nport 22\nidentityfile ~/.ssh/id_ed25519\n"
 	if got := sshField(cfg, "hostname"); got != "203.0.113.7" {
 		t.Errorf("hostname = %q", got)
 	}
@@ -164,6 +165,17 @@ func TestSSHField(t *testing.T) {
 	}
 	if got := sshField(cfg, "proxyjump"); got != "" {
 		t.Errorf("missing key = %q", got)
+	}
+	if got := proxied(cfg); got != "" {
+		t.Errorf("direct alias reported as proxied: %q", got)
+	}
+	for _, c := range []string{"proxyjump bastion.example\n", "proxycommand nc %h %p\n"} {
+		if proxied(cfg+c) == "" {
+			t.Errorf("%q not reported", c)
+		}
+	}
+	if got := proxied(cfg + "proxycommand none\n"); got != "" {
+		t.Errorf("proxycommand none reported as %q", got)
 	}
 }
 
