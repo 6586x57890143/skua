@@ -19,6 +19,18 @@ concurrency:
 jobs:
   lint-test:
     runs-on: ubuntu-latest
+    # internal/store's migration test runs against a real Postgres.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: skua
+          POSTGRES_PASSWORD: skua
+          POSTGRES_DB: skua
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U skua" --health-interval 5s --health-retries 10
+    env:
+      SKUA_TEST_DATABASE_URL: postgres://skua:skua@localhost:5432/skua?sslmode=disable
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

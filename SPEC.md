@@ -32,7 +32,7 @@ to tell whether it worked, and the log is below.
 | | |
 |---|---|
 | Discord | `disgoorg/disgo` v0.19, zstd-stream gateway compression (its default), every cache off except guilds |
-| Database | Postgres 16 via `pgx/v5` `pgxpool`, optional, no tables yet |
+| Database | Postgres 16 via `pgx/v5` `pgxpool`, optional. SQL migrations in `internal/store/migrations`, compiled in and applied at boot in one transaction |
 | Build | Go 1.27, built for the deploy host's platform (`VPS_PLATFORM`), `CGO_ENABLED=0 -trimpath -s -w`, distroless nonroot, PGO from `cmd/skua/default.pgo` when present |
 | Deploy | `scripts/deploy.sh`: builds natively on `foundry` (arm64) from `git archive`, compose, rollback via `previous-tag.env` |
 
@@ -56,3 +56,4 @@ Each one is a hypothesis with a way to tell whether it worked. Record the result
 | 1 | `/whisper`: a chat-restricted member posts one line through a per-channel webhook, marked with their username | done |
 | 2 | `internal/filter` for every module that posts member text; whisper screens through it and members can edit and delete their own whispers | done |
 | 3 | `/bird` (experimental, admin): for up to an hour every message one member sends is replaced by one short xeno-canto bird recording, posted through skua's webhook as them with a credit line. Needs `SKUA_XENO_CANTO_KEY` | done, not run against Discord or a live key yet |
+| 4 | `/purge`: members delete their own messages in a server on demand, on a schedule or live, at the fastest rate one token allows. The break-glass admin can run it for a member; server admins cannot | in progress: migration runner and `purge_subs` |
