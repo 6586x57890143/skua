@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
@@ -60,7 +61,7 @@ func submit(t *testing.T, m *Module, f *fake, text string) []discord.MessageCrea
 }
 
 func newModule() *Module {
-	m := New(guard.New())
+	m := New(guard.New(), nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	m.pace = newPacer(1e9)
 	return m
 }
@@ -190,8 +191,8 @@ func TestOutcomeAndRender(t *testing.T) {
 
 func TestModuleDeclares(t *testing.T) {
 	m := newModule()
-	if m.Name() != "purge" || m.Want().Required != 0 {
-		t.Error("purge needs no intent")
+	if m.Name() != "purge" || m.Want().Required != gateway.IntentGuildMessages {
+		t.Error("purge needs guild messages and nothing else")
 	}
 	for _, p := range []discord.Permissions{discord.PermissionReadMessageHistory, discord.PermissionManageMessages, discord.PermissionManageThreads} {
 		if !m.Perms().Has(p) {

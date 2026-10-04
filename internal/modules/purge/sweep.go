@@ -310,10 +310,12 @@ func (s *sweep) one(ctx context.Context, ch, id snowflake.ID) error {
 }
 
 // spend waits for a request slot, then takes one from the guild's purge
-// budget.
+// budget. Live deletes have no pacer and go at once.
 func (s *sweep) spend(ctx context.Context) error {
-	if err := s.pace.wait(ctx); err != nil {
-		return err
+	if s.pace != nil {
+		if err := s.pace.wait(ctx); err != nil {
+			return err
+		}
 	}
 	if err := s.guard.Allow(s.guild, guard.Purge); err != nil {
 		return errRefused
