@@ -98,3 +98,20 @@ func BenchmarkAllow(b *testing.B) {
 		}
 	})
 }
+
+// Purge and PurgeMember are separate budgets: a member out of /purge now
+// starts leaves the guild's running sweeps alone.
+func TestPurgeBudgetsAreIndependent(t *testing.T) {
+	g := New()
+	for range caps[PurgeMember] {
+		if err := g.Allow(5, PurgeMember); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := g.Allow(5, PurgeMember); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("start %d: got %v, want ErrRateLimited", caps[PurgeMember]+1, err)
+	}
+	if err := g.Allow(5, Purge); err != nil {
+		t.Fatalf("Purge refused after PurgeMember ran out: %v", err)
+	}
+}

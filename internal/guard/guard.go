@@ -37,6 +37,11 @@ const (
 	// WhisperMember is keyed by member ID, not guild: one member's share of
 	// the guild's WebhookExecute budget.
 	WhisperMember
+	// Purge is one /purge write call, so a bulk delete of 100 counts once.
+	Purge
+	// PurgeMember is keyed by member ID: how often one member can start
+	// /purge now.
+	PurgeMember
 	opCount
 )
 
@@ -51,6 +56,11 @@ var caps = [opCount]int64{
 	// One per channel, ever, in normal use.
 	WebhookCreate: 20,
 	WhisperMember: 30,
+	// A first sweep of a busy guild is thousands of single deletes of old
+	// messages; Discord's per-channel limit is the real ceiling, this only
+	// stops a runaway loop.
+	Purge:       20000,
+	PurgeMember: 6,
 }
 
 const (
