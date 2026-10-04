@@ -89,6 +89,9 @@ func run(log *slog.Logger) error {
 			return err
 		}
 		defer pool.Close()
+		if err := store.Migrate(ctx, pool); err != nil {
+			return err
+		}
 		db = pool
 	}
 
