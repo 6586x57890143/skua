@@ -59,11 +59,12 @@ const (
 
 type target struct{ guild, user snowflake.ID }
 
-// run is a purge in progress, there to be cancelled by /purge stop and
-// watched by the progress button.
+// run is a purge in progress, there to be cancelled by /purge stop,
+// watched by the progress button and listed by /purge jobs.
 type run struct {
-	cancel context.CancelFunc
-	job    *job
+	cancel    context.CancelFunc
+	job       *job
+	scheduled bool // started by /purge every, not /purge now
 }
 
 // DB is the slice of pgxpool.Pool purge uses.
@@ -157,6 +158,7 @@ func (m *Module) Commands() []core.Command {
 					}, member},
 				},
 				discord.ApplicationCommandOptionSubCommand{Name: "status", Description: "what's set up here and how your last sweep went", Options: forMember()},
+				discord.ApplicationCommandOptionSubCommand{Name: "jobs", Description: "break-glass admin only: every purge running or coming up, in every server"},
 			},
 		},
 		Tier: core.Public,
@@ -221,6 +223,9 @@ func (m *Module) purge(ctx context.Context, e *events.ApplicationCommandInteract
 	sub := ""
 	if data.SubCommandName != nil {
 		sub = *data.SubCommandName
+	}
+	if sub == "jobs" {
+		return m.jobsCmd(ctx, e)
 	}
 	user, behalf := e.User().ID, false
 	if id, ok := data.OptSnowflake("member"); ok && id != user {
@@ -319,7 +324,7 @@ func (m *Module) confirm(_ context.Context, e *events.ModalSubmitInteractionCrea
 	k := target{*guild, user}
 	ctx, cancel := context.WithCancel(context.Background())
 	j := m.newJob(e.Client().Rest, *guild, []snowflake.ID{user})
-	if _, loaded := m.running.LoadOrStore(k, &run{cancel, j}); loaded {
+	if _, loaded := m.running.LoadOrStore(k, &run{cancel, j, false}); loaded {
 		cancel()
 		return errRunning
 	}
