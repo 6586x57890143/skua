@@ -99,7 +99,7 @@ func (m *Module) due(r rest.Rest) {
 		j := m.newJob(r, g, nil)
 		var mine, busy []snowflake.ID
 		for _, u := range users {
-			if _, loaded := m.running.LoadOrStore(target{g, u}, &run{jcancel, j}); loaded {
+			if _, loaded := m.running.LoadOrStore(target{g, u}, &run{jcancel, j, true}); loaded {
 				busy = append(busy, u)
 			} else {
 				mine = append(mine, u)
