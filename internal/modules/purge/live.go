@@ -100,9 +100,9 @@ func (m *Module) setLiveCmd(ctx context.Context, e *events.ApplicationCommandInt
 	}
 	m.setLive(k, d)
 	if d == 0 {
-		return reply(e, "✓ live is off; your messages here stay up")
+		return reply(e, "✓ live is off; messages here stay up")
 	}
-	return reply(e, "✓ live: each message you send here goes "+after+" after you send it")
+	return reply(e, "✓ live: each new message here goes "+after+" after it's sent")
 }
 
 func (m *Module) enqueue(r rest.Rest, guild, ch snowflake.ID, id msg, at time.Time) {

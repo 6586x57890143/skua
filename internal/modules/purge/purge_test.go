@@ -61,7 +61,7 @@ func submit(t *testing.T, m *Module, f *fake, text string) []discord.MessageCrea
 }
 
 func newModule() *Module {
-	m := New(guard.New(), nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m := New(guard.New(), nil, slog.New(slog.NewTextHandler(io.Discard, nil)), 0)
 	m.pace = newPacer(1e9)
 	return m
 }
@@ -110,7 +110,7 @@ func TestPurgeRefusals(t *testing.T) {
 	if got := command(t, m, "now", func(p map[string]any) { delete(p, "guild_id") }); got != "✗ "+string(errNotServer) {
 		t.Errorf("outside a server: %q", got)
 	}
-	if got := command(t, m, "stop", nil); got != "✗ you have no purge running here" {
+	if got := command(t, m, "stop", nil); got != "✗ no purge is running here" {
 		t.Errorf("stop with nothing running: %q", got)
 	}
 	f := newFake()
