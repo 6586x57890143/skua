@@ -51,8 +51,11 @@ func (m *Module) start(r rest.Rest) {
 }
 
 // due claims every subscription whose sweep is due, moving its next run on
-// in the same statement, and starts one sweep per guild for all of them:
-// one read of the guild serves every member in it.
+// in the same statement, and starts one job per guild for all of them: one
+// catch-up of the guild serves every member in it. A member whose own
+// purge is still running here goes back in the queue, as does a guild
+// whose last scheduled job is still going: two purges for one member would
+// both write back the same index blocks.
 //
 // ponytail: every due guild sweeps at once, all sharing the pacer. Cap
 // concurrent guilds if thousands come due in the same minute.
@@ -62,72 +65,89 @@ func (m *Module) due(r rest.Rest) {
 	rows, err := m.db.Query(ctx, `update purge_subs
 		set next_run = case when every_s is null then null else now() + every_s * interval '1 second' end
 		where next_run <= now()
-		returning guild_id, user_id, swept_through`)
+		returning guild_id, user_id`)
 	if err != nil {
 		m.log.Warn("purge: claiming due sweeps", "err", err)
 		return
 	}
-	type sub struct{ user, from snowflake.ID }
-	byGuild := map[snowflake.ID][]sub{}
+	byGuild := map[snowflake.ID][]snowflake.ID{}
 	for rows.Next() {
-		var g, u, from int64
-		if err := rows.Scan(&g, &u, &from); err != nil {
+		var g, u int64
+		if err := rows.Scan(&g, &u); err != nil {
 			rows.Close()
 			m.log.Warn("purge: claiming due sweeps", "err", err)
 			return
 		}
-		byGuild[snowflake.ID(g)] = append(byGuild[snowflake.ID(g)], sub{snowflake.ID(u), snowflake.ID(from)})
+		byGuild[snowflake.ID(g)] = append(byGuild[snowflake.ID(g)], snowflake.ID(u))
 	}
 	rows.Close()
-	for g, subs := range byGuild {
-		users, from := make([]int64, len(subs)), subs[0].from
-		authors := map[snowflake.ID]*atomic.Int64{}
-		for i, s := range subs {
-			users[i], from = int64(s.user), min(from, s.from)
-			authors[s.user] = new(atomic.Int64)
+	requeue := func(g snowflake.ID, users []snowflake.ID) {
+		ids := make([]int64, len(users))
+		for i, u := range users {
+			ids[i] = int64(u)
 		}
+		if _, err := m.db.Exec(ctx, `update purge_subs set next_run = now() where guild_id = $1 and user_id = any($2)`, int64(g), ids); err != nil {
+			m.log.Warn("purge: requeueing", "guild", g, "err", err)
+		}
+	}
+	for g, users := range byGuild {
 		if _, busy := m.sweeping.LoadOrStore(g, struct{}{}); busy {
-			// Its last sweep is still going: try again next tick.
-			if _, err := m.db.Exec(ctx, `update purge_subs set next_run = now() where guild_id = $1 and user_id = any($2)`, int64(g), users); err != nil {
-				m.log.Warn("purge: requeueing a busy guild", "guild", g, "err", err)
-			}
+			requeue(g, users) // its last scheduled job is still going
 			continue
 		}
-		s := &sweep{r: r, guard: m.guard, pace: m.pace, guild: g, authors: authors, from: from, cutoff: snowflake.New(m.now()), now: m.now}
+		jctx, jcancel := context.WithCancel(context.Background())
+		j := m.newJob(r, g, nil)
+		var mine, busy []snowflake.ID
+		for _, u := range users {
+			if _, loaded := m.running.LoadOrStore(target{g, u}, &run{jcancel, j}); loaded {
+				busy = append(busy, u)
+			} else {
+				mine = append(mine, u)
+			}
+		}
+		if len(busy) > 0 {
+			requeue(g, busy)
+		}
+		if len(mine) == 0 {
+			jcancel()
+			m.sweeping.Delete(g)
+			continue
+		}
+		for _, u := range mine {
+			j.sweep.authors[u] = new(atomic.Int64)
+		}
 		go func() {
 			defer m.sweeping.Delete(g)
-			m.record(s, s.run(context.Background()))
+			defer jcancel()
+			j.err = m.work(jctx, j)
+			for _, u := range mine {
+				m.running.Delete(target{g, u})
+			}
+			m.record(j, j.err)
+			close(j.done)
 		}()
 	}
 }
 
-// record writes how a sweep went for each of its authors, each seeing only
-// their own count. Only a sweep that finished moves swept_through: one that
-// stopped part way reads from the same place next time.
-func (m *Module) record(s *sweep, err error) {
+// record writes how a job went for each of its authors, each seeing only
+// their own count.
+func (m *Module) record(j *job, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	ok := err == nil
-	through := int64(0)
-	if ok {
-		through = int64(s.cutoff)
+	ids := j.unreachable()
+	unreachable := make([]int64, len(ids))
+	for i, id := range ids {
+		unreachable[i] = int64(id)
 	}
-	s.mu.Lock()
-	unreachable := make([]int64, 0, len(s.unreachable))
-	for _, id := range s.unreachable {
-		unreachable = append(unreachable, int64(id))
-	}
-	s.mu.Unlock()
-	slices.Sort(unreachable)
-	unreachable = slices.Compact(unreachable)
+	s := j.sweep
 	for user, n := range s.authors {
-		_, err := m.db.Exec(ctx, `insert into purge_subs (guild_id, user_id, swept_through, last_deleted, unreachable, last_ok, last_finished)
-			values ($1, $2, $3, $4, $5, $6, now())
+		_, err := m.db.Exec(ctx, `insert into purge_subs (guild_id, user_id, last_deleted, unreachable, last_ok, last_finished)
+			values ($1, $2, $3, $4, $5, now())
 			on conflict (guild_id, user_id) do update set
-				swept_through = greatest(purge_subs.swept_through, excluded.swept_through),
 				last_deleted = excluded.last_deleted, unreachable = excluded.unreachable,
 				last_ok = excluded.last_ok, last_finished = excluded.last_finished`,
-			int64(s.guild), int64(user), through, int32(n.Load()), unreachable, ok)
+			int64(s.guild), int64(user), int32(n.Load()), unreachable, ok)
 		if err != nil {
 			m.log.Warn("purge: recording a sweep", "guild", s.guild, "user", user, "err", err)
 		}

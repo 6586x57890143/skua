@@ -105,3 +105,48 @@ func Modal(t testing.TB, customID string, values map[string]string, edit func(p 
 		},
 	}, &sent
 }
+
+// Button is a member in guild 3 pressing the button customID on an
+// ephemeral reply, as Discord sends it. It records replies as Event does,
+// a deferral as an empty one.
+func Button(t testing.TB, customID string, edit func(p map[string]any)) (*events.ComponentInteractionCreate, *[]discord.MessageCreate) {
+	t.Helper()
+	p := map[string]any{
+		"id": snowflake.New(time.Now()).String(), "application_id": "2", "type": 3, "token": "t", "version": 1,
+		"guild_id": "3",
+		"channel":  map[string]any{"id": "4", "type": 0},
+		"member": map[string]any{
+			"user":        map[string]any{"id": "5", "username": "member"},
+			"permissions": "0",
+			"roles":       []any{},
+			"joined_at":   "2026-01-01T00:00:00Z",
+		},
+		"message": map[string]any{
+			"id": "9", "channel_id": "4", "content": "", "flags": 64,
+			"author": map[string]any{"id": "2", "username": "skua"},
+		},
+		"data": map[string]any{"custom_id": customID, "component_type": 2},
+	}
+	if edit != nil {
+		edit(p)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var i discord.ComponentInteraction
+	if err := json.Unmarshal(raw, &i); err != nil {
+		t.Fatalf("decoding the button press: %v", err)
+	}
+	var sent []discord.MessageCreate
+	return &events.ComponentInteractionCreate{
+		GenericEvent:         events.NewGenericEvent(&bot.Client{}, 0, 0),
+		ComponentInteraction: i,
+		Respond: func(_ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
+			if m, ok := d.(discord.MessageCreate); ok {
+				sent = append(sent, m)
+			}
+			return nil
+		},
+	}, &sent
+}

@@ -17,62 +17,76 @@ import (
 )
 
 const (
-	// workers is how many channels one sweep reads at once. Each channel's
-	// reads and deletes are separate buckets on Discord's side, so a
-	// channel is two requests in flight; the pacer keeps the total honest.
+	// workers is how many channels one catch-up reads at once.
 	workers = 16
+	// lanes is how many channels one purge deletes from at once. Discord
+	// limits deletes per channel, old ones hard, so the way to delete fast
+	// is many channels at a time; the pacer keeps the total honest.
+	lanes = 64
 	// page is the most messages one read returns.
 	page = 100
+	// flushPages is how many pages a read holds before writing them to the
+	// index and moving its mark: what a stopped first read can lose.
+	flushPages = 100
 	// bulkMax is the most IDs one bulk delete takes.
 	bulkMax = 100
 	// young is how recent a message must be to go in a bulk delete, which
-	// refuses anything 14 days old. The hour is margin for a long sweep.
+	// refuses anything 14 days old. The hour is margin for a long purge.
 	young = 14*24*time.Hour - time.Hour
 )
 
 var errRefused = core.Tell("skua's delete budget for this server is spent or discord is struggling; try again in a few minutes")
 
-// errChannelDone ends one channel's sweep without failing the rest.
+// errChannelDone ends one channel's deletes without failing the rest.
 var errChannelDone = errors.New("purge: channel done")
 
-// sweep is one pass over a guild: every channel and thread skua can read,
-// deleting each message from authors with an ID in (from, cutoff). Reading
-// walks forward from from, so a sweep that only needs what is new reads
-// only that.
-type sweep struct {
-	r       rest.Rest
-	guard   *guard.Guard
-	pace    *pacer
-	guild   snowflake.ID
-	authors map[snowflake.ID]*atomic.Int64 // each one's deleted count
-	from    snowflake.ID
-	cutoff  snowflake.ID
-	now     func() time.Time
+// spot is a channel or thread a catch-up may read. parent is set for a
+// thread, and last is the newest message Discord says it has.
+type spot struct {
+	id, parent snowflake.ID
+	last       *snowflake.ID
+}
 
-	scanned, deleted, missed atomic.Int64
-	channels, done           atomic.Int64
+// scan is one catch-up of a guild's index: every channel and thread with
+// anything newer than its mark is read from the mark, and every author's
+// IDs go in. One runs per guild at a time, for every purge there.
+type scan struct {
+	r      rest.Rest
+	guard  *guard.Guard
+	pace   *pacer
+	idx    index
+	guild  snowflake.ID
+	cutoff snowflake.ID // the read stops here
+	began  time.Time
+
+	scanned, channels, done atomic.Int64
 
 	mu          sync.Mutex
 	unreachable []snowflake.ID
+	partial     map[snowflake.ID]bool // parents with a thread that wasn't read
 }
 
-// run reads every target with up to workers channels at once. It returns
-// the first error that has to stop the whole sweep: a cancel, or guard
-// refusing more deletes. A channel skua cannot read is noted and skipped.
-func (s *sweep) run(ctx context.Context) error {
+// run reads every spot with something new, up to workers at once. It stops
+// early only for a cancel or an index that won't take writes; a channel
+// skua can't read is noted and skipped, and keeps its mark for next time.
+func (s *scan) run(ctx context.Context) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	ids, err := s.targets(ctx)
+	marks, err := s.idx.marks(ctx, s.guild)
 	if err != nil {
 		return err
 	}
-	s.channels.Store(int64(len(ids)))
-	queue := make(chan snowflake.ID)
+	spots, listed, err := s.targets(ctx, marks)
+	if err != nil {
+		return err
+	}
+	s.channels.Store(int64(len(spots)))
+	queue := make(chan spot)
 	var wg sync.WaitGroup
-	for range min(workers, len(ids)) {
+	for range min(workers, len(spots)) {
 		wg.Go(func() {
-			for id := range queue {
-				if err := s.channel(ctx, id); err != nil {
+			for sp := range queue {
+				if err := s.read(ctx, sp, marks[sp.id].through); err != nil {
 					cancel(err)
 				}
 				s.done.Add(1)
@@ -80,66 +94,110 @@ func (s *sweep) run(ctx context.Context) error {
 		})
 	}
 feed:
-	for _, id := range ids {
+	for _, sp := range spots {
+		if sp.last != nil && *sp.last <= marks[sp.id].through {
+			s.done.Add(1) // nothing new since the last read
+			continue
+		}
 		select {
-		case queue <- id:
+		case queue <- sp:
 		case <-ctx.Done():
 			break feed
 		}
 	}
 	close(queue)
 	wg.Wait()
-	return context.Cause(ctx)
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
+	for _, parent := range listed {
+		if !s.partial[parent] {
+			if err := s.idx.listed(ctx, s.guild, parent, s.began); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // targets is every channel and thread that can hold messages: text, news,
 // voice and stage chats, every active thread, and the archived threads of
 // text, news, forum and media channels. Only text channels have private
-// threads. A thread listed twice, archived between two listings, is read
-// once.
-func (s *sweep) targets(ctx context.Context) ([]snowflake.ID, error) {
+// threads. listed is the parents whose archived threads were all listed.
+//
+// Archived threads come newest-archived first, and posting in one
+// unarchives it, so a parent listed in full before stops at the first page
+// archived before that.
+func (s *scan) targets(ctx context.Context, marks map[snowflake.ID]mark) (spots []spot, listed []snowflake.ID, err error) {
 	if err := s.pace.wait(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	chans, err := s.r.GetGuildChannels(s.guild, rest.WithCtx(ctx))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var ids []snowflake.ID
 	for _, c := range chans {
+		id, since := c.ID(), marks[c.ID()].listed
+		var ok bool
 		switch c.Type() {
 		case discord.ChannelTypeGuildText:
-			ids = append(ids, c.ID())
-			ids = s.archived(ctx, c.ID(), s.r.GetPublicArchivedThreads, ids)
-			ids = s.archived(ctx, c.ID(), s.r.GetPrivateArchivedThreads, ids)
+			spots = append(spots, spotOf(c, 0))
+			spots, ok = s.archived(ctx, id, s.r.GetPublicArchivedThreads, since, spots)
+			if ok {
+				spots, ok = s.archived(ctx, id, s.r.GetPrivateArchivedThreads, since, spots)
+			}
 		case discord.ChannelTypeGuildNews:
-			ids = append(ids, c.ID())
-			ids = s.archived(ctx, c.ID(), s.r.GetPublicArchivedThreads, ids)
+			spots = append(spots, spotOf(c, 0))
+			spots, ok = s.archived(ctx, id, s.r.GetPublicArchivedThreads, since, spots)
 		case discord.ChannelTypeGuildVoice, discord.ChannelTypeGuildStageVoice:
-			ids = append(ids, c.ID())
+			spots = append(spots, spotOf(c, 0))
+			continue
 		case discord.ChannelTypeGuildForum, discord.ChannelTypeGuildMedia:
-			ids = s.archived(ctx, c.ID(), s.r.GetPublicArchivedThreads, ids)
+			spots, ok = s.archived(ctx, id, s.r.GetPublicArchivedThreads, since, spots)
+		default:
+			continue
+		}
+		if ok {
+			listed = append(listed, id)
 		}
 	}
 	if err := s.pace.wait(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	active, err := s.r.GetActiveGuildThreads(s.guild, rest.WithCtx(ctx))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, t := range active.Threads {
-		ids = append(ids, t.ID())
+		var parent snowflake.ID
+		if p := t.ParentID(); p != nil {
+			parent = *p
+		}
+		spots = append(spots, spotOf(t, parent))
 	}
-	slices.Sort(ids)
-	return slices.Compact(ids), ctx.Err()
+	// A thread archived between two listings is read once.
+	seen := map[snowflake.ID]bool{}
+	spots = slices.DeleteFunc(spots, func(sp spot) bool {
+		dup := seen[sp.id]
+		seen[sp.id] = true
+		return dup
+	})
+	return spots, listed, ctx.Err()
+}
+
+func spotOf(c discord.Channel, parent snowflake.ID) spot {
+	sp := spot{id: c.ID(), parent: parent}
+	if mc, ok := c.(discord.MessageChannel); ok {
+		sp.last = mc.LastMessageID()
+	}
+	return sp
 }
 
 type listThreads func(channel snowflake.ID, before time.Time, limit int, opts ...rest.RequestOpt) (*discord.GetThreads, error)
 
-// archived appends parent's archived threads from list, newest first. A
-// listing skua is refused, or that fails, marks parent: some of its
-// threads were not read, and the member is told so.
+// archived appends parent's archived threads from list, newest first, down
+// to since. A listing skua is refused, or that fails, marks parent: some of
+// its threads were not read, and the member is told so.
 //
 // before goes to Discord as whole seconds, so the next page asks from the
 // end of the last thread's second and skips what this one already listed:
@@ -149,135 +207,226 @@ type listThreads func(channel snowflake.ID, before time.Time, limit int, opts ..
 //
 // ponytail: past the first page of threads archived in one second, the
 // rest of that second is skipped. Page by thread ID if Discord offers it.
-func (s *sweep) archived(ctx context.Context, parent snowflake.ID, list listThreads, ids []snowflake.ID) []snowflake.ID {
+func (s *scan) archived(ctx context.Context, parent snowflake.ID, list listThreads, since time.Time, spots []spot) ([]spot, bool) {
 	var before time.Time
 	seen := map[snowflake.ID]bool{}
 	for {
 		if s.pace.wait(ctx) != nil {
-			return ids
+			return spots, false
 		}
 		res, err := list(parent, before, page, rest.WithCtx(ctx))
 		if err != nil {
 			if ctx.Err() == nil {
-				s.unreach(parent)
+				s.unreach(parent, 0)
 			}
-			return ids
+			return spots, false
 		}
 		fresh := 0
 		for _, t := range res.Threads {
 			if !seen[t.ID()] {
 				seen[t.ID()] = true
-				ids = append(ids, t.ID())
+				spots = append(spots, spotOf(t, parent))
 				fresh++
 			}
 		}
 		if !res.HasMore || len(res.Threads) == 0 {
-			return ids
+			return spots, true
 		}
-		before = res.Threads[len(res.Threads)-1].ThreadMetadata.ArchiveTimestamp.Truncate(time.Second)
+		oldest := res.Threads[len(res.Threads)-1].ThreadMetadata.ArchiveTimestamp
+		if oldest.Before(since) {
+			return spots, true
+		}
+		before = oldest.Truncate(time.Second)
 		if fresh > 0 {
 			before = before.Add(time.Second)
 		}
 	}
 }
 
-// channel sweeps one channel: a reader walks its history forward while a
-// deleter works through what the reader found, so neither waits on the
-// other's bucket.
-func (s *sweep) channel(ctx context.Context, id snowflake.ID) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	found := make(chan []msg, 4)
-	var derr error
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		if derr = s.drain(ctx, id, found); derr != nil {
-			cancel()
-			for range found { // let the reader finish its send and close
-			}
-		}
-	})
-	rerr := s.read(ctx, id, found)
-	wg.Wait()
-	switch {
-	case errors.Is(derr, errChannelDone):
-		return nil
-	case derr != nil:
-		return derr
-	case rerr != nil && !errors.Is(rerr, context.Canceled):
-		return rerr
-	}
-	return ctx.Err()
-}
-
-// read walks id's history forward from s.from, a page at a time, and hands
-// the deleter each page's messages by authors. The author is the one on
-// the fetched message, the only thing that decides what is deleted.
-func (s *sweep) read(ctx context.Context, id snowflake.ID, found chan<- []msg) error {
-	defer close(found)
+// read walks sp's history forward from its mark, a page at a time, and
+// writes every author's IDs to the index every flushPages pages and at the
+// end. A channel skua can't read keeps what it did read, and its mark.
+func (s *scan) read(ctx context.Context, sp spot, from snowflake.ID) error {
 	// An after of 0 is no after at all, which Discord answers with the
 	// newest page; 1 starts the walk at the oldest message.
-	after := max(s.from, 1)
+	after := max(from, 1)
+	found := map[snowflake.ID][]snowflake.ID{}
+	pages := 0
+	flush := func() error {
+		if after <= from && len(found) == 0 {
+			return nil
+		}
+		for _, ids := range found {
+			slices.Sort(ids)
+		}
+		err := s.idx.flush(ctx, s.guild, sp.id, after, found)
+		found, pages = map[snowflake.ID][]snowflake.ID{}, 0
+		return err
+	}
 	for {
 		if err := s.pace.wait(ctx); err != nil {
 			return err
 		}
-		msgs, err := s.r.GetMessages(id, 0, 0, after, page, rest.WithCtx(ctx))
+		msgs, err := s.r.GetMessages(sp.id, 0, 0, after, page, rest.WithCtx(ctx))
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			s.guard.Report(s.guild, struggling(err))
-			s.unreach(id)
-			return nil
+			s.unreach(sp.id, sp.parent)
+			return flush()
 		}
-		var mine []msg
-		var scanned int64
 		for _, m := range msgs {
 			after = max(after, m.ID)
-			if m.ID >= s.cutoff {
-				continue
-			}
-			scanned++
-			if s.authors[m.Author.ID] != nil {
-				mine = append(mine, msg{m.ID, m.Author.ID})
-			}
+			found[m.Author.ID] = append(found[m.Author.ID], m.ID)
 		}
-		s.scanned.Add(scanned)
-		if len(mine) > 0 {
-			select {
-			case found <- mine:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
+		s.scanned.Add(int64(len(msgs)))
 		if len(msgs) < page || after >= s.cutoff {
-			return nil
+			return flush()
+		}
+		if pages++; pages == flushPages {
+			if err := flush(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-// drain deletes what read found: recent messages a hundred at a time,
-// older ones singly, which is all Discord allows for them.
-func (s *sweep) drain(ctx context.Context, ch snowflake.ID, found <-chan []msg) error {
-	batch := make([]msg, 0, bulkMax)
-	for ms := range found {
-		for _, m := range ms {
-			if s.now().Sub(m.id.Time()) >= young {
-				if err := s.one(ctx, ch, m); err != nil {
-					return err
-				}
-				continue
+// unreach notes id as unreadable, and its parent as listed only in part.
+func (s *scan) unreach(id, parent snowflake.ID) {
+	s.mu.Lock()
+	s.unreachable = append(s.unreachable, id)
+	if parent != 0 {
+		if s.partial == nil {
+			s.partial = map[snowflake.ID]bool{}
+		}
+		s.partial[parent] = true
+	}
+	s.mu.Unlock()
+}
+
+// sweep deletes its authors' indexed messages from a guild, sent before
+// cutoff, one lane per channel. Live deletes use its bulk and one alone.
+type sweep struct {
+	r       rest.Rest
+	guard   *guard.Guard
+	pace    *pacer
+	idx     index
+	guild   snowflake.ID
+	authors map[snowflake.ID]*atomic.Int64 // each one's deleted count
+	cutoff  snowflake.ID
+	now     func() time.Time
+
+	deleted, missed atomic.Int64
+	confirmed       sync.Map // message ID -> struct{}: Discord says it's gone
+
+	mu          sync.Mutex
+	unreachable []snowflake.ID
+}
+
+// posting is one author's blocks in one channel.
+type posting struct {
+	author snowflake.ID
+	blocks []block
+}
+
+// run loads each author's postings and deletes them, up to lanes channels
+// at once. It returns the first error that has to stop everything: a
+// cancel, guard refusing more deletes, or the index failing.
+func (s *sweep) run(ctx context.Context) error {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	byCh := map[snowflake.ID][]posting{}
+	for author := range s.authors {
+		bs, err := s.idx.load(ctx, s.guild, author)
+		if err != nil {
+			return err
+		}
+		for ch, b := range bs {
+			byCh[ch] = append(byCh[ch], posting{author, b})
+		}
+	}
+	slots := make(chan struct{}, lanes)
+	var wg sync.WaitGroup
+	for ch, ps := range byCh {
+		wg.Go(func() {
+			select {
+			case slots <- struct{}{}:
+			case <-ctx.Done():
+				return
 			}
-			if batch = append(batch, m); len(batch) == bulkMax {
-				if err := s.bulk(ctx, ch, batch); err != nil {
-					return err
+			defer func() { <-slots }()
+			if err := s.lane(ctx, ch, ps); err != nil {
+				cancel(err)
+			}
+		})
+	}
+	wg.Wait()
+	return context.Cause(ctx)
+}
+
+// lane deletes one channel's messages: recent ones a hundred at a time
+// first, as they're the ones people see, then old ones singly, which is
+// all Discord allows for them. Whatever happens, the index then keeps
+// only what Discord didn't confirm gone, for the next purge.
+func (s *sweep) lane(ctx context.Context, ch snowflake.ID, ps []posting) error {
+	var recent, old []msg
+	for _, p := range ps {
+		for _, b := range p.blocks {
+			for _, id := range b.ids {
+				switch {
+				case id >= s.cutoff:
+				case s.now().Sub(id.Time()) < young:
+					recent = append(recent, msg{id, p.author})
+				default:
+					old = append(old, msg{id, p.author})
 				}
-				batch = batch[:0]
 			}
 		}
 	}
-	return s.bulk(ctx, ch, batch)
+	err := func() error {
+		for chunk := range slices.Chunk(recent, bulkMax) {
+			if err := s.bulk(ctx, ch, chunk); err != nil {
+				return err
+			}
+		}
+		for _, m := range old {
+			if err := s.one(ctx, ch, m); err != nil {
+				return err
+			}
+		}
+		return nil
+	}()
+	if serr := s.settle(ch, ps); serr != nil && (err == nil || errors.Is(err, errChannelDone)) {
+		return serr
+	}
+	if errors.Is(err, errChannelDone) {
+		return nil
+	}
+	return err
+}
+
+// settle writes back each author's blocks in ch less what is confirmed
+// gone. It runs even after a cancel, so it has its own deadline.
+func (s *sweep) settle(ch snowflake.ID, ps []posting) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, p := range ps {
+		var firsts, left []snowflake.ID
+		for _, b := range p.blocks {
+			firsts = append(firsts, b.first)
+			for _, id := range b.ids {
+				if _, gone := s.confirmed.Load(id); !gone {
+					left = append(left, id)
+				}
+			}
+		}
+		slices.Sort(left)
+		if err := s.idx.settle(ctx, s.guild, p.author, ch, firsts, slices.Compact(left)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *sweep) bulk(ctx context.Context, ch snowflake.ID, ms []msg) error {
@@ -336,6 +485,7 @@ func (s *sweep) one(ctx context.Context, ch snowflake.ID, m msg) error {
 		return errChannelDone
 	case status == 404, code == rest.JSONErrorCodeCannotExecuteActionOnSystemMessage:
 		// Already gone, or a system message nobody can delete.
+		s.confirmed.Store(m.id, struct{}{})
 	default:
 		s.missed.Add(1)
 	}
@@ -347,6 +497,7 @@ type msg struct{ id, author snowflake.ID }
 
 // gone counts m deleted, for the sweep and for its author.
 func (s *sweep) gone(m msg) {
+	s.confirmed.Store(m.id, struct{}{})
 	s.deleted.Add(1)
 	if c := s.authors[m.author]; c != nil {
 		c.Add(1)

@@ -41,6 +41,14 @@ type fake struct {
 	denyRead     map[snowflake.ID]bool
 	denyPrivate  bool
 	privateAsked []snowflake.ID
+	reads        atomic.Int64 // GetMessages calls
+	listings     atomic.Int64 // archived thread listing calls
+	slow         time.Duration
+	inflight     atomic.Int64 // deletes being answered now
+	peak         atomic.Int64 // the most at once
+	onRead       func(n int64)
+	buttons      int      // action rows on the last readout edit
+	tokens       []string // the token of each readout edit
 	gone         map[snowflake.ID]bool
 	bulks        [][]snowflake.ID
 	singles      []snowflake.ID
@@ -70,14 +78,49 @@ func (f *fake) GetGuildChannels(g snowflake.ID, _ ...rest.RequestOpt) ([]discord
 	if f.guild != 0 && g != f.guild {
 		return nil, nil
 	}
-	return f.chans, nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]discord.GuildChannel, len(f.chans))
+	for i, c := range f.chans {
+		var u discord.UnmarshalChannel
+		if err := json.Unmarshal(f.stamp(c, c.ID()), &u); err != nil {
+			return nil, err
+		}
+		out[i] = u.Channel.(discord.GuildChannel)
+	}
+	return out, nil
+}
+
+// stamp is v as Discord lists it: with last_message_id, the newest
+// message the channel ever had, deleted or not.
+func (f *fake) stamp(v any, id snowflake.ID) []byte {
+	b, _ := json.Marshal(v)
+	ms := f.msgs[id]
+	if len(ms) == 0 {
+		return b
+	}
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	m["last_message_id"] = ms[len(ms)-1].ID.String()
+	b, _ = json.Marshal(m)
+	return b
+}
+
+func (f *fake) stampThreads(ts []discord.GuildThread) []discord.GuildThread {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]discord.GuildThread, len(ts))
+	for i, t := range ts {
+		_ = json.Unmarshal(f.stamp(t, t.ID()), &out[i])
+	}
+	return out
 }
 
 func (f *fake) GetActiveGuildThreads(g snowflake.ID, _ ...rest.RequestOpt) (*discord.GuildActiveThreads, error) {
 	if f.guild != 0 && g != f.guild {
 		return &discord.GuildActiveThreads{}, nil
 	}
-	return &discord.GuildActiveThreads{Threads: f.active}, nil
+	return &discord.GuildActiveThreads{Threads: f.stampThreads(f.active)}, nil
 }
 
 // The fake answers as Discord does, down to what disgo leaves out of a
@@ -88,7 +131,8 @@ func (f *fake) GetActiveGuildThreads(g snowflake.ID, _ ...rest.RequestOpt) (*dis
 // before taken to the second (disgo sends RFC 3339), has_more when the
 // limit cut the list short.
 func (f *fake) GetPublicArchivedThreads(ch snowflake.ID, before time.Time, limit int, _ ...rest.RequestOpt) (*discord.GetThreads, error) {
-	ts := slices.Clone(f.public[ch])
+	f.listings.Add(1)
+	ts := f.stampThreads(f.public[ch])
 	slices.SortStableFunc(ts, func(a, b discord.GuildThread) int {
 		return b.ThreadMetadata.ArchiveTimestamp.Compare(a.ThreadMetadata.ArchiveTimestamp)
 	})
@@ -117,6 +161,9 @@ func (f *fake) GetPrivateArchivedThreads(ch snowflake.ID, _ time.Time, _ int, _ 
 // right after it; without one (disgo leaves out an after of 0), the newest
 // limit. Either way newest first.
 func (f *fake) GetMessages(ch, _, _, after snowflake.ID, limit int, _ ...rest.RequestOpt) ([]discord.Message, error) {
+	if n := f.reads.Add(1); f.onRead != nil {
+		f.onRead(n)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.denyRead[ch] {
@@ -161,6 +208,13 @@ func (f *fake) BulkDeleteMessages(_ snowflake.ID, ids []snowflake.ID, _ ...rest.
 }
 
 func (f *fake) DeleteMessage(_, id snowflake.ID, _ ...rest.RequestOpt) error {
+	if f.slow > 0 {
+		n := f.inflight.Add(1)
+		for p := f.peak.Load(); n > p && !f.peak.CompareAndSwap(p, n); p = f.peak.Load() {
+		}
+		time.Sleep(f.slow)
+		f.inflight.Add(-1)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.deleteErr[id]; err != nil {
@@ -174,7 +228,14 @@ func (f *fake) DeleteMessage(_, id snowflake.ID, _ ...rest.RequestOpt) error {
 	return nil
 }
 
-func (f *fake) UpdateInteractionResponse(_ snowflake.ID, _ string, u discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
+func (f *fake) UpdateInteractionResponse(_ snowflake.ID, token string, u discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	f.mu.Lock()
+	f.buttons = 0
+	if u.Components != nil {
+		f.buttons = len(*u.Components)
+	}
+	f.tokens = append(f.tokens, token)
+	f.mu.Unlock()
 	f.updates <- *u.Content
 	return nil, nil
 }
@@ -241,11 +302,39 @@ func server(t testing.TB, now time.Time) *fake {
 	return f
 }
 
-func newSweep(f *fake, now time.Time) *sweep {
-	return &sweep{
-		r: f, guard: guard.New(), pace: newPacer(1e9), guild: guildID,
-		authors: map[snowflake.ID]*atomic.Int64{me: new(atomic.Int64)}, cutoff: snowflake.New(now), now: func() time.Time { return now },
+// pass is one purge for authors against f: a catch-up of idx, then the
+// deletes from it. Passes that share idx share what was read.
+type pass struct {
+	sc *scan
+	sw *sweep
+}
+
+func newPass(f *fake, now time.Time, idx index, authors ...snowflake.ID) pass {
+	if len(authors) == 0 {
+		authors = []snowflake.ID{me}
 	}
+	counts := map[snowflake.ID]*atomic.Int64{}
+	for _, a := range authors {
+		counts[a] = new(atomic.Int64)
+	}
+	g, p := guard.New(), newPacer(1e9)
+	return pass{
+		sc: &scan{r: f, guard: g, pace: p, idx: idx, guild: guildID, cutoff: snowflake.New(now), began: now},
+		sw: &sweep{r: f, guard: g, pace: p, idx: idx, guild: guildID, authors: counts, cutoff: snowflake.New(now), now: func() time.Time { return now }},
+	}
+}
+
+func (p pass) run(ctx context.Context) error {
+	if err := p.sc.run(ctx); err != nil {
+		return err
+	}
+	return p.sw.run(ctx)
+}
+
+func (p pass) unreachable() []snowflake.ID {
+	ids := append(slices.Clone(p.sc.unreachable), p.sw.unreachable...)
+	slices.Sort(ids)
+	return slices.Compact(ids)
 }
 
 func TestSweepDeletesOnlyTheAuthorsMessages(t *testing.T) {
@@ -254,7 +343,7 @@ func TestSweepDeletesOnlyTheAuthorsMessages(t *testing.T) {
 	// Posted after the sweep started: not this sweep's to delete.
 	late := discord.Message{ID: snowflake.New(now.Add(time.Second)), Author: discord.User{ID: me}}
 	f.msgs[textCh] = append(f.msgs[textCh], late)
-	s := newSweep(f, now)
+	s := newPass(f, now, newMemIndex())
 	if err := s.run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -282,11 +371,11 @@ func TestSweepDeletesOnlyTheAuthorsMessages(t *testing.T) {
 			}
 		}
 	}
-	if got := s.deleted.Load(); got != int64(mine) {
+	if got := s.sw.deleted.Load(); got != int64(mine) {
 		t.Errorf("deleted counts %d, want %d", got, mine)
 	}
-	if got := s.scanned.Load(); got != int64(all) {
-		t.Errorf("scanned %d, want %d", got, all)
+	if got := s.sc.scanned.Load(); got != int64(all)+1 { // and the late one
+		t.Errorf("scanned %d, want %d", got, all+1)
 	}
 	for _, b := range f.bulks {
 		if len(b) < 2 || len(b) > bulkMax {
@@ -303,26 +392,11 @@ func TestSweepDeletesOnlyTheAuthorsMessages(t *testing.T) {
 			t.Errorf("recent message %d deleted singly", id)
 		}
 	}
-	if s.done.Load() != s.channels.Load() || s.channels.Load() != 4 {
-		t.Errorf("channels %d of %d, want 4 of 4", s.done.Load(), s.channels.Load())
+	if s.sc.done.Load() != s.sc.channels.Load() || s.sc.channels.Load() != 4 {
+		t.Errorf("channels %d of %d, want 4 of 4", s.sc.done.Load(), s.sc.channels.Load())
 	}
-	if !slices.Equal(s.unreachable, []snowflake.ID{voiceCh}) {
-		t.Errorf("unreachable %v, want [%d]", s.unreachable, voiceCh)
-	}
-}
-
-// A scheduled sweep starts after what an earlier one finished: nothing at or
-// before from is read again.
-func TestSweepReadsOnlyAfterFrom(t *testing.T) {
-	now := time.Now()
-	f := server(t, now)
-	s := newSweep(f, now)
-	s.from = f.msgs[textCh][199].ID
-	if err := s.run(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if f.gone[f.msgs[textCh][198].ID] || !f.gone[f.msgs[textCh][200].ID] {
-		t.Fatal("from did not bound the read")
+	if got := s.unreachable(); !slices.Equal(got, []snowflake.ID{voiceCh}) {
+		t.Errorf("unreachable %v, want [%d]", got, voiceCh)
 	}
 }
 
@@ -330,12 +404,12 @@ func TestBulkRefusedFallsBackToSingles(t *testing.T) {
 	now := time.Now()
 	f := server(t, now)
 	f.bulkErr = refusal(400, rest.JSONErrorCodeMessageTooOldToBulkDelete)
-	s := newSweep(f, now)
+	s := newPass(f, now, newMemIndex())
 	if err := s.run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.bulks) != 0 || s.missed.Load() != 0 {
-		t.Fatalf("bulks %d, missed %d", len(f.bulks), s.missed.Load())
+	if len(f.bulks) != 0 || s.sw.missed.Load() != 0 {
+		t.Fatalf("bulks %d, missed %d", len(f.bulks), s.sw.missed.Load())
 	}
 	for _, m := range f.msgs[textCh] {
 		if m.Author.ID == me && !f.gone[m.ID] {
@@ -353,51 +427,79 @@ func TestDeleteOutcomes(t *testing.T) {
 	f.deleteErr[old[0].ID] = refusal(404, rest.JSONErrorCodeUnknownMessage)
 	f.deleteErr[old[2].ID] = refusal(400, rest.JSONErrorCodeCannotExecuteActionOnSystemMessage)
 	f.deleteErr[old[4].ID] = refusal(500, 0)
-	s := newSweep(f, now)
+	idx := newMemIndex()
+	s := newPass(f, now, idx)
 	if err := s.run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if s.missed.Load() != 1 {
-		t.Errorf("missed %d, want 1: only the 500", s.missed.Load())
+	if s.sw.missed.Load() != 1 {
+		t.Errorf("missed %d, want 1: only the 500", s.sw.missed.Load())
+	}
+	// Only the 500 stays in the index: the 404 and the system message are
+	// as gone as they will ever be.
+	if got := indexed(t, idx, me); !slices.Equal(got, []snowflake.ID{old[4].ID}) {
+		t.Errorf("indexed after: %v, want [%d]", got, old[4].ID)
 	}
 
-	// 403 on a delete: the channel is unreachable and its sweep ends there.
-	// Pages come newest first and recent messages wait for a full bulk, so
-	// the first delete sent is the newest old message of the member's, 58.
+	// 403 on a delete: the channel is unreachable and its deletes end there.
+	// Recent messages go first, in bulk; the old ones then go oldest first,
+	// so the 403 on the first old one leaves the rest, and they stay
+	// indexed for next time.
 	f = server(t, now)
 	f.chans = f.chans[:1]
 	f.active = nil
-	f.deleteErr[f.msgs[textCh][58].ID] = refusal(403, rest.JSONErrorCodeLackPermissionsToPerformAction)
-	s = newSweep(f, now)
+	f.deleteErr[f.msgs[textCh][0].ID] = refusal(403, rest.JSONErrorCodeLackPermissionsToPerformAction)
+	idx = newMemIndex()
+	s = newPass(f, now, idx)
 	if err := s.run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if s.deleted.Load() != 0 || !slices.Contains(s.unreachable, textCh) {
-		t.Fatalf("deleted %d, unreachable %v", s.deleted.Load(), s.unreachable)
+	if !slices.Contains(s.unreachable(), textCh) || f.gone[f.msgs[textCh][2].ID] {
+		t.Fatalf("unreachable %v, the next old one gone %v", s.unreachable(), f.gone[f.msgs[textCh][2].ID])
+	}
+	if got := len(indexed(t, idx, me)); got != 30 {
+		t.Errorf("%d left indexed, want the 30 old ones", got)
 	}
 	f = server(t, now)
 	f.chans = f.chans[:1]
 	f.active = nil
 	f.msgs[textCh] = f.msgs[textCh][60:] // recent only: bulk
 	f.bulkErr = refusal(403, rest.JSONErrorCodeLackPermissionsToPerformAction)
-	s = newSweep(f, now)
+	s = newPass(f, now, newMemIndex())
 	if err := s.run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(s.unreachable, textCh) {
+	if !slices.Contains(s.unreachable(), textCh) {
 		t.Fatal("a refused bulk delete didn't mark the channel")
 	}
+}
+
+// indexed is every ID idx holds for author, ascending.
+func indexed(t *testing.T, idx index, author snowflake.ID) []snowflake.ID {
+	t.Helper()
+	bs, err := idx.load(context.Background(), guildID, author)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []snowflake.ID
+	for _, chBlocks := range bs {
+		for _, b := range chBlocks {
+			ids = append(ids, b.ids...)
+		}
+	}
+	slices.Sort(ids)
+	return ids
 }
 
 func TestPrivateThreadsRefusedMarksTheParent(t *testing.T) {
 	now := time.Now()
 	f := server(t, now)
 	f.denyPrivate = true
-	s := newSweep(f, now)
+	s := newPass(f, now, newMemIndex())
 	if err := s.run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(s.unreachable, textCh) {
+	if !slices.Contains(s.unreachable(), textCh) {
 		t.Fatal("a refused private thread listing went unmentioned")
 	}
 }
@@ -405,13 +507,14 @@ func TestPrivateThreadsRefusedMarksTheParent(t *testing.T) {
 func TestGuardRefusalStopsTheSweep(t *testing.T) {
 	now := time.Now()
 	f := server(t, now)
-	s := newSweep(f, now)
-	for s.guard.Allow(guildID, guard.Purge) == nil {
+	s := newPass(f, now, newMemIndex())
+	for range 5 { // Discord struggling: the guard's breaker opens
+		s.sw.guard.Report(guildID, true)
 	}
 	if err := s.run(context.Background()); !errors.Is(err, errRefused) {
 		t.Fatalf("got %v, want errRefused", err)
 	}
-	if s.deleted.Load() != 0 {
+	if s.sw.deleted.Load() != 0 {
 		t.Fatal("deleted past a refused budget")
 	}
 }
@@ -421,7 +524,7 @@ func TestCancelledSweepStops(t *testing.T) {
 	f := server(t, now)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := newSweep(f, now).run(ctx); !errors.Is(err, context.Canceled) {
+	if err := newPass(f, now, newMemIndex()).run(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v, want context.Canceled", err)
 	}
 	if len(f.gone) != 0 {
@@ -472,14 +575,14 @@ func TestSweepReadsFromTheOldest(t *testing.T) {
 		}
 		f.msgs[textCh] = append(f.msgs[textCh], s.at(now.Add(-time.Hour), who))
 	}
-	sw := newSweep(f, now)
-	if err := sw.run(context.Background()); err != nil {
+	p := newPass(f, now, newMemIndex())
+	if err := p.run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := sw.deleted.Load(); got != 10 {
+	if got := p.sw.deleted.Load(); got != 10 {
 		t.Errorf("deleted %d, want 10", got)
 	}
-	if got := sw.scanned.Load(); got != 3*page {
+	if got := p.sc.scanned.Load(); got != 3*page {
 		t.Errorf("scanned %d, want %d", got, 3*page)
 	}
 }
@@ -513,15 +616,15 @@ func TestArchivedThreadsPageWithoutLoss(t *testing.T) {
 					"thread_metadata":{"archived":true,"archive_timestamp":"%s"}}`, 1000+i, guildID, forumCh, at.Format(time.RFC3339Nano)), &th)
 				f.public[forumCh] = append(f.public[forumCh], th)
 			}
-			ids, err := newSweep(f, time.Now()).targets(context.Background())
+			spots, _, err := newPass(f, time.Now(), newMemIndex()).sc.targets(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if want := 170 + tc.burst - tc.lost; len(ids) != want {
-				t.Errorf("listed %d threads, want %d", len(ids), want)
+			if want := 170 + tc.burst - tc.lost; len(spots) != want {
+				t.Errorf("listed %d threads, want %d", len(spots), want)
 			}
-			for _, id := range ids {
-				delete(older, id)
+			for _, sp := range spots {
+				delete(older, sp.id)
 			}
 			if len(older) > 0 {
 				t.Errorf("%d threads older than the burst were never listed", len(older))
@@ -538,7 +641,7 @@ func TestPrivateThreadsListedOnlyForText(t *testing.T) {
 		guildChannel(t, textCh, discord.ChannelTypeGuildText),
 		guildChannel(t, 14, discord.ChannelTypeGuildNews),
 	}
-	if _, err := newSweep(f, time.Now()).targets(context.Background()); err != nil {
+	if _, _, err := newPass(f, time.Now(), newMemIndex()).sc.targets(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(f.privateAsked, []snowflake.ID{textCh}) {

@@ -55,13 +55,22 @@ type queue struct {
 	timer *time.Timer
 }
 
-// OnEvent loads the live set once the gateway is up, and queues each
-// message a live member posts. A message from anyone else costs one atomic
-// load, or a map lookup while anyone is live, and nothing else.
+// OnEvent loads the live set once the gateway is up, queues each message a
+// live member posts, and forgets a guild skua is removed from. A message
+// from anyone else costs one atomic load, or a map lookup while anyone is
+// live, and nothing else.
 func (m *Module) OnEvent(ev bot.Event) {
 	switch e := ev.(type) {
 	case *events.Ready:
 		m.boot.Do(func() { go m.start(e.Client().Rest) })
+	case *events.GuildLeave:
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := m.idx.drop(ctx, e.GuildID); err != nil {
+				m.log.Warn("purge: forgetting a guild", "guild", e.GuildID, "err", err)
+			}
+		}()
 	case *events.GuildMessageCreate:
 		if m.liveN.Load() == 0 {
 			return

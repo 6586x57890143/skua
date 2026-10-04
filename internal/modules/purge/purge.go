@@ -3,12 +3,15 @@
 // delete anyone's, so what is deleted is decided by one thing: the author on
 // each message skua fetched.
 //
-// Bots can't search, so a sweep reads every channel and thread skua can
-// see, oldest first, and deletes as it reads. Recent messages go a hundred
-// to a call; Discord only lets anything over 14 days go one at a time,
-// which is the long tail of a first sweep and nothing makes it shorter.
-// Every sweep request waits for a slot on one process-wide pacer, so many
-// sweeps at once share Discord's global limit instead of tripping it.
+// Bots can't search, so skua reads every channel and thread it can see
+// once, oldest first, and keeps an index of who wrote which message
+// (postings.go). A purge catches the index up on what's new, which is
+// usually nothing to read at all, then deletes from it, many channels at
+// once. Recent messages go a hundred to a call; Discord only lets anything
+// over 14 days go one at a time, which is the long tail of a first purge
+// and nothing makes it shorter. Every request waits for a slot on one
+// process-wide pacer, so many purges at once share Discord's global limit
+// instead of tripping it.
 package purge
 
 import (
@@ -35,24 +38,35 @@ import (
 	"github.com/6586x57890143/skua/internal/intents"
 )
 
-// confirmModal is the custom ID of the box that asks for "delete".
-const confirmModal = "purge-now"
+// confirmModal is the custom ID of the box that asks for "delete", and
+// progressButton of the button that opens a fresh readout.
+const (
+	confirmModal   = "purge-now"
+	progressButton = "purge-progress"
+)
 
 // tokenLife is how long an interaction's token can edit its response:
-// Discord's 15 minutes, less a margin. A sweep still running past it keeps
-// going; /purge status has how it ended.
+// Discord's 15 minutes, less a margin. A purge outlives it easily, and
+// nothing can post an ephemeral reply without a token, so every readout
+// of a running purge has a progress button: pressing it is a new
+// interaction, whose token starts a fresh readout of the same purge.
 const tokenLife = 14 * time.Minute
 
 type target struct{ guild, user snowflake.ID }
 
-// run is a sweep in progress, there to be cancelled by /purge stop.
-type run struct{ cancel context.CancelFunc }
+// run is a purge in progress, there to be cancelled by /purge stop and
+// watched by the progress button.
+type run struct {
+	cancel context.CancelFunc
+	job    *job
+}
 
 // DB is the slice of pgxpool.Pool purge uses.
 type DB interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
 type Module struct {
@@ -61,6 +75,7 @@ type Module struct {
 	bootstrap snowflake.ID
 	guard     *guard.Guard
 	db        DB // nil without SKUA_DATABASE_URL: only /purge now works
+	idx       index
 	log       *slog.Logger
 	pace      *pacer
 	running   sync.Map // target -> *run
@@ -71,6 +86,7 @@ type Module struct {
 	// Scheduled sweeps: the guilds with one running, and how often due
 	// sweeps are looked for.
 	sweeping  sync.Map // guild -> struct{}
+	catching  sync.Map // guild -> *catchup: the index catch-up running there
 	schedTick time.Duration
 
 	// Live mode: who is live, at what delay, and what is waiting to go.
@@ -84,9 +100,19 @@ type Module struct {
 // New takes the process's one guard, the database (which may be nil) and
 // the break-glass admin (0 for none).
 func New(g *guard.Guard, db DB, log *slog.Logger, bootstrap snowflake.ID) *Module {
-	return &Module{
-		bootstrap: bootstrap, guard: g, db: db, log: log, pace: newPacer(rate), now: time.Now, tick: 5 * time.Second,
+	m := &Module{
+		bootstrap: bootstrap, guard: g, log: log, pace: newPacer(rate), now: time.Now, tick: 5 * time.Second,
 		queues: map[snowflake.ID]*queue{}, window: batchWindow, schedTick: scheduleTick,
+	}
+	m.useDB(db)
+	return m
+}
+
+// useDB keeps the index in db, or in memory when there is none.
+func (m *Module) useDB(db DB) {
+	m.db, m.idx = db, newMemIndex()
+	if db != nil {
+		m.idx = pgIndex{db}
 	}
 }
 
@@ -135,6 +161,44 @@ func (m *Module) Commands() []core.Command {
 // Modals is the confirmation box.
 func (m *Module) Modals() []core.Modal {
 	return []core.Modal{{ID: confirmModal, Run: m.confirm}}
+}
+
+// Components is the progress button.
+func (m *Module) Components() []core.Component {
+	return []core.Component{{ID: progressButton, Run: m.progress}}
+}
+
+// progress opens a fresh readout of a running purge, on the token of the
+// press. The button names whose purge it watches; only they, or the
+// break-glass admin, can open it.
+func (m *Module) progress(_ context.Context, e *events.ComponentInteractionCreate) error {
+	guild := e.GuildID()
+	if guild == nil {
+		return errNotServer
+	}
+	by := e.User().ID
+	user := by
+	if _, rest, ok := strings.Cut(e.Data.CustomID(), ":"); ok {
+		id, err := snowflake.Parse(rest)
+		if err != nil {
+			return core.Tell("that button is out of date; /purge status has how it went")
+		}
+		if id != by {
+			if err := m.breakGlass(by, id, *guild, "progress"); err != nil {
+				return err
+			}
+		}
+		user = id
+	}
+	v, ok := m.running.Load(target{*guild, user})
+	if !ok {
+		return core.Tell("that purge is over; /purge status has how it went")
+	}
+	if err := e.DeferCreateMessage(true); err != nil {
+		return err
+	}
+	go m.watch(v.(*run).job, e.Client().Rest, e.ApplicationID(), e.Token(), user)
+	return nil
 }
 
 var (
@@ -248,7 +312,8 @@ func (m *Module) confirm(_ context.Context, e *events.ModalSubmitInteractionCrea
 	}
 	k := target{*guild, user}
 	ctx, cancel := context.WithCancel(context.Background())
-	if _, loaded := m.running.LoadOrStore(k, &run{cancel}); loaded {
+	j := m.newJob(e.Client().Rest, *guild, []snowflake.ID{user})
+	if _, loaded := m.running.LoadOrStore(k, &run{cancel, j}); loaded {
 		cancel()
 		return errRunning
 	}
@@ -263,45 +328,140 @@ func (m *Module) confirm(_ context.Context, e *events.ModalSubmitInteractionCrea
 		cancel()
 		return err
 	}
-	s := &sweep{
-		r: e.Client().Rest, guard: m.guard, pace: m.pace, guild: *guild,
-		authors: map[snowflake.ID]*atomic.Int64{user: new(atomic.Int64)},
-		cutoff:  snowflake.New(m.now()), now: m.now,
-	}
-	go m.follow(ctx, cancel, k, s, e.Client().Rest, e.ApplicationID(), e.Token())
+	go m.follow(ctx, cancel, k, j)
+	go m.watch(j, e.Client().Rest, e.ApplicationID(), e.Token(), user)
 	return nil
 }
 
-// follow runs s and keeps the member's reply counting until it ends.
-func (m *Module) follow(ctx context.Context, cancel context.CancelFunc, k target, s *sweep, r rest.Rest, app snowflake.ID, token string) {
-	defer m.running.Delete(k)
-	defer cancel()
-	began := m.now()
-	done := make(chan error, 1)
-	go func() { done <- s.run(ctx) }()
-	t := time.NewTicker(m.tick)
-	defer t.Stop()
+// job is one purge: catch the guild's index up, then delete from it.
+type job struct {
+	scan  atomic.Pointer[scan] // the catch-up it is waiting on, for the readout
+	sweep *sweep
+	began time.Time
+	done  chan struct{} // closed when it ends
+	err   error         // how it ended, set before done closes
+}
+
+func (m *Module) newJob(r rest.Rest, guild snowflake.ID, authors []snowflake.ID) *job {
+	counts := map[snowflake.ID]*atomic.Int64{}
+	for _, a := range authors {
+		counts[a] = new(atomic.Int64)
+	}
+	return &job{began: m.now(), done: make(chan struct{}), sweep: &sweep{
+		r: r, guard: m.guard, pace: m.pace, idx: m.idx, guild: guild,
+		authors: counts, cutoff: snowflake.New(m.now()), now: m.now,
+	}}
+}
+
+// work runs j: catch-ups until one has read past the moment j began, so
+// nothing sent before the member asked is missed, then the deletes.
+func (m *Module) work(ctx context.Context, j *job) error {
 	for {
+		c := m.catchUp(j.sweep.r, j.sweep.guild)
+		j.scan.Store(c.scan)
 		select {
-		case err := <-done:
-			if m.db != nil {
-				m.record(s, err)
-			}
-			m.show(r, app, token, began, render(s, outcome(err, m.now().Sub(began))))
-			return
-		case <-t.C:
-			m.show(r, app, token, began, render(s, "still going · "+span(m.now().Sub(began))))
+		case <-c.done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if c.err != nil {
+			return c.err
+		}
+		if c.scan.cutoff >= j.sweep.cutoff {
+			return j.sweep.run(ctx)
 		}
 	}
 }
 
-func (m *Module) show(r rest.Rest, app snowflake.ID, token string, began time.Time, text string) {
-	if m.now().Sub(began) > tokenLife {
-		return
+// catchup is a scan other purges in the guild can wait on.
+type catchup struct {
+	scan *scan
+	done chan struct{}
+	err  error // set before done closes
+}
+
+// catchUp joins the guild's running catch-up, or starts one. It runs to
+// the end whoever stops waiting: what it reads serves every member.
+func (m *Module) catchUp(r rest.Rest, guild snowflake.ID) *catchup {
+	c := &catchup{done: make(chan struct{}), scan: &scan{
+		r: r, guard: m.guard, pace: m.pace, idx: m.idx, guild: guild,
+		cutoff: snowflake.New(m.now()), began: m.now(),
+	}}
+	if v, loaded := m.catching.LoadOrStore(guild, c); loaded {
+		return v.(*catchup)
+	}
+	go func() {
+		c.err = c.scan.run(context.Background())
+		m.catching.Delete(guild)
+		close(c.done)
+	}()
+	return c
+}
+
+// unreachable is every channel the job couldn't read or delete in.
+func (j *job) unreachable() []snowflake.ID {
+	var ids []snowflake.ID
+	if sc := j.scan.Load(); sc != nil {
+		sc.mu.Lock()
+		ids = append(ids, sc.unreachable...)
+		sc.mu.Unlock()
+	}
+	j.sweep.mu.Lock()
+	ids = append(ids, j.sweep.unreachable...)
+	j.sweep.mu.Unlock()
+	slices.Sort(ids)
+	return slices.Compact(ids)
+}
+
+// follow runs j, records how it went and ends it, for every readout
+// watching it.
+func (m *Module) follow(ctx context.Context, cancel context.CancelFunc, k target, j *job) {
+	defer m.running.Delete(k)
+	defer cancel()
+	j.err = m.work(ctx, j)
+	if m.db != nil {
+		m.record(j, j.err)
+	}
+	close(j.done)
+}
+
+// watch keeps one readout of j counting until j ends, or until token can
+// no longer edit it. While j runs the readout carries the progress button
+// for user's purge, so a press opens the next readout.
+func (m *Module) watch(j *job, r rest.Rest, app snowflake.ID, token string, user snowflake.ID) {
+	opened := m.now()
+	t := time.NewTicker(m.tick)
+	defer t.Stop()
+	for {
+		select {
+		case <-j.done:
+			if m.now().Sub(opened) <= tokenLife {
+				m.show(r, app, token, render(j, outcome(j.err, m.now().Sub(j.began))), nil)
+			}
+			return
+		case <-t.C:
+			left := tokenLife - m.now().Sub(opened)
+			if left < 0 {
+				return
+			}
+			line := "still going · " + span(m.now().Sub(j.began))
+			if left < 2*m.tick {
+				line += " · this readout stops here; progress opens a new one"
+			}
+			button := discord.NewSecondaryButton("progress", fmt.Sprintf("%s:%d", progressButton, user))
+			m.show(r, app, token, render(j, line), []discord.LayoutComponent{discord.NewActionRow(button)})
+		}
+	}
+}
+
+// show edits a readout. components replaces its buttons; nil clears them.
+func (m *Module) show(r rest.Rest, app snowflake.ID, token string, text string, components []discord.LayoutComponent) {
+	if components == nil {
+		components = []discord.LayoutComponent{}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, _ = r.UpdateInteractionResponse(app, token, discord.MessageUpdate{Content: &text, AllowedMentions: core.NoPings()}, rest.WithCtx(ctx))
+	_, _ = r.UpdateInteractionResponse(app, token, discord.MessageUpdate{Content: &text, Components: &components, AllowedMentions: core.NoPings()}, rest.WithCtx(ctx))
 }
 
 // outcome is the line under the readout once a sweep has ended.
@@ -322,17 +482,18 @@ func outcome(err error, took time.Duration) string {
 const labelWidth = len("unreachable") + 2
 
 // render is the readout: facts in a code block, what happened below it.
-func render(s *sweep, line string) string {
-	s.mu.Lock()
-	unreachable := slices.Clone(s.unreachable)
-	s.mu.Unlock()
-	slices.Sort(unreachable)
-	unreachable = slices.Compact(unreachable)
+// scanned is what this purge had to read; channels is how far that got.
+func render(j *job, line string) string {
+	var scanned, done, total int64
+	if sc := j.scan.Load(); sc != nil {
+		scanned, done, total = sc.scanned.Load(), sc.done.Load(), sc.channels.Load()
+	}
+	unreachable := j.unreachable()
 	return grid([][2]string{
-		{"deleted", fmt.Sprint(s.deleted.Load())},
-		{"missed", fmt.Sprint(s.missed.Load())},
-		{"scanned", fmt.Sprint(s.scanned.Load())},
-		{"channels", fmt.Sprintf("%d of %d", s.done.Load(), s.channels.Load())},
+		{"deleted", fmt.Sprint(j.sweep.deleted.Load())},
+		{"missed", fmt.Sprint(j.sweep.missed.Load())},
+		{"scanned", fmt.Sprint(scanned)},
+		{"channels", fmt.Sprintf("%d of %d", done, total)},
 		{"unreachable", fmt.Sprint(len(unreachable))},
 	}) + "\n-# " + line + couldnt(unreachable)
 }
