@@ -33,21 +33,22 @@ const (
 // as it would be.
 type fake struct {
 	rest.Rest
-	mu          sync.Mutex
-	chans       []discord.GuildChannel
-	active      []discord.GuildThread
-	public      map[snowflake.ID][]discord.GuildThread
-	msgs        map[snowflake.ID][]discord.Message // ascending
-	denyRead    map[snowflake.ID]bool
-	denyPrivate bool
-	gone        map[snowflake.ID]bool
-	bulks       [][]snowflake.ID
-	singles     []snowflake.ID
-	bulkErr     error
-	deleteErr   map[snowflake.ID]error
-	hold        chan struct{} // when set, listing channels waits for it
-	guild       snowflake.ID  // when set, every other guild is empty
-	updates     chan string
+	mu           sync.Mutex
+	chans        []discord.GuildChannel
+	active       []discord.GuildThread
+	public       map[snowflake.ID][]discord.GuildThread
+	msgs         map[snowflake.ID][]discord.Message // ascending
+	denyRead     map[snowflake.ID]bool
+	denyPrivate  bool
+	privateAsked []snowflake.ID
+	gone         map[snowflake.ID]bool
+	bulks        [][]snowflake.ID
+	singles      []snowflake.ID
+	bulkErr      error
+	deleteErr    map[snowflake.ID]error
+	hold         chan struct{} // when set, listing channels waits for it
+	guild        snowflake.ID  // when set, every other guild is empty
+	updates      chan string
 }
 
 func newFake() *fake {
@@ -79,19 +80,42 @@ func (f *fake) GetActiveGuildThreads(g snowflake.ID, _ ...rest.RequestOpt) (*dis
 	return &discord.GuildActiveThreads{Threads: f.active}, nil
 }
 
-func (f *fake) GetPublicArchivedThreads(ch snowflake.ID, _ time.Time, _ int, _ ...rest.RequestOpt) (*discord.GetThreads, error) {
-	return &discord.GetThreads{Threads: f.public[ch]}, nil
+// The fake answers as Discord does, down to what disgo leaves out of a
+// request when an argument is zero. A fake kinder than Discord is how a
+// sweep that read only each channel's newest page passed every test.
+
+// GetPublicArchivedThreads pages as Discord does: newest archived first,
+// before taken to the second (disgo sends RFC 3339), has_more when the
+// limit cut the list short.
+func (f *fake) GetPublicArchivedThreads(ch snowflake.ID, before time.Time, limit int, _ ...rest.RequestOpt) (*discord.GetThreads, error) {
+	ts := slices.Clone(f.public[ch])
+	slices.SortStableFunc(ts, func(a, b discord.GuildThread) int {
+		return b.ThreadMetadata.ArchiveTimestamp.Compare(a.ThreadMetadata.ArchiveTimestamp)
+	})
+	if !before.IsZero() {
+		cut := before.Truncate(time.Second)
+		ts = slices.DeleteFunc(ts, func(t discord.GuildThread) bool { return !t.ThreadMetadata.ArchiveTimestamp.Before(cut) })
+	}
+	if limit == 0 {
+		limit = 50
+	}
+	more := len(ts) > limit
+	return &discord.GetThreads{Threads: ts[:min(limit, len(ts))], HasMore: more}, nil
 }
 
-func (f *fake) GetPrivateArchivedThreads(snowflake.ID, time.Time, int, ...rest.RequestOpt) (*discord.GetThreads, error) {
+func (f *fake) GetPrivateArchivedThreads(ch snowflake.ID, _ time.Time, _ int, _ ...rest.RequestOpt) (*discord.GetThreads, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.privateAsked = append(f.privateAsked, ch)
 	if f.denyPrivate {
 		return nil, refusal(403, rest.JSONErrorCodeMissingAccess)
 	}
 	return &discord.GetThreads{}, nil
 }
 
-// GetMessages answers an after= read as Discord does: the limit messages
-// right after the anchor, newest first.
+// GetMessages answers as Discord does: with an after, the limit messages
+// right after it; without one (disgo leaves out an after of 0), the newest
+// limit. Either way newest first.
 func (f *fake) GetMessages(ch, _, _, after snowflake.ID, limit int, _ ...rest.RequestOpt) ([]discord.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -100,19 +124,34 @@ func (f *fake) GetMessages(ch, _, _, after snowflake.ID, limit int, _ ...rest.Re
 	}
 	var out []discord.Message
 	for _, m := range f.msgs[ch] {
-		if m.ID > after && !f.gone[m.ID] && len(out) < limit {
+		if m.ID > after && !f.gone[m.ID] {
 			out = append(out, m)
 		}
+	}
+	if after == 0 {
+		out = out[max(0, len(out)-limit):]
+	} else {
+		out = out[:min(limit, len(out))]
 	}
 	slices.Reverse(out)
 	return out, nil
 }
 
+// BulkDeleteMessages refuses what Discord refuses: fewer than two IDs, or
+// any message 14 days old.
 func (f *fake) BulkDeleteMessages(_ snowflake.ID, ids []snowflake.ID, _ ...rest.RequestOpt) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.bulkErr; err != nil {
 		return err
+	}
+	if len(ids) < 2 || len(ids) > bulkMax {
+		return refusal(400, rest.JSONErrorCodeInvalidFormBody)
+	}
+	for _, id := range ids {
+		if time.Since(id.Time()) >= 14*24*time.Hour {
+			return refusal(400, rest.JSONErrorCodeMessageTooOldToBulkDelete)
+		}
 	}
 	f.bulks = append(f.bulks, slices.Clone(ids))
 	for _, id := range ids {
@@ -126,6 +165,9 @@ func (f *fake) DeleteMessage(_, id snowflake.ID, _ ...rest.RequestOpt) error {
 	defer f.mu.Unlock()
 	if err := f.deleteErr[id]; err != nil {
 		return err
+	}
+	if f.gone[id] {
+		return refusal(404, rest.JSONErrorCodeUnknownMessage)
 	}
 	f.singles = append(f.singles, id)
 	f.gone[id] = true
@@ -413,5 +455,93 @@ func TestPacerHonoursCancel(t *testing.T) {
 	defer cancel()
 	if err := p.wait(ctx); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("got %v, want the deadline", err)
+	}
+}
+
+// A first sweep starts at a channel's oldest message, not at its newest
+// page: a member who stopped posting long ago is still found.
+func TestSweepReadsFromTheOldest(t *testing.T) {
+	now := time.Now()
+	f := newFake()
+	f.chans = []discord.GuildChannel{guildChannel(t, textCh, discord.ChannelTypeGuildText)}
+	var s seq
+	for i := range 3 * page {
+		who := them
+		if i < 10 {
+			who = me
+		}
+		f.msgs[textCh] = append(f.msgs[textCh], s.at(now.Add(-time.Hour), who))
+	}
+	sw := newSweep(f, now)
+	if err := sw.run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := sw.deleted.Load(); got != 10 {
+		t.Errorf("deleted %d, want 10", got)
+	}
+	if got := sw.scanned.Load(); got != 3*page {
+		t.Errorf("scanned %d, want %d", got, 3*page)
+	}
+}
+
+// Discord takes before to the second, so threads archived in the same
+// second as the end of a page must still turn up on the next one, once.
+// More than a page in one second loses only that second's overflow, never
+// the older threads behind it.
+func TestArchivedThreadsPageWithoutLoss(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		burst, lost int
+	}{{"burst across a page", 60, 0}, {"burst over a page", 150, 50}} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFake()
+			f.chans = []discord.GuildChannel{guildChannel(t, forumCh, discord.ChannelTypeGuildForum)}
+			base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			older := map[snowflake.ID]bool{}
+			for i := range 170 + tc.burst { // 70 newer threads put a page end inside the burst
+				at := base.Add(time.Duration(i) * time.Second)
+				switch {
+				case i >= 100 && i < 100+tc.burst: // one second, spanning pages
+					at = base.Add(100*time.Second + time.Duration(i)*time.Millisecond)
+				case i >= 100:
+					at = at.Add(time.Hour)
+				default:
+					older[snowflake.ID(1000+i)] = true
+				}
+				var th discord.GuildThread
+				decode(t, fmt.Sprintf(`{"id":"%d","type":11,"guild_id":"%d","parent_id":"%d",
+					"thread_metadata":{"archived":true,"archive_timestamp":"%s"}}`, 1000+i, guildID, forumCh, at.Format(time.RFC3339Nano)), &th)
+				f.public[forumCh] = append(f.public[forumCh], th)
+			}
+			ids, err := newSweep(f, time.Now()).targets(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := 170 + tc.burst - tc.lost; len(ids) != want {
+				t.Errorf("listed %d threads, want %d", len(ids), want)
+			}
+			for _, id := range ids {
+				delete(older, id)
+			}
+			if len(older) > 0 {
+				t.Errorf("%d threads older than the burst were never listed", len(older))
+			}
+		})
+	}
+}
+
+// Only text channels hold private threads; asking a news channel for them
+// is a wasted request at best.
+func TestPrivateThreadsListedOnlyForText(t *testing.T) {
+	f := newFake()
+	f.chans = []discord.GuildChannel{
+		guildChannel(t, textCh, discord.ChannelTypeGuildText),
+		guildChannel(t, 14, discord.ChannelTypeGuildNews),
+	}
+	if _, err := newSweep(f, time.Now()).targets(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(f.privateAsked, []snowflake.ID{textCh}) {
+		t.Errorf("asked %v for private threads, want [%d]", f.privateAsked, textCh)
 	}
 }
