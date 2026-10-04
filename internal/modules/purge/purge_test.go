@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/gateway"
@@ -175,7 +176,7 @@ func TestOutcomeAndRender(t *testing.T) {
 		j.sweep.unreach(snowflake.ID(100 + i))
 	}
 	j.sweep.unreach(100)
-	got := render(j, "x")
+	got := render(j, "x", time.Now())
 	if !strings.Contains(got, "unreachable  12") || !strings.Contains(got, "<#109> and 2 more") {
 		t.Errorf("render:\n%s", got)
 	}
@@ -201,5 +202,54 @@ func TestModuleDeclares(t *testing.T) {
 	}
 	if cs := m.Components(); len(cs) != 1 || cs[0].ID != progressButton {
 		t.Errorf("components %+v", cs)
+	}
+}
+
+// The readout says what isn't measured yet, then fills in: bars where
+// there's a total, the delete rate once deletes have run long enough to
+// mean it, and no line past UX.md's 40 columns.
+func TestReadoutFillsIn(t *testing.T) {
+	m := newModule()
+	j := m.newJob(newFake(), guildID, []snowflake.ID{me})
+	now := time.Now()
+	got := render(j, "x", now)
+	for _, want := range []string{"deleted      not yet", "rate         not yet", "scanned      not yet", "channels     listing"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("before anything lacks %q:\n%s", want, got)
+		}
+	}
+
+	sc := &scan{}
+	sc.channels.Store(53)
+	sc.done.Store(53)
+	sc.scanned.Store(1234567)
+	sc.listed.Store(true)
+	j.scan.Store(sc)
+	j.deleteFrom.Store(now.Add(-2 * time.Minute).UnixNano())
+	j.deleting.Store(true)
+	j.sweep.total.Store(2345678)
+	j.sweep.deleted.Store(1234567)
+	j.sweep.handled.Store(1234567 + 100000)
+	got = render(j, "x", now)
+	for _, want := range []string{
+		"deleted      1234567 of 2345678 ▰▰▰▰▱▱▱▱",
+		"rate         617283 a minute",
+		"channels     53 of 53 ▰▰▰▰▰▰▰▰",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("deleting lacks %q:\n%s", want, got)
+		}
+	}
+	for _, l := range strings.Split(got, "\n") {
+		if n := utf8.RuneCountInString(l); n > 40 && !strings.HasPrefix(l, "-#") {
+			t.Errorf("%d columns: %q", n, l)
+		}
+	}
+
+	// Deletes that finished inside rateAfter don't claim a rate.
+	j.deleteFrom.Store(now.Add(-time.Second).UnixNano())
+	j.deleteTo.Store(now.UnixNano())
+	if got := render(j, "x", now); !strings.Contains(got, "rate         too quick to measure") {
+		t.Errorf("quick deletes:\n%s", got)
 	}
 }

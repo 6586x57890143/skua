@@ -177,7 +177,7 @@ func (m *Module) setEveryCmd(ctx context.Context, e *events.ApplicationCommandIn
 	if secs == nil {
 		return reply(e, "✓ no more scheduled sweeps here")
 	}
-	return reply(e, "✓ every "+every+": the first sweep starts within a minute, and each one after reads only what's new")
+	return reply(e, "✓ every "+every+": the first sweep starts within a minute")
 }
 
 // statusCmd is the member's purge setup here and how their last sweep went.
@@ -221,8 +221,12 @@ func (m *Module) statusCmd(ctx context.Context, e *events.ApplicationCommandInte
 		{"next sweep", upcoming},
 		{"unreachable", fmt.Sprint(len(unreachable))},
 	})
-	if _, running := m.running.Load(k); running {
-		text += "\n-# a /purge now is running"
+	if v, running := m.running.Load(k); running {
+		what := "a /purge now"
+		if v.(*run).scheduled {
+			what = "a scheduled sweep"
+		}
+		text += "\n-# " + what + " is running for you here"
 	} else if _, running := m.sweeping.Load(k.guild); running {
 		text += "\n-# a sweep is running in this server"
 	}

@@ -253,16 +253,16 @@ func (m *Module) purge(ctx context.Context, e *events.ApplicationCommandInteract
 	if _, ok := m.running.Load(k); ok {
 		return errRunning
 	}
-	id, title, whose := confirmModal, "Delete your messages", "Every message you've sent"
+	id, title, whose := confirmModal, "delete your messages", "every message you've sent"
 	if behalf {
-		id, title, whose = fmt.Sprintf("%s:%d", confirmModal, user), "Delete a member's messages", "Every message they've sent"
+		id, title, whose = fmt.Sprintf("%s:%d", confirmModal, user), "delete a member's messages", "every message they've sent"
 	}
 	return e.Modal(discord.ModalCreate{
 		CustomID: id,
 		Title:    title,
 		Components: []discord.LayoutComponent{discord.LabelComponent{
-			Label:       "Type delete to confirm",
-			Description: whose + " in this server, in every channel skua can read. This can't be undone.",
+			Label:       "type delete to confirm",
+			Description: whose + " in this server, in every channel skua can read; this can't be undone",
 			Component: discord.TextInputComponent{
 				CustomID: "confirm", Style: discord.TextInputStyleShort, Required: true, MaxLength: 6,
 			},
@@ -349,8 +349,14 @@ type job struct {
 	scan  atomic.Pointer[scan] // the catch-up it is waiting on, for the readout
 	sweep *sweep
 	began time.Time
-	done  chan struct{} // closed when it ends
-	err   error         // how it ended, set before done closes
+	// deleting is set once the catch-up is done: the counts before it
+	// aren't measured yet. deleteFrom and deleteTo time the deletes, in
+	// unix nanoseconds, for the rate.
+	deleting   atomic.Bool
+	deleteFrom atomic.Int64
+	deleteTo   atomic.Int64
+	done       chan struct{} // closed when it ends
+	err        error         // how it ended, set before done closes
 }
 
 func (m *Module) newJob(r rest.Rest, guild snowflake.ID, authors []snowflake.ID) *job {
@@ -379,7 +385,11 @@ func (m *Module) work(ctx context.Context, j *job) error {
 			return c.err
 		}
 		if c.scan.cutoff >= j.sweep.cutoff {
-			return j.sweep.run(ctx)
+			j.deleteFrom.Store(m.now().UnixNano())
+			j.deleting.Store(true)
+			err := j.sweep.run(ctx)
+			j.deleteTo.Store(m.now().UnixNano())
+			return err
 		}
 	}
 }
@@ -448,7 +458,7 @@ func (m *Module) watch(j *job, r rest.Rest, app snowflake.ID, token string, owne
 		select {
 		case <-j.done:
 			if m.now().Sub(opened) <= tokenLife {
-				m.show(r, app, token, render(j, outcome(j.err, m.now().Sub(j.began))), nil)
+				m.show(r, app, token, m.readout(j, outcome(j.err, m.now().Sub(j.began))), nil)
 			}
 			return
 		case <-t.C:
@@ -458,15 +468,15 @@ func (m *Module) watch(j *job, r rest.Rest, app snowflake.ID, token string, owne
 			}
 			line := "still going · " + span(m.now().Sub(j.began))
 			if left >= 2*m.tick {
-				m.show(r, app, token, render(j, line), nil)
+				m.show(r, app, token, m.readout(j, line), nil)
 				continue
 			}
 			if m.dm(j, r, viewer) {
-				m.show(r, app, token, render(j, line+" · the rest is in your dms"), nil)
+				m.show(r, app, token, m.readout(j, line+" · the rest is in your dms"), nil)
 				return
 			}
 			button := discord.NewSecondaryButton("progress", fmt.Sprintf("%s:%d", progressButton, owner))
-			m.show(r, app, token, render(j, line+" · skua can't dm you, so this readout stops here; progress opens a new one"),
+			m.show(r, app, token, m.readout(j, line+" · skua can't dm you, so this readout stops here; progress opens a new one"),
 				[]discord.LayoutComponent{discord.NewActionRow(button)})
 			return
 		}
@@ -489,7 +499,7 @@ func (m *Module) dm(j *job, r rest.Rest, viewer snowflake.ID) bool {
 		return false
 	}
 	where := fmt.Sprintf("\n-# /purge now in https://discord.com/channels/%d", guild)
-	text := render(j, "still going · "+span(m.now().Sub(j.began))) + where
+	text := m.readout(j, "still going · "+span(m.now().Sub(j.began))) + where
 	msg, err := r.CreateMessage(dm.ID(), discord.MessageCreate{Content: text, AllowedMentions: core.NoPings()}, rest.WithCtx(ctx))
 	m.guard.Report(guild, struggling(err))
 	if err != nil {
@@ -506,10 +516,10 @@ func (m *Module) dm(j *job, r rest.Rest, viewer snowflake.ID) bool {
 		for {
 			select {
 			case <-j.done:
-				edit(render(j, outcome(j.err, m.now().Sub(j.began))) + where)
+				edit(m.readout(j, outcome(j.err, m.now().Sub(j.began))) + where)
 				return
 			case <-t.C:
-				edit(render(j, "still going · "+span(m.now().Sub(j.began))) + where)
+				edit(m.readout(j, "still going · "+span(m.now().Sub(j.began))) + where)
 			}
 		}
 	}()
@@ -544,21 +554,64 @@ func outcome(err error, took time.Duration) string {
 const labelWidth = len("unreachable") + 2
 
 // render is the readout: facts in a code block, what happened below it.
+// deleted is out of every message the index holds for the member, its bar
+// counting misses too; rate is deletes a minute since deleting began.
 // scanned is what this purge had to read; channels is how far that got.
-func render(j *job, line string) string {
-	var scanned, done, total int64
-	if sc := j.scan.Load(); sc != nil {
-		scanned, done, total = sc.scanned.Load(), sc.done.Load(), sc.channels.Load()
+func render(j *job, line string, now time.Time) string {
+	deleted, missed, rate, scanned, channels := notYet, notYet, notYet, notYet, listing
+	if j.deleting.Load() {
+		s := j.sweep
+		n, total := s.deleted.Load(), s.total.Load()
+		deleted = fmt.Sprintf("%d of %d %s", n, total, bar(s.handled.Load(), total))
+		missed = fmt.Sprint(s.missed.Load())
+		to := now
+		if t := j.deleteTo.Load(); t != 0 {
+			to = time.Unix(0, t)
+		}
+		if took := to.Sub(time.Unix(0, j.deleteFrom.Load())); took >= rateAfter {
+			rate = fmt.Sprintf("%d a minute", int64(float64(n)/took.Minutes()))
+		} else if j.deleteTo.Load() != 0 {
+			rate = "too quick to measure"
+		}
+	}
+	if sc := j.scan.Load(); sc != nil && sc.listed.Load() {
+		scanned, channels = fmt.Sprint(sc.scanned.Load()), sc.progress()
 	}
 	unreachable := j.unreachable()
 	return grid([][2]string{
-		{"deleted", fmt.Sprint(j.sweep.deleted.Load())},
-		{"missed", fmt.Sprint(j.sweep.missed.Load())},
-		{"scanned", fmt.Sprint(scanned)},
-		{"channels", fmt.Sprintf("%d of %d", done, total)},
+		{"deleted", deleted},
+		{"rate", rate},
+		{"missed", missed},
+		{"scanned", scanned},
+		{"channels", channels},
 		{"unreachable", fmt.Sprint(len(unreachable))},
 	}) + "\n-# " + line + couldnt(unreachable)
 }
+
+// readout is render at the module's now.
+func (m *Module) readout(j *job, line string) string { return render(j, line, m.now()) }
+
+// rateAfter is how long deletes must run before their rate means much.
+const rateAfter = 10 * time.Second
+
+// barCells is how wide a progress bar is: the widest value it sits beside
+// ("1234567 of 2345678") still fits UX.md's 40 columns.
+const barCells = 8
+
+// bar is done of total as barCells cells, or nothing without a total.
+func bar(done, total int64) string {
+	if total <= 0 {
+		return ""
+	}
+	full := int(min(done, total) * barCells / total)
+	return strings.Repeat("▰", full) + strings.Repeat("▱", barCells-full)
+}
+
+// notYet and listing are counts that haven't been measured yet (UX.md).
+const (
+	notYet  = "not yet"
+	listing = "listing"
+)
 
 // grid is facts in a code block, labels padded to one column.
 func grid(rows [][2]string) string {

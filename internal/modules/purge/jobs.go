@@ -49,18 +49,30 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 		if r.scheduled {
 			how = "scheduled"
 		}
-		var deleted int64
-		if c := r.job.sweep.authors[t.user]; c != nil {
-			deleted = c.Load()
+		// A scheduled job's total covers every member in it, so only a
+		// single member's purge shows one.
+		state := "reading what's new"
+		if s := r.job.sweep; r.job.deleting.Load() {
+			var n int64
+			if c := s.authors[t.user]; c != nil {
+				n = c.Load()
+			}
+			state = fmt.Sprintf("%d deleted", n)
+			if len(s.authors) == 1 {
+				state = fmt.Sprintf("%d of %d deleted %s", n, s.total.Load(), bar(s.handled.Load(), s.total.Load()))
+			}
 		}
-		running = append(running, line{name(t.guild) + t.user.String(), fmt.Sprintf("<@%d> in %s · %s · %s · %d deleted",
-			t.user, name(t.guild), how, span(now.Sub(r.job.began)), deleted)})
+		running = append(running, line{name(t.guild) + t.user.String(), fmt.Sprintf("<@%d> in %s · %s · %s · %s",
+			t.user, name(t.guild), how, span(now.Sub(r.job.began)), state)})
 		return true
 	})
 	m.catching.Range(func(k, v any) bool {
 		g, c := k.(snowflake.ID), v.(*catchup)
-		catching = append(catching, line{name(g), fmt.Sprintf("reading %s · %d of %d channels · %d scanned",
-			name(g), c.scan.done.Load(), c.scan.channels.Load(), c.scan.scanned.Load())})
+		progress := "listing channels"
+		if c.scan.listed.Load() {
+			progress = fmt.Sprintf("channels %s · %d scanned", c.scan.progress(), c.scan.scanned.Load())
+		}
+		catching = append(catching, line{name(g), fmt.Sprintf("reading %s · %s", name(g), progress)})
 		return true
 	})
 	for _, l := range [][]line{running, catching} {

@@ -28,14 +28,26 @@ func TestJobsListsWhatIsRunning(t *testing.T) {
 	f := newFake()
 	j := m.newJob(f, 40, []snowflake.ID{them})
 	j.sweep.authors[them].Store(12)
+	j.sweep.total.Store(48)
+	j.sweep.handled.Store(24)
+	j.deleting.Store(true)
 	m.running.Store(target{40, them}, &run{func() {}, j, true})
+	m.running.Store(target{40, me}, &run{func() {}, m.newJob(f, 40, []snowflake.ID{me}), false})
 	m.catching.Store(snowflake.ID(41), &catchup{scan: &scan{}})
+	read := &scan{}
+	read.channels.Store(4)
+	read.done.Store(1)
+	read.scanned.Store(900)
+	read.listed.Store(true)
+	m.catching.Store(snowflake.ID(42), &catchup{scan: read})
 
 	got := subCmd(t, m, "jobs", "", "", guildID)
 	for _, want := range []string{
-		"running      1", "catching up  1", "scheduled    0",
-		"<@6> in 40 · scheduled · 0s · 12 deleted",
-		"reading 41 · 0 of 0 channels · 0 scanned",
+		"running      2", "catching up  2", "scheduled    0",
+		"<@6> in 40 · scheduled · 0s · 12 of 48 deleted ▰▰▰▰▱▱▱▱",
+		"<@5> in 40 · now · 0s · reading what's new",
+		"reading 41 · listing channels",
+		"reading 42 · channels 1 of 4 ▰▰▱▱▱▱▱▱ · 900 scanned",
 		"no database here",
 	} {
 		if !strings.Contains(got, want) {

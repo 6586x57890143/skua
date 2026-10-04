@@ -3,6 +3,7 @@ package purge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -60,6 +61,7 @@ type scan struct {
 	began  time.Time
 
 	scanned, channels, done atomic.Int64
+	listed                  atomic.Bool // channels holds the full count
 
 	mu          sync.Mutex
 	unreachable []snowflake.ID
@@ -81,6 +83,7 @@ func (s *scan) run(ctx context.Context) error {
 		return err
 	}
 	s.channels.Store(int64(len(spots)))
+	s.listed.Store(true)
 	queue := make(chan spot)
 	var wg sync.WaitGroup
 	for range min(workers, len(spots)) {
@@ -292,6 +295,16 @@ func (s *scan) read(ctx context.Context, sp spot, from snowflake.ID) error {
 	}
 }
 
+// progress is how many channels are read, with a bar, or that they're
+// still being listed.
+func (s *scan) progress() string {
+	if !s.listed.Load() {
+		return listing
+	}
+	done, total := s.done.Load(), s.channels.Load()
+	return fmt.Sprintf("%d of %d %s", done, total, bar(done, total))
+}
+
 // unreach notes id as unreadable, and its parent as listed only in part.
 func (s *scan) unreach(id, parent snowflake.ID) {
 	s.mu.Lock()
@@ -318,7 +331,10 @@ type sweep struct {
 	now     func() time.Time
 
 	deleted, missed atomic.Int64
-	confirmed       sync.Map // message ID -> struct{}: Discord says it's gone
+	// total is how many messages run has to delete, known once the index
+	// is loaded; handled is how many of them are settled either way.
+	total, handled atomic.Int64
+	confirmed      sync.Map // message ID -> struct{}: Discord says it's gone
 
 	mu          sync.Mutex
 	unreachable []snowflake.ID
@@ -344,6 +360,13 @@ func (s *sweep) run(ctx context.Context) error {
 		}
 		for ch, b := range bs {
 			byCh[ch] = append(byCh[ch], posting{author, b})
+			for _, blk := range b {
+				for _, id := range blk.ids {
+					if id < s.cutoff {
+						s.total.Add(1)
+					}
+				}
+			}
 		}
 	}
 	slots := make(chan struct{}, lanes)
@@ -486,8 +509,10 @@ func (s *sweep) one(ctx context.Context, ch snowflake.ID, m msg) error {
 	case status == 404, code == rest.JSONErrorCodeCannotExecuteActionOnSystemMessage:
 		// Already gone, or a system message nobody can delete.
 		s.confirmed.Store(m.id, struct{}{})
+		s.handled.Add(1)
 	default:
 		s.missed.Add(1)
+		s.handled.Add(1)
 	}
 	return nil
 }
@@ -499,6 +524,7 @@ type msg struct{ id, author snowflake.ID }
 func (s *sweep) gone(m msg) {
 	s.confirmed.Store(m.id, struct{}{})
 	s.deleted.Add(1)
+	s.handled.Add(1)
 	if c := s.authors[m.author]; c != nil {
 		c.Add(1)
 	}
