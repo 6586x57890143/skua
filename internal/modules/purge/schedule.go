@@ -202,7 +202,7 @@ func (m *Module) statusCmd(ctx context.Context, e *events.ApplicationCommandInte
 		{"unreachable", fmt.Sprint(len(unreachable))},
 	})
 	if _, running := m.running.Load(k); running {
-		text += "\n-# your /purge now is running"
+		text += "\n-# a /purge now is running"
 	} else if _, running := m.sweeping.Load(k.guild); running {
 		text += "\n-# a sweep is running in this server"
 	}

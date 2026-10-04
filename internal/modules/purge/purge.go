@@ -56,14 +56,17 @@ type DB interface {
 }
 
 type Module struct {
-	guard   *guard.Guard
-	db      DB // nil without SKUA_DATABASE_URL: only /purge now works
-	log     *slog.Logger
-	pace    *pacer
-	running sync.Map // target -> *run
-	now     func() time.Time
-	tick    time.Duration // how often the progress reply is edited
-	boot    sync.Once
+	// bootstrap is the break-glass admin, the one user who can run /purge
+	// for someone else. 0 is nobody.
+	bootstrap snowflake.ID
+	guard     *guard.Guard
+	db        DB // nil without SKUA_DATABASE_URL: only /purge now works
+	log       *slog.Logger
+	pace      *pacer
+	running   sync.Map // target -> *run
+	now       func() time.Time
+	tick      time.Duration // how often the progress reply is edited
+	boot      sync.Once
 
 	// Scheduled sweeps: the guilds with one running, and how often due
 	// sweeps are looked for.
@@ -78,10 +81,11 @@ type Module struct {
 	window time.Duration           // how long a due delete waits for neighbours
 }
 
-// New takes the process's one guard and the database, which may be nil.
-func New(g *guard.Guard, db DB, log *slog.Logger) *Module {
+// New takes the process's one guard, the database (which may be nil) and
+// the break-glass admin (0 for none).
+func New(g *guard.Guard, db DB, log *slog.Logger, bootstrap snowflake.ID) *Module {
 	return &Module{
-		guard: g, db: db, log: log, pace: newPacer(rate), now: time.Now, tick: 5 * time.Second,
+		bootstrap: bootstrap, guard: g, db: db, log: log, pace: newPacer(rate), now: time.Now, tick: 5 * time.Second,
 		queues: map[snowflake.ID]*queue{}, window: batchWindow, schedTick: scheduleTick,
 	}
 }
@@ -106,21 +110,21 @@ func (m *Module) Commands() []core.Command {
 			Description: "delete your own messages in this server",
 			Contexts:    []discord.InteractionContextType{discord.InteractionContextTypeGuild},
 			Options: []discord.ApplicationCommandOption{
-				discord.ApplicationCommandOptionSubCommand{Name: "now", Description: "delete every message you've sent here"},
-				discord.ApplicationCommandOptionSubCommand{Name: "stop", Description: "stop deleting"},
+				discord.ApplicationCommandOptionSubCommand{Name: "now", Description: "delete every message you've sent here", Options: forMember()},
+				discord.ApplicationCommandOptionSubCommand{Name: "stop", Description: "stop deleting", Options: forMember()},
 				discord.ApplicationCommandOptionSubCommand{
 					Name: "live", Description: "delete each message you send here a while after you send it",
 					Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionString{
 						Name: "after", Description: "how long each message stays up", Required: true, Choices: choices(delays),
-					}},
+					}, member},
 				},
 				discord.ApplicationCommandOptionSubCommand{
 					Name: "every", Description: "sweep your messages here on a schedule",
 					Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionString{
 						Name: "every", Description: "how often", Required: true, Choices: choices(everyChoices),
-					}},
+					}, member},
 				},
-				discord.ApplicationCommandOptionSubCommand{Name: "status", Description: "what's set up here and how your last sweep went"},
+				discord.ApplicationCommandOptionSubCommand{Name: "status", Description: "what's set up here and how your last sweep went", Options: forMember()},
 			},
 		},
 		Tier: core.Public,
@@ -135,7 +139,7 @@ func (m *Module) Modals() []core.Modal {
 
 var (
 	errNotServer = core.Tell("/purge only works in a server")
-	errRunning   = core.Tell("your purge here is already running; /purge stop ends it")
+	errRunning   = core.Tell("a purge is already running here; /purge stop ends it")
 )
 
 func (m *Module) purge(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error {
@@ -143,17 +147,24 @@ func (m *Module) purge(ctx context.Context, e *events.ApplicationCommandInteract
 	if guild == nil {
 		return errNotServer
 	}
-	k := target{*guild, e.User().ID}
 	data := e.SlashCommandInteractionData()
 	sub := ""
 	if data.SubCommandName != nil {
 		sub = *data.SubCommandName
 	}
+	user, behalf := e.User().ID, false
+	if id, ok := data.OptSnowflake("member"); ok && id != user {
+		if err := m.breakGlass(user, id, *guild, sub); err != nil {
+			return err
+		}
+		user, behalf = id, true
+	}
+	k := target{*guild, user}
 	switch sub {
 	case "stop":
 		v, ok := m.running.Load(k)
 		if !ok {
-			return core.Tell("you have no purge running here")
+			return core.Tell("no purge is running here")
 		}
 		v.(*run).cancel()
 		return reply(e, "✓ stopping; what's already deleted stays deleted")
@@ -167,17 +178,41 @@ func (m *Module) purge(ctx context.Context, e *events.ApplicationCommandInteract
 	if _, ok := m.running.Load(k); ok {
 		return errRunning
 	}
+	id, title, whose := confirmModal, "Delete your messages", "Every message you've sent"
+	if behalf {
+		id, title, whose = fmt.Sprintf("%s:%d", confirmModal, user), "Delete a member's messages", "Every message they've sent"
+	}
 	return e.Modal(discord.ModalCreate{
-		CustomID: confirmModal,
-		Title:    "Delete your messages",
+		CustomID: id,
+		Title:    title,
 		Components: []discord.LayoutComponent{discord.LabelComponent{
 			Label:       "Type delete to confirm",
-			Description: "Every message you've sent in this server, in every channel skua can read. This can't be undone.",
+			Description: whose + " in this server, in every channel skua can read. This can't be undone.",
 			Component: discord.TextInputComponent{
 				CustomID: "confirm", Style: discord.TextInputStyleShort, Required: true, MaxLength: 6,
 			},
 		}},
 	})
+}
+
+// member is the break-glass option: whose messages, when not the caller's.
+var member = discord.ApplicationCommandOptionUser{Name: "member", Description: "break-glass admin only: whose messages"}
+
+func forMember() []discord.ApplicationCommandOption {
+	return []discord.ApplicationCommandOption{member}
+}
+
+var errNotYours = core.Tell("only skua's break-glass admin can do that for someone else; leave member out to do it for yourself")
+
+// breakGlass lets by act for user only if by is the break-glass admin.
+// Server admins and owners get nothing here: a member's messages are
+// theirs. Every use is logged.
+func (m *Module) breakGlass(by, user, guild snowflake.ID, sub string) error {
+	if m.bootstrap == 0 || by != m.bootstrap {
+		return errNotYours
+	}
+	m.log.Warn("purge: break-glass", "sub", sub, "by", by, "for", user, "guild", guild)
+	return nil
 }
 
 func reply(e *events.ApplicationCommandInteractionCreate, text string) error {
@@ -196,7 +231,21 @@ func (m *Module) confirm(_ context.Context, e *events.ModalSubmitInteractionCrea
 	if !strings.EqualFold(strings.TrimSpace(e.Data.Text("confirm")), "delete") {
 		return core.Tell("nothing deleted: type delete to confirm")
 	}
-	user := e.User().ID
+	by := e.User().ID
+	user := by
+	if _, rest, ok := strings.Cut(e.Data.CustomID, ":"); ok {
+		// The ID came back from the client: check it all again.
+		id, err := snowflake.Parse(rest)
+		if err != nil {
+			return core.Tell("that box is out of date; run /purge now again")
+		}
+		if id != by {
+			if err := m.breakGlass(by, id, *guild, "now"); err != nil {
+				return err
+			}
+		}
+		user = id
+	}
 	k := target{*guild, user}
 	ctx, cancel := context.WithCancel(context.Background())
 	if _, loaded := m.running.LoadOrStore(k, &run{cancel}); loaded {
@@ -204,7 +253,7 @@ func (m *Module) confirm(_ context.Context, e *events.ModalSubmitInteractionCrea
 		return errRunning
 	}
 	start := func() error {
-		if m.guard.Allow(user, guard.PurgeMember) != nil {
+		if m.guard.Allow(by, guard.PurgeMember) != nil {
 			return core.Tell("you've started /purge as often as an hour allows; try again later")
 		}
 		return e.DeferCreateMessage(true)
