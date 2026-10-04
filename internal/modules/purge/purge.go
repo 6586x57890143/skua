@@ -47,10 +47,15 @@ const (
 
 // tokenLife is how long an interaction's token can edit its response:
 // Discord's 15 minutes, less a margin. A purge outlives it easily, and
-// nothing can post an ephemeral reply without a token, so every readout
-// of a running purge has a progress button: pressing it is a new
-// interaction, whose token starts a fresh readout of the same purge.
-const tokenLife = 14 * time.Minute
+// nothing can post an ephemeral reply without a token, so a readout about
+// to lose its token carries on in a DM to whoever was watching it, edited
+// every dmTick until the purge ends. If skua can't DM them, the readout
+// ends on a progress button instead: a press is a new interaction, whose
+// token starts a fresh readout of the same purge.
+const (
+	tokenLife = 14 * time.Minute
+	dmTick    = 15 * time.Second
+)
 
 type target struct{ guild, user snowflake.ID }
 
@@ -81,6 +86,7 @@ type Module struct {
 	running   sync.Map // target -> *run
 	now       func() time.Time
 	tick      time.Duration // how often the progress reply is edited
+	dmTick    time.Duration // how often a readout carried on in a DM is
 	boot      sync.Once
 
 	// Scheduled sweeps: the guilds with one running, and how often due
@@ -101,7 +107,7 @@ type Module struct {
 // the break-glass admin (0 for none).
 func New(g *guard.Guard, db DB, log *slog.Logger, bootstrap snowflake.ID) *Module {
 	m := &Module{
-		bootstrap: bootstrap, guard: g, log: log, pace: newPacer(rate), now: time.Now, tick: 5 * time.Second,
+		bootstrap: bootstrap, guard: g, log: log, pace: newPacer(rate), now: time.Now, tick: 5 * time.Second, dmTick: dmTick,
 		queues: map[snowflake.ID]*queue{}, window: batchWindow, schedTick: scheduleTick,
 	}
 	m.useDB(db)
@@ -197,7 +203,7 @@ func (m *Module) progress(_ context.Context, e *events.ComponentInteractionCreat
 	if err := e.DeferCreateMessage(true); err != nil {
 		return err
 	}
-	go m.watch(v.(*run).job, e.Client().Rest, e.ApplicationID(), e.Token(), user)
+	go m.watch(v.(*run).job, e.Client().Rest, e.ApplicationID(), e.Token(), user, by)
 	return nil
 }
 
@@ -329,7 +335,7 @@ func (m *Module) confirm(_ context.Context, e *events.ModalSubmitInteractionCrea
 		return err
 	}
 	go m.follow(ctx, cancel, k, j)
-	go m.watch(j, e.Client().Rest, e.ApplicationID(), e.Token(), user)
+	go m.watch(j, e.Client().Rest, e.ApplicationID(), e.Token(), user, by)
 	return nil
 }
 
@@ -425,10 +431,11 @@ func (m *Module) follow(ctx context.Context, cancel context.CancelFunc, k target
 	close(j.done)
 }
 
-// watch keeps one readout of j counting until j ends, or until token can
-// no longer edit it. While j runs the readout carries the progress button
-// for user's purge, so a press opens the next readout.
-func (m *Module) watch(j *job, r rest.Rest, app snowflake.ID, token string, user snowflake.ID) {
+// watch keeps one ephemeral readout of owner's purge j counting until j
+// ends. When its token is about to go, the readout moves to a DM to
+// viewer, who started it or pressed progress; failing that it ends on the
+// progress button.
+func (m *Module) watch(j *job, r rest.Rest, app snowflake.ID, token string, owner, viewer snowflake.ID) {
 	opened := m.now()
 	t := time.NewTicker(m.tick)
 	defer t.Stop()
@@ -445,13 +452,63 @@ func (m *Module) watch(j *job, r rest.Rest, app snowflake.ID, token string, user
 				return
 			}
 			line := "still going · " + span(m.now().Sub(j.began))
-			if left < 2*m.tick {
-				line += " · this readout stops here; progress opens a new one"
+			if left >= 2*m.tick {
+				m.show(r, app, token, render(j, line), nil)
+				continue
 			}
-			button := discord.NewSecondaryButton("progress", fmt.Sprintf("%s:%d", progressButton, user))
-			m.show(r, app, token, render(j, line), []discord.LayoutComponent{discord.NewActionRow(button)})
+			if m.dm(j, r, viewer) {
+				m.show(r, app, token, render(j, line+" · the rest is in your dms"), nil)
+				return
+			}
+			button := discord.NewSecondaryButton("progress", fmt.Sprintf("%s:%d", progressButton, owner))
+			m.show(r, app, token, render(j, line+" · skua can't dm you, so this readout stops here; progress opens a new one"),
+				[]discord.LayoutComponent{discord.NewActionRow(button)})
+			return
 		}
 	}
+}
+
+// dm sends viewer the readout of j and keeps editing it until j ends. It
+// reports whether the DM went: a member can close DMs from server members,
+// and the guild's send budget counts it.
+func (m *Module) dm(j *job, r rest.Rest, viewer snowflake.ID) bool {
+	guild := j.sweep.guild
+	if m.guard.Allow(guild, guard.MessageSend) != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	dm, err := r.CreateDMChannel(viewer, rest.WithCtx(ctx))
+	m.guard.Report(guild, struggling(err))
+	if err != nil {
+		return false
+	}
+	where := fmt.Sprintf("\n-# /purge now in https://discord.com/channels/%d", guild)
+	text := render(j, "still going · "+span(m.now().Sub(j.began))) + where
+	msg, err := r.CreateMessage(dm.ID(), discord.MessageCreate{Content: text, AllowedMentions: core.NoPings()}, rest.WithCtx(ctx))
+	m.guard.Report(guild, struggling(err))
+	if err != nil {
+		return false
+	}
+	go func() {
+		edit := func(text string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, _ = r.UpdateMessage(dm.ID(), msg.ID, discord.MessageUpdate{Content: &text, AllowedMentions: core.NoPings()}, rest.WithCtx(ctx))
+		}
+		t := time.NewTicker(m.dmTick)
+		defer t.Stop()
+		for {
+			select {
+			case <-j.done:
+				edit(render(j, outcome(j.err, m.now().Sub(j.began))) + where)
+				return
+			case <-t.C:
+				edit(render(j, "still going · "+span(m.now().Sub(j.began))) + where)
+			}
+		}
+	}()
+	return true
 }
 
 // show edits a readout. components replaces its buttons; nil clears them.
