@@ -112,7 +112,7 @@ func TestProgressOpensAFreshReadout(t *testing.T) {
 	m.tick = 2 * time.Millisecond
 	f := newFake()
 	j := m.newJob(f, guildID, []snowflake.ID{me})
-	m.running.Store(target{guildID, me}, &run{func() {}, j})
+	m.running.Store(target{guildID, me}, &run{func() {}, j, false})
 
 	e, sent := coretest.Button(t, fmt.Sprintf("%s:%d", progressButton, me), nil)
 	e.Client().Rest = f
