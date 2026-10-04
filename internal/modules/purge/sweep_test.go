@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,6 +46,7 @@ type fake struct {
 	bulkErr     error
 	deleteErr   map[snowflake.ID]error
 	hold        chan struct{} // when set, listing channels waits for it
+	guild       snowflake.ID  // when set, every other guild is empty
 	updates     chan string
 }
 
@@ -60,14 +62,20 @@ func refusal(status int, code rest.JSONErrorCode) error {
 	return &rest.Error{Response: &http.Response{StatusCode: status}, Code: code}
 }
 
-func (f *fake) GetGuildChannels(snowflake.ID, ...rest.RequestOpt) ([]discord.GuildChannel, error) {
+func (f *fake) GetGuildChannels(g snowflake.ID, _ ...rest.RequestOpt) ([]discord.GuildChannel, error) {
 	if f.hold != nil {
 		<-f.hold
+	}
+	if f.guild != 0 && g != f.guild {
+		return nil, nil
 	}
 	return f.chans, nil
 }
 
-func (f *fake) GetActiveGuildThreads(snowflake.ID, ...rest.RequestOpt) (*discord.GuildActiveThreads, error) {
+func (f *fake) GetActiveGuildThreads(g snowflake.ID, _ ...rest.RequestOpt) (*discord.GuildActiveThreads, error) {
+	if f.guild != 0 && g != f.guild {
+		return &discord.GuildActiveThreads{}, nil
+	}
 	return &discord.GuildActiveThreads{Threads: f.active}, nil
 }
 
@@ -194,7 +202,7 @@ func server(t testing.TB, now time.Time) *fake {
 func newSweep(f *fake, now time.Time) *sweep {
 	return &sweep{
 		r: f, guard: guard.New(), pace: newPacer(1e9), guild: guildID,
-		authors: map[snowflake.ID]bool{me: true}, cutoff: snowflake.New(now), now: func() time.Time { return now },
+		authors: map[snowflake.ID]*atomic.Int64{me: new(atomic.Int64)}, cutoff: snowflake.New(now), now: func() time.Time { return now },
 	}
 }
 
