@@ -3,6 +3,7 @@ package purge
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -93,7 +94,9 @@ feed:
 
 // targets is every channel and thread that can hold messages: text, news,
 // voice and stage chats, every active thread, and the archived threads of
-// text, news, forum and media channels.
+// text, news, forum and media channels. Only text channels have private
+// threads. A thread listed twice, archived between two listings, is read
+// once.
 func (s *sweep) targets(ctx context.Context) ([]snowflake.ID, error) {
 	if err := s.pace.wait(ctx); err != nil {
 		return nil, err
@@ -105,10 +108,13 @@ func (s *sweep) targets(ctx context.Context) ([]snowflake.ID, error) {
 	var ids []snowflake.ID
 	for _, c := range chans {
 		switch c.Type() {
-		case discord.ChannelTypeGuildText, discord.ChannelTypeGuildNews:
+		case discord.ChannelTypeGuildText:
 			ids = append(ids, c.ID())
 			ids = s.archived(ctx, c.ID(), s.r.GetPublicArchivedThreads, ids)
 			ids = s.archived(ctx, c.ID(), s.r.GetPrivateArchivedThreads, ids)
+		case discord.ChannelTypeGuildNews:
+			ids = append(ids, c.ID())
+			ids = s.archived(ctx, c.ID(), s.r.GetPublicArchivedThreads, ids)
 		case discord.ChannelTypeGuildVoice, discord.ChannelTypeGuildStageVoice:
 			ids = append(ids, c.ID())
 		case discord.ChannelTypeGuildForum, discord.ChannelTypeGuildMedia:
@@ -125,7 +131,8 @@ func (s *sweep) targets(ctx context.Context) ([]snowflake.ID, error) {
 	for _, t := range active.Threads {
 		ids = append(ids, t.ID())
 	}
-	return ids, ctx.Err()
+	slices.Sort(ids)
+	return slices.Compact(ids), ctx.Err()
 }
 
 type listThreads func(channel snowflake.ID, before time.Time, limit int, opts ...rest.RequestOpt) (*discord.GetThreads, error)
@@ -133,8 +140,18 @@ type listThreads func(channel snowflake.ID, before time.Time, limit int, opts ..
 // archived appends parent's archived threads from list, newest first. A
 // listing skua is refused, or that fails, marks parent: some of its
 // threads were not read, and the member is told so.
+//
+// before goes to Discord as whole seconds, so the next page asks from the
+// end of the last thread's second and skips what this one already listed:
+// threads archived in that same second are not lost between pages. A page
+// with nothing new is a whole page archived in one second; the next asks
+// from that second's start instead, so the listing still moves on.
+//
+// ponytail: past the first page of threads archived in one second, the
+// rest of that second is skipped. Page by thread ID if Discord offers it.
 func (s *sweep) archived(ctx context.Context, parent snowflake.ID, list listThreads, ids []snowflake.ID) []snowflake.ID {
 	var before time.Time
+	seen := map[snowflake.ID]bool{}
 	for {
 		if s.pace.wait(ctx) != nil {
 			return ids
@@ -146,13 +163,21 @@ func (s *sweep) archived(ctx context.Context, parent snowflake.ID, list listThre
 			}
 			return ids
 		}
+		fresh := 0
 		for _, t := range res.Threads {
-			ids = append(ids, t.ID())
+			if !seen[t.ID()] {
+				seen[t.ID()] = true
+				ids = append(ids, t.ID())
+				fresh++
+			}
 		}
 		if !res.HasMore || len(res.Threads) == 0 {
 			return ids
 		}
-		before = res.Threads[len(res.Threads)-1].ThreadMetadata.ArchiveTimestamp
+		before = res.Threads[len(res.Threads)-1].ThreadMetadata.ArchiveTimestamp.Truncate(time.Second)
+		if fresh > 0 {
+			before = before.Add(time.Second)
+		}
 	}
 }
 
@@ -190,7 +215,9 @@ func (s *sweep) channel(ctx context.Context, id snowflake.ID) error {
 // the fetched message, the only thing that decides what is deleted.
 func (s *sweep) read(ctx context.Context, id snowflake.ID, found chan<- []msg) error {
 	defer close(found)
-	after := s.from
+	// An after of 0 is no after at all, which Discord answers with the
+	// newest page; 1 starts the walk at the oldest message.
+	after := max(s.from, 1)
 	for {
 		if err := s.pace.wait(ctx); err != nil {
 			return err
