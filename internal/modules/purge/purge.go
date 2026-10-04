@@ -15,15 +15,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/guard"
@@ -46,23 +51,43 @@ type target struct{ guild, user snowflake.ID }
 // run is a sweep in progress, there to be cancelled by /purge stop.
 type run struct{ cancel context.CancelFunc }
 
+// DB is the slice of pgxpool.Pool purge uses.
+type DB interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
 type Module struct {
 	guard   *guard.Guard
+	db      DB // nil without SKUA_DATABASE_URL: only /purge now works
+	log     *slog.Logger
 	pace    *pacer
 	running sync.Map // target -> *run
 	now     func() time.Time
 	tick    time.Duration // how often the progress reply is edited
+	boot    sync.Once
+
+	// Live mode: who is live, at what delay, and what is waiting to go.
+	live   sync.Map // target -> time.Duration
+	liveN  atomic.Int64
+	mu     sync.Mutex
+	queues map[snowflake.ID]*queue // channel ->
+	window time.Duration           // how long a due delete waits for neighbours
 }
 
-// New takes the process's one guard.
-func New(g *guard.Guard) *Module {
-	return &Module{guard: g, pace: newPacer(rate), now: time.Now, tick: 5 * time.Second}
+// New takes the process's one guard and the database, which may be nil.
+func New(g *guard.Guard, db DB, log *slog.Logger) *Module {
+	return &Module{
+		guard: g, db: db, log: log, pace: newPacer(rate), now: time.Now, tick: 5 * time.Second,
+		queues: map[snowflake.ID]*queue{}, window: batchWindow,
+	}
 }
 
 func (*Module) Name() string { return "purge" }
 
-// Want is nothing: a sweep is REST only.
-func (*Module) Want() intents.Want { return intents.Want{} }
+// Want is guild messages, for live mode to see a member post. Content is
+// not needed: the author and the IDs are enough.
+func (*Module) Want() intents.Want { return intents.Want{Required: gateway.IntentGuildMessages} }
 
 // Perms is reading every channel's history and deleting from it, plus
 // Manage Threads, without which private archived threads can't be listed.
@@ -80,6 +105,12 @@ func (m *Module) Commands() []core.Command {
 			Options: []discord.ApplicationCommandOption{
 				discord.ApplicationCommandOptionSubCommand{Name: "now", Description: "delete every message you've sent here"},
 				discord.ApplicationCommandOptionSubCommand{Name: "stop", Description: "stop deleting"},
+				discord.ApplicationCommandOptionSubCommand{
+					Name: "live", Description: "delete each message you send here a while after you send it",
+					Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionString{
+						Name: "after", Description: "how long each message stays up", Required: true, Choices: delayChoices(),
+					}},
+				},
 			},
 		},
 		Tier: core.Public,
@@ -97,21 +128,27 @@ var (
 	errRunning   = core.Tell("your purge here is already running; /purge stop ends it")
 )
 
-func (m *Module) purge(_ context.Context, e *events.ApplicationCommandInteractionCreate) error {
+func (m *Module) purge(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error {
 	guild := e.GuildID()
 	if guild == nil {
 		return errNotServer
 	}
 	k := target{*guild, e.User().ID}
-	if sub := e.SlashCommandInteractionData().SubCommandName; sub != nil && *sub == "stop" {
+	data := e.SlashCommandInteractionData()
+	sub := ""
+	if data.SubCommandName != nil {
+		sub = *data.SubCommandName
+	}
+	switch sub {
+	case "stop":
 		v, ok := m.running.Load(k)
 		if !ok {
 			return core.Tell("you have no purge running here")
 		}
 		v.(*run).cancel()
-		return e.CreateMessage(discord.MessageCreate{
-			Content: "✓ stopping; what's already deleted stays deleted", Flags: discord.MessageFlagEphemeral, AllowedMentions: core.NoPings(),
-		})
+		return reply(e, "✓ stopping; what's already deleted stays deleted")
+	case "live":
+		return m.setLiveCmd(ctx, e, k, data.String("after"))
 	}
 	if _, ok := m.running.Load(k); ok {
 		return errRunning
@@ -128,6 +165,12 @@ func (m *Module) purge(_ context.Context, e *events.ApplicationCommandInteractio
 		}},
 	})
 }
+
+func reply(e *events.ApplicationCommandInteractionCreate, text string) error {
+	return e.CreateMessage(discord.MessageCreate{Content: text, Flags: discord.MessageFlagEphemeral, AllowedMentions: core.NoPings()})
+}
+
+var errNoDB = core.Tell("skua runs without a database here, so it can't remember this; only /purge now works")
 
 // confirm starts the sweep once the member has typed "delete". It answers
 // at once and the sweep reports by editing that answer.
