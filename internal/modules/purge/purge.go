@@ -40,10 +40,7 @@ const confirmModal = "purge-now"
 
 // tokenLife is how long an interaction's token can edit its response:
 // Discord's 15 minutes, less a margin. A sweep still running past it keeps
-// going; the member just stops seeing it count.
-//
-// ponytail: nothing reports a sweep that outlives the token. /purge status
-// (with the purge table) is the place for that.
+// going; /purge status has how it ended.
 const tokenLife = 14 * time.Minute
 
 type target struct{ guild, user snowflake.ID }
@@ -55,6 +52,7 @@ type run struct{ cancel context.CancelFunc }
 type DB interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 type Module struct {
@@ -66,6 +64,11 @@ type Module struct {
 	now     func() time.Time
 	tick    time.Duration // how often the progress reply is edited
 	boot    sync.Once
+
+	// Scheduled sweeps: the guilds with one running, and how often due
+	// sweeps are looked for.
+	sweeping  sync.Map // guild -> struct{}
+	schedTick time.Duration
 
 	// Live mode: who is live, at what delay, and what is waiting to go.
 	live   sync.Map // target -> time.Duration
@@ -79,7 +82,7 @@ type Module struct {
 func New(g *guard.Guard, db DB, log *slog.Logger) *Module {
 	return &Module{
 		guard: g, db: db, log: log, pace: newPacer(rate), now: time.Now, tick: 5 * time.Second,
-		queues: map[snowflake.ID]*queue{}, window: batchWindow,
+		queues: map[snowflake.ID]*queue{}, window: batchWindow, schedTick: scheduleTick,
 	}
 }
 
@@ -108,9 +111,16 @@ func (m *Module) Commands() []core.Command {
 				discord.ApplicationCommandOptionSubCommand{
 					Name: "live", Description: "delete each message you send here a while after you send it",
 					Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionString{
-						Name: "after", Description: "how long each message stays up", Required: true, Choices: delayChoices(),
+						Name: "after", Description: "how long each message stays up", Required: true, Choices: choices(delays),
 					}},
 				},
+				discord.ApplicationCommandOptionSubCommand{
+					Name: "every", Description: "sweep your messages here on a schedule",
+					Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionString{
+						Name: "every", Description: "how often", Required: true, Choices: choices(everyChoices),
+					}},
+				},
+				discord.ApplicationCommandOptionSubCommand{Name: "status", Description: "what's set up here and how your last sweep went"},
 			},
 		},
 		Tier: core.Public,
@@ -149,6 +159,10 @@ func (m *Module) purge(ctx context.Context, e *events.ApplicationCommandInteract
 		return reply(e, "✓ stopping; what's already deleted stays deleted")
 	case "live":
 		return m.setLiveCmd(ctx, e, k, data.String("after"))
+	case "every":
+		return m.setEveryCmd(ctx, e, k, data.String("every"))
+	case "status":
+		return m.statusCmd(ctx, e, k)
 	}
 	if _, ok := m.running.Load(k); ok {
 		return errRunning
@@ -202,7 +216,7 @@ func (m *Module) confirm(_ context.Context, e *events.ModalSubmitInteractionCrea
 	}
 	s := &sweep{
 		r: e.Client().Rest, guard: m.guard, pace: m.pace, guild: *guild,
-		authors: map[snowflake.ID]bool{user: true},
+		authors: map[snowflake.ID]*atomic.Int64{user: new(atomic.Int64)},
 		cutoff:  snowflake.New(m.now()), now: m.now,
 	}
 	go m.follow(ctx, cancel, k, s, e.Client().Rest, e.ApplicationID(), e.Token())
@@ -221,6 +235,9 @@ func (m *Module) follow(ctx context.Context, cancel context.CancelFunc, k target
 	for {
 		select {
 		case err := <-done:
+			if m.db != nil {
+				m.record(s, err)
+			}
 			m.show(r, app, token, began, render(s, outcome(err, m.now().Sub(began))))
 			return
 		case <-t.C:
@@ -262,27 +279,39 @@ func render(s *sweep, line string) string {
 	s.mu.Unlock()
 	slices.Sort(unreachable)
 	unreachable = slices.Compact(unreachable)
-	var b strings.Builder
-	b.WriteString("```\n")
-	for _, r := range [][2]string{
+	return grid([][2]string{
 		{"deleted", fmt.Sprint(s.deleted.Load())},
 		{"missed", fmt.Sprint(s.missed.Load())},
 		{"scanned", fmt.Sprint(s.scanned.Load())},
 		{"channels", fmt.Sprintf("%d of %d", s.done.Load(), s.channels.Load())},
 		{"unreachable", fmt.Sprint(len(unreachable))},
-	} {
+	}) + "\n-# " + line + couldnt(unreachable)
+}
+
+// grid is facts in a code block, labels padded to one column.
+func grid(rows [][2]string) string {
+	var b strings.Builder
+	b.WriteString("```\n")
+	for _, r := range rows {
 		fmt.Fprintf(&b, "%-*s%s\n", labelWidth, r[0], r[1])
 	}
-	b.WriteString("```\n-# " + line)
-	if len(unreachable) > 0 {
-		b.WriteString("\n-# skua couldn't read all of")
-		for i, id := range unreachable {
-			if i == 10 {
-				fmt.Fprintf(&b, " and %d more", len(unreachable)-10)
-				break
-			}
-			fmt.Fprintf(&b, " <#%d>", id)
+	b.WriteString("```")
+	return b.String()
+}
+
+// couldnt names the channels a sweep couldn't read, ten at most.
+func couldnt(ids []snowflake.ID) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n-# skua couldn't read all of")
+	for i, id := range ids {
+		if i == 10 {
+			fmt.Fprintf(&b, " and %d more", len(ids)-10)
+			break
 		}
+		fmt.Fprintf(&b, " <#%d>", id)
 	}
 	return b.String()
 }

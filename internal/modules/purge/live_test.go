@@ -61,6 +61,7 @@ func (f *fake) state() (bulks [][]snowflake.ID, singles []snowflake.ID) {
 func liveModule() *Module {
 	m := newModule()
 	m.window = 20 * time.Millisecond
+	m.schedTick = time.Hour // a test that wants a tick calls due itself
 	return m
 }
 
@@ -77,7 +78,7 @@ func TestLiveBurstGoesInOneBulk(t *testing.T) {
 	now := time.Now()
 	var s seq
 	for range 20 {
-		m.enqueue(f, guildID, textCh, s.at(now.Add(-time.Second), me).ID, now)
+		m.enqueue(f, guildID, textCh, msg{s.at(now.Add(-time.Second), me).ID, me}, now)
 	}
 	eventually(t, "one bulk of 20", func() bool {
 		b, _ := f.state()
@@ -96,8 +97,8 @@ func TestLiveShorterDelayJumpsTheQueue(t *testing.T) {
 	now := time.Now()
 	var s seq
 	later, sooner := s.at(now, me).ID, s.at(now, me).ID
-	m.enqueue(f, guildID, textCh, later, now.Add(time.Hour))
-	m.enqueue(f, guildID, textCh, sooner, now)
+	m.enqueue(f, guildID, textCh, msg{later, me}, now.Add(time.Hour))
+	m.enqueue(f, guildID, textCh, msg{sooner, me}, now)
 	eventually(t, "the sooner message deleted alone", func() bool {
 		_, singles := f.state()
 		return slices.Equal(singles, []snowflake.ID{sooner})
@@ -136,14 +137,14 @@ func TestOnEventQueuesOnlyLiveMembers(t *testing.T) {
 func TestLiveRemoveStopsOnRefusal(t *testing.T) {
 	m, f := liveModule(), newFake()
 	f.bulkErr = refusal(403, 50013)
-	m.remove(f, guildID, textCh, []snowflake.ID{1, 2})
+	m.remove(f, guildID, textCh, []msg{{1, me}, {2, me}})
 	if b, s := f.state(); len(b)+len(s) != 0 {
 		t.Fatal("deleted in a channel that refused")
 	}
 	for m.guard.Allow(guildID, guard.Purge) == nil {
 	}
 	f.bulkErr = nil
-	m.remove(f, guildID, textCh, []snowflake.ID{1, 2})
+	m.remove(f, guildID, textCh, []msg{{1, me}, {2, me}})
 	if b, s := f.state(); len(b)+len(s) != 0 {
 		t.Fatal("deleted past the guard")
 	}
@@ -184,7 +185,7 @@ func TestLiveCommandRemembers(t *testing.T) {
 	// A restart: a new module reads it back once the gateway is ready.
 	again := liveModule()
 	again.db = db
-	again.OnEvent(&events.Ready{})
+	again.OnEvent(&events.Ready{GenericEvent: events.NewGenericEvent(&bot.Client{Rest: newFake()}, 0, 0)})
 	eventually(t, "the live set loaded", func() bool {
 		v, ok := again.live.Load(target{g, me})
 		return ok && v.(time.Duration) == time.Minute

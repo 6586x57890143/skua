@@ -43,7 +43,7 @@ type sweep struct {
 	guard   *guard.Guard
 	pace    *pacer
 	guild   snowflake.ID
-	authors map[snowflake.ID]bool
+	authors map[snowflake.ID]*atomic.Int64 // each one's deleted count
 	from    snowflake.ID
 	cutoff  snowflake.ID
 	now     func() time.Time
@@ -162,7 +162,7 @@ func (s *sweep) archived(ctx context.Context, parent snowflake.ID, list listThre
 func (s *sweep) channel(ctx context.Context, id snowflake.ID) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	found := make(chan []snowflake.ID, 4)
+	found := make(chan []msg, 4)
 	var derr error
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -188,7 +188,7 @@ func (s *sweep) channel(ctx context.Context, id snowflake.ID) error {
 // read walks id's history forward from s.from, a page at a time, and hands
 // the deleter each page's messages by authors. The author is the one on
 // the fetched message, the only thing that decides what is deleted.
-func (s *sweep) read(ctx context.Context, id snowflake.ID, found chan<- []snowflake.ID) error {
+func (s *sweep) read(ctx context.Context, id snowflake.ID, found chan<- []msg) error {
 	defer close(found)
 	after := s.from
 	for {
@@ -204,7 +204,7 @@ func (s *sweep) read(ctx context.Context, id snowflake.ID, found chan<- []snowfl
 			s.unreach(id)
 			return nil
 		}
-		var mine []snowflake.ID
+		var mine []msg
 		var scanned int64
 		for _, m := range msgs {
 			after = max(after, m.ID)
@@ -212,8 +212,8 @@ func (s *sweep) read(ctx context.Context, id snowflake.ID, found chan<- []snowfl
 				continue
 			}
 			scanned++
-			if s.authors[m.Author.ID] {
-				mine = append(mine, m.ID)
+			if s.authors[m.Author.ID] != nil {
+				mine = append(mine, msg{m.ID, m.Author.ID})
 			}
 		}
 		s.scanned.Add(scanned)
@@ -232,17 +232,17 @@ func (s *sweep) read(ctx context.Context, id snowflake.ID, found chan<- []snowfl
 
 // drain deletes what read found: recent messages a hundred at a time,
 // older ones singly, which is all Discord allows for them.
-func (s *sweep) drain(ctx context.Context, ch snowflake.ID, found <-chan []snowflake.ID) error {
-	batch := make([]snowflake.ID, 0, bulkMax)
-	for ids := range found {
-		for _, id := range ids {
-			if s.now().Sub(id.Time()) >= young {
-				if err := s.one(ctx, ch, id); err != nil {
+func (s *sweep) drain(ctx context.Context, ch snowflake.ID, found <-chan []msg) error {
+	batch := make([]msg, 0, bulkMax)
+	for ms := range found {
+		for _, m := range ms {
+			if s.now().Sub(m.id.Time()) >= young {
+				if err := s.one(ctx, ch, m); err != nil {
 					return err
 				}
 				continue
 			}
-			if batch = append(batch, id); len(batch) == bulkMax {
+			if batch = append(batch, m); len(batch) == bulkMax {
 				if err := s.bulk(ctx, ch, batch); err != nil {
 					return err
 				}
@@ -253,22 +253,28 @@ func (s *sweep) drain(ctx context.Context, ch snowflake.ID, found <-chan []snowf
 	return s.bulk(ctx, ch, batch)
 }
 
-func (s *sweep) bulk(ctx context.Context, ch snowflake.ID, ids []snowflake.ID) error {
-	switch len(ids) {
+func (s *sweep) bulk(ctx context.Context, ch snowflake.ID, ms []msg) error {
+	switch len(ms) {
 	case 0:
 		return nil
 	case 1:
-		return s.one(ctx, ch, ids[0])
+		return s.one(ctx, ch, ms[0])
 	}
 	if err := s.spend(ctx); err != nil {
 		return err
+	}
+	ids := make([]snowflake.ID, len(ms))
+	for i, m := range ms {
+		ids[i] = m.id
 	}
 	err := s.r.BulkDeleteMessages(ch, ids, rest.WithCtx(ctx))
 	s.guard.Report(s.guild, struggling(err))
 	status, _ := answer(err)
 	switch {
 	case err == nil:
-		s.deleted.Add(int64(len(ids)))
+		for _, m := range ms {
+			s.gone(m)
+		}
 		return nil
 	case ctx.Err() != nil:
 		return ctx.Err()
@@ -278,24 +284,24 @@ func (s *sweep) bulk(ctx context.Context, ch snowflake.ID, ids []snowflake.ID) e
 	}
 	// Too old after all, or anything else: one at a time, so one bad ID
 	// costs only itself.
-	for _, id := range ids {
-		if err := s.one(ctx, ch, id); err != nil {
+	for _, m := range ms {
+		if err := s.one(ctx, ch, m); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *sweep) one(ctx context.Context, ch, id snowflake.ID) error {
+func (s *sweep) one(ctx context.Context, ch snowflake.ID, m msg) error {
 	if err := s.spend(ctx); err != nil {
 		return err
 	}
-	err := s.r.DeleteMessage(ch, id, rest.WithCtx(ctx))
+	err := s.r.DeleteMessage(ch, m.id, rest.WithCtx(ctx))
 	s.guard.Report(s.guild, struggling(err))
 	status, code := answer(err)
 	switch {
 	case err == nil:
-		s.deleted.Add(1)
+		s.gone(m)
 	case ctx.Err() != nil:
 		return ctx.Err()
 	case status == 403:
@@ -307,6 +313,17 @@ func (s *sweep) one(ctx context.Context, ch, id snowflake.ID) error {
 		s.missed.Add(1)
 	}
 	return nil
+}
+
+// msg is a message to delete and whose it is.
+type msg struct{ id, author snowflake.ID }
+
+// gone counts m deleted, for the sweep and for its author.
+func (s *sweep) gone(m msg) {
+	s.deleted.Add(1)
+	if c := s.authors[m.author]; c != nil {
+		c.Add(1)
+	}
 }
 
 // spend waits for a request slot, then takes one from the guild's purge

@@ -11,8 +11,6 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
-
-	"github.com/6586x57890143/skua/internal/core"
 )
 
 // batchWindow is how long past its time a live delete may wait for the
@@ -33,9 +31,9 @@ var delays = []delay{
 	{"off", 0}, {"10s", 10 * time.Second}, {"1m", time.Minute}, {"10m", 10 * time.Minute}, {"1h", time.Hour},
 }
 
-func delayChoices() []discord.ApplicationCommandOptionChoiceString {
+func choices(list []delay) []discord.ApplicationCommandOptionChoiceString {
 	var c []discord.ApplicationCommandOptionChoiceString
-	for _, d := range delays {
+	for _, d := range list {
 		c = append(c, discord.ApplicationCommandOptionChoiceString{Name: d.name, Value: d.name})
 	}
 	return c
@@ -43,7 +41,7 @@ func delayChoices() []discord.ApplicationCommandOptionChoiceString {
 
 // due is one message and when it goes.
 type due struct {
-	id snowflake.ID
+	msg
 	at time.Time
 }
 
@@ -63,7 +61,7 @@ type queue struct {
 func (m *Module) OnEvent(ev bot.Event) {
 	switch e := ev.(type) {
 	case *events.Ready:
-		m.boot.Do(func() { go m.start() })
+		m.boot.Do(func() { go m.start(e.Client().Rest) })
 	case *events.GuildMessageCreate:
 		if m.liveN.Load() == 0 {
 			return
@@ -72,20 +70,7 @@ func (m *Module) OnEvent(ev bot.Event) {
 		if !ok {
 			return
 		}
-		m.enqueue(e.Client().Rest, e.GuildID, e.Message.ChannelID, e.Message.ID, m.now().Add(v.(time.Duration)))
-	}
-}
-
-// start reads who is live. Anything they post before it finishes stays up
-// until their next sweep.
-func (m *Module) start() {
-	if m.db == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := m.loadLive(ctx); err != nil {
-		m.log.Warn("purge: loading live members", "err", err)
+		m.enqueue(e.Client().Rest, e.GuildID, e.Message.ChannelID, msg{e.Message.ID, e.Message.Author.ID}, m.now().Add(v.(time.Duration)))
 	}
 }
 
@@ -104,7 +89,7 @@ func (m *Module) setLive(k target, d time.Duration) {
 func (m *Module) setLiveCmd(ctx context.Context, e *events.ApplicationCommandInteractionCreate, k target, after string) error {
 	i := slices.IndexFunc(delays, func(d delay) bool { return d.name == after })
 	if i < 0 {
-		return core.Tell("that isn't one of the choices; pick one from the list")
+		return errNotAChoice
 	}
 	if m.db == nil {
 		return errNoDB
@@ -120,7 +105,7 @@ func (m *Module) setLiveCmd(ctx context.Context, e *events.ApplicationCommandInt
 	return reply(e, "✓ live: each message you send here goes "+after+" after you send it")
 }
 
-func (m *Module) enqueue(r rest.Rest, guild, ch, id snowflake.ID, at time.Time) {
+func (m *Module) enqueue(r rest.Rest, guild, ch snowflake.ID, id msg, at time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	q := m.queues[ch]
@@ -150,12 +135,12 @@ func (m *Module) flush(ch snowflake.ID) {
 		return
 	}
 	now := m.now()
-	var ready []snowflake.ID
+	var ready []msg
 	keep := q.items[:0]
 	q.next = time.Time{}
 	for _, it := range q.items {
 		if !it.at.After(now) {
-			ready = append(ready, it.id)
+			ready = append(ready, it.msg)
 			continue
 		}
 		keep = append(keep, it)
@@ -182,7 +167,7 @@ func (m *Module) flush(ch snowflake.ID) {
 //
 // ponytail: a delete the guard refuses is dropped, not retried; the
 // member's next sweep catches it.
-func (m *Module) remove(r rest.Rest, guild, ch snowflake.ID, ids []snowflake.ID) {
+func (m *Module) remove(r rest.Rest, guild, ch snowflake.ID, ids []msg) {
 	ctx, cancel := context.WithTimeout(context.Background(), removeBy)
 	defer cancel()
 	s := &sweep{r: r, guard: m.guard, guild: guild}
