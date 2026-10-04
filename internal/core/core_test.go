@@ -273,6 +273,49 @@ func TestSlashAndMessageCommandsMayShareAName(t *testing.T) {
 	}
 }
 
+type compMod struct {
+	mod
+	comps []Component
+}
+
+func (c compMod) Components() []Component { return c.comps }
+
+func TestOnComponentRoutesByPrefix(t *testing.T) {
+	var got string
+	r := NewRouter(0, nil, slog.New(slog.DiscardHandler))
+	if err := r.Add(compMod{comps: []Component{
+		{ID: "more", Run: func(_ context.Context, e *events.ComponentInteractionCreate) error {
+			got = e.Data.CustomID()
+			return nil
+		}},
+		{ID: "fails", Run: func(context.Context, *events.ComponentInteractionCreate) error { return Tell("boom") }},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	e, _ := coretest.Button(t, "more:7", nil)
+	r.OnComponent(e)
+	if got != "more:7" {
+		t.Errorf("handler saw %q", got)
+	}
+	e, sent := coretest.Button(t, "fails", nil)
+	r.OnComponent(e)
+	if len(*sent) != 1 || (*sent)[0].Content != "✗ boom" {
+		t.Errorf("error: sent %+v", *sent)
+	}
+	e, sent = coretest.Button(t, "nobody", nil)
+	r.OnComponent(e)
+	if len(*sent) != 0 {
+		t.Errorf("an unknown button got a reply: %+v", *sent)
+	}
+	run := func(context.Context, *events.ComponentInteractionCreate) error { return nil }
+	if err := r.Add(compMod{comps: []Component{{ID: "more", Run: run}}}); err == nil || !strings.Contains(err.Error(), "component more registered twice") {
+		t.Errorf("a duplicate component ID: %v", err)
+	}
+	if err := r.Add(compMod{comps: []Component{{ID: "x:y", Run: run}}}); err == nil || !strings.Contains(err.Error(), "no colon") {
+		t.Errorf("a component ID with a colon: %v", err)
+	}
+}
+
 func TestOnModalRoutesByPrefixAndReportsErrors(t *testing.T) {
 	fail := Tell("boom") // a Tell, so the member reads it as written
 	var got string

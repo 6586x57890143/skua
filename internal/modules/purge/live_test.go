@@ -173,7 +173,7 @@ func TestLiveCommandWithoutADatabase(t *testing.T) {
 func TestLiveCommandRemembers(t *testing.T) {
 	db := testDB(t)
 	m := liveModule()
-	m.db = db
+	m.useDB(db)
 	g := freshGuild()
 	if got := liveCmd(t, m, "1m", g); got != "✓ live: each new message here goes 1m after it's sent" {
 		t.Fatalf("on: %q", got)
@@ -184,7 +184,7 @@ func TestLiveCommandRemembers(t *testing.T) {
 
 	// A restart: a new module reads it back once the gateway is ready.
 	again := liveModule()
-	again.db = db
+	again.useDB(db)
 	again.OnEvent(&events.Ready{GenericEvent: events.NewGenericEvent(&bot.Client{Rest: newFake()}, 0, 0)})
 	eventually(t, "the live set loaded", func() bool {
 		v, ok := again.live.Load(target{g, me})
@@ -196,7 +196,7 @@ func TestLiveCommandRemembers(t *testing.T) {
 	}
 	// Off is remembered too: the next restart doesn't bring it back.
 	third := liveModule()
-	third.db = db
+	third.useDB(db)
 	if err := third.loadLive(context.Background()); err != nil {
 		t.Fatal(err)
 	}

@@ -68,6 +68,20 @@ type Modal struct {
 	Run func(ctx context.Context, e *events.ModalSubmitInteractionCreate) error
 }
 
+// Components is a Module with buttons or other message components. Optional,
+// like Modals.
+type Components interface {
+	Components() []Component
+}
+
+// Component handles every interaction with a component whose custom ID is
+// ID, or starts with ID and a colon. Same caveats as Modal: the custom ID
+// comes back from the member's client, and Run's ctx is a command's.
+type Component struct {
+	ID  string
+	Run func(ctx context.Context, e *events.ComponentInteractionCreate) error
+}
+
 // cmdKey is how commands are found: Discord lets a slash command and a
 // message command share a name.
 type cmdKey struct {
@@ -83,6 +97,7 @@ const respondBy = 2500 * time.Millisecond
 type Router struct {
 	cmds      map[cmdKey]Command
 	modals    map[string]Modal
+	comps     map[string]Component
 	creates   []discord.ApplicationCommandCreate
 	bootstrap snowflake.ID
 	owner     func(guild snowflake.ID) (snowflake.ID, bool)
@@ -92,11 +107,11 @@ type Router struct {
 // NewRouter takes the bootstrap admin (0 for none) and a guild-owner lookup,
 // which in production is the guild cache.
 func NewRouter(bootstrap snowflake.ID, owner func(snowflake.ID) (snowflake.ID, bool), log *slog.Logger) *Router {
-	return &Router{cmds: map[cmdKey]Command{}, modals: map[string]Modal{}, bootstrap: bootstrap, owner: owner, log: log}
+	return &Router{cmds: map[cmdKey]Command{}, modals: map[string]Modal{}, comps: map[string]Component{}, bootstrap: bootstrap, owner: owner, log: log}
 }
 
-// Add registers a module's commands and modals, refusing anything
-// malformed.
+// Add registers a module's commands, modals and components, refusing
+// anything malformed.
 func (r *Router) Add(m Module) error {
 	for _, c := range m.Commands() {
 		if c.Create == nil {
@@ -114,20 +129,34 @@ func (r *Router) Add(m Module) error {
 		r.cmds[k] = c
 		r.creates = append(r.creates, c.Create)
 	}
-	mm, ok := m.(Modals)
-	if !ok {
-		return nil
-	}
-	for _, md := range mm.Modals() {
-		switch {
-		case md.ID == "" || strings.Contains(md.ID, ":"):
-			return fmt.Errorf("core: modal %q from %s needs an ID with no colon", md.ID, m.Name())
-		case md.Run == nil:
-			return fmt.Errorf("core: modal %s from %s has no handler", md.ID, m.Name())
-		case r.modals[md.ID].Run != nil:
-			return fmt.Errorf("core: modal %s registered twice (second by %s)", md.ID, m.Name())
+	if mm, ok := m.(Modals); ok {
+		for _, md := range mm.Modals() {
+			if err := claim("modal", md.ID, m.Name(), md.Run != nil, r.modals[md.ID].Run != nil); err != nil {
+				return err
+			}
+			r.modals[md.ID] = md
 		}
-		r.modals[md.ID] = md
+	}
+	if cm, ok := m.(Components); ok {
+		for _, c := range cm.Components() {
+			if err := claim("component", c.ID, m.Name(), c.Run != nil, r.comps[c.ID].Run != nil); err != nil {
+				return err
+			}
+			r.comps[c.ID] = c
+		}
+	}
+	return nil
+}
+
+// claim checks one modal or component ID before it is registered.
+func claim(kind, id, module string, hasRun, taken bool) error {
+	switch {
+	case id == "" || strings.Contains(id, ":"):
+		return fmt.Errorf("core: %s %q from %s needs an ID with no colon", kind, id, module)
+	case !hasRun:
+		return fmt.Errorf("core: %s %s from %s has no handler", kind, id, module)
+	case taken:
+		return fmt.Errorf("core: %s %s registered twice (second by %s)", kind, id, module)
 	}
 	return nil
 }
@@ -185,6 +214,26 @@ func (r *Router) OnModal(e *events.ModalSubmitInteractionCreate) {
 	ctx, cancel := deadline(e.ID())
 	defer cancel()
 	err := md.Run(ctx, e)
+	r.report(id, err, *responded, e.CreateMessage, func(m discord.MessageCreate) error {
+		_, err := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), m)
+		return err
+	})
+}
+
+// OnComponent dispatches one component interaction, a button press, by the
+// part of its custom ID before the first colon. Same guarantees as
+// OnCommand.
+func (r *Router) OnComponent(e *events.ComponentInteractionCreate) {
+	id, _, _ := strings.Cut(e.Data.CustomID(), ":")
+	defer r.recover(id)
+	c, ok := r.comps[id]
+	if !ok {
+		return
+	}
+	responded := track(&e.Respond)
+	ctx, cancel := deadline(e.ID())
+	defer cancel()
+	err := c.Run(ctx, e)
 	r.report(id, err, *responded, e.CreateMessage, func(m discord.MessageCreate) error {
 		_, err := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), m)
 		return err

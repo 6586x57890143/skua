@@ -170,12 +170,12 @@ func TestOutcomeAndRender(t *testing.T) {
 	if got := outcome(errRefused, 0); got != "✗ "+string(errRefused) {
 		t.Errorf("tell: %q", got)
 	}
-	s := &sweep{}
+	j := &job{sweep: &sweep{}}
 	for i := range 12 {
-		s.unreach(snowflake.ID(100 + i))
+		j.sweep.unreach(snowflake.ID(100 + i))
 	}
-	s.unreach(100)
-	got := render(s, "x")
+	j.sweep.unreach(100)
+	got := render(j, "x")
 	if !strings.Contains(got, "unreachable  12") || !strings.Contains(got, "<#109> and 2 more") {
 		t.Errorf("render:\n%s", got)
 	}
@@ -199,12 +199,7 @@ func TestModuleDeclares(t *testing.T) {
 			t.Errorf("Perms lacks %v", p)
 		}
 	}
-	// A progress edit past the token's life is not sent.
-	f := newFake()
-	m.show(f, 2, "t", time.Now().Add(-time.Hour), "late")
-	select {
-	case u := <-f.updates:
-		t.Fatalf("sent %q on an expired token", u)
-	default:
+	if cs := m.Components(); len(cs) != 1 || cs[0].ID != progressButton {
+		t.Errorf("components %+v", cs)
 	}
 }

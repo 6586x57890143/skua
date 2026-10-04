@@ -178,6 +178,7 @@ func run(log *slog.Logger) error {
 		bot.WithCacheConfigOpts(cache.WithCaches(cache.FlagGuilds)),
 		bot.WithEventListenerFunc(router.OnCommand),
 		bot.WithEventListenerFunc(router.OnModal),
+		bot.WithEventListenerFunc(router.OnComponent),
 		bot.WithEventListeners(listeners...),
 		bot.WithEventListenerFunc(func(e *events.GuildReady) { register(e.Client(), e.GuildID) }),
 		bot.WithEventListenerFunc(func(e *events.GuildJoin) { register(e.Client(), e.GuildID) }),

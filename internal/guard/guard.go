@@ -59,7 +59,7 @@ var caps = [opCount]int64{
 	// A first sweep of a busy guild is thousands of single deletes of old
 	// messages; Discord's per-channel limit is the real ceiling, this only
 	// stops a runaway loop.
-	Purge:       20000,
+	Purge:       100000,
 	PurgeMember: 6,
 }
 

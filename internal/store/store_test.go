@@ -38,8 +38,8 @@ func TestMigrateTwiceIsANoop(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("001 recorded %d times, want 1", n)
 	}
-	if _, err := pool.Exec(ctx, "select guild_id, swept_through from purge_subs limit 0"); err != nil {
-		t.Fatalf("purge_subs: %v", err)
+	if _, err := pool.Exec(ctx, "select p.ids, c.read_through, c.threads_listed_at from purge_postings p, purge_channels c limit 0"); err != nil {
+		t.Fatalf("the purge index: %v", err)
 	}
 }
 

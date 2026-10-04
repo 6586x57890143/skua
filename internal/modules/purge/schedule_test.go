@@ -41,7 +41,7 @@ func TestEveryAndStatusWithoutADatabase(t *testing.T) {
 func TestScheduledSweep(t *testing.T) {
 	db := testDB(t)
 	m := liveModule()
-	m.db = db
+	m.useDB(db)
 	g := freshGuild()
 	if got := subCmd(t, m, "status", "", "", g); !strings.Contains(got, "last sweep   never") || !strings.Contains(got, "every        off") {
 		t.Fatalf("status before anything:\n%s", got)
@@ -81,8 +81,8 @@ func TestScheduledSweep(t *testing.T) {
 		}
 	}
 	var through int64
-	if err := db.QueryRow(context.Background(), `select swept_through from purge_subs where guild_id = $1 and user_id = $2`, int64(g), int64(me)).Scan(&through); err != nil || through == 0 {
-		t.Fatalf("swept_through %d, %v: a finished sweep didn't move it", through, err)
+	if err := db.QueryRow(context.Background(), `select read_through from purge_channels where guild_id = $1 and channel_id = $2`, int64(g), int64(textCh)).Scan(&through); err != nil || through == 0 {
+		t.Fatalf("read_through %d, %v: the catch-up didn't mark the channel", through, err)
 	}
 
 	// The live-only member's row has no schedule left once claimed.
@@ -104,7 +104,7 @@ func TestScheduledSweep(t *testing.T) {
 func TestBusyGuildIsRequeued(t *testing.T) {
 	db := testDB(t)
 	m := liveModule()
-	m.db = db
+	m.useDB(db)
 	g := freshGuild()
 	if got := subCmd(t, m, "every", "every", "6h", g); !strings.HasPrefix(got, "✓") {
 		t.Fatal(got)
@@ -120,20 +120,13 @@ func TestBusyGuildIsRequeued(t *testing.T) {
 	}
 }
 
-// A sweep that stopped part way is recorded as stopped and doesn't move
-// swept_through.
-func TestStoppedSweepKeepsItsPlace(t *testing.T) {
+// A job that stopped part way is recorded as stopped.
+func TestStoppedSweepIsRecorded(t *testing.T) {
 	db := testDB(t)
 	m := liveModule()
-	m.db = db
+	m.useDB(db)
 	g := freshGuild()
-	s := newSweep(newFake(), time.Now())
-	s.guild = g
-	m.record(s, context.Canceled)
-	var through int64
-	if err := db.QueryRow(context.Background(), `select swept_through from purge_subs where guild_id = $1`, int64(g)).Scan(&through); err != nil || through != 0 {
-		t.Fatalf("swept_through %d, %v", through, err)
-	}
+	m.record(m.newJob(newFake(), g, []snowflake.ID{me}), context.Canceled)
 	if got := subCmd(t, m, "status", "", "", g); !strings.Contains(got, "ago, stopped") {
 		t.Errorf("status:\n%s", got)
 	}
