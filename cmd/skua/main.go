@@ -84,6 +84,7 @@ func run(log *slog.Logger) error {
 	}
 
 	var db status.Pinger
+	var purgeDB purge.DB
 	if dsn := os.Getenv("SKUA_DATABASE_URL"); dsn != "" {
 		pool, err := store.Open(ctx, dsn)
 		if err != nil {
@@ -93,7 +94,7 @@ func run(log *slog.Logger) error {
 		if err := store.Migrate(ctx, pool); err != nil {
 			return err
 		}
-		db = pool
+		db, purgeDB = pool, pool
 	}
 
 	// Ask the portal what is granted before choosing what to identify with.
@@ -119,7 +120,7 @@ func run(log *slog.Logger) error {
 		}),
 		whisper.New(g, hooks, filter.Default()),
 		bird.New(g, hooks, filter.Default(), os.Getenv("SKUA_XENO_CANTO_KEY")),
-		purge.New(g),
+		purge.New(g, purgeDB, log),
 	}
 
 	wants := make(map[string]intents.Want, len(all))
