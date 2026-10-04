@@ -47,8 +47,11 @@ type fake struct {
 	inflight     atomic.Int64 // deletes being answered now
 	peak         atomic.Int64 // the most at once
 	onRead       func(n int64)
-	buttons      int      // action rows on the last readout edit
-	tokens       []string // the token of each readout edit
+	buttons      int   // action rows on the last readout edit
+	dmErr        error // when set, opening a DM fails with it
+	dmTo         []snowflake.ID
+	dms          chan string // each DM sent or edited, as it reads
+	tokens       []string    // the token of each readout edit
 	gone         map[snowflake.ID]bool
 	bulks        [][]snowflake.ID
 	singles      []snowflake.ID
@@ -63,7 +66,7 @@ func newFake() *fake {
 	return &fake{
 		public: map[snowflake.ID][]discord.GuildThread{}, msgs: map[snowflake.ID][]discord.Message{},
 		denyRead: map[snowflake.ID]bool{}, gone: map[snowflake.ID]bool{}, deleteErr: map[snowflake.ID]error{},
-		updates: make(chan string, 64),
+		updates: make(chan string, 64), dms: make(chan string, 64),
 	}
 }
 
@@ -238,6 +241,30 @@ func (f *fake) UpdateInteractionResponse(_ snowflake.ID, token string, u discord
 	f.mu.Unlock()
 	f.updates <- *u.Content
 	return nil, nil
+}
+
+func (f *fake) CreateDMChannel(user snowflake.ID, _ ...rest.RequestOpt) (*discord.DMChannel, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.dmErr != nil {
+		return nil, f.dmErr
+	}
+	f.dmTo = append(f.dmTo, user)
+	var ch discord.DMChannel
+	if err := json.Unmarshal([]byte(`{"id":"77","type":1}`), &ch); err != nil {
+		return nil, err
+	}
+	return &ch, nil
+}
+
+func (f *fake) CreateMessage(_ snowflake.ID, c discord.MessageCreate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	f.dms <- c.Content
+	return &discord.Message{ID: 78}, nil
+}
+
+func (f *fake) UpdateMessage(_, _ snowflake.ID, u discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	f.dms <- *u.Content
+	return &discord.Message{ID: 78}, nil
 }
 
 func decode[T any](t testing.TB, raw string, into *T) {
