@@ -120,7 +120,7 @@ func run(log *slog.Logger) error {
 		}),
 		whisper.New(g, hooks, filter.Default()),
 		bird.New(g, hooks, filter.Default(), os.Getenv("SKUA_XENO_CANTO_KEY")),
-		purge.New(g, purgeDB, log),
+		purge.New(g, purgeDB, log, bootstrap),
 	}
 
 	wants := make(map[string]intents.Want, len(all))
