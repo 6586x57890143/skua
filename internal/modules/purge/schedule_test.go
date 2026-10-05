@@ -120,6 +120,30 @@ func TestBusyGuildIsRequeued(t *testing.T) {
 	}
 }
 
+// A guild that turned purge off skips its scheduled run rather than
+// queueing it for when purge comes back.
+func TestOffGuildIsNotSwept(t *testing.T) {
+	db := testDB(t)
+	m := liveModule()
+	m.useDB(db)
+	g := freshGuild()
+	if got := subCmd(t, m, "every", "every", "6h", g); !strings.HasPrefix(got, "✓") {
+		t.Fatal(got)
+	}
+	if _, err := db.Exec(context.Background(), `update purge_subs set next_run = now() where guild_id = $1`, int64(g)); err != nil {
+		t.Fatal(err)
+	}
+	m.Gate(func(guild snowflake.ID) bool { return guild != g })
+	m.due(newFake())
+	if _, swept := m.sweeping.Load(g); swept {
+		t.Fatal("swept a guild with purge off")
+	}
+	var later bool
+	if err := db.QueryRow(context.Background(), `select next_run > now() from purge_subs where guild_id = $1`, int64(g)).Scan(&later); err != nil || !later {
+		t.Fatalf("next run moved on %v, %v", later, err)
+	}
+}
+
 // A job that stopped part way is recorded as stopped.
 func TestStoppedSweepIsRecorded(t *testing.T) {
 	db := testDB(t)

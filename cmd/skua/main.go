@@ -88,6 +88,9 @@ func run(log *slog.Logger) error {
 
 	var db status.Pinger
 	var purgeDB purge.DB
+	// Modules a guild has turned off; without a database a restart turns
+	// them all back on.
+	toggles := core.NewToggles(nil, nil)
 	if dsn := os.Getenv("SKUA_DATABASE_URL"); dsn != "" {
 		pool, err := store.Open(ctx, dsn)
 		if err != nil {
@@ -98,6 +101,11 @@ func run(log *slog.Logger) error {
 			return err
 		}
 		db, purgeDB = pool, pool
+		off, err := store.ModulesOff(ctx, pool)
+		if err != nil {
+			return fmt.Errorf("reading module switches: %w", err)
+		}
+		toggles = core.NewToggles(off, store.SaveModule(pool))
 	}
 
 	// Ask the portal what is granted before choosing what to identify with.
@@ -128,7 +136,7 @@ func run(log *slog.Logger) error {
 		bird.New(g, hooks, filter.Default(), os.Getenv("SKUA_XENO_CANTO_KEY")),
 		purge.New(g, purgeDB, log, bootstrap),
 		preen.New(g),
-		help.New(func() []core.Module { return running }, func(i discord.Interaction) bool { return router.Admin(i) }, nil),
+		help.New(func() []core.Module { return running }, func(i discord.Interaction) bool { return router.Admin(i) }, toggles),
 	}
 
 	wants := make(map[string]intents.Want, len(all))
@@ -145,6 +153,7 @@ func run(log *slog.Logger) error {
 		guild, ok := client.Caches.Guild(g)
 		return guild.OwnerID, ok
 	}, log)
+	router.Gate(toggles)
 	// Gateway events reach the running modules that listen for them.
 	var listeners []bot.EventListener
 	for _, m := range all {
@@ -155,8 +164,12 @@ func run(log *slog.Logger) error {
 			return err
 		}
 		running = append(running, m)
+		if gm, ok := m.(core.Gated); ok {
+			name := m.Name()
+			gm.Gate(func(guild snowflake.ID) bool { return toggles.On(guild, name) })
+		}
 		if l, ok := m.(bot.EventListener); ok {
-			listeners = append(listeners, l)
+			listeners = append(listeners, toggles.Listen(m.Name(), l))
 		}
 	}
 	// The install link asks for what the running modules declare, so it
@@ -170,10 +183,27 @@ func run(log *slog.Logger) error {
 	}
 
 	register := func(c *bot.Client, guild snowflake.ID) {
-		if _, err := c.Rest.SetGuildCommands(c.ApplicationID, guild, router.Creates()); err != nil {
+		if _, err := c.Rest.SetGuildCommands(c.ApplicationID, guild, router.CreatesFor(guild)); err != nil {
 			log.Warn("registering commands", "guild", guild, "err", err)
 		}
 	}
+	// A module turned off or on leaves or joins the guild's command list,
+	// within the guild's command budget. Over budget, it tries again once
+	// the budget has room: dispatch refuses an off module meanwhile, but a
+	// module turned back on would otherwise stay missing from the menu.
+	var resync func(snowflake.ID)
+	resync = core.Coalesce(func(guild snowflake.ID) {
+		if err := g.Allow(guild, guard.CommandSync); err != nil {
+			time.AfterFunc(guard.Step(guard.CommandSync), func() { resync(guild) })
+			return
+		}
+		_, err := client.Rest.SetGuildCommands(client.ApplicationID, guild, router.CreatesFor(guild))
+		g.Report(guild, err != nil)
+		if err != nil {
+			log.Warn("re-registering commands after a switch", "guild", guild, "err", err)
+		}
+	})
+	toggles.OnChange = resync
 
 	client, err = disgo.New(token,
 		bot.WithLogger(log),

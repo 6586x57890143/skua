@@ -90,6 +90,7 @@ type Module struct {
 	tick      time.Duration // how often the progress reply is edited
 	dmTick    time.Duration // how often a readout carried on in a DM is
 	boot      sync.Once
+	on        func(guild snowflake.ID) bool // whether purge is on in a guild
 
 	// Scheduled sweeps: the guilds with one running, and how often due
 	// sweeps are looked for.
@@ -109,12 +110,15 @@ type Module struct {
 // the break-glass admin (0 for none).
 func New(g *guard.Guard, db DB, log *slog.Logger, bootstrap snowflake.ID) *Module {
 	m := &Module{
-		bootstrap: bootstrap, guard: g, log: log, pace: newPacer(rate), now: time.Now, tick: 5 * time.Second, dmTick: dmTick,
+		bootstrap: bootstrap, guard: g, log: log, on: func(snowflake.ID) bool { return true }, pace: newPacer(rate), now: time.Now, tick: 5 * time.Second, dmTick: dmTick,
 		queues: map[snowflake.ID]*queue{}, window: batchWindow, schedTick: scheduleTick,
 	}
 	m.useDB(db)
 	return m
 }
+
+// Gate is core.Gated: a guild with purge off runs no scheduled sweeps.
+func (m *Module) Gate(on func(guild snowflake.ID) bool) { m.on = on }
 
 // useDB keeps the index in db, or in memory when there is none.
 func (m *Module) useDB(db DB) {
@@ -142,7 +146,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorWarn,
 		Line:  "takes back what you said, all of it",
-		About: "she reads every channel she can see and only ever takes your own messages: all at once with now, a while after each one with live or on a schedule with every. anything over 14 days goes one at a time, so a first purge is slow; it can't be undone",
+		About: "she reads every channel she can see and only ever takes your own messages: all at once with now, a while after each one with live or on a schedule with every. anything over 14 days goes one at a time, so a first purge is slow; it can't be undone; switched off here, her scheduled sweeps stop too",
 	}
 }
 

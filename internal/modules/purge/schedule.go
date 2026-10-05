@@ -91,6 +91,9 @@ func (m *Module) due(r rest.Rest) {
 		}
 	}
 	for g, users := range byGuild {
+		if !m.on(g) {
+			continue // turned off here: this run is skipped, not queued
+		}
 		if _, busy := m.sweeping.LoadOrStore(g, struct{}{}); busy {
 			requeue(g, users) // its last scheduled job is still going
 			continue

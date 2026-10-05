@@ -109,10 +109,15 @@ const respondBy = 2500 * time.Millisecond
 
 // Router owns registration and dispatch. Not safe for Add after Freeze.
 type Router struct {
-	cmds      map[cmdKey]Command
-	modals    map[string]Modal
-	comps     map[string]Component
-	creates   []discord.ApplicationCommandCreate
+	cmds    map[cmdKey]Command
+	modals  map[string]Modal
+	comps   map[string]Component
+	creates []discord.ApplicationCommandCreate
+	// owners is the module behind each command (by cmdKey), modal
+	// ("modal:"+ID) and component ("component:"+ID), and createdBy the module behind each create.
+	owners    map[any]string
+	createdBy []string
+	toggles   *Toggles
 	bootstrap snowflake.ID
 	owner     func(guild snowflake.ID) (snowflake.ID, bool)
 	log       *slog.Logger
@@ -121,7 +126,7 @@ type Router struct {
 // NewRouter takes the bootstrap admin (0 for none) and a guild-owner lookup,
 // which in production is the guild cache.
 func NewRouter(bootstrap snowflake.ID, owner func(snowflake.ID) (snowflake.ID, bool), log *slog.Logger) *Router {
-	return &Router{cmds: map[cmdKey]Command{}, modals: map[string]Modal{}, comps: map[string]Component{}, bootstrap: bootstrap, owner: owner, log: log}
+	return &Router{cmds: map[cmdKey]Command{}, modals: map[string]Modal{}, comps: map[string]Component{}, owners: map[any]string{}, bootstrap: bootstrap, owner: owner, log: log}
 }
 
 // Add registers a module's commands, modals and components, refusing
@@ -142,6 +147,8 @@ func (r *Router) Add(m Module) error {
 		}
 		r.cmds[k] = c
 		r.creates = append(r.creates, c.Create)
+		r.createdBy = append(r.createdBy, m.Name())
+		r.owners[k] = m.Name()
 	}
 	if mm, ok := m.(Modals); ok {
 		for _, md := range mm.Modals() {
@@ -149,6 +156,7 @@ func (r *Router) Add(m Module) error {
 				return err
 			}
 			r.modals[md.ID] = md
+			r.owners["modal:"+md.ID] = m.Name()
 		}
 	}
 	if cm, ok := m.(Components); ok {
@@ -157,6 +165,7 @@ func (r *Router) Add(m Module) error {
 				return err
 			}
 			r.comps[c.ID] = c
+			r.owners["component:"+c.ID] = m.Name()
 		}
 	}
 	return nil
@@ -175,8 +184,33 @@ func claim(kind, id, module string, hasRun, taken bool) error {
 	return nil
 }
 
-// Creates is the command set to bulk-overwrite into a guild.
+// Creates is every command, whatever any guild has turned off.
 func (r *Router) Creates() []discord.ApplicationCommandCreate { return r.creates }
+
+// CreatesFor is the command set to bulk-overwrite into guild: the commands
+// of the modules it has on.
+func (r *Router) CreatesFor(guild snowflake.ID) []discord.ApplicationCommandCreate {
+	out := make([]discord.ApplicationCommandCreate, 0, len(r.creates))
+	for i, c := range r.creates {
+		if r.toggles.On(guild, r.createdBy[i]) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// Gate makes dispatch refuse the commands, modals and components of a
+// module its guild has turned off. Call it before the gateway opens.
+func (r *Router) Gate(t *Toggles) { r.toggles = t }
+
+// off is the Tell for a handler whose module is off in the guild, or nil.
+// The client may still show a command that was turned off a moment ago.
+func (r *Router) off(key any, guild *snowflake.ID) error {
+	if m := r.owners[key]; guild != nil && !r.toggles.On(*guild, m) {
+		return Tell(m + " is off in this server")
+	}
+	return nil
+}
 
 var errDenied = errors.New("not allowed")
 
@@ -203,8 +237,12 @@ func (r *Router) OnCommand(e *events.ApplicationCommandInteractionCreate) {
 		return
 	}
 	responded := track(&e.Respond)
-	err := errDenied
-	if r.allowed(e, c.Tier) {
+	err := r.off(cmdKey{e.Data.Type(), name}, e.GuildID())
+	switch {
+	case err != nil:
+	case !r.allowed(e, c.Tier):
+		err = errDenied
+	default:
 		ctx, cancel := deadline(e.ID())
 		defer cancel()
 		err = c.Run(ctx, e)
@@ -225,9 +263,12 @@ func (r *Router) OnModal(e *events.ModalSubmitInteractionCreate) {
 		return
 	}
 	responded := track(&e.Respond)
-	ctx, cancel := deadline(e.ID())
-	defer cancel()
-	err := md.Run(ctx, e)
+	err := r.off("modal:"+id, e.GuildID())
+	if err == nil {
+		ctx, cancel := deadline(e.ID())
+		defer cancel()
+		err = md.Run(ctx, e)
+	}
 	r.report(id, err, *responded, e.CreateMessage, func(m discord.MessageCreate) error {
 		_, err := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), m)
 		return err
@@ -245,9 +286,12 @@ func (r *Router) OnComponent(e *events.ComponentInteractionCreate) {
 		return
 	}
 	responded := track(&e.Respond)
-	ctx, cancel := deadline(e.ID())
-	defer cancel()
-	err := c.Run(ctx, e)
+	err := r.off("component:"+id, e.GuildID())
+	if err == nil {
+		ctx, cancel := deadline(e.ID())
+		defer cancel()
+		err = c.Run(ctx, e)
+	}
 	r.report(id, err, *responded, e.CreateMessage, func(m discord.MessageCreate) error {
 		_, err := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), m)
 		return err

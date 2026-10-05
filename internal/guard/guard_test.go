@@ -115,3 +115,9 @@ func TestPurgeBudgetsAreIndependent(t *testing.T) {
 		t.Fatalf("Purge refused after PurgeMember ran out: %v", err)
 	}
 }
+
+func TestStepIsTheWindowOverTheCap(t *testing.T) {
+	if Step(CommandSync) != window/8 {
+		t.Fatalf("Step(CommandSync) = %v", Step(CommandSync))
+	}
+}

@@ -4,8 +4,11 @@ import (
 	"context"
 	"io/fs"
 	"os"
+	"slices"
 	"testing"
 	"testing/fstest"
+
+	"github.com/6586x57890143/skua/internal/core"
 )
 
 // The test needs a real Postgres: CI runs one, and locally `docker compose up
@@ -75,5 +78,34 @@ func TestMigrateRollsBackAFailure(t *testing.T) {
 	}
 	if exists {
 		t.Fatal("900_good.sql survived 901_bad.sql failing")
+	}
+}
+
+func TestModuleSwitchesRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	pool, err := Open(ctx, dsn(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	save := SaveModule(pool)
+	s := core.Switch{Guild: 1 << 60, Module: "preen"}
+	for _, on := range []bool{false, false} {
+		if err := save(ctx, s, on); err != nil {
+			t.Fatal(err)
+		}
+	}
+	off, err := ModulesOff(ctx, pool)
+	if err != nil || !slices.Contains(off, s) {
+		t.Fatalf("off %v (%v), want %v in it", off, err, s)
+	}
+	if err := save(ctx, s, true); err != nil {
+		t.Fatal(err)
+	}
+	if off, _ := ModulesOff(ctx, pool); slices.Contains(off, s) {
+		t.Fatal("turned on, still off")
 	}
 }

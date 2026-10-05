@@ -44,6 +44,9 @@ const (
 	PurgeMember
 	// Reaction is one reaction added or removed.
 	Reaction
+	// CommandSync is one overwrite of a guild's command list after a module
+	// is turned on or off.
+	CommandSync
 	opCount
 )
 
@@ -65,6 +68,8 @@ var caps = [opCount]int64{
 	PurgeMember: 6,
 	// preen spends 21 per self-react: sixty a guild an hour.
 	Reaction: 1260,
+	// Discord allows 200 command creates a guild a day.
+	CommandSync: 8,
 }
 
 const (
@@ -106,7 +111,7 @@ func (g *Guard) Allow(guild snowflake.ID, op Op) error {
 		v, _ = g.cells.LoadOrStore(key{guild, op}, new(atomic.Int64))
 	}
 	cell := v.(*atomic.Int64)
-	step := int64(window) / caps[op]
+	step := int64(Step(op))
 	for {
 		tat := cell.Load()
 		next := max(tat, now) + step
@@ -120,6 +125,9 @@ func (g *Guard) Allow(guild snowflake.ID, op Op) error {
 		}
 	}
 }
+
+// Step is how long one unit of op's budget takes to come back.
+func Step(op Op) time.Duration { return window / time.Duration(caps[op]) }
 
 // Report feeds a write's outcome back to the breaker. failed should be true
 // only for answers that say Discord is struggling (429, 5xx), never for a
