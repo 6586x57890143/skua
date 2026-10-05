@@ -132,6 +132,8 @@ func run(log *slog.Logger) error {
 	g := guard.New()
 	// One poster too: whisper and bird share each channel's webhook.
 	hooks := webhook.New(g)
+	// preen asks whisper who wrote a whisper, so its writer gets the flock.
+	whispers := whisper.New(g, hooks, filter.Default())
 	all := []core.Module{
 		status.New(func() status.Probe { return probe }, db, func() time.Duration {
 			if client == nil || client.Gateway == nil {
@@ -139,10 +141,10 @@ func run(log *slog.Logger) error {
 			}
 			return client.Gateway.Latency()
 		}),
-		whisper.New(g, hooks, filter.Default()),
+		whispers,
 		bird.New(g, hooks, filter.Default(), os.Getenv("SKUA_XENO_CANTO_KEY")),
 		purge.New(g, purgeDB, log, bootstrap),
-		preen.New(g, obs.Default),
+		preen.New(g, obs.Default, whispers),
 		perf.New(obs.Default),
 		help.New(func() []core.Module { return running }, func(i discord.Interaction) bool { return router.Admin(i) }, toggles),
 	}

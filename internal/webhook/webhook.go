@@ -33,26 +33,28 @@ type Poster struct {
 func New(g *guard.Guard) *Poster { return &Poster{guard: g} }
 
 // Send posts msg in channel through skua's webhook there, finding or
-// creating it on first use. Every write spends guild budget through the
-// guard and reports how Discord answered.
-func (p *Poster) Send(ctx context.Context, r rest.Rest, guild, channel, app snowflake.ID, msg discord.WebhookMessageCreate) error {
+// creating it on first use, and returns the post. Every write spends guild
+// budget through the guard and reports how Discord answered.
+func (p *Poster) Send(ctx context.Context, r rest.Rest, guild, channel, app snowflake.ID, msg discord.WebhookMessageCreate) (*discord.Message, error) {
 	opt := rest.WithCtx(ctx)
 	for attempt := 0; ; attempt++ {
 		h, err := p.hook(r, opt, guild, channel, app)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err := p.guard.Allow(guild, guard.WebhookExecute); err != nil {
-			return err
+			return nil, err
 		}
-		_, err = r.CreateWebhookMessage(h.id, h.token, msg, rest.CreateWebhookMessageParams{}, opt)
+		// Wait makes Discord answer with the post rather than nothing; it is
+		// the same one call.
+		posted, err := r.CreateWebhookMessage(h.id, h.token, msg, rest.CreateWebhookMessageParams{Wait: true}, opt)
 		p.guard.Report(guild, struggling(err))
 		// A mod deleted the webhook: forget it and make another, once.
 		if isCode(err, rest.JSONErrorCodeUnknownWebhook) && attempt == 0 {
 			p.hooks.Delete(channel)
 			continue
 		}
-		return err
+		return posted, err
 	}
 }
 

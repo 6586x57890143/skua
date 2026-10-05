@@ -61,7 +61,7 @@ type screen interface {
 
 // poster is the slice of webhook.Poster bird uses.
 type poster interface {
-	Send(ctx context.Context, r rest.Rest, guild, channel, app snowflake.ID, msg discord.WebhookMessageCreate) error
+	Send(ctx context.Context, r rest.Rest, guild, channel, app snowflake.ID, msg discord.WebhookMessageCreate) (*discord.Message, error)
 }
 
 type target struct{ guild, user snowflake.ID }
@@ -289,7 +289,7 @@ func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Messa
 		Flags:           discord.MessageFlagSuppressEmbeds,
 		Files:           []*discord.File{discord.NewFile("xc"+p.rec.ID+".mp3", "", bytes.NewReader(p.audio))},
 	}
-	if err := m.post.Send(ctx, r, guild, msg.ChannelID, app, post); err != nil {
+	if _, err := m.post.Send(ctx, r, guild, msg.ChannelID, app, post); err != nil {
 		return
 	}
 	if m.guard.Allow(guild, guard.MessageDelete) != nil {

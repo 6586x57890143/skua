@@ -138,9 +138,9 @@ type fakePoster struct {
 	err  error
 }
 
-func (p *fakePoster) Send(_ context.Context, _ rest.Rest, _, _, _ snowflake.ID, msg discord.WebhookMessageCreate) error {
+func (p *fakePoster) Send(_ context.Context, _ rest.Rest, _, _, _ snowflake.ID, msg discord.WebhookMessageCreate) (*discord.Message, error) {
 	p.sent = append(p.sent, msg)
-	return p.err
+	return nil, p.err
 }
 
 // run is /bird member:<user 7> minutes:<minutes> from an admin, through the
@@ -297,9 +297,9 @@ func TestOnEventDispatches(t *testing.T) {
 
 type sendFunc func()
 
-func (f sendFunc) Send(context.Context, rest.Rest, snowflake.ID, snowflake.ID, snowflake.ID, discord.WebhookMessageCreate) error {
+func (f sendFunc) Send(context.Context, rest.Rest, snowflake.ID, snowflake.ID, snowflake.ID, discord.WebhookMessageCreate) (*discord.Message, error) {
 	f()
-	return errors.New("stop here")
+	return nil, errors.New("stop here")
 }
 
 func TestStruggling(t *testing.T) {

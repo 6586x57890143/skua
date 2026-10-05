@@ -205,3 +205,24 @@ func TestEditRefusalsReachTheMemberThroughTheRouter(t *testing.T) {
 		}
 	}
 }
+
+// Wrote answers from what skua noted when it sent each whisper: the writer,
+// and only the writer, of a whisper it remembers, and no REST call for it.
+func TestWroteKnowsTheWhispersWriter(t *testing.T) {
+	m := newWhisper()
+	m.writers.add(9, 5)
+	if !m.Wrote(9, 5) || m.Wrote(9, 6) || m.Wrote(10, 5) || m.Wrote(10, 0) {
+		t.Fatal("Wrote is not exactly the noted writer")
+	}
+}
+
+func TestWritersForgetsTheOldest(t *testing.T) {
+	w := writers{by: map[snowflake.ID]snowflake.ID{}, ring: make([]snowflake.ID, 2)}
+	w.add(1, 5)
+	w.add(2, 5)
+	w.add(1, 6) // already noted: the first writer stands
+	w.add(3, 5)
+	if w.of(1) != 0 || w.of(2) != 5 || w.of(3) != 5 {
+		t.Fatalf("writers %v", w.by)
+	}
+}

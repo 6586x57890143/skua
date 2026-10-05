@@ -124,7 +124,7 @@ func (f *fake) CreateWebhookMessage(id snowflake.ID, _ string, m discord.Webhook
 	}
 	f.sent = append(f.sent, m)
 	f.sentHookID = append(f.sentHookID, id)
-	return nil, nil
+	return &discord.Message{ID: snowflake.ID(800 + len(f.sent))}, nil
 }
 
 // newWhisper is whisper as main builds it: one guard, shared with the poster.
@@ -242,6 +242,10 @@ func TestWhisperPostsThroughANewWebhookThenTheCachedOne(t *testing.T) {
 	}
 	if got.AllowedMentions == nil || got.AllowedMentions.Parse == nil {
 		t.Error("whisper can ping")
+	}
+	// The fake answers the first post as message 801; the member is 5.
+	if !m.Wrote(801, 5) || m.Wrote(801, 6) {
+		t.Error("the whisper's writer was not noted when it went out")
 	}
 
 	if _, err := run(t, m, f, opts{perms: permAll}); err != nil {
@@ -375,8 +379,8 @@ type failingPoster struct {
 	err error
 }
 
-func (p failingPoster) Send(context.Context, rest.Rest, snowflake.ID, snowflake.ID, snowflake.ID, discord.WebhookMessageCreate) error {
-	return p.err
+func (p failingPoster) Send(context.Context, rest.Rest, snowflake.ID, snowflake.ID, snowflake.ID, discord.WebhookMessageCreate) (*discord.Message, error) {
+	return nil, p.err
 }
 
 // The poster's guard refusals are the guild's budget, which the member is

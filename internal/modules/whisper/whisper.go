@@ -56,7 +56,7 @@ type screen interface {
 
 // poster is the slice of webhook.Poster whisper uses.
 type poster interface {
-	Send(ctx context.Context, r rest.Rest, guild, channel, app snowflake.ID, msg discord.WebhookMessageCreate) error
+	Send(ctx context.Context, r rest.Rest, guild, channel, app snowflake.ID, msg discord.WebhookMessageCreate) (*discord.Message, error)
 	Get(ctx context.Context, r rest.Rest, channel, app, webhookID, message snowflake.ID) (*discord.Message, error)
 	Edit(ctx context.Context, r rest.Rest, guild, channel, app, webhookID, message snowflake.ID, update discord.WebhookMessageUpdate) error
 	Delete(ctx context.Context, r rest.Rest, guild, channel, app, webhookID, message snowflake.ID) error
@@ -65,9 +65,11 @@ type poster interface {
 type slow struct{ channel, user snowflake.ID }
 
 type Module struct {
-	guard  *guard.Guard
-	post   poster
-	screen screen
+	// writers is who wrote the recent whispers, for Wrote.
+	writers writers
+	guard   *guard.Guard
+	post    poster
+	screen  screen
 	// ponytail: never evicted, one entry per member per slowmode channel
 	// they have whispered in. Sweep entries older than six hours (the longest
 	// slowmode) if that ever shows up in a heap profile.
@@ -78,7 +80,7 @@ type Module struct {
 // New takes the process's one guard, for the per-member cap, the poster
 // whispers go out through, and the screen they pass first.
 func New(g *guard.Guard, p poster, s screen) *Module {
-	return &Module{guard: g, post: p, screen: s, now: time.Now}
+	return &Module{guard: g, post: p, screen: s, now: time.Now, writers: writers{by: map[snowflake.ID]snowflake.ID{}, ring: make([]snowflake.ID, remember)}}
 }
 
 func (*Module) Name() string { return "whisper" }
@@ -241,8 +243,12 @@ func (m *Module) whisper(ctx context.Context, e *events.ApplicationCommandIntera
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), postBy)
 	defer cancel()
 	r := e.Client().Rest
-	if err := m.post.Send(ctx, r, *guild, ch.ID(), e.ApplicationID(), msg); err != nil {
+	posted, err := m.post.Send(ctx, r, *guild, ch.ID(), e.ApplicationID(), msg)
+	if err != nil {
 		return failed(errNotSent, err)
+	}
+	if posted != nil {
+		m.writers.add(posted.ID, e.User().ID)
 	}
 	// The whisper is up. If the delete fails, the member alone is left with a
 	// stale "thinking"; failing here would undo their slowmode and report an

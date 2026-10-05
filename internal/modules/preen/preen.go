@@ -50,9 +50,17 @@ const (
 // errGuard is a bird the guard would not spend.
 var errGuard = errors.New("preen: over the reaction cap")
 
+// Whispers says whether user wrote the whisper message, which skua posted
+// through a webhook, so the reaction names the webhook as its author. It
+// answers without a REST call. whisper.Module is one.
+type Whispers interface {
+	Wrote(message, user snowflake.ID) bool
+}
+
 type Module struct {
-	guard *guard.Guard
-	rec   *obs.Recorder
+	guard    *guard.Guard
+	rec      *obs.Recorder
+	whispers Whispers
 	// flocked is the messages that got a flock, so a later self-react on one,
 	// during the fill or after it, only comes off.
 	flocked flocked
@@ -60,8 +68,10 @@ type Module struct {
 	order func(n int) []int
 }
 
-func New(g *guard.Guard, rec *obs.Recorder) *Module {
-	return &Module{guard: g, rec: rec, order: rand.Perm, flocked: flocked{set: map[snowflake.ID]struct{}{}, ring: make([]snowflake.ID, remember)}}
+// New takes the guard, the recorder and, optionally, the whispers: nil
+// leaves whispers alone.
+func New(g *guard.Guard, rec *obs.Recorder, w Whispers) *Module {
+	return &Module{guard: g, rec: rec, whispers: w, order: rand.Perm, flocked: flocked{set: map[snowflake.ID]struct{}{}, ring: make([]snowflake.ID, remember)}}
 }
 
 func (*Module) Name() string { return "preen" }
@@ -84,24 +94,33 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorNotice,
 		Line:  "puts up a little flock when you react to your own post",
-		About: "react to your own message and she covers it in birds, fifteen of them picked at random, then takes your reaction away. there's nothing to run",
+		About: "react to your own message or your own whisper and she covers it in birds, fifteen of them picked at random, then takes your reaction away. there's nothing to run",
 	}
 }
 
 func (*Module) Commands() []core.Command { return nil }
 
-// OnEvent returns at once: the work runs on its own goroutine.
+// OnEvent returns at once: the work runs on its own goroutine. A reaction
+// on a whisper by the member who wrote it counts as a self-react.
 func (m *Module) OnEvent(ev bot.Event) {
 	e, ok := ev.(*events.GuildMessageReactionAdd)
-	if !ok || e.MessageAuthorID == nil || *e.MessageAuthorID != e.UserID || e.Member.User.Bot {
+	if !ok || e.MessageAuthorID == nil || e.Member.User.Bot {
 		return
 	}
-	r := e.Client().Rest
-	if !m.flocked.add(e.MessageID) {
-		go m.takeOff(r, e.GuildID, e.ChannelID, e.MessageID, e.UserID, e.Emoji.Reaction())
+	own := *e.MessageAuthorID == e.UserID || (m.whispers != nil && m.whispers.Wrote(e.MessageID, e.UserID))
+	if own {
+		go m.react(e.Client().Rest, e.GuildID, e.ChannelID, e.MessageID, e.UserID, e.Emoji.Reaction())
+	}
+}
+
+// react answers a member reacting to what they wrote: a flock the first
+// time, and only the reaction coming off after that.
+func (m *Module) react(r rest.Rest, guild, channel, msg, user snowflake.ID, emoji string) {
+	if !m.flocked.add(msg) {
+		m.takeOff(r, guild, channel, msg, user, emoji)
 		return
 	}
-	go m.preen(r, e.GuildID, e.ChannelID, e.MessageID, e.UserID, e.Emoji.Reaction())
+	m.preen(r, guild, channel, msg, user, emoji)
 }
 
 // takeOff removes a self-react from a message that already has its flock.

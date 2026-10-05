@@ -79,7 +79,8 @@ func incoming(id, appID int) discord.IncomingWebhook {
 }
 
 func send(p *Poster, f *fake) error {
-	return p.Send(context.Background(), f, 3, 4, app, discord.WebhookMessageCreate{Content: "hi"})
+	_, err := p.Send(context.Background(), f, 3, 4, app, discord.WebhookMessageCreate{Content: "hi"})
+	return err
 }
 
 func TestSendCreatesOnceThenUsesTheCache(t *testing.T) {
@@ -148,7 +149,7 @@ func TestSendReportsWhatStoppedIt(t *testing.T) {
 	// Creation has its own, smaller budget.
 	p = New(guard.New())
 	for ch := range snowflake.ID(100) {
-		if err = p.Send(context.Background(), &fake{}, 3, ch, app, discord.WebhookMessageCreate{}); err != nil {
+		if _, err = p.Send(context.Background(), &fake{}, 3, ch, app, discord.WebhookMessageCreate{}); err != nil {
 			break
 		}
 	}

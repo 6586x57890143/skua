@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -64,6 +65,47 @@ func byMember(msg discord.Message, username string) (string, bool) {
 		return text, true
 	}
 	return strings.CutSuffix(msg.Content, "\n-# echoed through skua by @"+markdown.Replace(username))
+}
+
+// Wrote reports whether user wrote the whisper message, from what skua
+// noted when it sent it: no REST call, so it can be asked about every
+// reaction.
+//
+// ponytail: only the last remember whispers since this process started are
+// known, so an older or pre-restart whisper is not recognised. Fetching the
+// whisper and reading its marker, as Edit whisper does, is the fallback if
+// that is ever missed, spent through the guard.
+func (m *Module) Wrote(message, user snowflake.ID) bool {
+	return m.writers.of(message) == user && user != 0
+}
+
+// remember is how many whispers' writers are kept.
+const remember = 4096
+
+// writers maps recent whispers to who wrote them, oldest out first.
+type writers struct {
+	mu   sync.Mutex
+	by   map[snowflake.ID]snowflake.ID
+	ring []snowflake.ID
+	next int
+}
+
+func (w *writers) add(message, user snowflake.ID) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if _, ok := w.by[message]; ok {
+		return
+	}
+	delete(w.by, w.ring[w.next])
+	w.ring[w.next] = message
+	w.next = (w.next + 1) % len(w.ring)
+	w.by[message] = user
+}
+
+func (w *writers) of(message snowflake.ID) snowflake.ID {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.by[message]
 }
 
 func (m *Module) deleteWhisper(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error {
