@@ -38,6 +38,7 @@ import (
 	"github.com/6586x57890143/skua/internal/modules/status"
 	"github.com/6586x57890143/skua/internal/modules/whisper"
 	"github.com/6586x57890143/skua/internal/obs"
+	"github.com/6586x57890143/skua/internal/ratelimit"
 	"github.com/6586x57890143/skua/internal/store"
 	"github.com/6586x57890143/skua/internal/webhook"
 )
@@ -49,6 +50,10 @@ import (
 // ponytail: restart rather than swapping the gateway connection in place;
 // a reconnect inside the process is the upgrade if restarts ever hurt.
 const reprobe = 10 * time.Minute
+
+// userReset is whether a user-scope 429 is waited out to its bucket's reset
+// rather than its retry_after; tools/reactbench -compare policy decided it.
+const userReset = true
 
 var errIntentsChanged = errors.New("privileged intents changed in the Developer Portal; restarting to re-identify")
 
@@ -137,7 +142,7 @@ func run(log *slog.Logger) error {
 		whisper.New(g, hooks, filter.Default()),
 		bird.New(g, hooks, filter.Default(), os.Getenv("SKUA_XENO_CANTO_KEY")),
 		purge.New(g, purgeDB, log, bootstrap),
-		preen.New(g),
+		preen.New(g, obs.Default),
 		perf.New(obs.Default),
 		help.New(func() []core.Module { return running }, func(i discord.Interaction) bool { return router.Admin(i) }, toggles),
 	}
@@ -220,8 +225,9 @@ func run(log *slog.Logger) error {
 
 	client, err = disgo.New(token,
 		bot.WithLogger(log),
-		// Every REST call's rate limit wait and round trip, for /perf.
-		bot.WithRestClientConfigOpts(rest.WithRateLimiter(obs.Limiter(rest.NewRateLimiter(rest.WithRateLimiterLogger(log)), obs.Default))),
+		// Every REST call's rate limit wait and round trip, for /perf, and a
+		// route's 429 waited out to the millisecond rather than the second.
+		bot.WithRestClientConfigOpts(rest.WithRateLimiter(obs.Limiter(ratelimit.Precise(rest.NewRateLimiter(rest.WithRateLimiterLogger(log)), userReset), obs.Default))),
 		bot.WithGatewayConfigOpts(
 			gateway.WithIntents(identify),
 			gateway.WithPresenceOpts(gateway.WithCustomActivity(brand.StatusAt(0))),

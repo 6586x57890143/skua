@@ -69,9 +69,8 @@ var caps = [opCount]int64{
 	// stops a runaway loop.
 	Purge:       100000,
 	PurgeMember: 6,
-	// preen spends thirteen per self-react, twelve birds and the removal:
-	// about ninety-seven a guild an hour. Kept high on purpose; it is a
-	// runaway stop, not a pace, and never trims a burst.
+	// preen spends sixteen per self-react, fifteen birds and the removal:
+	// about seventy-eight a guild an hour. It is a runaway stop, not a pace.
 	Reaction: 1260,
 	// Discord allows 200 command creates a guild a day.
 	CommandSync: 8,

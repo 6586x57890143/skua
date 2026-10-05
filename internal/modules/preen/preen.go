@@ -1,15 +1,14 @@
-// Package preen is for members who react to their own posts: skua puts up a
-// burst of birds and takes the reaction off.
+// Package preen is for members who react to their own posts: skua covers
+// the post in Birds birds drawn from the flock and takes the reaction off.
 //
-// Every call goes out at once, each on a goroutine of its own, so nothing in
-// skua waits on another: twelve birds and the removal. They still land at
-// Discord's pace, because its reaction route is a per-channel bucket, about
-// one call every 250ms, that disgo's rate limiter queues them behind; twelve
-// is what three seconds holds. The birds share one deadline at the end of
-// the window, so any Discord hasn't taken by then are dropped from the
-// queue, and a failed bird drops the rest the same way. The removal has its
-// own deadline and goes ahead whatever the birds do. Each call is spent
-// through the guard.
+// How fast the birds go up is Discord's to decide: its reaction route is a
+// per-channel bucket with a per-user limit under it, and disgo's limiter
+// paces every call by the headers Discord sends back, a route 429 waited
+// out to the millisecond (internal/ratelimit). The birds go up in order on
+// one goroutine, the first of Strategies: tools/reactbench measured every
+// way of keeping more in flight and none was faster. Each fill's time goes
+// to /perf. The removal goes on its own goroutine beside the fill. Every
+// call is spent through the guard.
 package preen
 
 import (
@@ -30,33 +29,40 @@ import (
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
+	"github.com/6586x57890143/skua/internal/obs"
 )
 
-// flock is twenty birds, Discord's cap of distinct reactions on a message.
-// A burst is drawn from it at random.
-var flock = []string{
+// Flock is twenty birds, Discord's cap of distinct reactions on a message.
+// Every fill puts up Birds of them, drawn at random.
+var Flock = []string{
 	"🐦", "🐦‍⬛", "🕊️", "🦅", "🦆", "🦢", "🦉", "🦤", "🦩", "🦚",
 	"🦜", "🐧", "🐔", "🐓", "🦃", "🐤", "🐣", "🐥", "🪿", "🪶",
 }
 
-// birds is how many go up, and burst the deadline they share: twelve at
-// Discord's pace fills three seconds. preenBy bounds the removal.
+// Birds is how many go up a self-react. preenBy bounds one self-react, the
+// fill and the removal, and is long enough for all of them at any pace
+// Discord has shown (350 to 600ms a bird).
 const (
-	birds   = 12
-	burst   = 3 * time.Second
+	Birds   = 15
 	preenBy = 30 * time.Second
 )
 
+// errGuard is a bird the guard would not spend.
+var errGuard = errors.New("preen: over the reaction cap")
+
 type Module struct {
 	guard *guard.Guard
-	// busy holds the messages being preened, so a second self-react on one
-	// does not start a second burst racing the first.
-	busy sync.Map // snowflake.ID -> struct{}
+	rec   *obs.Recorder
+	// flocked is the messages that got a flock, so a later self-react on one,
+	// during the fill or after it, only comes off.
+	flocked flocked
 	// order draws the birds; tests fix it.
 	order func(n int) []int
 }
 
-func New(g *guard.Guard) *Module { return &Module{guard: g, order: rand.Perm} }
+func New(g *guard.Guard, rec *obs.Recorder) *Module {
+	return &Module{guard: g, rec: rec, order: rand.Perm, flocked: flocked{set: map[snowflake.ID]struct{}{}, ring: make([]snowflake.ID, remember)}}
+}
 
 func (*Module) Name() string { return "preen" }
 
@@ -77,8 +83,8 @@ func (*Module) Perms() discord.Permissions {
 func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorNotice,
-		Line:  "a member who reacts to their own post gets a burst of birds",
-		About: "she puts up twelve birds in about three seconds, then takes the self-react off. nothing to run; it just happens",
+		Line:  "puts up a little flock when you react to your own post",
+		About: "react to your own message and she covers it in birds, fifteen of them picked at random, then takes your reaction away. there's nothing to run",
 	}
 }
 
@@ -90,47 +96,84 @@ func (m *Module) OnEvent(ev bot.Event) {
 	if !ok || e.MessageAuthorID == nil || *e.MessageAuthorID != e.UserID || e.Member.User.Bot {
 		return
 	}
-	if _, dup := m.busy.LoadOrStore(e.MessageID, struct{}{}); dup {
+	r := e.Client().Rest
+	if !m.flocked.add(e.MessageID) {
+		go m.takeOff(r, e.GuildID, e.ChannelID, e.MessageID, e.UserID, e.Emoji.Reaction())
 		return
 	}
-	go m.preen(e.Client().Rest, e.GuildID, e.ChannelID, e.MessageID, e.UserID, e.Emoji.Reaction())
+	go m.preen(r, e.GuildID, e.ChannelID, e.MessageID, e.UserID, e.Emoji.Reaction())
+}
+
+// takeOff removes a self-react from a message that already has its flock.
+func (m *Module) takeOff(r rest.Rest, guild, channel, msg, user snowflake.ID, emoji string) {
+	if m.guard.Allow(guild, guard.Reaction) != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), preenBy)
+	defer cancel()
+	m.report(guild, r.RemoveUserReaction(channel, msg, emoji, user, rest.WithCtx(ctx)))
+}
+
+// remember is how many flocked messages preen keeps; an older one that is
+// self-reacted to again gets a fresh flock, which is harmless.
+const remember = 4096
+
+// flocked is a bounded set of message IDs, oldest out first.
+type flocked struct {
+	mu   sync.Mutex
+	set  map[snowflake.ID]struct{}
+	ring []snowflake.ID
+	next int
+}
+
+// add reports whether id is new, remembering it either way.
+func (f *flocked) add(id snowflake.ID) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.set[id]; ok {
+		return false
+	}
+	delete(f.set, f.ring[f.next])
+	f.ring[f.next] = id
+	f.next = (f.next + 1) % len(f.ring)
+	f.set[id] = struct{}{}
+	return true
 }
 
 func (m *Module) preen(r rest.Rest, guild, channel, msg, user snowflake.ID, emoji string) {
-	defer m.busy.Delete(msg)
-	flight, land := context.WithTimeout(context.Background(), burst)
-	defer land()
-	off, done := context.WithTimeout(context.Background(), preenBy)
-	defer done()
-	var wg sync.WaitGroup
-	// fire spends one call through the guard and sends it at once; a failure
-	// calls stop.
-	fire := func(call func() error, stop func()) {
+	ctx, cancel := context.WithTimeout(context.Background(), preenBy)
+	defer cancel()
+	var off sync.WaitGroup
+	if m.guard.Allow(guild, guard.Reaction) == nil {
+		off.Go(func() { m.report(guild, r.RemoveUserReaction(channel, msg, emoji, user, rest.WithCtx(ctx))) })
+	}
+	birds := make([]string, Birds)
+	for i, j := range m.order(len(Flock))[:Birds] {
+		birds[i] = Flock[j]
+	}
+	start := time.Now()
+	err := Strategies[0].Fill(ctx, birds, func(ctx context.Context, bird string) error {
 		if m.guard.Allow(guild, guard.Reaction) != nil {
-			return
+			return errGuard
 		}
-		wg.Go(func() {
-			if !m.spend(guild, call()) {
-				stop()
-			}
-		})
+		err := r.AddReaction(channel, msg, bird, rest.WithCtx(ctx))
+		m.report(guild, err)
+		return err
+	})
+	// Only a whole flock says how fast a fill is.
+	if err == nil {
+		m.rec.Add("preen fill", obs.Run, time.Since(start))
 	}
-	fire(func() error { return r.RemoveUserReaction(channel, msg, emoji, user, rest.WithCtx(off)) }, func() {})
-	for _, i := range m.order(len(flock))[:birds] {
-		fire(func() error { return r.AddReaction(channel, msg, flock[i], rest.WithCtx(flight)) }, land)
-	}
-	wg.Wait()
+	off.Wait()
 }
 
-// spend reports a call to the breaker and says whether to keep going. Any
-// failure stops the burst: a missing permission or a deleted message fails
-// every bird after it the same way. A call dropped at its deadline says
-// nothing about Discord, so it is not reported.
-func (m *Module) spend(guild snowflake.ID, err error) bool {
+// report feeds a call's outcome to the breaker. A call cut off by a
+// deadline or a sibling's failure says nothing about Discord, so it is not
+// reported.
+func (m *Module) report(guild snowflake.ID, err error) {
 	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 		m.guard.Report(guild, struggling(err))
 	}
-	return err == nil
 }
 
 // struggling is true only for answers that say Discord is, not the request.

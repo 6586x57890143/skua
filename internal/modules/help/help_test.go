@@ -372,7 +372,7 @@ func TestEveryPageKeepsTheVoice(t *testing.T) {
 		whisper.New(nil, nil, nil),
 		bird.New(nil, nil, nil, ""),
 		purge.New(nil, nil, slog.New(slog.DiscardHandler), snowflake.ID(0)),
-		preen.New(nil),
+		preen.New(nil, obs.New()),
 		perf.New(obs.New()),
 	}
 	for _, mod := range mods {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,17 +17,16 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/guard"
+	"github.com/6586x57890143/skua/internal/obs"
 )
 
-// fakeRest records every call in order. Each add takes pace, standing in
-// for Discord's per-channel reaction bucket; addErr fails every add.
+// fakeRest records every call. Each add takes pace; addErr fails every add.
 type fakeRest struct {
 	rest.Rest
 	mu     sync.Mutex
 	calls  []string
 	pace   time.Duration
 	addErr error
-	done   chan struct{}
 }
 
 func (f *fakeRest) record(c string) {
@@ -35,11 +35,14 @@ func (f *fakeRest) record(c string) {
 	f.calls = append(f.calls, c)
 }
 
+func (f *fakeRest) sorted() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Sorted(slices.Values(f.calls))
+}
+
 func (f *fakeRest) RemoveUserReaction(_, _ snowflake.ID, emoji string, _ snowflake.ID, _ ...rest.RequestOpt) error {
 	f.record("-" + emoji)
-	if f.done != nil {
-		close(f.done)
-	}
 	return nil
 }
 
@@ -62,121 +65,137 @@ func reaction(r rest.Rest, user, author snowflake.ID, isBot bool) *events.GuildM
 	}
 }
 
-func inOrder(n int) []int {
-	s := make([]int, n)
-	for i := range s {
-		s[i] = i
-	}
-	return s
-}
-
-// calls is r's calls sorted, since they land in any order.
-func (f *fakeRest) sorted() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return slices.Sorted(slices.Values(f.calls))
-}
-
-func twelveAndOff() []string {
+func flockAndOff() []string {
 	want := []string{"-🔥"}
-	for _, b := range flock[:birds] {
+	for _, b := range Flock[:Birds] {
 		want = append(want, "+"+b)
 	}
 	return slices.Sorted(slices.Values(want))
 }
 
-// A self-react brings exactly twelve birds and the removal, and preen is
-// done with the message once they are.
-func TestSelfReactBringsTwelveAndComesOff(t *testing.T) {
+// A self-react brings Birds birds and comes off, and the fill's time
+// reaches /perf under the strategy that made it.
+func TestSelfReactBringsTheWholeFlock(t *testing.T) {
 	r := &fakeRest{}
-	m := New(guard.New())
+	rec := obs.New()
+	m := New(guard.New(), rec)
 	m.order = inOrder
 	m.OnEvent(reaction(r, 7, 7, false))
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
-		if _, busy := m.busy.Load(snowflake.ID(99)); !busy {
-			break
-		}
+	for deadline := time.Now().Add(5 * time.Second); len(r.sorted()) < Birds+1; time.Sleep(5 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("preen never finished")
 		}
 	}
-	if got := r.sorted(); !slices.Equal(got, twelveAndOff()) {
-		t.Fatalf("calls %v, want %v", got, twelveAndOff())
+	if got := r.sorted(); !slices.Equal(got, flockAndOff()) {
+		t.Fatalf("calls %v, want %v", got, flockAndOff())
+	}
+	rows := rec.Rows()
+	if len(rows) != 1 || rows[0].Who != "preen fill" || rows[0].N != 1 {
+		t.Fatalf("perf rows %+v, want one fill", rows)
 	}
 }
 
-// Every call goes out at once: thirteen calls that each take 200ms are done
-// in about 200ms, where one after another they would take 2.6s.
-func TestEveryCallGoesOutAtOnce(t *testing.T) {
-	r := &fakeRest{pace: 200 * time.Millisecond}
-	m := New(guard.New())
-	start := time.Now()
-	m.preen(r, 3, 4, 99, 7, "🔥")
-	if took := time.Since(start); took > time.Second {
-		t.Fatalf("took %v; the calls ran in turn", took)
-	}
-	if len(r.sorted()) != birds+1 {
-		t.Fatalf("calls %v", r.calls)
-	}
-}
-
-// The birds are drawn at random, so two bursts are not always the same.
-func TestBurstsDiffer(t *testing.T) {
-	m := New(guard.New())
-	first := m.order(len(flock))
-	for range 20 {
-		if !slices.Equal(m.order(len(flock)), first) {
-			return
+// Each strategy puts every bird up exactly once, and keeps no more than its
+// share of calls in flight.
+func TestStrategiesFillOnceWithinTheirWidth(t *testing.T) {
+	for _, s := range Strategies {
+		var inFlight, peak atomic.Int32
+		var mu sync.Mutex
+		var got []string
+		err := s.Fill(t.Context(), Flock, func(_ context.Context, b string) error {
+			n := inFlight.Add(1)
+			for p := peak.Load(); n > p && !peak.CompareAndSwap(p, n); p = peak.Load() {
+			}
+			time.Sleep(2 * time.Millisecond)
+			inFlight.Add(-1)
+			mu.Lock()
+			got = append(got, b)
+			mu.Unlock()
+			return nil
+		})
+		if err != nil || !slices.Equal(slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(Flock))) {
+			t.Errorf("%s: err %v, birds %v", s.Name, err, got)
+		}
+		if want := map[string]int32{"serial": 1, "pairs": 2, "quads": 4}[s.Name]; want != 0 && peak.Load() > want {
+			t.Errorf("%s: %d in flight at once", s.Name, peak.Load())
 		}
 	}
-	t.Fatal("twenty draws in a row came out the same")
+	if peak := func() int32 {
+		var inFlight, peak atomic.Int32
+		_ = Strategies[len(Strategies)-1].Fill(t.Context(), Flock, func(context.Context, string) error {
+			n := inFlight.Add(1)
+			for p := peak.Load(); n > p && !peak.CompareAndSwap(p, n); p = peak.Load() {
+			}
+			time.Sleep(20 * time.Millisecond)
+			inFlight.Add(-1)
+			return nil
+		})
+		return peak.Load()
+	}(); peak < 10 {
+		t.Errorf("burst had only %d in flight at once", peak)
+	}
+}
+
+// The first failure stops the strategy starting birds, and is what it returns.
+func TestAFailedBirdStopsTheFill(t *testing.T) {
+	boom := errors.New("boom")
+	for _, s := range Strategies {
+		var started atomic.Int32
+		err := s.Fill(t.Context(), Flock, func(context.Context, string) error {
+			started.Add(1)
+			return boom
+		})
+		if !errors.Is(err, boom) {
+			t.Errorf("%s: returned %v", s.Name, err)
+		}
+		if n := started.Load(); n > int32(len(Flock))/2 && s.Name != "burst" {
+			t.Errorf("%s: started %d birds after the first failed", s.Name, n)
+		}
+	}
+}
+
+// A failed fill is not timed, and the self-react still comes off.
+func TestAFailedFillIsNotTimedAndStillComesOff(t *testing.T) {
+	r := &fakeRest{addErr: &rest.Error{Response: &http.Response{StatusCode: 503}}}
+	rec := obs.New()
+	m := New(guard.New(), rec)
+	m.preen(r, 3, 4, 99, 7, "🔥")
+	if !slices.Contains(r.sorted(), "-🔥") {
+		t.Fatalf("calls %v, want the removal among them", r.calls)
+	}
+	if rows := rec.Rows(); len(rows) != 0 {
+		t.Fatalf("a failed fill was timed: %+v", rows)
+	}
 }
 
 func TestOthersAreLeftAlone(t *testing.T) {
 	r := &fakeRest{}
-	m := New(guard.New())
+	m := New(guard.New(), obs.New())
 	m.OnEvent(reaction(r, 7, 8, false)) // someone else's post
 	m.OnEvent(reaction(r, 7, 7, true))  // a bot
 	noAuthor := reaction(r, 7, 7, false)
 	noAuthor.MessageAuthorID = nil
 	m.OnEvent(noAuthor)
 	m.OnEvent(&events.GuildReady{})
-	m.busy.Store(snowflake.ID(99), struct{}{}) // already preening
-	m.OnEvent(reaction(r, 7, 7, false))
 	time.Sleep(50 * time.Millisecond)
 	if len(r.calls) != 0 {
 		t.Fatalf("touched %v", r.calls)
 	}
 }
 
-// A failed bird drops the rest from disgo's queue, which a fake has none of;
-// whatever the birds do, the self-react still comes off.
-func TestAFailedBirdDoesNotStopTheRemoval(t *testing.T) {
-	r := &fakeRest{addErr: &rest.Error{Response: &http.Response{StatusCode: 503}}}
-	m := New(guard.New())
-	m.preen(r, 3, 4, 99, 7, "🔥")
-	if got := r.sorted(); !slices.Contains(got, "-🔥") {
-		t.Fatalf("calls %v, want the removal among them", got)
-	}
-	if _, busy := m.busy.Load(snowflake.ID(99)); busy {
-		t.Fatal("the message stayed busy")
-	}
-}
-
-// A call dropped at its deadline stops the burst but tells the breaker
+// A call cut off by a deadline or a sibling's failure tells the breaker
 // nothing, so it can neither trip it nor reset its count.
-func TestADroppedCallIsNotReported(t *testing.T) {
+func TestACutOffCallIsNotReported(t *testing.T) {
 	g := guard.New()
-	m := New(g)
+	m := New(g, obs.New())
 	for range 4 {
-		m.spend(3, &rest.Error{Response: &http.Response{StatusCode: 503}})
+		m.report(3, &rest.Error{Response: &http.Response{StatusCode: 503}})
 	}
-	if m.spend(3, context.DeadlineExceeded) || m.spend(3, context.Canceled) {
-		t.Fatal("a dropped call let the burst go on")
-	}
-	m.spend(3, &rest.Error{Response: &http.Response{StatusCode: 503}})
+	m.report(3, context.DeadlineExceeded)
+	m.report(3, context.Canceled)
+	m.report(3, &rest.Error{Response: &http.Response{StatusCode: 503}})
 	if g.Allow(3, guard.Reaction) == nil {
-		t.Fatal("a dropped call reset the breaker's count")
+		t.Fatal("a cut-off call reset the breaker's count")
 	}
 }
 
@@ -194,9 +213,54 @@ func TestStruggling(t *testing.T) {
 	}
 }
 
+func inOrder(n int) []int {
+	s := make([]int, n)
+	for i := range s {
+		s[i] = i
+	}
+	return s
+}
+
+// Every fill draws its birds afresh, so posts don't all wear the same ones.
+func TestBirdsAreDrawnAtRandom(t *testing.T) {
+	m := New(guard.New(), obs.New())
+	first := m.order(len(Flock))[:Birds]
+	for range 20 {
+		if !slices.Equal(m.order(len(Flock))[:Birds], first) {
+			return
+		}
+	}
+	t.Fatal("twenty draws in a row came out the same")
+}
+
 func TestModule(t *testing.T) {
-	m := New(guard.New())
-	if m.Name() != "preen" || m.Commands() != nil || m.Want().Required == 0 || m.Perms() == 0 || m.Help().Line == "" || len(flock) > 20 {
+	m := New(guard.New(), obs.New())
+	if m.Name() != "preen" || m.Commands() != nil || m.Want().Required == 0 || m.Perms() == 0 || m.Help().Line == "" || len(Flock) != 20 || Birds > len(Flock) {
 		t.Fatal("module surface changed")
+	}
+}
+
+// A message that already has its flock only loses the self-react, however
+// many times its author reacts again.
+func TestASecondSelfReactOnlyComesOff(t *testing.T) {
+	r := &fakeRest{}
+	m := New(guard.New(), obs.New())
+	m.flocked.add(99)
+	m.OnEvent(reaction(r, 7, 7, false))
+	for deadline := time.Now().Add(5 * time.Second); len(r.sorted()) < 1; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the self-react never came off")
+		}
+	}
+	time.Sleep(20 * time.Millisecond)
+	if got := r.sorted(); !slices.Equal(got, []string{"-🔥"}) {
+		t.Fatalf("calls %v, want only the removal", got)
+	}
+}
+
+func TestFlockedForgetsTheOldest(t *testing.T) {
+	f := flocked{set: map[snowflake.ID]struct{}{}, ring: make([]snowflake.ID, 2)}
+	if !f.add(1) || !f.add(2) || f.add(1) || !f.add(3) || !f.add(1) || f.add(3) {
+		t.Fatal("not a bounded set, oldest out first")
 	}
 }

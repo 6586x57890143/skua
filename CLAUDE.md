@@ -59,6 +59,7 @@ govulncheck ./...
 go run ./tools/sprites                 # regenerate internal/brand/assets and emoji
 go test ./internal/guard -bench . -run x
 go test ./internal/obs -bench . -run x       # what a /perf sample costs
+go run ./tools/reactbench                    # live: see "Live benchmarks"
 curl -o skua.trace localhost:6060/debug/skua/flight && go tool trace skua.trace   # with SKUA_PPROF=localhost:6060
 
 cp .env.example .env && docker compose up --build   # local bot + Postgres
@@ -67,6 +68,31 @@ go run ./tools/setup                                # go live / rotate the token
 (cd web && wrangler deploy)                         # skua.melting.lol invite redirect; only when web/ changes
 scripts/deploy.sh                                   # manual path: commit first; deploys HEAD via foundry-deploy
 ```
+
+## Live benchmarks
+
+A performance claim about Discord is measured live, never assumed. There is a test bot
+for it, `flightless.skua`, separate from skua so a run never shares skua's rate limit
+buckets, in a test channel. Its token and the channel are in
+`C:\files\sdb\active\skua.worktrees\bench.env`, outside every checkout so no commit or
+worktree removal takes them. Never print the token, and never put it in `.env.example`.
+
+```sh
+set -a; . ../bench.env; set +a       # from inside a worktree
+go run ./tools/reactbench -trials 5  # every preen.Strategies entry, interleaved
+```
+
+The loop: add an idea as an entry in `preen.Strategies` (or a new tool beside
+`tools/reactbench` for another route), run it, and only move it first, the one preen
+uses, if it beats the current first by more than run-to-run noise over at least five
+trials. Record the numbers in SPEC.md's experiments. `/perf` shows the same split in
+production (wait is the rate limit, http the round trip).
+
+Stay inside Discord's invalid request limit: 10,000 401, 403 and 429 answers per 10
+minutes per IP, past which Cloudflare bans the IP and every bot on it. Honour every
+wait Discord gives, never retry a 401 or 403, stop on any global or shared 429, and cap
+429s per run (`reactbench` stops at 300). A path that sends ahead of Discord's headers
+was tried and drew 20 429s in one fill, so it is not worth trying again.
 
 ## GitHub and deploy
 
