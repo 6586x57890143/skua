@@ -20,6 +20,7 @@ import (
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
@@ -56,6 +57,15 @@ func (*Module) Want() intents.Want {
 func (*Module) Perms() discord.Permissions {
 	return discord.PermissionViewChannel | discord.PermissionReadMessageHistory |
 		discord.PermissionAddReactions | discord.PermissionManageMessages
+}
+
+// Help is preen's page in /help.
+func (*Module) Help() core.Help {
+	return core.Help{
+		Color: brand.ColorNotice,
+		Line:  "a member who reacts to their own post gets the whole flock",
+		About: "she takes the self-react off and puts twenty birds up in its place. nothing to run; it just happens",
+	}
 }
 
 func (*Module) Commands() []core.Command { return nil }

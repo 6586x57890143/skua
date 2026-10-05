@@ -114,7 +114,7 @@ func TestStruggling(t *testing.T) {
 
 func TestModule(t *testing.T) {
 	m := New(guard.New())
-	if m.Name() != "preen" || m.Commands() != nil || m.Want().Required == 0 || m.Perms() == 0 {
+	if m.Name() != "preen" || m.Commands() != nil || m.Want().Required == 0 || m.Perms() == 0 || m.Help().Line == "" {
 		t.Fatal("module surface changed")
 	}
 }

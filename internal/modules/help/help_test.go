@@ -21,6 +21,7 @@ import (
 	"github.com/6586x57890143/skua/internal/core/coretest"
 	"github.com/6586x57890143/skua/internal/intents"
 	"github.com/6586x57890143/skua/internal/modules/bird"
+	"github.com/6586x57890143/skua/internal/modules/preen"
 	"github.com/6586x57890143/skua/internal/modules/purge"
 	"github.com/6586x57890143/skua/internal/modules/status"
 	"github.com/6586x57890143/skua/internal/modules/whisper"
@@ -324,6 +325,7 @@ func TestEveryPageKeepsTheVoice(t *testing.T) {
 		whisper.New(nil, nil, nil),
 		bird.New(nil, nil, nil, ""),
 		purge.New(nil, nil, slog.New(slog.DiscardHandler), snowflake.ID(0)),
+		preen.New(nil),
 	}
 	for _, mod := range mods {
 		h, ok := mod.(core.Helper)
