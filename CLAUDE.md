@@ -14,8 +14,11 @@ lowercase, errors as `core.Tell`, facts on a grid, art on an exact pixel grid.
 - `internal/intents`: portal flags → granted intents → what to identify with.
 - `internal/guard`: per-guild per-op GCRA caps plus a breaker. Route new Discord writes
   through `Allow`/`Report`.
-- `internal/brand`: palette and mood icons. The mood comes from the embed colour.
-  Always send the `*discord.File` that `brand.Embed` returns with its embed. `voice.go`
+- `internal/brand`: palette, mood icons and skua's application emoji. The mood comes from
+  the embed colour. `brand.Sync` uploads any missing emoji in the background at boot;
+  once it has, icons are served from Discord's CDN and nothing is attached. Always send
+  the files `brand.Embed` returns with its embed: empty once synced, the icon until then.
+  `voice.go`
   is her status line, rotated on the re-probe tick; `voice_test` holds every line to the
   shared bird voice (lowercase, no oxford commas or generated-text punctuation).
 - `internal/modules/*`: features. `status` is the reference module.
@@ -24,8 +27,12 @@ lowercase, errors as `core.Tell`, facts on a grid, art on an exact pixel grid.
   (feathers to the umber ramp, neutral greys to slate) and resamples it by majority
   onto a 128-cell grid. The profile picture is that bird over a flat field and a halo
   disc centred on the grid (8px cells, 1024); every mood icon is the bird centred at
-  2px cells (256) with its badge. The banner is computed from shapes, banded light and
-  a fixed hash. Style: high resolution pixel art, flat fields, cool grey frame, the bird
+  2px cells (256) with its badge. It also writes 128px application emoji into
+  `internal/brand/emoji`: the moods (the bird at 1px cells with its badge), the avatar
+  and a tile per module whose glyph comes from pixelarticons (MIT,
+  `art/LICENSE-pixelarticons`), kept as text grids in `tools/sprites/icons.go`. An
+  emoji's name carries its PNG's hash, so only a redrawn one is uploaded again. The
+  banner is computed from shapes, banded light and a fixed hash. Style: high resolution pixel art, flat fields, cool grey frame, the bird
   the only warmth. Every PNG is written indexed at best compression, and
   `internal/brand` fails if an embedded icon reaches 10 KB or leaves its 2px grid. Edit
   the source or the generator and rerun it; don't edit the output PNGs.
@@ -49,7 +56,7 @@ golangci-lint run
 scripts/coverage.sh                    # race tests + 85% floor per internal/ package
 scripts/prose.sh                       # CI's punctuation check
 govulncheck ./...
-go run ./tools/sprites                 # regenerate internal/brand/assets
+go run ./tools/sprites                 # regenerate internal/brand/assets and emoji
 go test ./internal/guard -bench . -run x
 go test ./internal/obs -bench . -run x       # what a /perf sample costs
 curl -o skua.trace localhost:6060/debug/skua/flight && go tool trace skua.trace   # with SKUA_PPROF=localhost:6060
