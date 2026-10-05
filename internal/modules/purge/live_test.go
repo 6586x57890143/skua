@@ -175,7 +175,7 @@ func TestLiveCommandRemembers(t *testing.T) {
 	m := liveModule()
 	m.useDB(db)
 	g := freshGuild()
-	if got := liveCmd(t, m, "1m", g); got != "✓ live: each new message here goes 1m after it's sent" {
+	if got := liveCmd(t, m, "1m", g); got != "**purge** · live\n✓ each new message here goes 1m after it's sent" {
 		t.Fatalf("on: %q", got)
 	}
 	if v, ok := m.live.Load(target{g, me}); !ok || v.(time.Duration) != time.Minute {
@@ -191,7 +191,7 @@ func TestLiveCommandRemembers(t *testing.T) {
 		return ok && v.(time.Duration) == time.Minute
 	})
 
-	if got := liveCmd(t, m, "off", g); got != "✓ live is off; messages here stay up" {
+	if got := liveCmd(t, m, "off", g); got != "**purge** · live\n✓ live is off; messages here stay up" {
 		t.Fatalf("off: %q", got)
 	}
 	// Off is remembered too: the next restart doesn't bring it back.

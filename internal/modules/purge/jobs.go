@@ -10,6 +10,7 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 )
 
@@ -138,5 +139,5 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 		}
 		text += "\n-# " + l
 	}
-	return reply(e, text)
+	return reply(e, brand.ColorInfo, "jobs", text)
 }

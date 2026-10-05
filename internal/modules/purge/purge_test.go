@@ -44,7 +44,7 @@ func command(t *testing.T, m *Module, sub string, edit func(p map[string]any)) s
 		case discord.ModalCreate:
 			got = "modal"
 		case discord.MessageCreate:
-			got = d.Content
+			got = coretest.Text(d.Content, d.Components)
 		}
 		return nil
 	}
@@ -152,7 +152,7 @@ func TestOneSweepAtATimeAndStop(t *testing.T) {
 	if sent := submit(t, m, f, "delete"); len(sent) != 1 || sent[0].Content != "✗ "+string(errRunning) {
 		t.Errorf("a second confirmation while running: %+v", sent)
 	}
-	if got := command(t, m, "stop", nil); !strings.HasPrefix(got, "✓ stopping") {
+	if got := command(t, m, "stop", nil); got != "**purge** · stop\n✓ stopping; what's already deleted stays deleted" {
 		t.Errorf("stop: %q", got)
 	}
 	close(f.hold)

@@ -13,6 +13,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 )
 
@@ -178,9 +179,9 @@ func (m *Module) setEveryCmd(ctx context.Context, e *events.ApplicationCommandIn
 		return err
 	}
 	if secs == nil {
-		return reply(e, "✓ no more scheduled sweeps here")
+		return reply(e, brand.ColorOK, "every", "✓ no more scheduled sweeps here")
 	}
-	return reply(e, "✓ every "+every+": the first sweep starts within a minute")
+	return reply(e, brand.ColorOK, "every", "✓ every "+every+"; the first sweep starts within a minute")
 }
 
 // statusCmd is the member's purge setup here and how their last sweep went.
@@ -237,7 +238,7 @@ func (m *Module) statusCmd(ctx context.Context, e *events.ApplicationCommandInte
 	for i, id := range unreachable {
 		ids[i] = snowflake.ID(id)
 	}
-	return reply(e, text+couldnt(ids))
+	return reply(e, brand.ColorInfo, "status", text+couldnt(ids))
 }
 
 // choiceName is how a stored number of seconds reads: its choice's name,

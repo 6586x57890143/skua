@@ -78,7 +78,7 @@ func TestJobsListsWhatIsComingUp(t *testing.T) {
 	m.useDB(db)
 	m.bootstrap = me
 	g := freshGuild()
-	if got := subCmd(t, m, "every", "every", "1d", g); !strings.HasPrefix(got, "✓") {
+	if got := subCmd(t, m, "every", "every", "1d", g); !strings.HasPrefix(got, "**purge** · every\n✓") {
 		t.Fatal(got)
 	}
 	if _, err := db.Exec(context.Background(), `update purge_subs set next_run = now() + interval '3 hours' where guild_id = $1`, int64(g)); err != nil {

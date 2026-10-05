@@ -139,7 +139,7 @@ func TestBreakGlassSetsTheMembersRow(t *testing.T) {
 			p["data"].(map[string]any)["options"] = []any{map[string]any{"name": sub, "type": 1, "options": opts}}
 		})
 	}
-	if got := cmd("live", map[string]any{"name": "after", "type": 3, "value": "10m"}); !strings.HasPrefix(got, "✓ live") {
+	if got := cmd("live", map[string]any{"name": "after", "type": 3, "value": "10m"}); !strings.HasPrefix(got, "**purge** · live\n✓ each new message") {
 		t.Fatalf("live: %q", got)
 	}
 	if _, ok := m.live.Load(target{g, them}); !ok {
@@ -148,7 +148,7 @@ func TestBreakGlassSetsTheMembersRow(t *testing.T) {
 	if _, ok := m.live.Load(target{g, me}); ok {
 		t.Fatal("live went on for the admin")
 	}
-	if got := cmd("every", map[string]any{"name": "every", "type": 3, "value": "7d"}); !strings.HasPrefix(got, "✓ every 7d") {
+	if got := cmd("every", map[string]any{"name": "every", "type": 3, "value": "7d"}); !strings.HasPrefix(got, "**purge** · every\n✓ every 7d") {
 		t.Fatalf("every: %q", got)
 	}
 	if got := cmd("status"); !strings.Contains(got, "live         10m") || !strings.Contains(got, "every        7d") {

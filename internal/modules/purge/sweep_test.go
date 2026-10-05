@@ -16,6 +16,7 @@ import (
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/skua/internal/core/coretest"
 	"github.com/6586x57890143/skua/internal/guard"
 )
 
@@ -233,13 +234,10 @@ func (f *fake) DeleteMessage(_, id snowflake.ID, _ ...rest.RequestOpt) error {
 
 func (f *fake) UpdateInteractionResponse(_ snowflake.ID, token string, u discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
 	f.mu.Lock()
-	f.buttons = 0
-	if u.Components != nil {
-		f.buttons = len(*u.Components)
-	}
+	f.buttons = rows(*u.Components)
 	f.tokens = append(f.tokens, token)
 	f.mu.Unlock()
-	f.updates <- *u.Content
+	f.updates <- said(u)
 	return nil, nil
 }
 
@@ -258,13 +256,36 @@ func (f *fake) CreateDMChannel(user snowflake.ID, _ ...rest.RequestOpt) (*discor
 }
 
 func (f *fake) CreateMessage(_ snowflake.ID, c discord.MessageCreate, _ ...rest.RequestOpt) (*discord.Message, error) {
-	f.dms <- c.Content
+	f.dms <- coretest.Text(c.Content, c.Components)
 	return &discord.Message{ID: 78}, nil
 }
 
 func (f *fake) UpdateMessage(_, _ snowflake.ID, u discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
-	f.dms <- *u.Content
+	f.dms <- said(u)
 	return &discord.Message{ID: 78}, nil
+}
+
+// said is what an edited card says.
+func said(u discord.MessageUpdate) string {
+	if u.Flags == nil || !u.Flags.Has(discord.MessageFlagIsComponentsV2) {
+		panic("an edit that isn't a card")
+	}
+	return coretest.Text("", *u.Components)
+}
+
+// rows is how many button rows a card holds.
+func rows(cs []discord.LayoutComponent) int {
+	n := 0
+	for _, c := range cs {
+		if box, ok := c.(discord.ContainerComponent); ok {
+			for _, s := range box.Components {
+				if _, ok := s.(discord.ActionRowComponent); ok {
+					n++
+				}
+			}
+		}
+	}
+	return n
 }
 
 func decode[T any](t testing.TB, raw string, into *T) {

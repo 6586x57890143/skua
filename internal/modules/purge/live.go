@@ -11,6 +11,8 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
+
+	"github.com/6586x57890143/skua/internal/brand"
 )
 
 // batchWindow is how long past its time a live delete may wait for the
@@ -109,9 +111,9 @@ func (m *Module) setLiveCmd(ctx context.Context, e *events.ApplicationCommandInt
 	}
 	m.setLive(k, d)
 	if d == 0 {
-		return reply(e, "✓ live is off; messages here stay up")
+		return reply(e, brand.ColorOK, "live", "✓ live is off; messages here stay up")
 	}
-	return reply(e, "✓ live: each new message here goes "+after+" after it's sent")
+	return reply(e, brand.ColorOK, "live", "✓ each new message here goes "+after+" after it's sent")
 }
 
 func (m *Module) enqueue(r rest.Rest, guild, ch snowflake.ID, id msg, at time.Time) {

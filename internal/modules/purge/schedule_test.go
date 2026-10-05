@@ -46,7 +46,7 @@ func TestScheduledSweep(t *testing.T) {
 	if got := subCmd(t, m, "status", "", "", g); !strings.Contains(got, "last sweep   never") || !strings.Contains(got, "every        off") {
 		t.Fatalf("status before anything:\n%s", got)
 	}
-	if got := subCmd(t, m, "every", "every", "1d", g); !strings.HasPrefix(got, "✓ every 1d") {
+	if got := subCmd(t, m, "every", "every", "1d", g); !strings.HasPrefix(got, "**purge** · every\n✓ every 1d; the first sweep") {
 		t.Fatalf("every: %q", got)
 	}
 	// The other member is live, which queues them for the catch-up sweep.
@@ -91,7 +91,7 @@ func TestScheduledSweep(t *testing.T) {
 		t.Fatalf("live-only next_run %v, %v", next, err)
 	}
 
-	if got := subCmd(t, m, "every", "every", "off", g); got != "✓ no more scheduled sweeps here" {
+	if got := subCmd(t, m, "every", "every", "off", g); got != "**purge** · every\n✓ no more scheduled sweeps here" {
 		t.Fatalf("every off: %q", got)
 	}
 	if got := subCmd(t, m, "status", "", "", g); !strings.Contains(got, "next sweep   none") {
@@ -106,7 +106,7 @@ func TestBusyGuildIsRequeued(t *testing.T) {
 	m := liveModule()
 	m.useDB(db)
 	g := freshGuild()
-	if got := subCmd(t, m, "every", "every", "6h", g); !strings.HasPrefix(got, "✓") {
+	if got := subCmd(t, m, "every", "every", "6h", g); !strings.HasPrefix(got, "**purge** · every\n✓") {
 		t.Fatal(got)
 	}
 	m.sweeping.Store(g, struct{}{})
@@ -127,7 +127,7 @@ func TestOffGuildIsNotSwept(t *testing.T) {
 	m := liveModule()
 	m.useDB(db)
 	g := freshGuild()
-	if got := subCmd(t, m, "every", "every", "6h", g); !strings.HasPrefix(got, "✓") {
+	if got := subCmd(t, m, "every", "every", "6h", g); !strings.HasPrefix(got, "**purge** · every\n✓") {
 		t.Fatal(got)
 	}
 	if _, err := db.Exec(context.Background(), `update purge_subs set next_run = now() where guild_id = $1`, int64(g)); err != nil {

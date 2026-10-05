@@ -44,6 +44,17 @@ The rules every bird shares, which `brand/voice_test.go` holds the status lines 
   a brand colour, wearing its mood icon (`brand.Icon`) as a section thumbnail, with any
   footer as `-#` subtext. It points at synced app emoji, attaching only what hasn't
   synced.
+- Every other reply is a card (`brand.Card`, `/purge` is the reference): one
+  Components V2 container, accented in the mood of what it says (ok when done, warn
+  while working, error when it failed, info for a readout), whose first line is the
+  module's emoji, its name in bold and what the reply is: `<emoji> **purge** · status`.
+  Below it the content is text: a `✓`/`!` line, a code block grid, `-#` detail, an ASCII
+  bar (`▰▱`) or tree (`├ └`). An icon is an app emoji inline, never an attachment, so a
+  card uploads nothing and before the emoji sync its head is text alone. A thumbnail
+  or other asset is for a page that is about the thing it shows (`/help`'s), not for
+  decoration. Buttons go inside the container, below the text. A live readout is
+  edited as a card too (`discord.NewMessageUpdateV2`) and its accent follows its state.
+  Errors stay `core.Tell`, plain text.
 - Facts go in a code block grid (`status.readout`): the label column is the longest
   label plus two spaces, a value wraps after a comma inside 28 columns, and a whole line
   stays within 40. Anything that is not a short fact goes on a line below the block,

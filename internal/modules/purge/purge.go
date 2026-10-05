@@ -256,7 +256,7 @@ func (m *Module) purge(ctx context.Context, e *events.ApplicationCommandInteract
 			return core.Tell("no purge is running here")
 		}
 		v.(*run).cancel()
-		return reply(e, "✓ stopping; what's already deleted stays deleted")
+		return reply(e, brand.ColorOK, "stop", "✓ stopping; what's already deleted stays deleted")
 	case "live":
 		return m.setLiveCmd(ctx, e, k, data.String("after"))
 	case "every":
@@ -304,8 +304,14 @@ func (m *Module) breakGlass(by, user, guild snowflake.ID, sub string) error {
 	return nil
 }
 
-func reply(e *events.ApplicationCommandInteractionCreate, text string) error {
-	return e.CreateMessage(discord.MessageCreate{Content: text, Flags: discord.MessageFlagEphemeral, AllowedMentions: core.NoPings()})
+// reply is an ephemeral card (UX.md): what the reply is in its head, body
+// below it.
+func reply(e *events.ApplicationCommandInteractionCreate, color int, what, body string) error {
+	return e.CreateMessage(discord.MessageCreate{
+		Components:      []discord.LayoutComponent{brand.Card(color, "purge", what, body)},
+		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
+		AllowedMentions: core.NoPings(),
+	})
 }
 
 var errNoDB = core.Tell("skua runs without a database here, so it can't remember this; only /purge now works")
@@ -472,7 +478,7 @@ func (m *Module) watch(j *job, r rest.Rest, app snowflake.ID, token string, owne
 		select {
 		case <-j.done:
 			if m.now().Sub(opened) <= tokenLife {
-				m.show(r, app, token, m.readout(j, outcome(j.err, m.now().Sub(j.began))), nil)
+				m.show(r, app, token, j, m.readout(j, outcome(j.err, m.now().Sub(j.began))))
 			}
 			return
 		case <-t.C:
@@ -482,16 +488,16 @@ func (m *Module) watch(j *job, r rest.Rest, app snowflake.ID, token string, owne
 			}
 			line := "still going · " + span(m.now().Sub(j.began))
 			if left >= 2*m.tick {
-				m.show(r, app, token, m.readout(j, line), nil)
+				m.show(r, app, token, j, m.readout(j, line))
 				continue
 			}
 			if m.dm(j, r, viewer) {
-				m.show(r, app, token, m.readout(j, line+" · the rest is in your dms"), nil)
+				m.show(r, app, token, j, m.readout(j, line+" · the rest is in your dms"))
 				return
 			}
 			button := discord.NewSecondaryButton("progress", fmt.Sprintf("%s:%d", progressButton, owner))
-			m.show(r, app, token, m.readout(j, line+" · skua can't dm you, so this readout stops here; progress opens a new one"),
-				[]discord.LayoutComponent{discord.NewActionRow(button)})
+			m.show(r, app, token, j, m.readout(j, line+" · skua can't dm you, so this readout stops here; progress opens a new one"),
+				discord.NewActionRow(button))
 			return
 		}
 	}
@@ -514,7 +520,9 @@ func (m *Module) dm(j *job, r rest.Rest, viewer snowflake.ID) bool {
 	}
 	where := fmt.Sprintf("\n-# /purge now in https://discord.com/channels/%d", guild)
 	text := m.readout(j, "still going · "+span(m.now().Sub(j.began))) + where
-	msg, err := r.CreateMessage(dm.ID(), discord.MessageCreate{Content: text, AllowedMentions: core.NoPings()}, rest.WithCtx(ctx))
+	msg, err := r.CreateMessage(dm.ID(), discord.MessageCreate{
+		Components: card(j, text), Flags: discord.MessageFlagIsComponentsV2, AllowedMentions: core.NoPings(),
+	}, rest.WithCtx(ctx))
 	m.guard.Report(guild, struggling(err))
 	if err != nil {
 		return false
@@ -523,7 +531,9 @@ func (m *Module) dm(j *job, r rest.Rest, viewer snowflake.ID) bool {
 		edit := func(text string) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_, _ = r.UpdateMessage(dm.ID(), msg.ID, discord.MessageUpdate{Content: &text, AllowedMentions: core.NoPings()}, rest.WithCtx(ctx))
+			u := discord.NewMessageUpdateV2(card(j, text)...)
+			u.AllowedMentions = core.NoPings()
+			_, _ = r.UpdateMessage(dm.ID(), msg.ID, u, rest.WithCtx(ctx))
 		}
 		t := time.NewTicker(m.dmTick)
 		defer t.Stop()
@@ -540,14 +550,29 @@ func (m *Module) dm(j *job, r rest.Rest, viewer snowflake.ID) bool {
 	return true
 }
 
-// show edits a readout. components replaces its buttons; nil clears them.
-func (m *Module) show(r rest.Rest, app snowflake.ID, token string, text string, components []discord.LayoutComponent) {
-	if components == nil {
-		components = []discord.LayoutComponent{}
-	}
+// show edits a readout of j into a card saying text, with extra (a button
+// row) inside it; none clears the last one's.
+func (m *Module) show(r rest.Rest, app snowflake.ID, token string, j *job, text string, extra ...discord.ContainerSubComponent) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, _ = r.UpdateInteractionResponse(app, token, discord.MessageUpdate{Content: &text, Components: &components, AllowedMentions: core.NoPings()}, rest.WithCtx(ctx))
+	u := discord.NewMessageUpdateV2(card(j, text, extra...)...)
+	u.AllowedMentions = core.NoPings()
+	_, _ = r.UpdateInteractionResponse(app, token, u, rest.WithCtx(ctx))
+}
+
+// card is a readout of j as a card, its accent the mood j is in: warn
+// while it deletes, ok once done, error once stopped or failed.
+func card(j *job, text string, extra ...discord.ContainerSubComponent) []discord.LayoutComponent {
+	color := brand.ColorWarn
+	select {
+	case <-j.done:
+		color = brand.ColorOK
+		if j.err != nil {
+			color = brand.ColorError
+		}
+	default:
+	}
+	return []discord.LayoutComponent{brand.Card(color, "purge", "now", text, extra...)}
 }
 
 // outcome is the line under the readout once a sweep has ended.
