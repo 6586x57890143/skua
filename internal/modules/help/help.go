@@ -68,7 +68,7 @@ func (m *Module) Commands() []core.Command {
 	return []core.Command{{
 		Create: discord.SlashCommandCreate{
 			Name:        "help",
-			Description: "what skua does and how; admins switch modules here",
+			Description: "what skua can do and where admins switch her modules",
 			Options: []discord.ApplicationCommandOption{
 				discord.ApplicationCommandOptionBool{Name: "post", Description: "admins: post it in the channel for everyone"},
 			},

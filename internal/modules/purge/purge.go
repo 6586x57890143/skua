@@ -145,8 +145,8 @@ func (*Module) Perms() discord.Permissions {
 func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorWarn,
-		Line:  "takes back what you said, all of it",
-		About: "she reads every channel she can see and only ever takes your own messages: all at once with now, a while after each one with live or on a schedule with every. anything over 14 days goes one at a time, so a first purge is slow; it can't be undone; switched off here, her scheduled sweeps stop too",
+		Line:  "deletes your own messages when you ask her to",
+		About: "she only ever touches messages you wrote, in any channel she can read. now clears them all at once, live deletes each new one after a delay you pick and every sweeps on a schedule. anything older than 14 days has to go one message at a time, so the first run can take a while. nothing comes back once it's gone. if an admin switches purge off here the scheduled sweeps stop too",
 	}
 }
 

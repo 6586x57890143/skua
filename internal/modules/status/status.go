@@ -50,8 +50,8 @@ func (*Module) Perms() discord.Permissions { return 0 }
 func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorIdle,
-		Line:  "how the bird is holding up",
-		About: "/ping times her round trip to the gateway. /status shows admins which intents she holds, whether the database answers and how long she has been up",
+		Line:  "how she's doing right now",
+		About: "/ping shows how long the gateway takes to answer her. /status is for admins and lists the intents she holds, whether the database is answering and how long she's been up",
 	}
 }
 

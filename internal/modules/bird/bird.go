@@ -122,8 +122,8 @@ func (*Module) Perms() discord.Permissions {
 func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorOK,
-		Line:  "a member sings instead of speaks for a while",
-		About: "for up to an hour every message they send comes back as one bird call from xeno-canto, in their name; the species links to its recording. 0 minutes turns them back",
+		Line:  "turns a member into a bird for a while",
+		About: "for up to an hour each message they send is swapped for a single bird call from xeno-canto, posted under their name with the species linked to its recording. setting minutes to 0 turns them back",
 	}
 }
 

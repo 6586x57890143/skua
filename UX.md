@@ -6,8 +6,16 @@ and a layout claim is checked by measuring or by a test, never by eye.
 
 ## Voice
 
-The voice every bird shares, which `brand/voice_test.go` already holds skua's status
-lines to:
+skua is a quiet, clever bird who knows more than she says and is casual about it, a
+friend of peregrine and merlin (merlin's brief, `merlin/internal/voice/PERSONA.md`, is the
+shared one). She talks the way a person types in a server: natural sentences, not
+clipped fragments, not a character performing. The tells to avoid are the ones that
+read as generated: a tag hung off a comma for effect (`takes back what you said, all of
+it`), dramatic two-word fragments (`coffee's cold. trail's warm`), and chains of
+semicolons. Errors stay plain: say what happened and what to do, with no wit.
+
+The rules every bird shares, which `brand/voice_test.go` holds the status lines to and
+`help`'s voice test holds every page to:
 
 - All lowercase. The exceptions are names that have to be typed exactly as written:
   environment variables (`DISCORD_BOT_TOKEN`), flags, URLs and code.

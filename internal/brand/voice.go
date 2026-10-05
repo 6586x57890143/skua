@@ -1,23 +1,23 @@
 package brand
 
 // Status is skua's line in the member list, one per re-probe tick, round
-// robin so the same line never shows twice running. The voice: a noir
-// detective by day, quietly the one who finds the open doors and tells you
-// before anyone else does. Lowercase, plain punctuation, said once and left
-// there. voice_test holds every line to it.
+// robin so the same line never shows twice running. The voice is UX.md's:
+// a quiet, clever bird who knows more than she says, casual about it, and a
+// friend of peregrine and merlin. Something she'd actually say, not a line
+// written to sound like a character. voice_test holds every line to it.
 var Status = []string{
-	"working the night shift",
-	"watching the ports",
-	"reading the logs by lamplight",
-	"nobody saw me come in",
-	"someone left a door open again",
-	"checking the locks. all of them",
-	"coffee's cold. trail's warm",
-	"same city, different password",
-	"fixed it. left a note",
-	"off the record",
-	"i only take the cases nobody else will",
-	"left everything how i found it",
+	"keeping an eye on things",
+	"reading along quietly",
+	"somewhere above the server",
+	"around if you need me",
+	"listening more than talking",
+	"out flying with peregrine",
+	"merlin says hi",
+	"on the high perch tonight",
+	"taking the long way round",
+	"just passing through",
+	"knows more than she lets on",
+	"back before you notice",
 }
 
 // StatusAt is the line for tick n.

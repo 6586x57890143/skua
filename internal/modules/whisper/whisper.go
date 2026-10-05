@@ -96,8 +96,8 @@ func (*Module) Perms() discord.Permissions {
 func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorInfo,
-		Line:  "calls out for the muted, under their own name",
-		About: "when the chat holds a member back she carries their line through a webhook wearing their name; a subtext line says who really spoke. every whisper is screened and kept to slowmode. right click one of yours to edit or delete it",
+		Line:  "posts for you under your name when the chat won't let you",
+		About: "she posts your message through a webhook that wears your name, with a small line underneath saying it came through her. every whisper is screened first and still follows the channel's slowmode. right click one of yours to edit or delete it",
 	}
 }
 

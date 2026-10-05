@@ -48,15 +48,15 @@ func (*Module) Perms() discord.Permissions { return 0 }
 func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorInfo,
-		Line:  "where the time goes, from the metal to discord",
-		About: "each module timed in four legs: in is the gateway to her desk, run is her own work, wait is discord's rate limit and http the round trip. the go runtime's own costs sit under them. it covers every server she's in, so only her keeper can run it",
+		Line:  "where her time goes with the slowest first",
+		About: "every module is timed in four parts: in is the trip from the gateway to her, run is her own work, wait is time spent behind discord's rate limits and http is the round trip itself. drop counts calls that gave up while still waiting. the go runtime's own overhead sits underneath. it covers every server she's in, which is why only her keeper can run it",
 	}
 }
 
 func (m *Module) Commands() []core.Command {
 	return []core.Command{{
 		// Hidden from members in the picker; the tier is the real gate.
-		Create: discord.SlashCommandCreate{Name: "perf", Description: "where skua spends her time, slowest first", DefaultMemberPermissions: omit.New(&adminOnly)},
+		Create: discord.SlashCommandCreate{Name: "perf", Description: "see where skua spends her time", DefaultMemberPermissions: omit.New(&adminOnly)},
 		Tier:   core.BreakGlass,
 		Run:    m.perf,
 	}}

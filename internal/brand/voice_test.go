@@ -28,6 +28,8 @@ func TestStatusKeepsTheVoice(t *testing.T) {
 			t.Errorf("%q: oxford comma", s)
 		case strings.HasSuffix(s, "."):
 			t.Errorf("%q: a status line doesn't end on a full stop", s)
+		case strings.ContainsAny(s, ",;.:"):
+			t.Errorf("%q: one plain phrase; a tag after a comma or a clipped fragment reads as written, not said", s)
 		case seen[s]:
 			t.Errorf("%q: twice", s)
 		}

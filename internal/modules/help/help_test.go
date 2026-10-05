@@ -348,7 +348,14 @@ func TestEveryPageKeepsTheVoice(t *testing.T) {
 				t.Errorf("%s: %q has an oxford comma", mod.Name(), s)
 			case strings.HasSuffix(s, "."):
 				t.Errorf("%s: %q ends on a full stop", mod.Name(), s)
+			case strings.Count(s, ";") > 1:
+				t.Errorf("%s: %q chains clauses with semicolons; say it in sentences", mod.Name(), s)
 			}
+		}
+		// The index line is one plain phrase: a tag after a comma ("takes
+		// back what you said, all of it") reads as written, not said.
+		if strings.ContainsAny(h.Help().Line, ",;:") {
+			t.Errorf("%s: line %q has a comma, semicolon or colon", mod.Name(), h.Help().Line)
 		}
 		// A select option's description stops at 100.
 		if utf8.RuneCountInString(h.Help().Line) > 100 {
