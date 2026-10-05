@@ -1,9 +1,10 @@
 // Package obs times every module from the metal to Discord's API, in four
 // stages: in (Discord creating an interaction to skua dispatching it, which
 // is the gateway, decoding and the scheduler), run (the module's handler),
-// wait (queued behind Discord's rate limit) and http (the round trip). The
-// router records in and run; Limiter wraps disgo's rate limiter for wait
-// and http. Runtime adds what the Go runtime itself costs, and Flight keeps
+// wait (queued behind Discord's rate limit) and http (the round trip), plus
+// drop, a call whose ctx ended while it was still queued. The router
+// records in and run; Limiter wraps disgo's rate limiter for wait, http and
+// drop. Runtime adds what the Go runtime itself costs, and Flight keeps
 // the last seconds of execution trace, with a region per module, for when
 // a number alone does not say why.
 //
@@ -36,9 +37,12 @@ const (
 	Run
 	Wait
 	HTTP
+	// Drop is a call that never left the queue: its ctx ended in Wait. Kept
+	// apart from Wait, so a deadline doesn't read as Discord being slow.
+	Drop
 )
 
-func (s Stage) String() string { return [...]string{"in", "run", "wait", "http"}[s] }
+func (s Stage) String() string { return [...]string{"in", "run", "wait", "http", "drop"}[s] }
 
 // buckets are half octaves of nanoseconds: bucket i holds durations whose
 // top two bits put them in [2^(i/2), 2^(i/2+1)), so a quantile is good to
@@ -209,11 +213,13 @@ func (l *limiter) Wait(ctx context.Context, ep *rest.CompiledEndpoint) error {
 	if who == "" {
 		who = Route(ep.Endpoint)
 	}
-	l.rec.Add(who, Wait, time.Since(start))
-	if err == nil {
-		l.inFlight.Store(ep, sent{who, time.Now()})
+	if err != nil {
+		l.rec.Add(who, Drop, time.Since(start))
+		return err
 	}
-	return err
+	l.rec.Add(who, Wait, time.Since(start))
+	l.inFlight.Store(ep, sent{who, time.Now()})
+	return nil
 }
 
 func (l *limiter) Unlock(ep *rest.CompiledEndpoint, rs *http.Response) error {

@@ -51,7 +51,7 @@ func TestQuantilesAndRows(t *testing.T) {
 }
 
 func TestStageNames(t *testing.T) {
-	for s, want := range map[Stage]string{In: "in", Run: "run", Wait: "wait", HTTP: "http"} {
+	for s, want := range map[Stage]string{In: "in", Run: "run", Wait: "wait", HTTP: "http", Drop: "drop"} {
 		if s.String() != want {
 			t.Errorf("%d is %q", s, s.String())
 		}
@@ -113,7 +113,7 @@ func TestLimiterSplitsWaitFromTheRoundTrip(t *testing.T) {
 	for _, row := range r.Rows() {
 		seen[row.Who+" "+row.Stage.String()] = row.N
 	}
-	want := map[string]uint64{"whisper wait": 1, "whisper http": 1, "put reactions/@me wait": 2, "put reactions/@me http": 1}
+	want := map[string]uint64{"whisper wait": 1, "whisper http": 1, "put reactions/@me wait": 1, "put reactions/@me http": 1, "put reactions/@me drop": 1}
 	for k, n := range want {
 		if seen[k] != n {
 			t.Errorf("%s: %d samples, want %d (all %v)", k, seen[k], n, seen)
