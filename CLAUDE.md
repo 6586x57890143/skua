@@ -32,7 +32,8 @@ lowercase, errors as `core.Tell`, facts on a grid, art on an exact pixel grid.
 
 Adding a module: implement `core.Module`, declare its intents honestly in `Want`
 (Required vs Optional) and its channel permissions in `Perms` (only what skua does as
-itself; interaction replies need none), and append it to `all` in `main.go`. skua writes
+itself; interaction replies need none), give it a `/help` page with `Help()` (field-notes
+voice: lowercase, third person "she", dry), and append it to `all` in `main.go`. skua writes
 the union of the running modules' `Perms` into the app's install settings at boot, which
 is what https://skua.melting.lol asks a server for. It ships with handler
 tests: `internal/core/coretest` builds the interaction and records replies, and a test

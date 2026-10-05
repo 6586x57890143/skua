@@ -46,6 +46,15 @@ func (*Module) Want() intents.Want { return intents.Want{Required: gateway.Inten
 // Perms is none: /ping and /status only reply to interactions.
 func (*Module) Perms() discord.Permissions { return 0 }
 
+// Help is status's page in /help.
+func (*Module) Help() core.Help {
+	return core.Help{
+		Color: brand.ColorIdle,
+		Line:  "how the bird is holding up",
+		About: "/ping times her round trip to the gateway. /status shows admins which intents she holds, whether the database answers and how long she has been up",
+	}
+}
+
 func (m *Module) Commands() []core.Command {
 	return []core.Command{
 		{

@@ -39,16 +39,31 @@ var moods = map[int]string{
 // its thumbnail points at. An unknown colour gets "info": never claim
 // success for something unrecognised.
 func Embed(color int, title, description string) (discord.Embed, *discord.File) {
-	mood, ok := moods[color]
-	if !ok {
-		mood = "info"
-	}
-	name := "skua_" + mood + ".png"
-	data, _ := assets.ReadFile("assets/" + name) // embedded; cannot fail for a listed mood
+	file, url := Icon(color)
 	return discord.Embed{
 		Title:       title,
 		Description: description,
 		Color:       color,
-		Thumbnail:   &discord.EmbedResource{URL: "attachment://" + name},
-	}, discord.NewFile(name, "", bytes.NewReader(data))
+		Thumbnail:   &discord.EmbedResource{URL: url},
+	}, file
+}
+
+// Icon is color's mood icon and the attachment:// URL that points at it, for
+// a component that shows it. Unknown colours get "info", as in Embed.
+func Icon(color int) (*discord.File, string) {
+	mood, ok := moods[color]
+	if !ok {
+		mood = "info"
+	}
+	return asset("skua_" + mood + ".png")
+}
+
+// Banner is the profile banner and its attachment:// URL.
+func Banner() (*discord.File, string) { return asset(banner) }
+
+const banner = "skua_banner.png"
+
+func asset(name string) (*discord.File, string) {
+	data, _ := assets.ReadFile("assets/" + name) // embedded; cannot fail for a listed name
+	return discord.NewFile(name, "", bytes.NewReader(data)), "attachment://" + name
 }

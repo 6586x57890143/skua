@@ -19,6 +19,7 @@ import (
 	"github.com/disgoorg/disgo"
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/cache"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/rest"
@@ -30,6 +31,7 @@ import (
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
 	"github.com/6586x57890143/skua/internal/modules/bird"
+	"github.com/6586x57890143/skua/internal/modules/help"
 	"github.com/6586x57890143/skua/internal/modules/preen"
 	"github.com/6586x57890143/skua/internal/modules/purge"
 	"github.com/6586x57890143/skua/internal/modules/status"
@@ -108,6 +110,9 @@ func run(log *slog.Logger) error {
 
 	var client *bot.Client
 	var probe status.Probe
+	// Read by help once the guide is asked for, by which point both are set.
+	var router *core.Router
+	var running []core.Module
 	// One guard for every writer: its breaker is per guild across modules.
 	g := guard.New()
 	// One poster too: whisper and bird share each channel's webhook.
@@ -123,6 +128,7 @@ func run(log *slog.Logger) error {
 		bird.New(g, hooks, filter.Default(), os.Getenv("SKUA_XENO_CANTO_KEY")),
 		purge.New(g, purgeDB, log, bootstrap),
 		preen.New(g),
+		help.New(func() []core.Module { return running }, func(i discord.Interaction) bool { return router.Admin(i) }, nil),
 	}
 
 	wants := make(map[string]intents.Want, len(all))
@@ -135,11 +141,10 @@ func run(log *slog.Logger) error {
 		log.Warn("module skipped: a required intent is not granted", "module", name)
 	}
 
-	router := core.NewRouter(bootstrap, func(g snowflake.ID) (snowflake.ID, bool) {
+	router = core.NewRouter(bootstrap, func(g snowflake.ID) (snowflake.ID, bool) {
 		guild, ok := client.Caches.Guild(g)
 		return guild.OwnerID, ok
 	}, log)
-	var running []core.Module
 	// Gateway events reach the running modules that listen for them.
 	var listeners []bot.EventListener
 	for _, m := range all {

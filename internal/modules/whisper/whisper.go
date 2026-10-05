@@ -35,6 +35,7 @@ import (
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/filter"
 	"github.com/6586x57890143/skua/internal/guard"
@@ -89,6 +90,15 @@ func (*Module) Want() intents.Want { return intents.Want{} }
 // through it needs nothing further.
 func (*Module) Perms() discord.Permissions {
 	return discord.PermissionViewChannel | discord.PermissionManageWebhooks
+}
+
+// Help is whisper's page in /help.
+func (*Module) Help() core.Help {
+	return core.Help{
+		Color: brand.ColorInfo,
+		Line:  "calls out for the muted, under their own name",
+		About: "when the chat holds a member back she carries their line through a webhook wearing their name; a subtext line says who really spoke. every whisper is screened and kept to slowmode. right click one of yours to edit or delete it",
+	}
 }
 
 func (m *Module) Commands() []core.Command {

@@ -34,6 +34,7 @@ import (
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/filter"
 	"github.com/6586x57890143/skua/internal/guard"
@@ -115,6 +116,15 @@ func (*Module) Want() intents.Want { return intents.Want{Required: gateway.Inten
 // Perms is the webhook, plus deleting the member's message.
 func (*Module) Perms() discord.Permissions {
 	return discord.PermissionViewChannel | discord.PermissionManageWebhooks | discord.PermissionManageMessages
+}
+
+// Help is bird's page in /help.
+func (*Module) Help() core.Help {
+	return core.Help{
+		Color: brand.ColorOK,
+		Line:  "a member sings instead of speaks for a while",
+		About: "for up to an hour every message they send comes back as one bird call from xeno-canto, in their name; the species links to its recording. 0 minutes turns them back",
+	}
 }
 
 func (m *Module) Commands() []core.Command {

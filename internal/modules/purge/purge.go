@@ -33,6 +33,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
@@ -134,6 +135,15 @@ func (*Module) Want() intents.Want { return intents.Want{Required: gateway.Inten
 func (*Module) Perms() discord.Permissions {
 	return discord.PermissionViewChannel | discord.PermissionReadMessageHistory |
 		discord.PermissionManageMessages | discord.PermissionManageThreads
+}
+
+// Help is purge's page in /help.
+func (*Module) Help() core.Help {
+	return core.Help{
+		Color: brand.ColorWarn,
+		Line:  "takes back what you said, all of it",
+		About: "she reads every channel she can see and only ever takes your own messages: all at once with now, a while after each one with live or on a schedule with every. anything over 14 days goes one at a time, so a first purge is slow; it can't be undone",
+	}
 }
 
 func (m *Module) Commands() []core.Command {

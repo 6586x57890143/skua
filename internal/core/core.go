@@ -82,6 +82,20 @@ type Component struct {
 	Run func(ctx context.Context, e *events.ComponentInteractionCreate) error
 }
 
+// Helper is a Module with a page in /help. Optional: a module without one
+// is left out of the guide.
+type Helper interface {
+	Help() Help
+}
+
+// Help is a module's entry in /help, in skua's voice (UX.md). Line is its
+// one line on the index, About its page, and Color the brand colour whose
+// mood it wears. The commands are read from the module, not repeated here.
+type Help struct {
+	Color       int
+	Line, About string
+}
+
 // cmdKey is how commands are found: Discord lets a slash command and a
 // message command share a name.
 type cmdKey struct {
@@ -296,9 +310,16 @@ func (r *Router) report(what string, err error, responded bool, create func(disc
 	}
 }
 
+// Admin is whether whoever sent i counts as an admin here: the same rule an
+// Admin tier is held to, for a handler that gates only part of a command or
+// a component, which has no tier of its own.
+func (r *Router) Admin(i discord.Interaction) bool {
+	return r.allowed(i, Admin)
+}
+
 // allowed fails closed: no guild, no member or an unknown owner is a no
 // for anything above Public.
-func (r *Router) allowed(e *events.ApplicationCommandInteractionCreate, t Tier) bool {
+func (r *Router) allowed(e discord.Interaction, t Tier) bool {
 	if t == Public {
 		return true
 	}

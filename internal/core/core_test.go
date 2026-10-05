@@ -101,6 +101,9 @@ func TestOnCommandTiers(t *testing.T) {
 		if ran != c.ran {
 			t.Errorf("%s: ran = %v", c.name, ran)
 		}
+		if e, _ := coretest.Event(t, "a", c.edit); c.tier == Admin && r.Admin(e) != c.ran {
+			t.Errorf("%s: Admin = %v", c.name, !c.ran)
+		}
 		if !c.ran && (len(*sent) != 1 || (*sent)[0].Content != "✗ only this server's admins can use /a") {
 			t.Errorf("%s: refusal reply = %+v", c.name, *sent)
 		}
