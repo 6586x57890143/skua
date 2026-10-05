@@ -92,6 +92,9 @@ func TestOnCommandTiers(t *testing.T) {
 		{"admin by bootstrap user", Admin, asUser("9"), true},
 		{"admin by guild owner", Admin, asUser("7"), true},
 		{"owner of another guild is not admin", Admin, func(p map[string]any) { asUser("7")(p); p["guild_id"] = "8" }, false},
+		{"break-glass by bootstrap user", BreakGlass, asUser("9"), true},
+		{"break-glass refuses a server admin", BreakGlass, admin, false},
+		{"break-glass refuses the guild owner", BreakGlass, asUser("7"), false},
 	}
 	for _, c := range cases {
 		ran := false
@@ -104,8 +107,33 @@ func TestOnCommandTiers(t *testing.T) {
 		if e, _ := coretest.Event(t, "a", c.edit); c.tier == Admin && r.Admin(e) != c.ran {
 			t.Errorf("%s: Admin = %v", c.name, !c.ran)
 		}
-		if !c.ran && (len(*sent) != 1 || (*sent)[0].Content != "✗ only this server's admins can use /a") {
+		want := "✗ only this server's admins can use /a"
+		if c.tier == BreakGlass {
+			want = "✗ only skua's keeper can use /a"
+		}
+		if !c.ran && (len(*sent) != 1 || (*sent)[0].Content != want) {
 			t.Errorf("%s: refusal reply = %+v", c.name, *sent)
+		}
+	}
+}
+
+// With no bootstrap set, break-glass is nobody: not the owner, not an
+// admin, not user 0.
+func TestBreakGlassWithoutABootstrapRefusesEveryone(t *testing.T) {
+	r := NewRouter(0, func(snowflake.ID) (snowflake.ID, bool) { return 5, true }, slog.New(slog.DiscardHandler))
+	ran := false
+	if err := r.Add(mod{[]Command{{Create: discord.SlashCommandCreate{Name: "a"}, Tier: BreakGlass, Run: func(context.Context, *events.ApplicationCommandInteractionCreate) error { ran = true; return nil }}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, edit := range []func(map[string]any){
+		nil, // the owner
+		func(p map[string]any) { p["member"].(map[string]any)["permissions"] = "8" },
+		func(p map[string]any) { p["member"].(map[string]any)["user"].(map[string]any)["id"] = "0" },
+	} {
+		e, sent := coretest.Event(t, "a", edit)
+		r.OnCommand(e)
+		if ran || len(*sent) != 1 || (*sent)[0].Content != "✗ only skua's keeper can use /a" {
+			t.Fatalf("ran %v, sent %+v", ran, *sent)
 		}
 	}
 }
@@ -369,5 +397,18 @@ func TestOnModalRoutesByPrefixAndReportsErrors(t *testing.T) {
 	r.OnModal(e)
 	if len(*sent) != 0 {
 		t.Errorf("an unknown modal got a reply: %+v", *sent)
+	}
+}
+
+// Revision prefers the image's stamp, cut short, and otherwise says what
+// the test binary knows, which is never empty.
+func TestRevision(t *testing.T) {
+	if Revision() == "" {
+		t.Fatal("no revision")
+	}
+	revision = "0123456789abcdef"
+	defer func() { revision = "" }()
+	if Revision() != "0123456" {
+		t.Fatalf("revision %q", Revision())
 	}
 }

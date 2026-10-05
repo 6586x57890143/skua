@@ -32,10 +32,12 @@ import (
 	"github.com/6586x57890143/skua/internal/intents"
 	"github.com/6586x57890143/skua/internal/modules/bird"
 	"github.com/6586x57890143/skua/internal/modules/help"
+	"github.com/6586x57890143/skua/internal/modules/perf"
 	"github.com/6586x57890143/skua/internal/modules/preen"
 	"github.com/6586x57890143/skua/internal/modules/purge"
 	"github.com/6586x57890143/skua/internal/modules/status"
 	"github.com/6586x57890143/skua/internal/modules/whisper"
+	"github.com/6586x57890143/skua/internal/obs"
 	"github.com/6586x57890143/skua/internal/store"
 	"github.com/6586x57890143/skua/internal/webhook"
 )
@@ -136,6 +138,7 @@ func run(log *slog.Logger) error {
 		bird.New(g, hooks, filter.Default(), os.Getenv("SKUA_XENO_CANTO_KEY")),
 		purge.New(g, purgeDB, log, bootstrap),
 		preen.New(g),
+		perf.New(obs.Default),
 		help.New(func() []core.Module { return running }, func(i discord.Interaction) bool { return router.Admin(i) }, toggles),
 	}
 
@@ -169,7 +172,7 @@ func run(log *slog.Logger) error {
 			gm.Gate(func(guild snowflake.ID) bool { return toggles.On(guild, name) })
 		}
 		if l, ok := m.(bot.EventListener); ok {
-			listeners = append(listeners, toggles.Listen(m.Name(), l))
+			listeners = append(listeners, toggles.Listen(m.Name(), obs.Listen(obs.Default, m.Name(), l)))
 		}
 	}
 	// The install link asks for what the running modules declare, so it
@@ -207,6 +210,8 @@ func run(log *slog.Logger) error {
 
 	client, err = disgo.New(token,
 		bot.WithLogger(log),
+		// Every REST call's rate limit wait and round trip, for /perf.
+		bot.WithRestClientConfigOpts(rest.WithRateLimiter(obs.Limiter(rest.NewRateLimiter(rest.WithRateLimiterLogger(log)), obs.Default))),
 		bot.WithGatewayConfigOpts(
 			gateway.WithIntents(identify),
 			gateway.WithPresenceOpts(gateway.WithCustomActivity(brand.StatusAt(0))),
@@ -268,8 +273,15 @@ func servePprof(addr string, log *slog.Logger) error {
 	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
 		return fmt.Errorf("SKUA_PPROF must be a loopback address, got %q", addr)
 	}
+	// The flight recorder rides the same loopback port: the last seconds of
+	// execution trace, for go tool trace, with a region per module.
+	flight, err := obs.Flight()
+	if err != nil {
+		return fmt.Errorf("SKUA_PPROF: flight recorder: %w", err)
+	}
+	http.Handle("/debug/skua/flight", flight)
 	go func() {
-		log.Info("pprof listening", "addr", addr)
+		log.Info("pprof listening", "addr", addr, "flight", "/debug/skua/flight")
 		log.Warn("pprof stopped", "err", http.ListenAndServe(addr, nil)) //nolint:gosec // loopback only, checked above
 	}()
 	return nil

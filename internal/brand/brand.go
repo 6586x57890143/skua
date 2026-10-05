@@ -58,10 +58,8 @@ func Icon(color int) (*discord.File, string) {
 	return asset("skua_" + mood + ".png")
 }
 
-// Banner is the profile banner and its attachment:// URL.
-func Banner() (*discord.File, string) { return asset(banner) }
-
-const banner = "skua_banner.png"
+// Avatar is the bird alone, with no badge, and its attachment:// URL.
+func Avatar() (*discord.File, string) { return asset("skua_avatar.png") }
 
 func asset(name string) (*discord.File, string) {
 	data, _ := assets.ReadFile("assets/" + name) // embedded; cannot fail for a listed name

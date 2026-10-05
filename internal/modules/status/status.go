@@ -113,7 +113,7 @@ func (m *Module) status(ctx context.Context, e *events.ApplicationCommandInterac
 		rows = append(rows, [2]string{"skipped", strings.Join(p.Skipped, ", ")})
 		notes = append(notes, "skipped modules need an intent that is off in the developer portal")
 	}
-	rows = append(rows, [2]string{"runtime", runtime.Version()})
+	rows = append(rows, [2]string{"runtime", runtime.Version()}, [2]string{"build", core.Revision()})
 
 	embed, file := brand.Embed(color, "status", readout(rows)+strings.Join(notes, "\n"))
 	return e.CreateMessage(discord.MessageCreate{

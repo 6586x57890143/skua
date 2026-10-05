@@ -6,8 +6,12 @@ RUN go mod download
 COPY . .
 ARG TARGETOS
 ARG TARGETARCH
+# REVISION is the commit, for /status and /help: the build context has no
+# .git to stamp it from.
+ARG REVISION
 # default.pgo in cmd/skua is picked up automatically when present.
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/skua ./cmd/skua
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
+    -ldflags="-s -w -X github.com/6586x57890143/skua/internal/core.revision=$REVISION" -o /out/skua ./cmd/skua
 
 # Pinned by digest: a rebuild of an old commit produces the same image,
 # and the tag lookup is off the path.

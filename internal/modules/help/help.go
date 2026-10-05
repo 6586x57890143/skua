@@ -158,31 +158,37 @@ func (m *Module) off(guild *snowflake.ID, name string) bool {
 	return m.toggles != nil && guild != nil && !m.toggles.On(*guild, name)
 }
 
+// index is compact: one small avatar by the title, then every module as a
+// line of an ASCII tree in one text block, so a page holds as many modules
+// as Discord's text limit allows rather than as many thumbnails.
 func (m *Module) index(guild *snowflake.ID) discord.MessageCreate {
 	es := m.entries()
 	var att files
 	commands := 0
-	body := []discord.ContainerSubComponent{
-		discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: att.add(brand.Banner())}}),
-		discord.NewTextDisplay("## skua\nstercorarius · small grey · seen in this server"),
-		discord.NewLargeSeparator(),
-	}
-	for _, en := range es {
+	var tree strings.Builder
+	for i, en := range es {
 		commands += len(en.mod.Commands())
-		name := "**" + en.mod.Name() + "**"
-		if m.off(guild, en.mod.Name()) {
-			name += " · off here"
+		branch := "├"
+		if i == len(es)-1 {
+			branch = "└"
 		}
-		body = append(body, discord.NewSection(
-			discord.NewTextDisplay(name+"\n"+en.help.Line),
-		).WithAccessory(discord.NewThumbnail(att.add(brand.Icon(en.help.Color)))))
+		fmt.Fprintf(&tree, "`%s` **%s** · %s", branch, en.mod.Name(), en.help.Line)
+		if m.off(guild, en.mod.Name()) {
+			tree.WriteString(" · `off here`")
+		}
+		tree.WriteString("\n")
 	}
-	body = append(body,
-		discord.NewLargeSeparator(),
-		discord.NewTextDisplay(fmt.Sprintf("-# %d modules · %d commands · nothing she sends pings anyone", len(es), commands)),
+	body := []discord.ContainerSubComponent{
+		discord.NewSection(
+			discord.NewTextDisplay("## skua\n-# stercorarius · small grey · seen in this server"),
+		).WithAccessory(discord.NewThumbnail(att.add(brand.Avatar()))),
+		discord.NewSmallSeparator(),
+		discord.NewTextDisplay(strings.TrimSuffix(tree.String(), "\n")),
+		discord.NewSmallSeparator(),
+		discord.NewTextDisplay(fmt.Sprintf("-# %d modules · %d commands · build `%s` · nothing she sends pings anyone", len(es), commands, core.Revision())),
 		discord.NewActionRow(menu(es, "")),
 		discord.NewActionRow(discord.NewLinkButton("invite", invite), discord.NewLinkButton("source", source)),
-	)
+	}
 	return message(brand.ColorPrimary, body, att)
 }
 
@@ -197,10 +203,8 @@ func (m *Module) page(name string, guild *snowflake.ID, admin bool) (discord.Mes
 		var att files
 		body := []discord.ContainerSubComponent{
 			discord.NewSection(
-				discord.NewTextDisplay("## "+name+"\n-# "+en.help.Line),
-				discord.NewTextDisplay(en.help.About),
+				discord.NewTextDisplay("## " + name + "\n-# " + en.help.Line + "\n" + en.help.About),
 			).WithAccessory(discord.NewThumbnail(att.add(brand.Icon(en.help.Color)))),
-			discord.NewSmallSeparator(),
 			discord.NewTextDisplay(grid(en.mod.Commands())),
 		}
 		if admin && m.toggles != nil && guild != nil && !fixed[name] {
@@ -212,7 +216,7 @@ func (m *Module) page(name string, guild *snowflake.ID, admin bool) (discord.Mes
 				discord.NewSection(discord.NewTextDisplay(state+"\n-# off hides its commands and stops it here; other servers keep it")).WithAccessory(button))
 		}
 		body = append(body,
-			discord.NewLargeSeparator(),
+			discord.NewSmallSeparator(),
 			discord.NewActionRow(menu(es, name)),
 			discord.NewActionRow(discord.NewSecondaryButton("◂ index", id+":index")),
 		)
@@ -264,8 +268,11 @@ func grid(cmds []core.Command) string {
 	var rows [][2]string
 	for _, c := range cmds {
 		who := ""
-		if c.Tier == core.Admin {
+		switch c.Tier {
+		case core.Admin:
 			who = "admin"
+		case core.BreakGlass:
+			who = "keeper"
 		}
 		switch cr := c.Create.(type) {
 		case discord.SlashCommandCreate:

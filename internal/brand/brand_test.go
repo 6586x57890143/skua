@@ -47,8 +47,7 @@ func TestEmbeddedAssetsStaySmall(t *testing.T) {
 
 // Every embedded icon is 256px of 2px cells: tools/sprites draws the avatar
 // on a 128 cell grid and scales it by 2, and the badge's 8px cells sit on
-// the same grid. The banner is 1280 by 440 of 4px cells. A cell that is not
-// one flat colour is a resampling bug.
+// the same grid. A cell that is not one flat colour is a resampling bug.
 func TestEmbeddedAssetsAreOnTheirGrid(t *testing.T) {
 	entries, err := assets.ReadDir("assets")
 	if err != nil {
@@ -65,9 +64,6 @@ func TestEmbeddedAssetsAreOnTheirGrid(t *testing.T) {
 			t.Fatalf("%s: %v", e.Name(), err)
 		}
 		w, h, k := 256, 256, 2
-		if e.Name() == banner {
-			w, h, k = 1280, 440, 4
-		}
 		if b := img.Bounds(); b.Dx() != w || b.Dy() != h {
 			t.Errorf("%s is %dx%d, want %dx%d", e.Name(), b.Dx(), b.Dy(), w, h)
 			continue

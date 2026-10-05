@@ -84,10 +84,6 @@ func main() {
 	if err := write(filepath.Join(out, "skua_avatar.png"), icon); err != nil {
 		log.Fatal(err)
 	}
-	// The banner is embedded too: /help opens on it.
-	if err := write(filepath.Join(out, "skua_banner.png"), scale(banner(), 4)); err != nil {
-		log.Fatal(err)
-	}
 	// Profile art lives outside the embedded assets: the binary never sends
 	// it, only tools/setup uploads it and the README shows it.
 	if err := os.MkdirAll("art", 0o755); err != nil {

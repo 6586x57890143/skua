@@ -51,6 +51,8 @@ scripts/prose.sh                       # CI's punctuation check
 govulncheck ./...
 go run ./tools/sprites                 # regenerate internal/brand/assets
 go test ./internal/guard -bench . -run x
+go test ./internal/obs -bench . -run x       # what a /perf sample costs
+curl -o skua.trace localhost:6060/debug/skua/flight && go tool trace skua.trace   # with SKUA_PPROF=localhost:6060
 
 cp .env.example .env && docker compose up --build   # local bot + Postgres
 go run ./cmd/skua                                   # native, DB optional

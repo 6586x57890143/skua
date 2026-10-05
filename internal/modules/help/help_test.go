@@ -21,10 +21,12 @@ import (
 	"github.com/6586x57890143/skua/internal/core/coretest"
 	"github.com/6586x57890143/skua/internal/intents"
 	"github.com/6586x57890143/skua/internal/modules/bird"
+	"github.com/6586x57890143/skua/internal/modules/perf"
 	"github.com/6586x57890143/skua/internal/modules/preen"
 	"github.com/6586x57890143/skua/internal/modules/purge"
 	"github.com/6586x57890143/skua/internal/modules/status"
 	"github.com/6586x57890143/skua/internal/modules/whisper"
+	"github.com/6586x57890143/skua/internal/obs"
 )
 
 // fake is a module without a page; paged is one with.
@@ -151,13 +153,13 @@ func TestIndexListsTheRunningModulesWithAPage(t *testing.T) {
 		t.Fatalf("accent %#06x", c.AccentColor)
 	}
 	all := mustJSON(t, m.Components)
-	contains(t, "index", all, "**nest**\\n", "where she sleeps", "**gull** · off here", "2 modules · 3 commands", `"help:pick"`, invite, source)
+	contains(t, "index", all, "`├` **nest** · where she sleeps\\n", "`└` **gull** · loud · `off here`", "2 modules · 3 commands · build `"+core.Revision()+"`", `"help:pick"`, invite, source)
 	if strings.Contains(all, "hidden") {
 		t.Error("a module without a page is listed")
 	}
 	checkFiles(t, m.Components, m.Files)
-	if len(m.Files) != 2 {
-		t.Errorf("%d files; want the banner and one icon for two modules of one mood", len(m.Files))
+	if len(m.Files) != 1 || m.Files[0].Name != "skua_avatar.png" {
+		t.Errorf("files %v; the index is compact: one avatar and no more", m.Files)
 	}
 }
 
@@ -326,6 +328,7 @@ func TestEveryPageKeepsTheVoice(t *testing.T) {
 		bird.New(nil, nil, nil, ""),
 		purge.New(nil, nil, slog.New(slog.DiscardHandler), snowflake.ID(0)),
 		preen.New(nil),
+		perf.New(obs.New()),
 	}
 	for _, mod := range mods {
 		h, ok := mod.(core.Helper)

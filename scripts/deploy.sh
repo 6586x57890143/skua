@@ -21,7 +21,7 @@ sha=$(git rev-parse HEAD)
 image=ghcr.io/6586x57890143/skua:$sha
 
 echo "building $image on $host"
-git archive --format=tar HEAD | ssh "$host" "docker build -q -t $image -"
+git archive --format=tar HEAD | ssh "$host" "docker build -q --build-arg REVISION=$sha -t $image -"
 
 ssh "$host" "mkdir -p skua"
 scp -q docker-compose.prod.yml "$host:skua/docker-compose.prod.yml"

@@ -17,6 +17,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/intents"
+	"github.com/6586x57890143/skua/internal/obs"
 )
 
 // Module is a feature compiled into the binary. Modules never import each
@@ -38,6 +39,9 @@ const (
 	tierUnset Tier = iota
 	Public
 	Admin
+	// BreakGlass is the bootstrap admin alone, in any server, for what
+	// spans every server skua is in. With no bootstrap set, nobody.
+	BreakGlass
 )
 
 // Command is one top-level application command: a slash command, or a
@@ -138,7 +142,7 @@ func (r *Router) Add(m Module) error {
 		}
 		k := cmdKey{c.Create.Type(), c.Create.CommandName()}
 		switch {
-		case c.Tier == tierUnset || c.Tier > Admin:
+		case c.Tier == tierUnset || c.Tier > BreakGlass:
 			return fmt.Errorf("core: /%s from %s has no valid tier", k.name, m.Name())
 		case c.Run == nil:
 			return fmt.Errorf("core: /%s from %s has no handler", k.name, m.Name())
@@ -212,7 +216,10 @@ func (r *Router) off(key any, guild *snowflake.ID) error {
 	return nil
 }
 
-var errDenied = errors.New("not allowed")
+var (
+	errDenied = errors.New("not allowed")
+	errKeeper = errors.New("not the keeper")
+)
 
 // Tell is an error written for the member. The router shows a Tell's text
 // as it is, anywhere in the error's chain, and logs whatever else the chain
@@ -240,12 +247,12 @@ func (r *Router) OnCommand(e *events.ApplicationCommandInteractionCreate) {
 	err := r.off(cmdKey{e.Data.Type(), name}, e.GuildID())
 	switch {
 	case err != nil:
+	case c.Tier == BreakGlass && !r.allowed(e, c.Tier):
+		err = errKeeper
 	case !r.allowed(e, c.Tier):
 		err = errDenied
 	default:
-		ctx, cancel := deadline(e.ID())
-		defer cancel()
-		err = c.Run(ctx, e)
+		err = r.run(cmdKey{e.Data.Type(), name}, e.ID(), func(ctx context.Context) error { return c.Run(ctx, e) })
 	}
 	r.report(name, err, *responded, e.CreateMessage, func(m discord.MessageCreate) error {
 		_, err := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), m)
@@ -265,9 +272,7 @@ func (r *Router) OnModal(e *events.ModalSubmitInteractionCreate) {
 	responded := track(&e.Respond)
 	err := r.off("modal:"+id, e.GuildID())
 	if err == nil {
-		ctx, cancel := deadline(e.ID())
-		defer cancel()
-		err = md.Run(ctx, e)
+		err = r.run("modal:"+id, e.ID(), func(ctx context.Context) error { return md.Run(ctx, e) })
 	}
 	r.report(id, err, *responded, e.CreateMessage, func(m discord.MessageCreate) error {
 		_, err := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), m)
@@ -288,9 +293,7 @@ func (r *Router) OnComponent(e *events.ComponentInteractionCreate) {
 	responded := track(&e.Respond)
 	err := r.off("component:"+id, e.GuildID())
 	if err == nil {
-		ctx, cancel := deadline(e.ID())
-		defer cancel()
-		err = c.Run(ctx, e)
+		err = r.run("component:"+id, e.ID(), func(ctx context.Context) error { return c.Run(ctx, e) })
 	}
 	r.report(id, err, *responded, e.CreateMessage, func(m discord.MessageCreate) error {
 		_, err := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), m)
@@ -302,6 +305,23 @@ func (r *Router) recover(what string) {
 	if p := recover(); p != nil {
 		r.log.Error("interaction panicked", "handler", what, "panic", p, "stack", string(debug.Stack()))
 	}
+}
+
+// run calls a handler inside its response window, timed for /perf against
+// the module behind key: in is how long the interaction took to reach
+// dispatch after Discord created it, run is the handler. The handler's ctx
+// carries its module, so the REST calls it makes are counted against it,
+// and it runs in a trace region named for it.
+func (r *Router) run(key any, id snowflake.ID, handler func(context.Context) error) (err error) {
+	module := r.owners[key]
+	obs.Default.Add(module, obs.In, time.Since(id.Time()))
+	ctx, cancel := deadline(id)
+	defer cancel()
+	ctx = obs.With(ctx, module)
+	start := time.Now()
+	obs.Region(ctx, module, func() { err = handler(ctx) })
+	obs.Default.Add(module, obs.Run, time.Since(start))
+	return err
 }
 
 // deadline is the response window, anchored to when Discord created the
@@ -340,6 +360,8 @@ func (r *Router) report(what string, err error, responded bool, create func(disc
 		}
 	case errors.Is(err, errDenied):
 		text = "only this server's admins can use /" + what
+	case errors.Is(err, errKeeper):
+		text = "only skua's keeper can use /" + what
 	default:
 		r.log.Warn("interaction failed", "handler", what, "err", err)
 	}
@@ -364,10 +386,13 @@ func (r *Router) Admin(i discord.Interaction) bool {
 // allowed fails closed: no guild, no member or an unknown owner is a no
 // for anything above Public.
 func (r *Router) allowed(e discord.Interaction, t Tier) bool {
-	if t == Public {
-		return true
-	}
 	user := e.User().ID
+	switch t {
+	case Public:
+		return true
+	case BreakGlass:
+		return r.bootstrap != 0 && user == r.bootstrap
+	}
 	if r.bootstrap != 0 && user == r.bootstrap {
 		return true
 	}
@@ -380,6 +405,37 @@ func (r *Router) allowed(e discord.Interaction, t Tier) bool {
 		}
 	}
 	return false
+}
+
+// revision is the commit skua was built from, set by the image build
+// (-X github.com/6586x57890143/skua/internal/core.revision=<sha>), which
+// has no .git to stamp from.
+var revision string
+
+// Revision is the commit skua was built from, short: the image's stamp, or
+// the VCS stamp go build leaves in a local checkout ("+" when it had
+// uncommitted changes), or "dev".
+func Revision() string {
+	if revision != "" {
+		return revision[:min(7, len(revision))]
+	}
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "dev"
+	}
+	rev, dirty := "", ""
+	for _, s := range bi.Settings {
+		switch {
+		case s.Key == "vcs.revision":
+			rev = s.Value[:min(7, len(s.Value))]
+		case s.Key == "vcs.modified" && s.Value == "true":
+			dirty = "+"
+		}
+	}
+	if rev == "" {
+		return "dev"
+	}
+	return rev + dirty
 }
 
 // NoPings is what every message skua sends carries. It has to be an empty
