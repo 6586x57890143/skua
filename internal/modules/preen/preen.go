@@ -141,13 +141,15 @@ func (*Module) Help() core.Help {
 func (*Module) Commands() []core.Command { return nil }
 
 // OnEvent returns at once: the work runs on its own goroutine. A reaction
-// on a whisper by the member who wrote it counts as a self-react.
+// on a whisper by the member who wrote it counts as a self-react, whether
+// or not the event names the webhook as the author.
 func (m *Module) OnEvent(ev bot.Event) {
 	e, ok := ev.(*events.GuildMessageReactionAdd)
-	if !ok || e.MessageAuthorID == nil || e.Member.User.Bot {
+	if !ok || e.Member.User.Bot {
 		return
 	}
-	own := *e.MessageAuthorID == e.UserID || (m.whispers != nil && m.whispers.Wrote(e.MessageID, e.UserID))
+	own := (e.MessageAuthorID != nil && *e.MessageAuthorID == e.UserID) ||
+		(m.whispers != nil && m.whispers.Wrote(e.MessageID, e.UserID))
 	if !own {
 		return
 	}

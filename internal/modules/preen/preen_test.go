@@ -411,20 +411,27 @@ func whisperReaction(r rest.Rest, user snowflake.ID) *events.GuildMessageReactio
 	return reaction(r, user, 600, false) // 600, the webhook, is the author
 }
 
-// A member reacting to their own whisper gets the flock; reacting to
+// A member reacting to their own whisper gets the flock, whether the event
+// names the webhook as the author or names no author at all; reacting to
 // someone else's, or without whispers to ask, gets nothing.
 func TestAWhispersWriterGetsTheFlock(t *testing.T) {
-	r := &fakeRest{}
-	m := New(guard.New(), obs.New(), whispers{99: 7})
-	m.order = inOrder
-	m.OnEvent(whisperReaction(r, 7))
-	for deadline := time.Now().Add(5 * time.Second); len(r.sorted()) < Birds+1; time.Sleep(5 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatalf("the writer got %v", r.sorted())
+	for name, noAuthor := range map[string]bool{"webhook author": false, "no author": true} {
+		r := &fakeRest{}
+		m := New(guard.New(), obs.New(), whispers{99: 7})
+		m.order = inOrder
+		e := whisperReaction(r, 7)
+		if noAuthor {
+			e.MessageAuthorID = nil
 		}
-	}
-	if got := r.sorted(); !slices.Equal(got, flockAndOff()) {
-		t.Fatalf("calls %v, want %v", got, flockAndOff())
+		m.OnEvent(e)
+		for deadline := time.Now().Add(5 * time.Second); len(r.sorted()) < Birds+1; time.Sleep(5 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: the writer got %v", name, r.sorted())
+			}
+		}
+		if got := r.sorted(); !slices.Equal(got, flockAndOff()) {
+			t.Fatalf("%s: calls %v, want %v", name, got, flockAndOff())
+		}
 	}
 
 	for name, m := range map[string]*Module{
