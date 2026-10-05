@@ -42,6 +42,8 @@ const (
 	// PurgeMember is keyed by member ID: how often one member can start
 	// /purge now.
 	PurgeMember
+	// Reaction is one reaction added or removed.
+	Reaction
 	opCount
 )
 
@@ -61,6 +63,8 @@ var caps = [opCount]int64{
 	// stops a runaway loop.
 	Purge:       100000,
 	PurgeMember: 6,
+	// preen spends 21 per self-react: sixty a guild an hour.
+	Reaction: 1260,
 }
 
 const (

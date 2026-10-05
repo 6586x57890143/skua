@@ -30,6 +30,7 @@ import (
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
 	"github.com/6586x57890143/skua/internal/modules/bird"
+	"github.com/6586x57890143/skua/internal/modules/preen"
 	"github.com/6586x57890143/skua/internal/modules/purge"
 	"github.com/6586x57890143/skua/internal/modules/status"
 	"github.com/6586x57890143/skua/internal/modules/whisper"
@@ -121,6 +122,7 @@ func run(log *slog.Logger) error {
 		whisper.New(g, hooks, filter.Default()),
 		bird.New(g, hooks, filter.Default(), os.Getenv("SKUA_XENO_CANTO_KEY")),
 		purge.New(g, purgeDB, log, bootstrap),
+		preen.New(g),
 	}
 
 	wants := make(map[string]intents.Want, len(all))
