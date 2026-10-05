@@ -172,7 +172,7 @@ func (m *Module) index(guild *snowflake.ID) discord.MessageCreate {
 		if i == len(es)-1 {
 			branch = "└"
 		}
-		fmt.Fprintf(&tree, "`%s` **%s** · %s", branch, en.mod.Name(), en.help.Line)
+		fmt.Fprintf(&tree, "`%s` %s**%s** · %s", branch, icon(en.mod.Name()), en.mod.Name(), en.help.Line)
 		if m.off(guild, en.mod.Name()) {
 			tree.WriteString(" · `off here`")
 		}
@@ -204,7 +204,7 @@ func (m *Module) page(name string, guild *snowflake.ID, admin bool) (discord.Mes
 		body := []discord.ContainerSubComponent{
 			discord.NewSection(
 				discord.NewTextDisplay("## " + name + "\n-# " + en.help.Line + "\n" + en.help.About),
-			).WithAccessory(discord.NewThumbnail(att.add(brand.Icon(en.help.Color)))),
+			).WithAccessory(discord.NewThumbnail(att.add(brand.ModuleIcon(name, en.help.Color)))),
 			discord.NewTextDisplay(grid(en.mod.Commands())),
 		}
 		if admin && m.toggles != nil && guild != nil && !fixed[name] {
@@ -252,7 +252,21 @@ func menu(es []entry, current string) discord.StringSelectMenuComponent {
 // wear the same mood.
 type files []*discord.File
 
+// icon is module's emoji and a space before its name in the index, or
+// nothing until the emoji are synced.
+func icon(module string) string {
+	if e := brand.Mention("mod_" + module); e != "" {
+		return e + " "
+	}
+	return ""
+}
+
+// add keeps file to upload with the reply, once, and returns url. A nil
+// file is an icon served from an emoji: nothing to upload.
 func (f *files) add(file *discord.File, url string) string {
+	if file == nil {
+		return url
+	}
 	for _, have := range *f {
 		if have.Name == file.Name {
 			return url

@@ -42,7 +42,8 @@ The rules every bird shares, which `brand/voice_test.go` holds the status lines 
   lowercase word.
 - A page built from components (`/help`) is one Components V2 container, accented in
   a brand colour, wearing its mood icon (`brand.Icon`) as a section thumbnail, with any
-  footer as `-#` subtext. It uploads exactly the files it points at.
+  footer as `-#` subtext. It points at synced app emoji, attaching only what hasn't
+  synced.
 - Facts go in a code block grid (`status.readout`): the label column is the longest
   label plus two spaces, a value wraps after a comma inside 28 columns, and a whole line
   stays within 40. Anything that is not a short fact goes on a line below the block,

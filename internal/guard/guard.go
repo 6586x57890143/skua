@@ -47,6 +47,9 @@ const (
 	// CommandSync is one overwrite of a guild's command list after a module
 	// is turned on or off.
 	CommandSync
+	// EmojiCreate is one application emoji uploaded, keyed by guild 0:
+	// they belong to the app, not a guild.
+	EmojiCreate
 	opCount
 )
 
@@ -72,6 +75,8 @@ var caps = [opCount]int64{
 	Reaction: 1260,
 	// Discord allows 200 command creates a guild a day.
 	CommandSync: 8,
+	// A boot uploads only what was redrawn: a handful, never hundreds.
+	EmojiCreate: 50,
 }
 
 const (

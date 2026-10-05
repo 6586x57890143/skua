@@ -19,6 +19,7 @@ import (
 	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/core/coretest"
+	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
 	"github.com/6586x57890143/skua/internal/modules/bird"
 	"github.com/6586x57890143/skua/internal/modules/perf"
@@ -160,6 +161,50 @@ func TestIndexListsTheRunningModulesWithAPage(t *testing.T) {
 	checkFiles(t, m.Components, m.Files)
 	if len(m.Files) != 1 || m.Files[0].Name != "skua_avatar.png" {
 		t.Errorf("files %v; the index is compact: one avatar and no more", m.Files)
+	}
+}
+
+// emojiRest is an app with no emoji yet; down makes listing fail.
+type emojiRest struct {
+	rest.Rest
+	down bool
+	n    int
+}
+
+func (f *emojiRest) GetApplicationEmojis(snowflake.ID, ...rest.RequestOpt) ([]discord.Emoji, error) {
+	if f.down {
+		return nil, errors.New("down")
+	}
+	return nil, nil
+}
+
+func (f *emojiRest) CreateApplicationEmoji(_ snowflake.ID, c discord.EmojiCreate, _ ...rest.RequestOpt) (*discord.Emoji, error) {
+	f.n++
+	return &discord.Emoji{ID: snowflake.ID(500 + f.n), Name: c.Name}, nil
+}
+
+// Once the emoji are synced the guide uploads nothing: the avatar and the
+// module's icon come from the CDN and each index line wears its emoji.
+func TestSyncedGuideUploadsNothing(t *testing.T) {
+	if err := brand.Sync(context.Background(), &emojiRest{}, 9, guard.New()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = brand.Sync(context.Background(), &emojiRest{down: true}, 9, guard.New()) })
+	r := newRouter(t, &toggles{off: map[string]bool{}}, stat, gull)
+	e, sent := coretest.Event(t, "help", nil)
+	r.OnCommand(e)
+	m := (*sent)[0]
+	all := mustJSON(t, m.Components)
+	if len(m.Files) != 0 || strings.Contains(all, "attachment://") {
+		t.Fatalf("synced index uploads %v", m.Files)
+	}
+	contains(t, "index", all, ":mod_status_", "https://cdn.discordapp.com/emojis/", "**gull**")
+	if strings.Contains(all, ":mod_gull") {
+		t.Error("a module without an icon got one")
+	}
+	_, all = page(t, click(t, r, "help:pick", true, false, "status"))
+	if strings.Contains(all, "attachment://") || !strings.Contains(all, "https://cdn.discordapp.com/emojis/") {
+		t.Errorf("synced page: %s", all)
 	}
 }
 

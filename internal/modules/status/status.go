@@ -115,10 +115,10 @@ func (m *Module) status(ctx context.Context, e *events.ApplicationCommandInterac
 	}
 	rows = append(rows, [2]string{"runtime", runtime.Version()}, [2]string{"build", core.Revision()})
 
-	embed, file := brand.Embed(color, "status", readout(rows)+strings.Join(notes, "\n"))
+	embed, files := brand.Embed(color, "status", readout(rows)+strings.Join(notes, "\n"))
 	return e.CreateMessage(discord.MessageCreate{
 		Embeds:          []discord.Embed{embed},
-		Files:           []*discord.File{file},
+		Files:           files,
 		Flags:           discord.MessageFlagEphemeral,
 		AllowedMentions: core.NoPings(),
 	})

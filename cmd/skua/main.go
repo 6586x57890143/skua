@@ -175,6 +175,16 @@ func run(log *slog.Logger) error {
 			listeners = append(listeners, toggles.Listen(m.Name(), obs.Listen(obs.Default, m.Name(), l)))
 		}
 	}
+	// Icons go up once as application emoji, so no reply re-uploads one.
+	// Off the boot path: until it finishes, or if it fails, they go as
+	// attachments, as before.
+	go func() {
+		ctx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+		if err := brand.Sync(ctx, probeRest, app.ID, g); err != nil {
+			log.Warn("syncing emoji; the icons missing go as attachments", "err", err)
+		}
+	}()
 	// The install link asks for what the running modules declare, so it
 	// follows every module added, removed or skipped. A failure only leaves
 	// the link stale, which is no reason not to boot.

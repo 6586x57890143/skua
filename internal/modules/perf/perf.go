@@ -63,10 +63,10 @@ func (m *Module) Commands() []core.Command {
 }
 
 func (m *Module) perf(_ context.Context, e *events.ApplicationCommandInteractionCreate) error {
-	embed, file := brand.Embed(brand.ColorInfo, "perf", m.readout())
+	embed, files := brand.Embed(brand.ColorInfo, "perf", m.readout())
 	return e.CreateMessage(discord.MessageCreate{
 		Embeds:          []discord.Embed{embed},
-		Files:           []*discord.File{file},
+		Files:           files,
 		Flags:           discord.MessageFlagEphemeral,
 		AllowedMentions: core.NoPings(),
 	})

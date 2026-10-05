@@ -1,6 +1,7 @@
-// Command sprites writes all of skua's art: the profile picture and mood
-// icons from the drawn avatar (avatar.go), the banner from shapes
-// (profile.go), and each mood's badge from the text grids below, so the
+// Command sprites writes all of skua's art: the profile picture, mood icons
+// and emoji from the drawn avatar (avatar.go), the banner from shapes
+// (profile.go), the module emoji from text grids (icons.go), and each
+// mood's badge from the text grids below, so the
 // badges are reviewable as text and a palette change is one rerun:
 //
 //	go run ./tools/sprites
@@ -84,6 +85,7 @@ func main() {
 	if err := write(filepath.Join(out, "skua_avatar.png"), icon); err != nil {
 		log.Fatal(err)
 	}
+	writeEmoji(b)
 	// Profile art lives outside the embedded assets: the binary never sends
 	// it, only tools/setup uploads it and the README shows it.
 	if err := os.MkdirAll("art", 0o755); err != nil {
@@ -183,6 +185,18 @@ func scale(src *image.NRGBA, k int) *image.NRGBA {
 		}
 	}
 	return dst
+}
+
+func mustMkdir(dir string) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func mustWrite(path string, img *image.NRGBA) {
+	if err := write(path, img); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func write(path string, img *image.NRGBA) error {
