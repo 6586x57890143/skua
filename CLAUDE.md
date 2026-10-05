@@ -80,7 +80,14 @@ worktree removal takes them. Never print the token, and never put it in `.env.ex
 ```sh
 set -a; . ../bench.env; set +a       # from inside a worktree
 go run ./tools/reactbench -trials 5  # every preen.Strategies entry, interleaved
+go run ./tools/reactbench -compare policy -trials 6   # serial under each 429 wait policy
 ```
+
+The 429 wait policy is `userReset` in `cmd/skua/main.go` (see `internal/ratelimit`): a
+user-scope 429 waits its bucket's reset rather than the body's `retry_after`. It was
+measured faster with no more 429s; re-measure with `-compare policy` before changing it.
+Let the channel rest a minute or two between runs: a sustained run brings in a shared
+limit that slows every method alike and hides the difference.
 
 The loop: add an idea as an entry in `preen.Strategies` (or a new tool beside
 `tools/reactbench` for another route), run it, and only move it first, the one preen
