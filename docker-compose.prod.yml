@@ -21,6 +21,10 @@ services:
     # Also what makes an intent change in the Developer Portal take effect:
     # skua exits cleanly when it sees one and comes back re-identified.
     restart: unless-stopped
+    # A deploy stops the old bot with SIGTERM: it closes the gateway and
+    # waits up to 25s for preen's owed removals and fills (drainBy in main)
+    # before Docker's SIGKILL.
+    stop_grace_period: 30s
     mem_limit: 256m
     cpus: 1.0
     logging:

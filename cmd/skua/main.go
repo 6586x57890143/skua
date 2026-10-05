@@ -55,12 +55,19 @@ const reprobe = 10 * time.Minute
 // rather than its retry_after; tools/reactbench -compare policy decided it.
 const userReset = true
 
+// drainBy is how long a shutdown waits for preen's owed removals and fills,
+// inside docker-compose.prod.yml's 30s stop_grace_period.
+const drainBy = 25 * time.Second
+
 var errIntentsChanged = errors.New("privileged intents changed in the Developer Portal; restarting to re-identify")
 
 func main() {
 	level := new(slog.LevelVar)
 	_ = level.UnmarshalText([]byte(env("SKUA_LOG_LEVEL", "info")))
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+	// For a module that logs from deep in a goroutine (preen) without a
+	// logger threaded through.
+	slog.SetDefault(log)
 
 	err := run(log)
 	switch {
@@ -134,6 +141,9 @@ func run(log *slog.Logger) error {
 	hooks := webhook.New(g)
 	// preen asks whisper who wrote a whisper, so its writer gets the flock.
 	whispers := whisper.New(g, hooks, filter.Default())
+	// Shutdown waits on preen, so a self-react's removal is never lost to a
+	// deploy.
+	preener := preen.New(g, obs.Default, whispers)
 	all := []core.Module{
 		status.New(func() status.Probe { return probe }, db, func() time.Duration {
 			if client == nil || client.Gateway == nil {
@@ -144,7 +154,7 @@ func run(log *slog.Logger) error {
 		whispers,
 		bird.New(g, hooks, filter.Default(), os.Getenv("SKUA_XENO_CANTO_KEY")),
 		purge.New(g, purgeDB, log, bootstrap),
-		preen.New(g, obs.Default, whispers),
+		preener,
 		perf.New(obs.Default),
 		help.New(func() []core.Module { return running }, func(i discord.Interaction) bool { return router.Admin(i) }, toggles),
 	}
@@ -259,6 +269,12 @@ func run(log *slog.Logger) error {
 	for {
 		select {
 		case <-ctx.Done():
+			// No new events, then the self-reacts already taken are answered
+			// before the REST client closes (docker-compose.prod.yml gives 30s).
+			client.Gateway.Close(context.Background())
+			if !preener.Drain(drainBy) {
+				log.Warn("shutting down with preen work still owed")
+			}
 			return nil
 		case <-tick.C:
 			// The status line rides the re-probe tick: no loop of its own.

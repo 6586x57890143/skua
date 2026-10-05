@@ -7,13 +7,18 @@
 // out to the millisecond (internal/ratelimit). The birds go up in order on
 // one goroutine, the first of Strategies: tools/reactbench measured every
 // way of keeping more in flight and none was faster. Each fill's time goes
-// to /perf. The removal goes on its own goroutine beside the fill. Every
-// call is spent through the guard.
+// to /perf. Every bird is spent through the guard.
+//
+// The removal of the member's own reaction is the one thing preen must
+// always do, whatever happens to the birds. It goes first, skips the guard
+// (whose cap and breaker hold back birds, never a removal), keeps trying
+// through Discord trouble, and a shutdown waits for it (Drain).
 package preen
 
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"math/rand/v2"
 	"sync"
 	"time"
@@ -47,6 +52,13 @@ const (
 	preenBy = 30 * time.Second
 )
 
+// removeBy bounds one removal with its retries, which back off from
+// firstRetry, doubling.
+const (
+	removeBy   = 2 * time.Minute
+	firstRetry = time.Second
+)
+
 // errGuard is a bird the guard would not spend.
 var errGuard = errors.New("preen: over the reaction cap")
 
@@ -66,12 +78,40 @@ type Module struct {
 	flocked flocked
 	// order draws the birds; tests fix it.
 	order func(n int) []int
+	// removing counts the self-reacts still being answered, removal and
+	// fill, for Drain. draining, under mu, turns new ones away once Drain
+	// has begun: the gateway's Close doesn't wait for an event already
+	// being dispatched, and an Add after Wait has started is a misuse.
+	removing sync.WaitGroup
+	mu       sync.Mutex
+	draining bool
+	// retry is the first wait between removal attempts; tests shorten it.
+	retry time.Duration
 }
 
 // New takes the guard, the recorder and, optionally, the whispers: nil
 // leaves whispers alone.
 func New(g *guard.Guard, rec *obs.Recorder, w Whispers) *Module {
-	return &Module{guard: g, rec: rec, whispers: w, order: rand.Perm, flocked: flocked{set: map[snowflake.ID]struct{}{}, ring: make([]snowflake.ID, remember)}}
+	return &Module{guard: g, rec: rec, whispers: w, order: rand.Perm, retry: firstRetry, flocked: newFlocked(remember)}
+}
+
+// Drain waits up to d for every self-react still being answered, its
+// removal and its fill, and turns away any that arrive after it starts.
+// Call it once the gateway is closed and before the REST client closes. It
+// reports whether all of them finished; a fill cut short is forgotten with
+// the process, so a later self-react on that message gets its flock.
+func (m *Module) Drain(d time.Duration) bool {
+	m.mu.Lock()
+	m.draining = true
+	m.mu.Unlock()
+	done := make(chan struct{})
+	go func() { m.removing.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
+	}
 }
 
 func (*Module) Name() string { return "preen" }
@@ -108,41 +148,87 @@ func (m *Module) OnEvent(ev bot.Event) {
 		return
 	}
 	own := *e.MessageAuthorID == e.UserID || (m.whispers != nil && m.whispers.Wrote(e.MessageID, e.UserID))
-	if own {
-		go m.react(e.Client().Rest, e.GuildID, e.ChannelID, e.MessageID, e.UserID, e.Emoji.Reaction())
+	if !own {
+		return
 	}
+	// Counted before the goroutine starts, so Drain cannot miss one it let in.
+	m.mu.Lock()
+	if m.draining {
+		m.mu.Unlock()
+		return
+	}
+	m.removing.Add(1)
+	m.mu.Unlock()
+	go m.react(e.Client().Rest, e.GuildID, e.ChannelID, e.MessageID, e.UserID, e.Emoji.Reaction())
 }
 
-// react answers a member reacting to what they wrote: a flock the first
-// time, and only the reaction coming off after that.
+// react answers a member reacting to what they wrote: the reaction comes
+// off, then a flock the first time. A fill that fails is forgotten, so the
+// next self-react on that message tries again. Drain waits for all of it.
+//
+// ponytail: work owed when the process dies without a clean shutdown is
+// lost; persist owed removals and replay them at boot if that is seen.
 func (m *Module) react(r rest.Rest, guild, channel, msg, user snowflake.ID, emoji string) {
+	defer m.removing.Done()
+	m.takeOff(r, guild, channel, msg, user, emoji)
 	if !m.flocked.add(msg) {
-		m.takeOff(r, guild, channel, msg, user, emoji)
 		return
 	}
-	m.preen(r, guild, channel, msg, user, emoji)
+	if err := m.preen(r, guild, channel, msg); err != nil {
+		m.flocked.forget(msg)
+		slog.Warn("preen: the flock didn't go up", "guild", guild, "channel", channel, "message", msg, "err", err)
+	}
 }
 
-// takeOff removes a self-react from a message that already has its flock.
+// takeOff removes the member's reaction. It retries anything that is
+// Discord's trouble rather than the request's (a 429, a 5xx, no answer)
+// until removeBy; a 4xx such as a missing permission or a reaction already
+// gone ends it.
 func (m *Module) takeOff(r rest.Rest, guild, channel, msg, user snowflake.ID, emoji string) {
-	if m.guard.Allow(guild, guard.Reaction) != nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), preenBy)
+	ctx, cancel := context.WithTimeout(context.Background(), removeBy)
 	defer cancel()
-	m.report(guild, r.RemoveUserReaction(channel, msg, emoji, user, rest.WithCtx(ctx)))
+	for wait := m.retry; ; wait *= 2 {
+		err := r.RemoveUserReaction(channel, msg, emoji, user, rest.WithCtx(ctx))
+		m.report(guild, err)
+		if err == nil || !transient(err) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+	}
+}
+
+// transient is an error worth another try: Discord struggling, or no
+// answer at all.
+func transient(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if _, ok := errors.AsType[*rest.Error](err); !ok {
+		return true
+	}
+	return struggling(err)
 }
 
 // remember is how many flocked messages preen keeps; an older one that is
 // self-reacted to again gets a fresh flock, which is harmless.
 const remember = 4096
 
-// flocked is a bounded set of message IDs, oldest out first.
+// flocked is a bounded set of message IDs, oldest out first. set holds each
+// ID's ring slot, so a slot coming round only drops the ID if it is still
+// that ID's slot: one forgotten and added again lives in its newer slot.
 type flocked struct {
 	mu   sync.Mutex
-	set  map[snowflake.ID]struct{}
+	set  map[snowflake.ID]int
 	ring []snowflake.ID
 	next int
+}
+
+func newFlocked(n int) flocked {
+	return flocked{set: map[snowflake.ID]int{}, ring: make([]snowflake.ID, n)}
 }
 
 // add reports whether id is new, remembering it either way.
@@ -152,20 +238,28 @@ func (f *flocked) add(id snowflake.ID) bool {
 	if _, ok := f.set[id]; ok {
 		return false
 	}
-	delete(f.set, f.ring[f.next])
+	if old := f.ring[f.next]; f.set[old] == f.next {
+		delete(f.set, old)
+	}
 	f.ring[f.next] = id
+	f.set[id] = f.next
 	f.next = (f.next + 1) % len(f.ring)
-	f.set[id] = struct{}{}
 	return true
 }
 
-func (m *Module) preen(r rest.Rest, guild, channel, msg, user snowflake.ID, emoji string) {
+// forget drops id, so it counts as new again. Its ring slot stays until it
+// comes round, and is then skipped.
+func (f *flocked) forget(id snowflake.ID) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.set, id)
+}
+
+// preen puts the birds up on msg, each spent through the guard, and says
+// why it stopped short if it did.
+func (m *Module) preen(r rest.Rest, guild, channel, msg snowflake.ID) error {
 	ctx, cancel := context.WithTimeout(context.Background(), preenBy)
 	defer cancel()
-	var off sync.WaitGroup
-	if m.guard.Allow(guild, guard.Reaction) == nil {
-		off.Go(func() { m.report(guild, r.RemoveUserReaction(channel, msg, emoji, user, rest.WithCtx(ctx))) })
-	}
 	birds := make([]string, Birds)
 	for i, j := range m.order(len(Flock))[:Birds] {
 		birds[i] = Flock[j]
@@ -183,7 +277,7 @@ func (m *Module) preen(r rest.Rest, guild, channel, msg, user snowflake.ID, emoj
 	if err == nil {
 		m.rec.Add("preen fill", obs.Run, time.Since(start))
 	}
-	off.Wait()
+	return err
 }
 
 // report feeds a call's outcome to the breaker. A call cut off by a

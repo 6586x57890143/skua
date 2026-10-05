@@ -20,13 +20,15 @@ import (
 	"github.com/6586x57890143/skua/internal/obs"
 )
 
-// fakeRest records every call. Each add takes pace; addErr fails every add.
+// fakeRest records every call. Each add takes pace; addErr fails every add,
+// and removeErrs are the removals' answers in turn, nil once they run out.
 type fakeRest struct {
 	rest.Rest
-	mu     sync.Mutex
-	calls  []string
-	pace   time.Duration
-	addErr error
+	mu         sync.Mutex
+	calls      []string
+	pace       time.Duration
+	addErr     error
+	removeErrs []error
 }
 
 func (f *fakeRest) record(c string) {
@@ -43,7 +45,28 @@ func (f *fakeRest) sorted() []string {
 
 func (f *fakeRest) RemoveUserReaction(_, _ snowflake.ID, emoji string, _ snowflake.ID, _ ...rest.RequestOpt) error {
 	f.record("-" + emoji)
-	return nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.removeErrs) == 0 {
+		return nil
+	}
+	err := f.removeErrs[0]
+	f.removeErrs = f.removeErrs[1:]
+	return err
+}
+
+func (f *fakeRest) inOrder() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.calls)
+}
+
+func status(code int) error { return &rest.Error{Response: &http.Response{StatusCode: code}} }
+
+// answer runs one self-react to the end, as OnEvent's goroutine would.
+func answer(m *Module, r rest.Rest) {
+	m.removing.Add(1)
+	m.react(r, 3, 4, 99, 7, "🔥")
 }
 
 func (f *fakeRest) AddReaction(_, _ snowflake.ID, emoji string, _ ...rest.RequestOpt) error {
@@ -154,17 +177,88 @@ func TestAFailedBirdStopsTheFill(t *testing.T) {
 	}
 }
 
-// A failed fill is not timed, and the self-react still comes off.
+// A failed fill is not timed, the self-react still comes off, and the
+// message is forgotten so the next self-react on it tries again.
 func TestAFailedFillIsNotTimedAndStillComesOff(t *testing.T) {
-	r := &fakeRest{addErr: &rest.Error{Response: &http.Response{StatusCode: 503}}}
+	r := &fakeRest{addErr: status(503)}
 	rec := obs.New()
 	m := New(guard.New(), rec, nil)
-	m.preen(r, 3, 4, 99, 7, "🔥")
-	if !slices.Contains(r.sorted(), "-🔥") {
-		t.Fatalf("calls %v, want the removal among them", r.calls)
+	answer(m, r)
+	if got := r.inOrder(); len(got) == 0 || got[0] != "-🔥" {
+		t.Fatalf("calls %v, want the removal first", got)
 	}
 	if rows := rec.Rows(); len(rows) != 0 {
 		t.Fatalf("a failed fill was timed: %+v", rows)
+	}
+	if !m.flocked.add(99) {
+		t.Fatal("a failed fill was remembered, so the message would never get birds")
+	}
+}
+
+// The removal goes before any bird, so a fill cut short never leaves it.
+func TestTheRemovalComesFirst(t *testing.T) {
+	r := &fakeRest{}
+	m := New(guard.New(), obs.New(), nil)
+	m.order = inOrder
+	answer(m, r)
+	if got := r.inOrder(); len(got) != Birds+1 || got[0] != "-🔥" {
+		t.Fatalf("calls %v, want the removal then %d birds", got, Birds)
+	}
+}
+
+// The guard holds back birds, never the removal: with the breaker open the
+// self-react still comes off.
+func TestTheRemovalIgnoresTheGuard(t *testing.T) {
+	g := guard.New()
+	for range 5 {
+		g.Report(3, true)
+	}
+	if g.Allow(3, guard.Reaction) == nil {
+		t.Fatal("the breaker didn't open")
+	}
+	r := &fakeRest{}
+	m := New(g, obs.New(), nil)
+	answer(m, r)
+	if got := r.inOrder(); !slices.Equal(got, []string{"-🔥"}) {
+		t.Fatalf("calls %v, want just the removal", got)
+	}
+}
+
+// A removal is tried again while Discord is the trouble (429, 5xx, no
+// answer), and not when the request is (a 4xx).
+func TestTheRemovalRetriesOnlyDiscordsTrouble(t *testing.T) {
+	for name, c := range map[string]struct {
+		errs  []error
+		tries int
+	}{
+		"429, 503, no answer, then done": {[]error{status(429), status(503), errors.New("reset")}, 4},
+		"403 is final":                   {[]error{status(403)}, 1},
+		"404 is final":                   {[]error{status(404)}, 1},
+	} {
+		r := &fakeRest{removeErrs: c.errs, addErr: status(403)}
+		m := New(guard.New(), obs.New(), nil)
+		m.retry = time.Millisecond
+		answer(m, r)
+		if n := len(slices.DeleteFunc(r.inOrder(), func(s string) bool { return s != "-🔥" })); n != c.tries {
+			t.Errorf("%s: %d tries, want %d", name, n, c.tries)
+		}
+	}
+}
+
+// Drain waits for a self-react already taken, its removal and its fill,
+// and says so when its time runs out first.
+func TestDrainWaitsForOwedWork(t *testing.T) {
+	r := &fakeRest{pace: 10 * time.Millisecond}
+	m := New(guard.New(), obs.New(), nil)
+	m.OnEvent(reaction(r, 7, 7, false))
+	if m.Drain(time.Millisecond) {
+		t.Fatal("drained before a fill that takes 150ms")
+	}
+	if !m.Drain(5 * time.Second) {
+		t.Fatal("never drained")
+	}
+	if n := len(r.inOrder()); n != Birds+1 {
+		t.Fatalf("%d calls when drained, want the removal and %d birds", n, Birds)
 	}
 }
 
@@ -259,9 +353,52 @@ func TestASecondSelfReactOnlyComesOff(t *testing.T) {
 }
 
 func TestFlockedForgetsTheOldest(t *testing.T) {
-	f := flocked{set: map[snowflake.ID]struct{}{}, ring: make([]snowflake.ID, 2)}
+	f := newFlocked(2)
 	if !f.add(1) || !f.add(2) || f.add(1) || !f.add(3) || !f.add(1) || f.add(3) {
 		t.Fatal("not a bounded set, oldest out first")
+	}
+}
+
+// A message forgotten and added again lives in its new slot: its old slot
+// coming round must not drop it.
+func TestFlockedKeepsAReAddedMessage(t *testing.T) {
+	f := newFlocked(3)
+	f.add(1) // slot 0
+	f.forget(1)
+	f.add(1) // slot 1
+	f.add(2) // slot 2
+	f.add(3) // slot 0 comes round: 1 lives in slot 1, so it stays
+	if f.add(1) {
+		t.Fatal("the old slot dropped a message living in a newer one")
+	}
+	if f.add(2) || f.add(3) {
+		t.Fatal("lost a message still in its slot")
+	}
+}
+
+// A self-react that arrives after Drain has begun is turned away, without
+// a race on the count or a call.
+func TestASelfReactDuringDrainIsTurnedAway(t *testing.T) {
+	r := &fakeRest{}
+	m := New(guard.New(), obs.New(), nil)
+	drained := make(chan bool)
+	go func() { drained <- m.Drain(time.Second) }()
+	for {
+		m.mu.Lock()
+		d := m.draining
+		m.mu.Unlock()
+		if d {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	m.OnEvent(reaction(r, 7, 7, false))
+	if !<-drained {
+		t.Fatal("drain timed out")
+	}
+	time.Sleep(20 * time.Millisecond)
+	if got := r.inOrder(); len(got) != 0 {
+		t.Fatalf("a self-react after the drain began made calls %v", got)
 	}
 }
 
