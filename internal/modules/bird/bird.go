@@ -68,6 +68,7 @@ type target struct{ guild, user snowflake.ID }
 
 // prank is one member being one bird until a time.
 type prank struct {
+	by    snowflake.ID // who ran /bird, for the audit log
 	until time.Time
 	rec   recording
 	audio []byte
@@ -178,7 +179,7 @@ func (m *Module) bird(ctx context.Context, e *events.ApplicationCommandInteracti
 		return fmt.Errorf("%w: %w", errNoBird, err)
 	}
 	until := m.now().Add(time.Duration(minutes) * time.Minute)
-	m.pranks.Store(k, &prank{until: until, rec: rec, audio: audio})
+	m.pranks.Store(k, &prank{by: e.User().ID, until: until, rec: rec, audio: audio})
 	_, err = e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(), discord.MessageUpdate{
 		Content:         new(fmt.Sprintf("✓ @%s is a bird for %dm: %s", user.Username, minutes, strings.ToLower(rec.En))),
 		AllowedMentions: core.NoPings(),
@@ -295,7 +296,7 @@ func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Messa
 	if m.guard.Allow(guild, guard.MessageDelete) != nil {
 		return
 	}
-	err := r.DeleteMessage(msg.ChannelID, msg.ID, rest.WithCtx(ctx))
+	err := r.DeleteMessage(msg.ChannelID, msg.ID, rest.WithCtx(ctx), rest.WithReason("bird: replaced with a recording, started by "+p.by.String()))
 	m.guard.Report(guild, struggling(err))
 }
 

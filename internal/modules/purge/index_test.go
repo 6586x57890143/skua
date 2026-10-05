@@ -245,8 +245,8 @@ func TestCatchUpIsShared(t *testing.T) {
 	m := newModule()
 	f := server(t, time.Now())
 	f.hold = make(chan struct{})
-	a := m.newJob(f, guildID, []snowflake.ID{me})
-	b := m.newJob(f, guildID, []snowflake.ID{them})
+	a := m.newJob(f, guildID, []snowflake.ID{me}, "test purge for")
+	b := m.newJob(f, guildID, []snowflake.ID{them}, "test purge for")
 	b.sweep.cutoff = a.sweep.cutoff // asked at the same moment
 	errs := make(chan error, 2)
 	go func() { errs <- m.work(context.Background(), a) }()
@@ -274,7 +274,7 @@ func TestCatchUpIsShared(t *testing.T) {
 func TestLaterPurgeCatchesUpAgain(t *testing.T) {
 	m := newModule()
 	f := server(t, time.Now())
-	first := m.newJob(f, guildID, []snowflake.ID{them})
+	first := m.newJob(f, guildID, []snowflake.ID{them}, "test purge for")
 	if err := m.work(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +282,7 @@ func TestLaterPurgeCatchesUpAgain(t *testing.T) {
 	late := s.at(time.Now(), me)
 	f.msgs[textCh] = append(f.msgs[textCh], late)
 	time.Sleep(5 * time.Millisecond)
-	j := m.newJob(f, guildID, []snowflake.ID{me})
+	j := m.newJob(f, guildID, []snowflake.ID{me}, "test purge for")
 	stale := &catchup{scan: first.scan.Load(), done: make(chan struct{})}
 	close(stale.done)
 	m.catching.Store(snowflake.ID(guildID), stale) // finished, but read before j began
@@ -302,7 +302,7 @@ func TestLaterPurgeCatchesUpAgain(t *testing.T) {
 func TestGuildLeaveForgets(t *testing.T) {
 	m := newModule()
 	f := server(t, time.Now())
-	if err := m.work(context.Background(), m.newJob(f, guildID, []snowflake.ID{them})); err != nil {
+	if err := m.work(context.Background(), m.newJob(f, guildID, []snowflake.ID{them}, "test purge for")); err != nil {
 		t.Fatal(err)
 	}
 	if len(indexed(t, m.idx, me)) == 0 {
@@ -382,7 +382,7 @@ func TestPurgeThroughPostgres(t *testing.T) {
 	g := freshGuild()
 	f.guild = g
 	run := func(author snowflake.ID) *job {
-		j := m.newJob(f, g, []snowflake.ID{author})
+		j := m.newJob(f, g, []snowflake.ID{author}, "test purge for")
 		if err := m.work(context.Background(), j); err != nil {
 			t.Fatal(err)
 		}

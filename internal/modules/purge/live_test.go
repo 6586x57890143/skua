@@ -84,6 +84,7 @@ func TestLiveBurstGoesInOneBulk(t *testing.T) {
 		b, _ := f.state()
 		return len(b) == 1 && len(b[0]) == 20
 	})
+	f.reasonsAre(t, "live purge for 5")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.queues) != 0 {

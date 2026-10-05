@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -56,6 +57,7 @@ type fake struct {
 	gone         map[snowflake.ID]bool
 	bulks        [][]snowflake.ID
 	singles      []snowflake.ID
+	reasons      []string // the audit log reason of each delete call
 	bulkErr      error
 	deleteErr    map[snowflake.ID]error
 	hold         chan struct{} // when set, listing channels waits for it
@@ -190,9 +192,10 @@ func (f *fake) GetMessages(ch, _, _, after snowflake.ID, limit int, _ ...rest.Re
 
 // BulkDeleteMessages refuses what Discord refuses: fewer than two IDs, or
 // any message 14 days old.
-func (f *fake) BulkDeleteMessages(_ snowflake.ID, ids []snowflake.ID, _ ...rest.RequestOpt) error {
+func (f *fake) BulkDeleteMessages(_ snowflake.ID, ids []snowflake.ID, opts ...rest.RequestOpt) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.reasons = append(f.reasons, coretest.Reason(opts...))
 	if err := f.bulkErr; err != nil {
 		return err
 	}
@@ -211,7 +214,7 @@ func (f *fake) BulkDeleteMessages(_ snowflake.ID, ids []snowflake.ID, _ ...rest.
 	return nil
 }
 
-func (f *fake) DeleteMessage(_, id snowflake.ID, _ ...rest.RequestOpt) error {
+func (f *fake) DeleteMessage(_, id snowflake.ID, opts ...rest.RequestOpt) error {
 	if f.slow > 0 {
 		n := f.inflight.Add(1)
 		for p := f.peak.Load(); n > p && !f.peak.CompareAndSwap(p, n); p = f.peak.Load() {
@@ -221,6 +224,7 @@ func (f *fake) DeleteMessage(_, id snowflake.ID, _ ...rest.RequestOpt) error {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.reasons = append(f.reasons, coretest.Reason(opts...))
 	if err := f.deleteErr[id]; err != nil {
 		return err
 	}
@@ -694,5 +698,37 @@ func TestPrivateThreadsListedOnlyForText(t *testing.T) {
 	}
 	if !slices.Equal(f.privateAsked, []snowflake.ID{textCh}) {
 		t.Errorf("asked %v for private threads, want [%d]", f.privateAsked, textCh)
+	}
+}
+
+// reasons fails t unless f made deletes and each one's audit log reason
+// is want.
+func (f *fake) reasonsAre(t *testing.T, want string) {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.reasons) == 0 {
+		t.Fatal("no deletes")
+	}
+	for _, r := range f.reasons {
+		if r != want {
+			t.Fatalf("audit log reason %q, want %q", r, want)
+		}
+	}
+}
+
+// A reason names each author once, and a long list is cut short of
+// Discord's 512 characters.
+func TestReason(t *testing.T) {
+	s := &sweep{why: "live purge for"}
+	if got := coretest.Reason(s.reason([]msg{{1, me}, {2, them}, {3, me}})); got != "live purge for 5, 6" {
+		t.Errorf("reason %q", got)
+	}
+	var ms []msg
+	for i := range 100 {
+		ms = append(ms, msg{snowflake.ID(i), snowflake.ID(1e18 + i)})
+	}
+	if got := coretest.Reason(s.reason(ms)); len(got) > 512 || !strings.HasSuffix(got, " and more") {
+		t.Errorf("a hundred authors: %d characters, %q", len(got), got)
 	}
 }

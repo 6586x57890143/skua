@@ -73,6 +73,13 @@ func TestScheduledSweep(t *testing.T) {
 			}
 		}
 	}
+	f.mu.Lock()
+	for _, r := range f.reasons {
+		if !strings.HasPrefix(r, "scheduled purge for ") {
+			t.Errorf("audit log reason %q", r)
+		}
+	}
+	f.mu.Unlock()
 
 	got := subCmd(t, m, "status", "", "", g)
 	for _, want := range []string{"every        1d", "deleted      129", "next sweep   in 23h", "unreachable  1", "<#12>"} {
@@ -150,7 +157,7 @@ func TestStoppedSweepIsRecorded(t *testing.T) {
 	m := liveModule()
 	m.useDB(db)
 	g := freshGuild()
-	m.record(m.newJob(newFake(), g, []snowflake.ID{me}), context.Canceled)
+	m.record(m.newJob(newFake(), g, []snowflake.ID{me}, "test purge for"), context.Canceled)
 	if got := subCmd(t, m, "status", "", "", g); !strings.Contains(got, "ago, stopped") {
 		t.Errorf("status:\n%s", got)
 	}

@@ -120,6 +120,7 @@ type fakeRest struct {
 	rest.Rest
 	updated   []discord.MessageUpdate
 	deleted   []snowflake.ID
+	reason    string // the delete's audit log reason
 	deleteErr error
 }
 
@@ -128,8 +129,9 @@ func (f *fakeRest) UpdateInteractionResponse(_ snowflake.ID, _ string, u discord
 	return &discord.Message{}, nil
 }
 
-func (f *fakeRest) DeleteMessage(_, id snowflake.ID, _ ...rest.RequestOpt) error {
+func (f *fakeRest) DeleteMessage(_, id snowflake.ID, opts ...rest.RequestOpt) error {
 	f.deleted = append(f.deleted, id)
+	f.reason = coretest.Reason(opts...)
 	return f.deleteErr
 }
 
@@ -233,7 +235,7 @@ func pranked(now time.Time) (*Module, *fakePoster) {
 	p := &fakePoster{}
 	m := New(guard.New(), p, filter.Default(), "k")
 	m.now = func() time.Time { return now }
-	m.pranks.Store(target{3, 7}, &prank{until: now.Add(5 * time.Minute), rec: recording{ID: "42", En: "Wren"}, audio: []byte("chirp")})
+	m.pranks.Store(target{3, 7}, &prank{by: 8, until: now.Add(5 * time.Minute), rec: recording{ID: "42", En: "Wren"}, audio: []byte("chirp")})
 	return m, p
 }
 
@@ -245,6 +247,9 @@ func TestOnEventReplacesThenDeletes(t *testing.T) {
 	m.replace(r, 2, 3, e.Message, mustPrank(t, m))
 	if len(p.sent) != 1 || len(r.deleted) != 1 || r.deleted[0] != 99 {
 		t.Fatalf("sent %d, deleted %v", len(p.sent), r.deleted)
+	}
+	if r.reason != "bird: replaced with a recording, started by 8" {
+		t.Errorf("audit log reason %q", r.reason)
 	}
 	s := p.sent[0]
 	if s.Username != "wren_fan" || len(s.Files) != 1 || s.Files[0].Name != "xc42.mp3" || s.Content != `-# @wren\_fan is a [wren](<https://xeno-canto.org/42>) for 5m` {

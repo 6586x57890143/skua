@@ -26,13 +26,13 @@ func TestJobsListsWhatIsRunning(t *testing.T) {
 	m := liveModule()
 	m.bootstrap = me
 	f := newFake()
-	j := m.newJob(f, 40, []snowflake.ID{them})
+	j := m.newJob(f, 40, []snowflake.ID{them}, "test purge for")
 	j.sweep.authors[them].Store(12)
 	j.sweep.total.Store(48)
 	j.sweep.handled.Store(24)
 	j.deleting.Store(true)
 	m.running.Store(target{40, them}, &run{func() {}, j, true})
-	m.running.Store(target{40, me}, &run{func() {}, m.newJob(f, 40, []snowflake.ID{me}), false})
+	m.running.Store(target{40, me}, &run{func() {}, m.newJob(f, 40, []snowflake.ID{me}, "test purge for"), false})
 	m.catching.Store(snowflake.ID(41), &catchup{scan: &scan{}})
 	read := &scan{}
 	read.channels.Store(4)
@@ -63,7 +63,7 @@ func TestJobsFitsOneReply(t *testing.T) {
 	f := newFake()
 	for i := range 200 {
 		g := snowflake.ID(1000 + i)
-		m.running.Store(target{g, them}, &run{func() {}, m.newJob(f, g, []snowflake.ID{them}), false})
+		m.running.Store(target{g, them}, &run{func() {}, m.newJob(f, g, []snowflake.ID{them}, "test purge for"), false})
 	}
 	got := subCmd(t, m, "jobs", "", "", guildID)
 	if len(got) > 2000 || !strings.Contains(got, " more") {

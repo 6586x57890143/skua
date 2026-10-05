@@ -100,7 +100,7 @@ func (m *Module) due(r rest.Rest) {
 			continue
 		}
 		jctx, jcancel := context.WithCancel(context.Background())
-		j := m.newJob(r, g, nil)
+		j := m.newJob(r, g, nil, "scheduled purge for")
 		var mine, busy []snowflake.ID
 		for _, u := range users {
 			if _, loaded := m.running.LoadOrStore(target{g, u}, &run{jcancel, j, true}); loaded {

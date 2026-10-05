@@ -148,7 +148,7 @@ func (p *Poster) hook(r rest.Rest, opt rest.RequestOpt, guild, ch, app snowflake
 	if err := p.guard.Allow(guild, guard.WebhookCreate); err != nil {
 		return hook{}, err
 	}
-	in, err := r.CreateWebhook(ch, discord.WebhookCreate{Name: "skua"}, opt)
+	in, err := r.CreateWebhook(ch, discord.WebhookCreate{Name: "skua"}, opt, rest.WithReason("skua's webhook for whisper and bird"))
 	p.guard.Report(guild, struggling(err))
 	if err != nil {
 		return hook{}, fmt.Errorf("creating the webhook: %w", err)

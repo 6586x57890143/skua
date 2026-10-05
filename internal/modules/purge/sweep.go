@@ -329,6 +329,9 @@ type sweep struct {
 	authors map[snowflake.ID]*atomic.Int64 // each one's deleted count
 	cutoff  snowflake.ID
 	now     func() time.Time
+	// why heads the reason Discord's audit log shows for each delete;
+	// the members whose messages they are follow it.
+	why string
 
 	deleted, missed atomic.Int64
 	// total is how many messages run has to delete, known once the index
@@ -466,7 +469,7 @@ func (s *sweep) bulk(ctx context.Context, ch snowflake.ID, ms []msg) error {
 	for i, m := range ms {
 		ids[i] = m.id
 	}
-	err := s.r.BulkDeleteMessages(ch, ids, rest.WithCtx(ctx))
+	err := s.r.BulkDeleteMessages(ch, ids, rest.WithCtx(ctx), s.reason(ms))
 	s.guard.Report(s.guild, struggling(err))
 	status, _ := answer(err)
 	switch {
@@ -495,7 +498,7 @@ func (s *sweep) one(ctx context.Context, ch snowflake.ID, m msg) error {
 	if err := s.spend(ctx); err != nil {
 		return err
 	}
-	err := s.r.DeleteMessage(ch, m.id, rest.WithCtx(ctx))
+	err := s.r.DeleteMessage(ch, m.id, rest.WithCtx(ctx), s.reason([]msg{m}))
 	s.guard.Report(s.guild, struggling(err))
 	status, code := answer(err)
 	switch {
@@ -519,6 +522,30 @@ func (s *sweep) one(ctx context.Context, ch snowflake.ID, m msg) error {
 
 // msg is a message to delete and whose it is.
 type msg struct{ id, author snowflake.ID }
+
+// reasonMax is Discord's 512 characters for an audit log reason, less room
+// for the " and more" that ends a list cut short.
+const reasonMax = 512 - len(" and more")
+
+// reason is the audit log reason for deleting ms: s.why, then each of
+// their authors once. Plain ASCII, so it fits Discord's cap as it stands.
+func (s *sweep) reason(ms []msg) rest.RequestOpt {
+	r, sep := s.why, " "
+	seen := map[snowflake.ID]bool{}
+	for _, m := range ms {
+		if seen[m.author] {
+			continue
+		}
+		seen[m.author] = true
+		id := sep + m.author.String()
+		if len(r)+len(id) > reasonMax {
+			r += " and more"
+			break
+		}
+		r, sep = r+id, ", "
+	}
+	return rest.WithReason(r)
+}
 
 // gone counts m deleted, for the sweep and for its author.
 func (s *sweep) gone(m msg) {

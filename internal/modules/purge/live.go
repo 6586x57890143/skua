@@ -181,7 +181,7 @@ func (m *Module) flush(ch snowflake.ID) {
 func (m *Module) remove(r rest.Rest, guild, ch snowflake.ID, ids []msg) {
 	ctx, cancel := context.WithTimeout(context.Background(), removeBy)
 	defer cancel()
-	s := &sweep{r: r, guard: m.guard, guild: guild}
+	s := &sweep{r: r, guard: m.guard, guild: guild, why: "live purge for"}
 	for chunk := range slices.Chunk(ids, bulkMax) {
 		err := s.bulk(ctx, ch, chunk)
 		if errors.Is(err, errChannelDone) {

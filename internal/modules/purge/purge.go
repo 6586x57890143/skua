@@ -343,7 +343,12 @@ func (m *Module) confirm(_ context.Context, e *events.ModalSubmitInteractionCrea
 	}
 	k := target{*guild, user}
 	ctx, cancel := context.WithCancel(context.Background())
-	j := m.newJob(e.Client().Rest, *guild, []snowflake.ID{user})
+	// The break-glass admin isn't named: server admins read this.
+	why := "purge now, asked by"
+	if user != by {
+		why = "purge now by skua's break-glass admin, for"
+	}
+	j := m.newJob(e.Client().Rest, *guild, []snowflake.ID{user}, why)
 	if _, loaded := m.running.LoadOrStore(k, &run{cancel, j, false}); loaded {
 		cancel()
 		return errRunning
@@ -379,14 +384,15 @@ type job struct {
 	err        error         // how it ended, set before done closes
 }
 
-func (m *Module) newJob(r rest.Rest, guild snowflake.ID, authors []snowflake.ID) *job {
+// why heads its deletes' audit log reason, as sweep's does.
+func (m *Module) newJob(r rest.Rest, guild snowflake.ID, authors []snowflake.ID, why string) *job {
 	counts := map[snowflake.ID]*atomic.Int64{}
 	for _, a := range authors {
 		counts[a] = new(atomic.Int64)
 	}
 	return &job{began: m.now(), done: make(chan struct{}), sweep: &sweep{
 		r: r, guard: m.guard, pace: m.pace, idx: m.idx, guild: guild,
-		authors: counts, cutoff: snowflake.New(m.now()), now: m.now,
+		authors: counts, cutoff: snowflake.New(m.now()), now: m.now, why: why,
 	}}
 }
 

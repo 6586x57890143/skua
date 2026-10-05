@@ -104,6 +104,7 @@ func TestPurgeNowAsksThenSweeps(t *testing.T) {
 			t.Fatal("confirming left the member's messages")
 		}
 	}
+	f.reasonsAre(t, "purge now, asked by 5")
 }
 
 func TestPurgeRefusals(t *testing.T) {
@@ -210,7 +211,7 @@ func TestModuleDeclares(t *testing.T) {
 // mean it, and no line past UX.md's 40 columns.
 func TestReadoutFillsIn(t *testing.T) {
 	m := newModule()
-	j := m.newJob(newFake(), guildID, []snowflake.ID{me})
+	j := m.newJob(newFake(), guildID, []snowflake.ID{me}, "test purge for")
 	now := time.Now()
 	got := render(j, "x", now)
 	for _, want := range []string{"deleted      not yet", "rate         not yet", "scanned      not yet", "channels     listing"} {

@@ -63,7 +63,7 @@ func watchUntilHandoff(t *testing.T, m *Module, f *fake, j *job, viewer snowflak
 func TestReadoutMovesToADM(t *testing.T) {
 	m := newModule()
 	f := newFake()
-	j := m.newJob(f, guildID, []snowflake.ID{me})
+	j := m.newJob(f, guildID, []snowflake.ID{me}, "test purge for")
 	last := watchUntilHandoff(t, m, f, j, 7) // the break-glass admin watching
 	if !strings.Contains(last, "the rest is in your dms") || f.lastButtons() != 0 {
 		t.Fatalf("last readout %q with %d button rows", last, f.lastButtons())
@@ -86,7 +86,7 @@ func TestReadoutWithoutDMsOffersProgress(t *testing.T) {
 	m := newModule()
 	f := newFake()
 	f.dmErr = refusal(403, rest.JSONErrorCodeCannotSendMessagesToThisUser)
-	j := m.newJob(f, guildID, []snowflake.ID{me})
+	j := m.newJob(f, guildID, []snowflake.ID{me}, "test purge for")
 	last := watchUntilHandoff(t, m, f, j, me)
 	if !strings.Contains(last, "skua can't dm you") || f.lastButtons() != 1 {
 		t.Fatalf("last readout %q with %d button rows", last, f.lastButtons())
@@ -98,7 +98,7 @@ func TestReadoutWithoutDMsOffersProgress(t *testing.T) {
 	m = newModule()
 	for m.guard.Allow(guildID, guard.MessageSend) == nil {
 	}
-	j = m.newJob(f, guildID, []snowflake.ID{me})
+	j = m.newJob(f, guildID, []snowflake.ID{me}, "test purge for")
 	if last := watchUntilHandoff(t, m, f, j, me); f.lastButtons() != 1 {
 		t.Fatalf("with no send budget: %q with %d button rows", last, f.lastButtons())
 	}
@@ -111,7 +111,7 @@ func TestProgressOpensAFreshReadout(t *testing.T) {
 	m := newModule()
 	m.tick = 2 * time.Millisecond
 	f := newFake()
-	j := m.newJob(f, guildID, []snowflake.ID{me})
+	j := m.newJob(f, guildID, []snowflake.ID{me}, "test purge for")
 	m.running.Store(target{guildID, me}, &run{func() {}, j, false})
 
 	e, sent := coretest.Button(t, fmt.Sprintf("%s:%d", progressButton, me), nil)

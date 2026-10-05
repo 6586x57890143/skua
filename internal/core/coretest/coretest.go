@@ -5,6 +5,9 @@ package coretest
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/url"
+	"reflect"
 	"testing"
 	"time"
 
@@ -170,4 +173,21 @@ func Text(content string, components []discord.LayoutComponent) string {
 		}
 	}
 	return out
+}
+
+// Reason is the audit log reason opts would send, decoded, or "" for none.
+// disgo's request config is unexported, so it is built by reflection.
+func Reason(opts ...rest.RequestOpt) string {
+	for _, o := range opts {
+		fn := reflect.ValueOf(o)
+		cfg := reflect.New(fn.Type().In(0).Elem())
+		req := &http.Request{Header: http.Header{}}
+		cfg.Elem().FieldByName("Request").Set(reflect.ValueOf(req))
+		fn.Call([]reflect.Value{cfg})
+		if r := req.Header.Get("X-Audit-Log-Reason"); r != "" {
+			s, _ := url.QueryUnescape(r)
+			return s
+		}
+	}
+	return ""
 }

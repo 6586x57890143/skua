@@ -99,6 +99,8 @@ func TestBreakGlassPurgesTheMember(t *testing.T) {
 			t.Fatal("the admin's own message went")
 		}
 	}
+	// Server admins read the audit log: the operator isn't named in it.
+	f.reasonsAre(t, "purge now by skua's break-glass admin, for 6")
 }
 
 // The box's custom ID comes back from the client, so a member who isn't the

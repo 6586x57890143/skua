@@ -12,6 +12,7 @@ import (
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/skua/internal/core/coretest"
 	"github.com/6586x57890143/skua/internal/guard"
 )
 
@@ -25,6 +26,7 @@ type fake struct {
 	listErr, createErr error
 	execErrs           []error
 	lists, creates     int
+	reason             string // the last create's audit log reason
 	sentTo             []snowflake.ID
 	got, edited, gone  []snowflake.ID // message IDs read, updated, deleted
 }
@@ -49,8 +51,9 @@ func (f *fake) GetWebhooks(snowflake.ID, ...rest.RequestOpt) ([]discord.Webhook,
 	return f.owned, f.listErr
 }
 
-func (f *fake) CreateWebhook(snowflake.ID, discord.WebhookCreate, ...rest.RequestOpt) (*discord.IncomingWebhook, error) {
+func (f *fake) CreateWebhook(_ snowflake.ID, _ discord.WebhookCreate, opts ...rest.RequestOpt) (*discord.IncomingWebhook, error) {
 	f.creates++
+	f.reason = coretest.Reason(opts...)
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
@@ -92,6 +95,9 @@ func TestSendCreatesOnceThenUsesTheCache(t *testing.T) {
 	}
 	if f.lists != 1 || f.creates != 1 || len(f.sentTo) != 3 {
 		t.Errorf("lists=%d creates=%d sent=%d, want one lookup, one webhook, three posts", f.lists, f.creates, len(f.sentTo))
+	}
+	if f.reason != "skua's webhook for whisper and bird" {
+		t.Errorf("audit log reason %q", f.reason)
 	}
 }
 
