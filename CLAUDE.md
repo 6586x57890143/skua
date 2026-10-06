@@ -22,6 +22,10 @@ lowercase, errors as `core.Tell`, facts on a grid, art on an exact pixel grid.
   is her status line, rotated on the re-probe tick; `voice_test` holds every line to the
   shared bird voice (lowercase, no oxford commas or generated-text punctuation).
 - `internal/modules/*`: features. `status` is the reference module.
+- `internal/concord`: the slice of Armada's Concord protocol the `armada` bridge needs,
+  ported from armada-discord-bridge's concord-core. `testdata/upstream.json` is made by
+  upstream's own TypeScript; regenerate it rather than edit it. Changing what the fold
+  admits makes skua disagree with Armada about who is banned, so don't.
 - `tools/sprites`: all the art. The avatar is drawn: `art/source/skua_avatar_source.png`
   is the original, and the generator lifts the bird out, recolours it into the palette
   (feathers to the umber ramp, neutral greys to slate) and resamples it by majority

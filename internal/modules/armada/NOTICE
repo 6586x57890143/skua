@@ -1,0 +1,19 @@
+This directory is licensed under the GNU Affero General Public License,
+version 3 only (AGPL-3.0-only); the full text is in LICENSE beside this file.
+
+It is a modified work: a Go port, made in October 2026, of parts of
+armada-discord-bridge by Chad Curtis and contributors, licensed
+AGPL-3.0-only:
+
+  nostr://npub1jvnpg4c6ljadf5t6ry0w9q0rnm4mksde87kglkrc993z46c39axsgq89sc/armada-discord-bridge
+  https://gitworkshop.dev/npub1jvnpg4c6ljadf5t6ry0w9q0rnm4mksde87kglkrc993z46c39axsgq89sc/armada-discord-bridge
+
+Ported from packages/bridge (router.ts, transform.ts, puppets.ts,
+imeta.ts, blossom.ts, net.ts, index.ts). Changed from the original:
+rewritten in Go as a skua module, configured from the environment with an
+explicit channel map instead of the portal, reactions, typing, backfill,
+GIF handling and Direct Invite key intake left out, edits on by default,
+and the outbound fetch guard moved into the dialer.
+
+Copyright (C) 2026 Chad Curtis and contributors (the original)
+Copyright (C) 2026 6586x57890143 (the modifications)

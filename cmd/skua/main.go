@@ -30,6 +30,7 @@ import (
 	"github.com/6586x57890143/skua/internal/filter"
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
+	"github.com/6586x57890143/skua/internal/modules/armada"
 	"github.com/6586x57890143/skua/internal/modules/bird"
 	"github.com/6586x57890143/skua/internal/modules/help"
 	"github.com/6586x57890143/skua/internal/modules/perf"
@@ -157,6 +158,15 @@ func run(log *slog.Logger) error {
 		preener,
 		perf.New(obs.Default),
 		help.New(func() []core.Module { return running }, func(i discord.Interaction) bool { return router.Admin(i) }, toggles),
+	}
+	// The Armada bridge runs only where it is configured. Its mappings share
+	// the purge pool: nil without a database, and then they live in memory.
+	if cfg := armada.FromEnv(); cfg.Configured() {
+		bridge, err := armada.New(log, g, hooks, filter.Default(), purgeDB, cfg)
+		if err != nil {
+			return err
+		}
+		all = append(all, bridge)
 	}
 
 	wants := make(map[string]intents.Want, len(all))
