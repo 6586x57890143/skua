@@ -66,6 +66,10 @@ type scan struct {
 	mu          sync.Mutex
 	unreachable []snowflake.ID
 	partial     map[snowflake.ID]bool // parents with a thread that wasn't read
+
+	// up is every listed channel's and thread's parent, 0 for none, for
+	// scoped purges to climb.
+	up map[snowflake.ID]snowflake.ID
 }
 
 // run reads every spot with something new, up to workers at once. It stops
@@ -81,6 +85,17 @@ func (s *scan) run(ctx context.Context) error {
 	spots, listed, err := s.targets(ctx, marks)
 	if err != nil {
 		return err
+	}
+	moved := map[snowflake.ID]snowflake.ID{}
+	for ch, p := range s.up {
+		if marks[ch].parent != p {
+			moved[ch] = p
+		}
+	}
+	if len(moved) > 0 {
+		if err := s.idx.parents(ctx, s.guild, moved); err != nil {
+			return err
+		}
 	}
 	s.channels.Store(int64(len(spots)))
 	s.listed.Store(true)
@@ -139,8 +154,13 @@ func (s *scan) targets(ctx context.Context, marks map[snowflake.ID]mark) (spots 
 	if err != nil {
 		return nil, nil, err
 	}
+	s.up = map[snowflake.ID]snowflake.ID{}
 	for _, c := range chans {
 		id, since := c.ID(), marks[c.ID()].listed
+		s.up[id] = 0
+		if p := c.ParentID(); p != nil {
+			s.up[id] = *p
+		}
 		var ok bool
 		switch c.Type() {
 		case discord.ChannelTypeGuildText:
@@ -185,6 +205,11 @@ func (s *scan) targets(ctx context.Context, marks map[snowflake.ID]mark) (spots 
 		seen[sp.id] = true
 		return dup
 	})
+	for _, sp := range spots {
+		if sp.parent != 0 {
+			s.up[sp.id] = sp.parent
+		}
+	}
 	return spots, listed, ctx.Err()
 }
 
@@ -327,6 +352,7 @@ type sweep struct {
 	idx     index
 	guild   snowflake.ID
 	authors map[snowflake.ID]*atomic.Int64 // each one's deleted count
+	in      map[snowflake.ID]scope         // where each author's go; none is everywhere
 	cutoff  snowflake.ID
 	now     func() time.Time
 	// why heads the reason Discord's audit log shows for each delete;
@@ -355,6 +381,10 @@ type posting struct {
 func (s *sweep) run(ctx context.Context) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
+	up, err := s.parents(ctx)
+	if err != nil {
+		return err
+	}
 	byCh := map[snowflake.ID][]posting{}
 	for author := range s.authors {
 		bs, err := s.idx.load(ctx, s.guild, author)
@@ -362,6 +392,9 @@ func (s *sweep) run(ctx context.Context) error {
 			return err
 		}
 		for ch, b := range bs {
+			if !s.in[author].covers(ch, up) {
+				continue
+			}
 			byCh[ch] = append(byCh[ch], posting{author, b})
 			for _, blk := range b {
 				for _, id := range blk.ids {
@@ -389,6 +422,24 @@ func (s *sweep) run(ctx context.Context) error {
 	}
 	wg.Wait()
 	return context.Cause(ctx)
+}
+
+// parents is how run climbs from a channel to its parent, from the index
+// the catch-up just wrote; read only when some author has a scope.
+func (s *sweep) parents(ctx context.Context) (func(snowflake.ID) snowflake.ID, error) {
+	none := func(snowflake.ID) snowflake.ID { return 0 }
+	scoped := false
+	for _, sc := range s.in {
+		scoped = scoped || len(sc) > 0
+	}
+	if !scoped {
+		return none, nil
+	}
+	marks, err := s.idx.marks(ctx, s.guild)
+	if err != nil {
+		return none, err
+	}
+	return func(ch snowflake.ID) snowflake.ID { return marks[ch].parent }, nil
 }
 
 // lane deletes one channel's messages: recent ones a hundred at a time

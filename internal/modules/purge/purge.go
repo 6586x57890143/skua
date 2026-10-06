@@ -98,12 +98,14 @@ type Module struct {
 	catching  sync.Map // guild -> *catchup: the index catch-up running there
 	schedTick time.Duration
 
-	// Live mode: who is live, at what delay, and what is waiting to go.
-	live   sync.Map // target -> time.Duration
-	liveN  atomic.Int64
-	mu     sync.Mutex
-	queues map[snowflake.ID]*queue // channel ->
-	window time.Duration           // how long a due delete waits for neighbours
+	// Live mode: who is live, at what delay and where, and what is
+	// waiting to go.
+	live    sync.Map // target -> liveSet
+	parents sync.Map // channel -> parentAt, for scoped live members
+	liveN   atomic.Int64
+	mu      sync.Mutex
+	queues  map[snowflake.ID]*queue // channel ->
+	window  time.Duration           // how long a due delete waits for neighbours
 }
 
 // New takes the process's one guard, the database (which may be nil) and
@@ -157,19 +159,19 @@ func (m *Module) Commands() []core.Command {
 			Description: "delete your own messages in this server",
 			Contexts:    []discord.InteractionContextType{discord.InteractionContextTypeGuild},
 			Options: []discord.ApplicationCommandOption{
-				discord.ApplicationCommandOptionSubCommand{Name: "now", Description: "delete every message you've sent here", Options: forMember()},
+				discord.ApplicationCommandOptionSubCommand{Name: "now", Description: "delete every message you've sent here", Options: []discord.ApplicationCommandOption{member, in}},
 				discord.ApplicationCommandOptionSubCommand{Name: "stop", Description: "stop deleting", Options: forMember()},
 				discord.ApplicationCommandOptionSubCommand{
 					Name: "live", Description: "delete each message you send here a while after you send it",
 					Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionString{
 						Name: "after", Description: "how long each message stays up", Required: true, Choices: choices(delays),
-					}, member},
+					}, member, in},
 				},
 				discord.ApplicationCommandOptionSubCommand{
 					Name: "every", Description: "sweep your messages here on a schedule",
 					Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionString{
 						Name: "every", Description: "how often", Required: true, Choices: choices(everyChoices),
-					}, member},
+					}, member, in},
 				},
 				discord.ApplicationCommandOptionSubCommand{Name: "status", Description: "what's set up here and how your last sweep went", Options: forMember()},
 				discord.ApplicationCommandOptionSubCommand{Name: "jobs", Description: "break-glass admin only: every purge running or coming up, in every server"},
@@ -248,6 +250,10 @@ func (m *Module) purge(ctx context.Context, e *events.ApplicationCommandInteract
 		}
 		user, behalf = id, true
 	}
+	var where scope
+	if ch, ok := data.OptSnowflake("in"); ok {
+		where = scope{ch}
+	}
 	k := target{*guild, user}
 	switch sub {
 	case "stop":
@@ -258,9 +264,9 @@ func (m *Module) purge(ctx context.Context, e *events.ApplicationCommandInteract
 		v.(*run).cancel()
 		return reply(e, brand.ColorOK, "stop", "✓ stopping; what's already deleted stays deleted")
 	case "live":
-		return m.setLiveCmd(ctx, e, k, data.String("after"))
+		return m.setLiveCmd(ctx, e, k, data.String("after"), where)
 	case "every":
-		return m.setEveryCmd(ctx, e, k, data.String("every"))
+		return m.setEveryCmd(ctx, e, k, data.String("every"), where)
 	case "status":
 		return m.statusCmd(ctx, e, k)
 	}
@@ -271,12 +277,18 @@ func (m *Module) purge(ctx context.Context, e *events.ApplicationCommandInteract
 	if behalf {
 		id, title, whose = fmt.Sprintf("%s:%d", confirmModal, user), "delete a member's messages", "every message they've sent"
 	}
+	there := " in this server, in every channel skua can read"
+	if len(where) > 0 {
+		// The box carries the channel back: confirm reads it from here.
+		id = fmt.Sprintf("%s:%d:%d", confirmModal, user, where[0])
+		there = " in #" + data.Channel("in").Name + " and its threads"
+	}
 	return e.Modal(discord.ModalCreate{
 		CustomID: id,
 		Title:    title,
 		Components: []discord.LayoutComponent{discord.LabelComponent{
 			Label:       "type delete to confirm",
-			Description: whose + " in this server, in every channel skua can read; this can't be undone",
+			Description: whose + there + "; this can't be undone",
 			Component: discord.TextInputComponent{
 				CustomID: "confirm", Style: discord.TextInputStyleShort, Required: true, MaxLength: 6,
 			},
@@ -286,6 +298,17 @@ func (m *Module) purge(ctx context.Context, e *events.ApplicationCommandInteract
 
 // member is the break-glass option: whose messages, when not the caller's.
 var member = discord.ApplicationCommandOptionUser{Name: "member", Description: "break-glass admin only: whose messages"}
+
+// in keeps now, live or every to one channel, with its threads, or to a
+// category's channels. Left out, it's everywhere.
+var in = discord.ApplicationCommandOptionChannel{
+	Name: "in", Description: "only this channel and its threads, or a category's channels; leave out for everywhere",
+	ChannelTypes: []discord.ChannelType{
+		discord.ChannelTypeGuildText, discord.ChannelTypeGuildNews, discord.ChannelTypeGuildVoice,
+		discord.ChannelTypeGuildStageVoice, discord.ChannelTypeGuildForum, discord.ChannelTypeGuildMedia,
+		discord.ChannelTypeGuildCategory,
+	},
+}
 
 func forMember() []discord.ApplicationCommandOption {
 	return []discord.ApplicationCommandOption{member}
@@ -328,9 +351,18 @@ func (m *Module) confirm(_ context.Context, e *events.ModalSubmitInteractionCrea
 	}
 	by := e.User().ID
 	user := by
+	var where scope
 	if _, rest, ok := strings.Cut(e.Data.CustomID, ":"); ok {
-		// The ID came back from the client: check it all again.
+		// The IDs came back from the client: check it all again. A forged
+		// channel only narrows the purge.
+		rest, ch, scoped := strings.Cut(rest, ":")
 		id, err := snowflake.Parse(rest)
+		if scoped {
+			var c snowflake.ID
+			if c, err = snowflake.Parse(ch); err == nil {
+				where = scope{c}
+			}
+		}
 		if err != nil {
 			return core.Tell("that box is out of date; run /purge now again")
 		}
@@ -349,6 +381,7 @@ func (m *Module) confirm(_ context.Context, e *events.ModalSubmitInteractionCrea
 		why = "purge now by skua's break-glass admin, for"
 	}
 	j := m.newJob(e.Client().Rest, *guild, []snowflake.ID{user}, why)
+	j.sweep.in[user] = where
 	if _, loaded := m.running.LoadOrStore(k, &run{cancel, j, false}); loaded {
 		cancel()
 		return errRunning
@@ -392,7 +425,7 @@ func (m *Module) newJob(r rest.Rest, guild snowflake.ID, authors []snowflake.ID,
 	}
 	return &job{began: m.now(), done: make(chan struct{}), sweep: &sweep{
 		r: r, guard: m.guard, pace: m.pace, idx: m.idx, guild: guild,
-		authors: counts, cutoff: snowflake.New(m.now()), now: m.now, why: why,
+		authors: counts, in: map[snowflake.ID]scope{}, cutoff: snowflake.New(m.now()), now: m.now, why: why,
 	}}
 }
 

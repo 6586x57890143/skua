@@ -41,6 +41,12 @@ func choices(list []delay) []discord.ApplicationCommandOptionChoiceString {
 	return c
 }
 
+// liveSet is one live member's delay and where it applies.
+type liveSet struct {
+	d  time.Duration
+	in scope
+}
+
 // due is one message and when it goes.
 type due struct {
 	msg
@@ -81,23 +87,35 @@ func (m *Module) OnEvent(ev bot.Event) {
 		if !ok {
 			return
 		}
-		m.enqueue(e.Client().Rest, e.GuildID, e.Message.ChannelID, msg{e.Message.ID, e.Message.Author.ID}, m.now().Add(v.(time.Duration)))
+		set, r, ch := v.(liveSet), e.Client().Rest, e.Message.ChannelID
+		id, at := msg{e.Message.ID, e.Message.Author.ID}, m.now().Add(set.d)
+		if len(set.in) == 0 || slices.Contains(set.in, ch) {
+			m.enqueue(r, e.GuildID, ch, id, at)
+			return
+		}
+		// A thread or a channel in a category they picked: placing it may
+		// ask Discord, which the gateway shouldn't wait on.
+		go func() {
+			if set.in.covers(ch, func(c snowflake.ID) snowflake.ID { return m.parent(r, c) }) {
+				m.enqueue(r, e.GuildID, ch, id, at)
+			}
+		}()
 	}
 }
 
-func (m *Module) setLive(k target, d time.Duration) {
+func (m *Module) setLive(k target, d time.Duration, in scope) {
 	if d == 0 {
 		if _, ok := m.live.LoadAndDelete(k); ok {
 			m.liveN.Add(-1)
 		}
 		return
 	}
-	if _, loaded := m.live.Swap(k, d); !loaded {
+	if _, loaded := m.live.Swap(k, liveSet{d, in}); !loaded {
 		m.liveN.Add(1)
 	}
 }
 
-func (m *Module) setLiveCmd(ctx context.Context, e *events.ApplicationCommandInteractionCreate, k target, after string) error {
+func (m *Module) setLiveCmd(ctx context.Context, e *events.ApplicationCommandInteractionCreate, k target, after string, in scope) error {
 	i := slices.IndexFunc(delays, func(d delay) bool { return d.name == after })
 	if i < 0 {
 		return errNotAChoice
@@ -106,14 +124,21 @@ func (m *Module) setLiveCmd(ctx context.Context, e *events.ApplicationCommandInt
 		return errNoDB
 	}
 	d := delays[i].d
-	if err := m.saveLive(ctx, k, d); err != nil {
+	if d == 0 {
+		in = nil
+	}
+	if err := m.saveLive(ctx, k, d, in); err != nil {
 		return err
 	}
-	m.setLive(k, d)
+	m.setLive(k, d, in)
 	if d == 0 {
 		return reply(e, brand.ColorOK, "live", "✓ live is off; messages here stay up")
 	}
-	return reply(e, brand.ColorOK, "live", "✓ each new message here goes "+after+" after it's sent")
+	where := "here"
+	if len(in) > 0 {
+		where = "in " + in.mentions()
+	}
+	return reply(e, brand.ColorOK, "live", "✓ each new message "+where+" goes "+after+" after it's sent")
 }
 
 func (m *Module) enqueue(r rest.Rest, guild, ch snowflake.ID, id msg, at time.Time) {
@@ -194,20 +219,20 @@ func (m *Module) remove(r rest.Rest, guild, ch snowflake.ID, ids []msg) {
 	}
 }
 
-func (m *Module) saveLive(ctx context.Context, k target, d time.Duration) error {
+func (m *Module) saveLive(ctx context.Context, k target, d time.Duration, in scope) error {
 	var secs *int32
 	if d > 0 {
 		s := int32(d / time.Second)
 		secs = &s
 	}
-	_, err := m.db.Exec(ctx, `insert into purge_subs (guild_id, user_id, live_delay_s) values ($1, $2, $3)
-		on conflict (guild_id, user_id) do update set live_delay_s = excluded.live_delay_s`,
-		int64(k.guild), int64(k.user), secs)
+	_, err := m.db.Exec(ctx, `insert into purge_subs (guild_id, user_id, live_delay_s, live_channels) values ($1, $2, $3, $4)
+		on conflict (guild_id, user_id) do update set live_delay_s = excluded.live_delay_s, live_channels = excluded.live_channels`,
+		int64(k.guild), int64(k.user), secs, in.int64s())
 	return err
 }
 
 func (m *Module) loadLive(ctx context.Context) error {
-	rows, err := m.db.Query(ctx, `select guild_id, user_id, live_delay_s from purge_subs where live_delay_s is not null`)
+	rows, err := m.db.Query(ctx, `select guild_id, user_id, live_delay_s, live_channels from purge_subs where live_delay_s is not null`)
 	if err != nil {
 		return err
 	}
@@ -215,10 +240,11 @@ func (m *Module) loadLive(ctx context.Context) error {
 	for rows.Next() {
 		var g, u int64
 		var secs int32
-		if err := rows.Scan(&g, &u, &secs); err != nil {
+		var in []int64
+		if err := rows.Scan(&g, &u, &secs, &in); err != nil {
 			return err
 		}
-		m.setLive(target{snowflake.ID(g), snowflake.ID(u)}, time.Duration(secs)*time.Second)
+		m.setLive(target{snowflake.ID(g), snowflake.ID(u)}, time.Duration(secs)*time.Second, scopeOf(in))
 	}
 	return rows.Err()
 }

@@ -69,11 +69,13 @@ type block struct {
 	ids   []snowflake.ID
 }
 
-// mark is how far a channel has been read, and when its archived threads
-// were last listed in full.
+// mark is how far a channel has been read, when its archived threads were
+// last listed in full, and its parent: a thread's channel, a channel's
+// category, 0 for none.
 type mark struct {
 	through snowflake.ID
 	listed  time.Time
+	parent  snowflake.ID
 }
 
 // index is where postings and read marks live: Postgres, or memory when
@@ -85,6 +87,8 @@ type index interface {
 	flush(ctx context.Context, guild, ch, through snowflake.ID, found map[snowflake.ID][]snowflake.ID) error
 	// listed records that parent's archived threads were all listed at.
 	listed(ctx context.Context, guild, parent snowflake.ID, at time.Time) error
+	// parents records each channel's parent (channel -> parent).
+	parents(ctx context.Context, guild snowflake.ID, up map[snowflake.ID]snowflake.ID) error
 	load(ctx context.Context, guild, author snowflake.ID) (map[snowflake.ID][]block, error)
 	// settle replaces the blocks starting at firsts with one of left: what
 	// a purge loaded, less what Discord confirmed gone.
@@ -95,19 +99,19 @@ type index interface {
 type pgIndex struct{ db DB }
 
 func (x pgIndex) marks(ctx context.Context, guild snowflake.ID) (map[snowflake.ID]mark, error) {
-	rows, err := x.db.Query(ctx, `select channel_id, read_through, threads_listed_at from purge_channels where guild_id = $1`, int64(guild))
+	rows, err := x.db.Query(ctx, `select channel_id, read_through, threads_listed_at, parent_id from purge_channels where guild_id = $1`, int64(guild))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := map[snowflake.ID]mark{}
 	for rows.Next() {
-		var ch, through int64
+		var ch, through, parent int64
 		var listed *time.Time
-		if err := rows.Scan(&ch, &through, &listed); err != nil {
+		if err := rows.Scan(&ch, &through, &listed, &parent); err != nil {
 			return nil, err
 		}
-		mk := mark{through: snowflake.ID(through)}
+		mk := mark{through: snowflake.ID(through), parent: snowflake.ID(parent)}
 		if listed != nil {
 			mk.listed = *listed
 		}
@@ -145,6 +149,18 @@ func (x pgIndex) listed(ctx context.Context, guild, parent snowflake.ID, at time
 	_, err := x.db.Exec(ctx, `insert into purge_channels (guild_id, channel_id, threads_listed_at) values ($1, $2, $3)
 		on conflict (guild_id, channel_id) do update set threads_listed_at = excluded.threads_listed_at`,
 		int64(guild), int64(parent), at)
+	return err
+}
+
+func (x pgIndex) parents(ctx context.Context, guild snowflake.ID, up map[snowflake.ID]snowflake.ID) error {
+	chs, ps := make([]int64, 0, len(up)), make([]int64, 0, len(up))
+	for ch, p := range up {
+		chs, ps = append(chs, int64(ch)), append(ps, int64(p))
+	}
+	_, err := x.db.Exec(ctx, `insert into purge_channels (guild_id, channel_id, parent_id)
+		select $1, unnest($2::bigint[]), unnest($3::bigint[])
+		on conflict (guild_id, channel_id) do update set parent_id = excluded.parent_id`,
+		int64(guild), chs, ps)
 	return err
 }
 
@@ -260,6 +276,15 @@ func (x *memIndex) listed(_ context.Context, guild, parent snowflake.ID, at time
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	x.setMark(guild, parent, func(mk *mark) { mk.listed = at })
+	return nil
+}
+
+func (x *memIndex) parents(_ context.Context, guild snowflake.ID, up map[snowflake.ID]snowflake.ID) error {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	for ch, p := range up {
+		x.setMark(guild, ch, func(mk *mark) { mk.parent = p })
+	}
 	return nil
 }
 

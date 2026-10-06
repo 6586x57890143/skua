@@ -116,7 +116,7 @@ func TestLiveShorterDelayJumpsTheQueue(t *testing.T) {
 func TestOnEventQueuesOnlyLiveMembers(t *testing.T) {
 	m, f := liveModule(), newFake()
 	m.OnEvent(posted(f, guildID, me, textCh, 900)) // nobody live yet
-	m.setLive(target{guildID, me}, time.Millisecond)
+	m.setLive(target{guildID, me}, time.Millisecond, nil)
 	m.OnEvent(posted(f, guildID, them, textCh, 901))
 	m.OnEvent(posted(f, guildID+1, me, textCh, 902)) // live in another guild only
 	m.OnEvent(posted(f, guildID, me, textCh, 903))
@@ -128,8 +128,8 @@ func TestOnEventQueuesOnlyLiveMembers(t *testing.T) {
 	if _, singles := f.state(); !slices.Equal(singles, []snowflake.ID{903}) {
 		t.Fatalf("deleted %v, want only 903", singles)
 	}
-	m.setLive(target{guildID, me}, 0)
-	m.setLive(target{guildID, me}, 0)
+	m.setLive(target{guildID, me}, 0, nil)
+	m.setLive(target{guildID, me}, 0, nil)
 	if m.liveN.Load() != 0 {
 		t.Fatalf("live count %d after turning off twice", m.liveN.Load())
 	}
@@ -179,7 +179,7 @@ func TestLiveCommandRemembers(t *testing.T) {
 	if got := liveCmd(t, m, "1m", g); got != "**purge** · live\n✓ each new message here goes 1m after it's sent" {
 		t.Fatalf("on: %q", got)
 	}
-	if v, ok := m.live.Load(target{g, me}); !ok || v.(time.Duration) != time.Minute {
+	if v, ok := m.live.Load(target{g, me}); !ok || v.(liveSet).d != time.Minute {
 		t.Fatal("on didn't take effect")
 	}
 
@@ -189,7 +189,7 @@ func TestLiveCommandRemembers(t *testing.T) {
 	again.OnEvent(&events.Ready{GenericEvent: events.NewGenericEvent(&bot.Client{Rest: newFake()}, 0, 0)})
 	eventually(t, "the live set loaded", func() bool {
 		v, ok := again.live.Load(target{g, me})
-		return ok && v.(time.Duration) == time.Minute
+		return ok && v.(liveSet).d == time.Minute
 	})
 
 	if got := liveCmd(t, m, "off", g); got != "**purge** · live\n✓ live is off; messages here stay up" {
@@ -210,7 +210,7 @@ func TestLiveCommandRemembers(t *testing.T) {
 // while someone somewhere is live: it must not allocate.
 func BenchmarkOnEventNotLive(b *testing.B) {
 	m, f := liveModule(), newFake()
-	m.setLive(target{guildID, me}, time.Minute)
+	m.setLive(target{guildID, me}, time.Minute, nil)
 	e := posted(f, guildID, them, textCh, 900)
 	b.ReportAllocs()
 	for b.Loop() {

@@ -50,7 +50,7 @@ func TestScheduledSweep(t *testing.T) {
 		t.Fatalf("every: %q", got)
 	}
 	// The other member is live, which queues them for the catch-up sweep.
-	if err := m.saveLive(context.Background(), target{g, them}, time.Minute); err != nil {
+	if err := m.saveLive(context.Background(), target{g, them}, time.Minute, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(context.Background(), `update purge_subs set next_run = now() where guild_id = $1`, int64(g)); err != nil {

@@ -66,20 +66,29 @@ func (m *Module) due(r rest.Rest) {
 	rows, err := m.db.Query(ctx, `update purge_subs
 		set next_run = case when every_s is null then null else now() + every_s * interval '1 second' end
 		where next_run <= now()
-		returning guild_id, user_id`)
+		returning guild_id, user_id, live_delay_s, every_s, live_channels, every_channels`)
 	if err != nil {
 		m.log.Warn("purge: claiming due sweeps", "err", err)
 		return
 	}
 	byGuild := map[snowflake.ID][]snowflake.ID{}
+	in := map[target]scope{}
 	for rows.Next() {
 		var g, u int64
-		if err := rows.Scan(&g, &u); err != nil {
+		var live, every *int32
+		var liveIn, everyIn []int64
+		if err := rows.Scan(&g, &u, &live, &every, &liveIn, &everyIn); err != nil {
 			rows.Close()
 			m.log.Warn("purge: claiming due sweeps", "err", err)
 			return
 		}
-		byGuild[snowflake.ID(g)] = append(byGuild[snowflake.ID(g)], snowflake.ID(u))
+		sc, ok := sweepScope(live, every, scopeOf(liveIn), scopeOf(everyIn))
+		if !ok {
+			continue // live and every both off since it was queued
+		}
+		k := target{snowflake.ID(g), snowflake.ID(u)}
+		in[k] = sc
+		byGuild[k.guild] = append(byGuild[k.guild], k.user)
 	}
 	rows.Close()
 	requeue := func(g snowflake.ID, users []snowflake.ID) {
@@ -119,6 +128,7 @@ func (m *Module) due(r rest.Rest) {
 		}
 		for _, u := range mine {
 			j.sweep.authors[u] = new(atomic.Int64)
+			j.sweep.in[u] = in[target{g, u}]
 		}
 		go func() {
 			defer m.sweeping.Delete(g)
@@ -131,6 +141,21 @@ func (m *Module) due(r rest.Rest) {
 			close(j.done)
 		}()
 	}
+}
+
+// sweepScope is where a claimed sweep deletes: everywhere the member's
+// live or schedule covers, whichever are on. ok is false with both off,
+// as nowhere is not a scope: an empty one is everywhere.
+func sweepScope(live, every *int32, liveIn, everyIn scope) (in scope, ok bool) {
+	switch {
+	case live != nil && every != nil:
+		return liveIn.union(everyIn), true
+	case live != nil:
+		return liveIn, true
+	case every != nil:
+		return everyIn, true
+	}
+	return nil, false
 }
 
 // record writes how a job went for each of its authors, each seeing only
@@ -158,7 +183,7 @@ func (m *Module) record(j *job, err error) {
 	}
 }
 
-func (m *Module) setEveryCmd(ctx context.Context, e *events.ApplicationCommandInteractionCreate, k target, every string) error {
+func (m *Module) setEveryCmd(ctx context.Context, e *events.ApplicationCommandInteractionCreate, k target, every string, in scope) error {
 	i := slices.IndexFunc(everyChoices, func(d delay) bool { return d.name == every })
 	if i < 0 {
 		return errNotAChoice
@@ -170,18 +195,25 @@ func (m *Module) setEveryCmd(ctx context.Context, e *events.ApplicationCommandIn
 	if d := everyChoices[i].d; d > 0 {
 		s := int32(d / time.Second)
 		secs = &s
+	} else {
+		in = nil
 	}
-	_, err := m.db.Exec(ctx, `insert into purge_subs (guild_id, user_id, every_s, next_run)
-		values ($1, $2, $3::int, case when $3::int is null then null else now() end)
-		on conflict (guild_id, user_id) do update set every_s = excluded.every_s, next_run = excluded.next_run`,
-		int64(k.guild), int64(k.user), secs)
+	_, err := m.db.Exec(ctx, `insert into purge_subs (guild_id, user_id, every_s, next_run, every_channels)
+		values ($1, $2, $3::int, case when $3::int is null then null else now() end, $4)
+		on conflict (guild_id, user_id) do update set every_s = excluded.every_s, next_run = excluded.next_run,
+			every_channels = excluded.every_channels`,
+		int64(k.guild), int64(k.user), secs, in.int64s())
 	if err != nil {
 		return err
 	}
 	if secs == nil {
 		return reply(e, brand.ColorOK, "every", "✓ no more scheduled sweeps here")
 	}
-	return reply(e, brand.ColorOK, "every", "✓ every "+every+"; the first sweep starts within a minute")
+	where := ""
+	if len(in) > 0 {
+		where = " in " + in.mentions()
+	}
+	return reply(e, brand.ColorOK, "every", "✓ every "+every+where+"; the first sweep starts within a minute")
 }
 
 // statusCmd is the member's purge setup here and how their last sweep went.
@@ -192,10 +224,11 @@ func (m *Module) statusCmd(ctx context.Context, e *events.ApplicationCommandInte
 	var live, every, deleted *int32
 	var next, finished *time.Time
 	var ok *bool
-	var unreachable []int64
-	err := m.db.QueryRow(ctx, `select live_delay_s, every_s, next_run, last_finished, last_deleted, last_ok, unreachable
+	var unreachable, liveIn, everyIn []int64
+	err := m.db.QueryRow(ctx, `select live_delay_s, every_s, next_run, last_finished, last_deleted, last_ok, unreachable,
+			live_channels, every_channels
 		from purge_subs where guild_id = $1 and user_id = $2`, int64(k.guild), int64(k.user)).
-		Scan(&live, &every, &next, &finished, &deleted, &ok, &unreachable)
+		Scan(&live, &every, &next, &finished, &deleted, &ok, &unreachable, &liveIn, &everyIn)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
@@ -225,6 +258,12 @@ func (m *Module) statusCmd(ctx context.Context, e *events.ApplicationCommandInte
 		{"next sweep", upcoming},
 		{"unreachable", fmt.Sprint(len(unreachable))},
 	})
+	if live != nil && len(liveIn) > 0 {
+		text += "\n-# live only in " + scopeOf(liveIn).mentions()
+	}
+	if every != nil && len(everyIn) > 0 {
+		text += "\n-# every only in " + scopeOf(everyIn).mentions()
+	}
 	if v, running := m.running.Load(k); running {
 		what := "a /purge now"
 		if v.(*run).scheduled {

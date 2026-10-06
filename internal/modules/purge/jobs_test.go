@@ -84,7 +84,7 @@ func TestJobsListsWhatIsComingUp(t *testing.T) {
 	if _, err := db.Exec(context.Background(), `update purge_subs set next_run = now() + interval '3 hours' where guild_id = $1`, int64(g)); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.saveLive(context.Background(), target{g, them}, time.Minute); err != nil {
+	if err := m.saveLive(context.Background(), target{g, them}, time.Minute, nil); err != nil {
 		t.Fatal(err)
 	}
 	got := subCmd(t, m, "jobs", "", "", guildID)
