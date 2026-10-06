@@ -446,3 +446,27 @@ func TestAWhispersWriterGetsTheFlock(t *testing.T) {
 		}
 	}
 }
+
+// A member's second self-react inside the spree window brings Few birds,
+// another member's still brings Birds, and once the window has passed the
+// next is whole again and the closed window is swept.
+func TestASpreeGetsFewerBirds(t *testing.T) {
+	r := &fakeRest{}
+	m := New(guard.New(), obs.New(), nil)
+	m.removing.Add(2)
+	m.react(r, 3, 4, 98, 7, "🔥")
+	m.react(r, 3, 4, 99, 7, "🔥")
+	if n := len(r.inOrder()); n != Birds+Few+2 {
+		t.Fatalf("%d calls, want %d birds, %d birds and two removals", n, Birds, Few)
+	}
+	now := time.Now()
+	if m.birds(8, now) != Birds {
+		t.Fatal("another member's spree was counted against them")
+	}
+	if m.birds(7, now.Add(spree)) != Birds {
+		t.Fatal("the window never closed")
+	}
+	if m.birds(7, now.Add(spree+time.Second)) != Few || len(m.whole) != 1 {
+		t.Fatalf("whole %v, want only member 7's new window", m.whole)
+	}
+}

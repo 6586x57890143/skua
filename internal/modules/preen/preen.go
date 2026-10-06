@@ -52,6 +52,14 @@ const (
 	preenBy = 30 * time.Second
 )
 
+// A member who keeps self-reacting gets Few birds, not Birds, so a spree
+// doesn't clog the channel: their first flock opens a window of spree, and
+// every flock inside it is Few. The next flock after it is whole again.
+const (
+	Few   = 5
+	spree = 2 * time.Minute
+)
+
 // removeBy bounds one removal with its retries, which back off from
 // firstRetry, doubling.
 const (
@@ -85,6 +93,8 @@ type Module struct {
 	removing sync.WaitGroup
 	mu       sync.Mutex
 	draining bool
+	// whole, under mu, is when each member's last whole flock went up.
+	whole map[snowflake.ID]time.Time
 	// retry is the first wait between removal attempts; tests shorten it.
 	retry time.Duration
 }
@@ -92,7 +102,25 @@ type Module struct {
 // New takes the guard, the recorder and, optionally, the whispers: nil
 // leaves whispers alone.
 func New(g *guard.Guard, rec *obs.Recorder, w Whispers) *Module {
-	return &Module{guard: g, rec: rec, whispers: w, order: rand.Perm, retry: firstRetry, flocked: newFlocked(remember)}
+	return &Module{guard: g, rec: rec, whispers: w, order: rand.Perm, retry: firstRetry, flocked: newFlocked(remember), whole: map[snowflake.ID]time.Time{}}
+}
+
+// birds is how many go up for user now: Few inside their spree window,
+// otherwise Birds, which opens a new window. Windows that have closed are
+// swept as a new one opens, so whole holds only members inside one.
+func (m *Module) birds(user snowflake.ID, now time.Time) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if at, ok := m.whole[user]; ok && now.Sub(at) < spree {
+		return Few
+	}
+	for u, at := range m.whole {
+		if now.Sub(at) >= spree {
+			delete(m.whole, u)
+		}
+	}
+	m.whole[user] = now
+	return Birds
 }
 
 // Drain waits up to d for every self-react still being answered, its
@@ -134,7 +162,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorNotice,
 		Line:  "puts up a little flock when you react to your own post",
-		About: "react to your own message or your own whisper and she covers it in birds, fifteen of them picked at random, then takes your reaction away. there's nothing to run",
+		About: "react to your own message or your own whisper and she covers it in birds, fifteen of them picked at random, then takes your reaction away. keep doing it and she gets stingy: five a post until two minutes have passed. there's nothing to run",
 	}
 }
 
@@ -176,7 +204,7 @@ func (m *Module) react(r rest.Rest, guild, channel, msg, user snowflake.ID, emoj
 	if !m.flocked.add(msg) {
 		return
 	}
-	if err := m.preen(r, guild, channel, msg); err != nil {
+	if err := m.preen(r, guild, channel, msg, m.birds(user, time.Now())); err != nil {
 		m.flocked.forget(msg)
 		slog.Warn("preen: the flock didn't go up", "guild", guild, "channel", channel, "message", msg, "err", err)
 	}
@@ -257,13 +285,13 @@ func (f *flocked) forget(id snowflake.ID) {
 	delete(f.set, id)
 }
 
-// preen puts the birds up on msg, each spent through the guard, and says
+// preen puts n birds up on msg, each spent through the guard, and says
 // why it stopped short if it did.
-func (m *Module) preen(r rest.Rest, guild, channel, msg snowflake.ID) error {
+func (m *Module) preen(r rest.Rest, guild, channel, msg snowflake.ID, n int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), preenBy)
 	defer cancel()
-	birds := make([]string, Birds)
-	for i, j := range m.order(len(Flock))[:Birds] {
+	birds := make([]string, n)
+	for i, j := range m.order(len(Flock))[:n] {
 		birds[i] = Flock[j]
 	}
 	start := time.Now()
