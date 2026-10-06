@@ -570,3 +570,23 @@ func TestArmadaEdit(t *testing.T) {
 		t.Fatal("an older edit replaced a newer one")
 	}
 }
+
+func TestArmadaTextIsScreened(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	grabber, _ := h.chat(t, 3, concord.KindMessage, "look https://grabify.link/abc123")
+	h.deliver(t, grabber)
+	if len(h.post.sent) != 0 {
+		t.Fatal("posted an ip grabber link")
+	}
+	w, id := h.chat(t, 3, concord.KindMessage, "hello f*ggot")
+	h.deliver(t, w)
+	if len(h.post.sent) != 1 || strings.Contains(h.post.sent[0].Content, "ggot") || !strings.HasPrefix(h.post.sent[0].Content, "hello ") {
+		t.Fatalf("sent %+v", h.post.sent)
+	}
+	// An edit that would not be posted leaves the copy as it was.
+	edit, _ := h.chat(t, 3, concord.KindEdit, "now https://grabify.link/abc123", []string{"e", id})
+	h.deliver(t, edit)
+	if len(h.post.edits) != 0 {
+		t.Fatalf("edited to %v", h.post.edits)
+	}
+}

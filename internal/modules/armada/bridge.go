@@ -321,7 +321,11 @@ func (m *Module) armadaEdit(ctx context.Context, l *link, guild snowflake.ID, o 
 			urls = append(urls, imetaOf(t)["url"])
 		}
 	}
-	parts := capParts(split(toDiscord(stripURLs(o.Content, urls), o.Tags)))
+	text, ok := m.screened(o, toDiscord(stripURLs(o.Content, urls), o.Tags))
+	if !ok {
+		return // the copies keep what was screened before
+	}
+	parts := capParts(split(text))
 	for i, r := range rows {
 		content := "-# removed in an edit"
 		if i < len(parts) {
@@ -356,7 +360,11 @@ func (m *Module) armadaPost(ctx context.Context, l *link, guild snowflake.ID, o 
 	}
 	name, avatar := m.profile(ctx, o.Author)
 	files, urls := m.files(ctx, o.Tags)
-	parts := capParts(split(toDiscord(stripURLs(o.Content, urls), o.Tags)))
+	text, ok := m.screened(o, toDiscord(stripURLs(o.Content, urls), o.Tags))
+	if !ok {
+		return
+	}
+	parts := capParts(split(text))
 	if len(parts) == 0 {
 		if len(files) == 0 {
 			return
@@ -385,6 +393,19 @@ func (m *Module) armadaPost(ctx context.Context, l *link, guild snowflake.ID, o 
 			m.log.Warn("armada: recording a bridged message", "err", err)
 		}
 	}
+}
+
+// screened is the text as skua's filter lets it be posted, as whisper
+// screens member text: slurs rewritten, and a message carrying a phishing
+// link, an IP grabber or a token not posted at all. Armada moderates its
+// own side; this is what skua is willing to post.
+func (m *Module) screened(o *concord.Opened, text string) (string, bool) {
+	v := m.screen.Check(text)
+	if v.Block != "" {
+		m.log.Info("armada: not posting a message", "because", v.Block, "rumor", o.RumorID)
+		return "", false
+	}
+	return v.Text, true
 }
 
 // armadaDelete removes the Discord side of each rumor a kind 5 names. It
