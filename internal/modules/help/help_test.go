@@ -413,3 +413,12 @@ func TestEveryPageKeepsTheVoice(t *testing.T) {
 		}
 	}
 }
+
+func TestHjælpIsHelp(t *testing.T) {
+	r := newRouter(t, nil, nest)
+	e, sent := coretest.Event(t, "hjælp", nil)
+	r.OnCommand(e)
+	if len(*sent) != 1 || !strings.Contains(mustJSON(t, (*sent)[0].Components), "**nest**") {
+		t.Fatalf("/hjælp didn't answer with the guide: %+v", *sent)
+	}
+}
