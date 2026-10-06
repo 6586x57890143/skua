@@ -154,7 +154,7 @@ func TestIndexListsTheRunningModulesWithAPage(t *testing.T) {
 		t.Fatalf("accent %#06x", c.AccentColor)
 	}
 	all := mustJSON(t, m.Components)
-	contains(t, "index", all, "`├` **nest** · where she sleeps\\n", "`└` **gull** · loud · `off here`", "2 modules · 3 commands · build `"+core.Revision()+"`", `"help:pick"`, invite, source)
+	contains(t, "index", all, "**nest**\\n-# where she sleeps\\n**gull** · `off here`\\n-# loud\"", "2 modules · 3 commands · build `"+core.Revision()+"`", `"help:pick"`, invite, source)
 	if strings.Contains(all, "hidden") {
 		t.Error("a module without a page is listed")
 	}
@@ -420,5 +420,25 @@ func TestHjælpIsHelp(t *testing.T) {
 	r.OnCommand(e)
 	if len(*sent) != 1 || !strings.Contains(mustJSON(t, (*sent)[0].Components), "**nest**") {
 		t.Fatalf("/hjælp didn't answer with the guide: %+v", *sent)
+	}
+}
+
+// TestIndexWrapsOnlySubtext holds the index to a phone: a module's line can
+// be long, but it goes in subtext of its own, so a wrap never pushes text
+// under the name. A name line stays within UX.md's 40 columns.
+func TestIndexWrapsOnlySubtext(t *testing.T) {
+	long := paged{fake{name: "tern", help: core.Help{Line: strings.Repeat("a long line about what she does ", 3)}}}
+	r := newRouter(t, &toggles{off: map[string]bool{"tern": true}}, nest, long)
+	e, sent := coretest.Event(t, "help", nil)
+	r.OnCommand(e)
+	c := container(t, (*sent)[0].Components, (*sent)[0].Flags)
+	list, ok := c.Components[2].(discord.TextDisplayComponent)
+	if !ok {
+		t.Fatalf("component 2 is %T, not the module list", c.Components[2])
+	}
+	for _, l := range strings.Split(list.Content, "\n") {
+		if !strings.HasPrefix(l, "-# ") && utf8.RuneCountInString(l) > 40 {
+			t.Errorf("%q can wrap on a phone", l)
+		}
 	}
 }

@@ -163,32 +163,30 @@ func (m *Module) off(guild *snowflake.ID, name string) bool {
 	return m.toggles != nil && guild != nil && !m.toggles.On(*guild, name)
 }
 
-// index is compact: one small avatar by the title, then every module as a
-// line of an ASCII tree in one text block, so a page holds as many modules
-// as Discord's text limit allows rather than as many thumbnails.
+// index is compact: one small avatar by the title, then every module in one
+// text block, so a page holds as many modules as Discord's text limit allows
+// rather than as many thumbnails. Each module is its name on a short line and
+// what it does as subtext below, which can wrap on a phone without dragging
+// anything out of line.
 func (m *Module) index(guild *snowflake.ID) discord.MessageCreate {
 	es := m.entries()
 	var att files
 	commands := 0
-	var tree strings.Builder
-	for i, en := range es {
+	var list strings.Builder
+	for _, en := range es {
 		commands += len(en.mod.Commands())
-		branch := "├"
-		if i == len(es)-1 {
-			branch = "└"
-		}
-		fmt.Fprintf(&tree, "`%s` %s**%s** · %s", branch, icon(en.mod.Name()), en.mod.Name(), en.help.Line)
+		fmt.Fprintf(&list, "%s**%s**", icon(en.mod.Name()), en.mod.Name())
 		if m.off(guild, en.mod.Name()) {
-			tree.WriteString(" · `off here`")
+			list.WriteString(" · `off here`")
 		}
-		tree.WriteString("\n")
+		fmt.Fprintf(&list, "\n-# %s\n", en.help.Line)
 	}
 	body := []discord.ContainerSubComponent{
 		discord.NewSection(
 			discord.NewTextDisplay("## skua\n-# stercorarius · small grey · seen in this server"),
 		).WithAccessory(discord.NewThumbnail(att.add(brand.Avatar()))),
 		discord.NewSmallSeparator(),
-		discord.NewTextDisplay(strings.TrimSuffix(tree.String(), "\n")),
+		discord.NewTextDisplay(strings.TrimSuffix(list.String(), "\n")),
 		discord.NewSmallSeparator(),
 		discord.NewTextDisplay(fmt.Sprintf("-# %d modules · %d commands · build `%s` · nothing she sends pings anyone", len(es), commands, core.Revision())),
 		discord.NewActionRow(menu(es, "")),
