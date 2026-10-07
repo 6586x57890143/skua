@@ -335,7 +335,7 @@ func (m *Module) armadaEdit(ctx context.Context, l *link, guild snowflake.ID, o 
 	if !ok {
 		return // the copies keep what was screened before
 	}
-	parts := capParts(split(text))
+	parts := capParts(split(withReply(m.replyLine(ctx, l, guild, rows[0].ReplyTo), text)))
 	for i, r := range rows {
 		content := "-# removed in an edit"
 		if i < len(parts) {
@@ -362,7 +362,7 @@ func (m *Module) armadaEdit(ctx context.Context, l *link, guild snowflake.ID, o 
 		if posted.WebhookID != nil {
 			hook = *posted.WebhookID
 		}
-		_ = m.maps.insert(ctx, row{Message: posted.ID, Channel: l.discord, Webhook: hook, Rumor: target, Origin: "armada", Author: o.Author, Part: i})
+		_ = m.maps.insert(ctx, row{Message: posted.ID, Channel: l.discord, Webhook: hook, Rumor: target, Origin: "armada", Author: o.Author, Part: i, ReplyTo: rows[0].ReplyTo})
 	}
 }
 
@@ -373,23 +373,17 @@ func (m *Module) armadaPost(ctx context.Context, l *link, guild snowflake.ID, o 
 	name, avatar := m.profile(ctx, o.Author)
 	files, urls := m.files(ctx, o.Tags)
 	text, ok := m.screened(o, toDiscord(stripURLs(o.Content, urls), o.Tags))
-	if !ok {
+	if !ok || (text == "" && len(files) == 0) {
 		return
 	}
-	parts := capParts(split(text))
+	target := replyTarget(o)
+	parts := capParts(split(withReply(m.replyLine(ctx, l, guild, target), text)))
 	if len(parts) == 0 {
-		if len(files) == 0 {
-			return
-		}
 		parts = []string{""}
 	}
-	reply := m.replyLine(ctx, l, guild, o)
 	for i, part := range parts {
 		msg := discord.WebhookMessageCreate{Content: part, Username: name, AvatarURL: avatar, AllowedMentions: core.NoPings()}
 		if i == 0 {
-			if reply != "" {
-				msg.Embeds = []discord.Embed{{Description: reply}}
-			}
 			msg.Files = files
 		}
 		posted, err := m.post.Send(ctx, m.rest, guild, l.discord, m.app, msg)
@@ -405,7 +399,7 @@ func (m *Module) armadaPost(ctx context.Context, l *link, guild snowflake.ID, o 
 		if posted.WebhookID != nil {
 			hook = *posted.WebhookID
 		}
-		if err := m.maps.insert(ctx, row{Message: posted.ID, Channel: l.discord, Webhook: hook, Rumor: o.RumorID, Origin: "armada", Author: o.Author, Part: i}); err != nil {
+		if err := m.maps.insert(ctx, row{Message: posted.ID, Channel: l.discord, Webhook: hook, Rumor: o.RumorID, Origin: "armada", Author: o.Author, Part: i, ReplyTo: target}); err != nil {
 			m.log.Warn("armada: recording a bridged message", "err", err)
 		}
 	}
@@ -462,15 +456,24 @@ func struggling(err error) bool {
 	return re.Response.StatusCode == 429 || re.Response.StatusCode >= 500
 }
 
-// replyLine links the Discord copy of the message this one replies to: a
-// kind 9's q tag, or a comment's parent.
-func (m *Module) replyLine(ctx context.Context, l *link, guild snowflake.ID, o *concord.Opened) string {
+// replyTarget is the rumor a message replies to: a kind 9's q tag, or a
+// comment's parent.
+func replyTarget(o *concord.Opened) string {
 	target := concord.Tag(o.Tags, "q")
 	if target == "" && o.Kind == concord.KindComment {
 		if target = concord.Tag(o.Tags, "e"); target == "" {
 			target = concord.Tag(o.Tags, "E")
 		}
 	}
+	return target
+}
+
+// replyLine is the subtext over a reply, naming who it answers and linking
+// the Discord copy. A webhook can't make a real Discord reply, and an embed
+// for it outweighed the message, so it is a line of small text the way the
+// rest of skua says detail. A Discord author is a mention, which shows their
+// name and pings no one under core.NoPings.
+func (m *Module) replyLine(ctx context.Context, l *link, guild snowflake.ID, target string) string {
 	if target == "" {
 		return ""
 	}
@@ -479,11 +482,20 @@ func (m *Module) replyLine(ctx context.Context, l *link, guild snowflake.ID, o *
 		return ""
 	}
 	link := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guild, rows[0].Channel, rows[0].Message)
+	who := "<@" + rows[0].Author + ">"
 	if rows[0].Origin == "armada" {
 		name, _ := m.profile(ctx, rows[0].Author)
-		return fmt.Sprintf("replying to %s ([view message](%s))", escape(name), link)
+		who = escape(name)
 	}
-	return fmt.Sprintf("replying to [this message](%s)", link)
+	return fmt.Sprintf("-# replying to %s · [view message](%s)", who, link)
+}
+
+// withReply puts the reply line, when there is one, over the text.
+func withReply(line, text string) string {
+	if line == "" || text == "" {
+		return line + text
+	}
+	return line + "\n" + text
 }
 
 // files downloads an Armada message's attachments for upload, decrypting

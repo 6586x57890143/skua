@@ -364,13 +364,29 @@ func TestArmadaToDiscord(t *testing.T) {
 	}
 
 	// A reply names who it answers, escaped, and links the Discord copy.
-	r, _ := h.chat(t, 5, concord.KindMessage, strings.Repeat("long ", 900), []string{"q", id, "", mod})
+	r, rid := h.chat(t, 5, concord.KindMessage, strings.Repeat("long ", 900), []string{"q", id, "", mod})
 	h.deliver(t, r)
 	if len(h.post.sent) != 4 {
 		t.Fatalf("a 4,500 character message became %d posts", len(h.post.sent)-1)
 	}
-	if e := h.post.sent[1].Embeds; len(e) != 1 || !strings.HasPrefix(e[0].Description, "replying to sooty tern ([view message](https://discord.com/channels/7/100/1001))") {
-		t.Errorf("reply %+v", e)
+	line := "-# replying to sooty tern · [view message](https://discord.com/channels/7/100/1001)\n"
+	if got := h.post.sent[1]; len(got.Embeds) != 0 || !strings.HasPrefix(got.Content, line+"long long") {
+		t.Errorf("reply %q %+v", got.Content[:min(len(got.Content), 120)], got.Embeds)
+	}
+
+	// An edit keeps the line, though the edit itself names no q.
+	edit, _ := h.chat(t, 5, concord.KindEdit, "short now", []string{"e", rid})
+	h.deliver(t, edit)
+	if got := h.post.edits[1002]; got != line+"short now" {
+		t.Errorf("edited reply %q", got)
+	}
+
+	// A Discord author is named by a mention, which pings no one.
+	_ = h.m.maps.insert(context.Background(), row{Message: 600, Channel: 100, Rumor: "from-discord", Origin: "discord", Author: "42"})
+	d, _ := h.chat(t, 5, concord.KindMessage, "yes", []string{"q", "from-discord", "", mod})
+	h.deliver(t, d)
+	if got := h.post.sent[len(h.post.sent)-1].Content; got != "-# replying to <@42> · [view message](https://discord.com/channels/7/100/600)\nyes" {
+		t.Errorf("reply to discord %q", got)
 	}
 }
 

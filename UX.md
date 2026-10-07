@@ -55,6 +55,11 @@ The rules every bird shares, which `brand/voice_test.go` holds the status lines 
   decoration. Buttons go inside the container, below the text. A live readout is
   edited as a card too (`discord.NewMessageUpdateV2`) and its accent follows its state.
   Errors stay `core.Tell`, plain text.
+- A message skua posts as someone else (a bridge or a webhook) is their text. What
+  skua adds to it, such as who it replies to, is a `-#` subtext line above it, never an
+  embed: a webhook can't make a real Discord reply, and a box outweighs the message it
+  annotates. When skua needs more than a line, it borrows `/help`'s colour identity and
+  layout rather than inventing a new one.
 - Facts go in a code block grid (`status.readout`): the label column is the longest
   label plus two spaces, a value wraps after a comma inside 28 columns, and a whole line
   stays within 40. Anything that is not a short fact goes on a line below the block,

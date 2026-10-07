@@ -352,7 +352,7 @@ func TestPostgresMappings(t *testing.T) {
 	p := pgMappings{pool}
 	for i, r := range []row{
 		{Message: 11, Channel: 5, Webhook: 9, Rumor: rumor, Origin: "armada", Author: "pk", Part: 1},
-		{Message: 10, Channel: 5, Webhook: 9, Rumor: rumor, Origin: "armada", Author: "pk"},
+		{Message: 10, Channel: 5, Webhook: 9, Rumor: rumor, Origin: "armada", Author: "pk", ReplyTo: "parent"},
 		{Message: 10, Channel: 5, Webhook: 9, Rumor: rumor, Origin: "armada", Author: "pk"},
 		{Message: 12, Channel: 5, Rumor: rumor + "d", Origin: "discord", Author: "1"},
 	} {
@@ -361,7 +361,7 @@ func TestPostgresMappings(t *testing.T) {
 		}
 	}
 	rows, err := p.byRumor(ctx, rumor, 5)
-	if err != nil || len(rows) != 2 || rows[0].Message != 10 || rows[1].Part != 1 || rows[0].Webhook != 9 {
+	if err != nil || len(rows) != 2 || rows[0].Message != 10 || rows[1].Part != 1 || rows[0].Webhook != 9 || rows[0].ReplyTo != "parent" {
 		t.Fatalf("%+v %v", rows, err)
 	}
 	if rows, _ := p.byRumor(ctx, rumor, 6); len(rows) != 0 {

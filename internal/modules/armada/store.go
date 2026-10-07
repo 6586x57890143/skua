@@ -19,6 +19,9 @@ type row struct {
 	Origin                    string // "discord" or "armada"
 	Author                    string // a Discord user id, or a pubkey
 	Part                      int
+	// ReplyTo is the rumor an Armada message replies to, kept so an edit
+	// can redraw its reply line.
+	ReplyTo string
 }
 
 // mappings is where rows live: Postgres when skua has one, memory when not.
@@ -45,9 +48,9 @@ func (p pgMappings) insert(ctx context.Context, r row) error {
 		hook = &h
 	}
 	_, err := p.db.Exec(ctx, `insert into armada_messages
-		(discord_message_id, discord_channel_id, webhook_id, rumor_id, origin, author, part)
-		values ($1, $2, $3, $4, $5, $6, $7) on conflict do nothing`,
-		int64(r.Message), int64(r.Channel), hook, r.Rumor, r.Origin, r.Author, r.Part)
+		(discord_message_id, discord_channel_id, webhook_id, rumor_id, origin, author, part, reply_to)
+		values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict do nothing`,
+		int64(r.Message), int64(r.Channel), hook, r.Rumor, r.Origin, r.Author, r.Part, r.ReplyTo)
 	return err
 }
 
@@ -61,14 +64,14 @@ func (p pgMappings) byRumor(ctx context.Context, rumor string, channel snowflake
 
 func (p pgMappings) query(ctx context.Context, where string, args ...any) ([]row, error) {
 	rows, err := p.db.Query(ctx, `select discord_message_id, discord_channel_id, coalesce(webhook_id, 0),
-		rumor_id, origin, author, part from armada_messages `+where+` order by part`, args...)
+		rumor_id, origin, author, part, reply_to from armada_messages `+where+` order by part`, args...)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (row, error) {
 		var x row
 		var msg, ch, hook int64
-		err := r.Scan(&msg, &ch, &hook, &x.Rumor, &x.Origin, &x.Author, &x.Part)
+		err := r.Scan(&msg, &ch, &hook, &x.Rumor, &x.Origin, &x.Author, &x.Part, &x.ReplyTo)
 		x.Message, x.Channel, x.Webhook = snowflake.ID(msg), snowflake.ID(ch), snowflake.ID(hook)
 		return x, err
 	})
