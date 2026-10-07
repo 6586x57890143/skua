@@ -23,6 +23,7 @@ package armada
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -569,8 +570,19 @@ func (m *Module) apply(ctx context.Context, c *concord.Community, f *concord.Fol
 // announce publishes skua's own profile, marked as a bot, and its join.
 // Failures cost nothing but how she shows in Armada's member list.
 func (m *Module) announce(ctx context.Context, pool relays, c *concord.Community) {
-	meta := `{"name":"skua","about":"bridges channels of this community with a discord server","bot":true}`
-	ev := &nostr.Event{Kind: 0, Content: meta, CreatedAt: nostr.Now(), Tags: nostr.Tags{}}
+	meta := map[string]any{"name": "skua", "about": "bridges channels of this community with a discord server", "bot": true}
+	// She looks the same on both sides: her Discord avatar and banner, read
+	// once a session. Without them the profile still goes, just plain.
+	if me, err := m.rest.GetCurrentUser("", rest.WithCtx(ctx)); err == nil {
+		meta["picture"] = me.EffectiveAvatarURL(discord.WithSize(1024))
+		if b := me.BannerURL(discord.WithSize(1024)); b != nil {
+			meta["banner"] = *b
+		}
+	} else {
+		m.log.Warn("armada: reading skua's discord profile", "err", err)
+	}
+	raw, _ := json.Marshal(meta)
+	ev := &nostr.Event{Kind: 0, Content: string(raw), CreatedAt: nostr.Now(), Tags: nostr.Tags{}}
 	if err := ev.Sign(m.primary.SK); err == nil {
 		if err := pool.Publish(ctx, ev); err != nil {
 			m.log.Warn("armada: publishing skua's profile", "err", err)

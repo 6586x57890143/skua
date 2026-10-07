@@ -312,6 +312,10 @@ func TestReadyRunsTheBridge(t *testing.T) {
 
 type guildRest struct{ rest.Rest }
 
+func (guildRest) GetCurrentUser(string, ...rest.RequestOpt) (*discord.OAuth2User, error) {
+	return nil, errors.New("not in this test")
+}
+
 func (guildRest) GetChannel(snowflake.ID, ...rest.RequestOpt) (discord.Channel, error) {
 	var ch discord.GuildTextChannel
 	err := json.Unmarshal([]byte(`{"id":"100","type":0,"guild_id":"7","name":"general"}`), &ch)

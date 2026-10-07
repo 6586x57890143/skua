@@ -651,3 +651,26 @@ func TestInboxWakesOncePerWrap(t *testing.T) {
 		t.Fatal("a replayed wrap woke run, or a new one didn't")
 	}
 }
+
+func (r *fakeRest) GetCurrentUser(string, ...rest.RequestOpt) (*discord.OAuth2User, error) {
+	avatar, banner := "a1b2", "c3d4"
+	return &discord.OAuth2User{User: discord.User{ID: 42, Avatar: &avatar, Banner: &banner}}, nil
+}
+
+func TestSkuasProfileWearsHerDiscordLook(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	h.m.announce(context.Background(), h.pool, h.m.comm)
+	for _, ev := range h.pool.take() {
+		if ev.Kind != 0 || ev.PubKey != h.m.primary.PK {
+			continue
+		}
+		var meta map[string]any
+		_ = json.Unmarshal([]byte(ev.Content), &meta)
+		if meta["picture"] != "https://cdn.discordapp.com/avatars/42/a1b2.png?size=1024" ||
+			meta["banner"] != "https://cdn.discordapp.com/banners/42/c3d4.png?size=1024" || meta["bot"] != true || meta["name"] != "skua" {
+			t.Fatalf("profile %v", meta)
+		}
+		return
+	}
+	t.Fatal("no profile published")
+}
