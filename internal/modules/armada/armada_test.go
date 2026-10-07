@@ -91,6 +91,8 @@ type fakeRelays struct {
 	fns       []func(*nostr.Event)
 	health    []concord.RelayHealth
 	refuse    bool
+	// notify, when set, is poked on every publish (see awaitJoin).
+	notify chan struct{}
 }
 
 func (f *fakeRelays) Query(_ context.Context, flt nostr.Filter) []*nostr.Event {
@@ -112,6 +114,10 @@ func (f *fakeRelays) Publish(_ context.Context, ev *nostr.Event) error {
 		return io.ErrUnexpectedEOF
 	}
 	f.published = append(f.published, ev)
+	select {
+	case f.notify <- struct{}{}:
+	default:
+	}
 	return nil
 }
 
@@ -271,10 +277,36 @@ func newHarness(t *testing.T, links string) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
+	h.pool.notify = make(chan struct{}, 1)
 	m.session(m.ctx, c)
 	_, _, _, h.chans = m.state()
+	h.awaitJoin(t, c)
 	h.pool.take() // skua's profile and join
 	return h
+}
+
+// awaitJoin waits for session's announce, which runs in the background:
+// left running, its publishes land in whatever a test takes next. The join
+// is the last thing it publishes.
+func (h *harness) awaitJoin(t *testing.T, c *concord.Community) {
+	t.Helper()
+	timeout := time.After(10 * time.Second)
+	for {
+		h.pool.mu.Lock()
+		joined := slices.ContainsFunc(h.pool.published, func(ev *nostr.Event) bool {
+			o, err := concord.Open(ev, concord.GuestbookKey(c))
+			return err == nil && o.Kind == concord.KindJoinLeave
+		})
+		h.pool.mu.Unlock()
+		if joined {
+			return
+		}
+		select {
+		case <-h.pool.notify:
+		case <-timeout:
+			t.Fatal("skua never published her join")
+		}
+	}
 }
 
 // chat is a rumor in general as the member with secret byte b.
