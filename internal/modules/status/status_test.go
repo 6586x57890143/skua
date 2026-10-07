@@ -101,37 +101,12 @@ func TestStatus(t *testing.T) {
 	}
 }
 
-func TestReadoutIsAGrid(t *testing.T) {
-	got := readout([][2]string{
-		{"gateway", "42 ms"},
-		{"intents", "guilds, members, presences, guild messages, direct messages, message content"},
-	})
-	want := "```\n" +
-		"gateway     42 ms\n" +
-		"intents     guilds, members, presences,\n" +
-		"            guild messages,\n" +
-		"            direct messages,\n" +
-		"            message content\n" +
-		"```\n"
-	if got != want {
-		t.Errorf("readout:\n%s\nwant:\n%s", got, want)
-	}
-}
-
-func TestMsAndUptime(t *testing.T) {
+func TestMs(t *testing.T) {
 	for d, want := range map[time.Duration]string{
 		1234 * time.Microsecond: "1.2 ms", 42 * time.Millisecond: "42 ms", 1500 * time.Millisecond: "1500 ms",
 	} {
 		if got := ms(d); got != want {
 			t.Errorf("ms(%v) = %q, want %q", d, got, want)
-		}
-	}
-	for d, want := range map[time.Duration]string{
-		45 * time.Second: "45s", 12*time.Minute + 59*time.Second: "12m",
-		3*time.Hour + 12*time.Minute: "3h 12m", 52 * time.Hour: "2d 4h",
-	} {
-		if got := uptime(d); got != want {
-			t.Errorf("uptime(%v) = %q, want %q", d, got, want)
 		}
 	}
 }

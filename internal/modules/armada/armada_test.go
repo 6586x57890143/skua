@@ -28,6 +28,7 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 
 	"github.com/6586x57890143/skua/internal/concord"
+	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/filter"
 	"github.com/6586x57890143/skua/internal/guard"
 )
@@ -673,4 +674,50 @@ func TestSkuasProfileWearsHerDiscordLook(t *testing.T) {
 		return
 	}
 	t.Fatal("no profile published")
+}
+
+func TestReportForItsServerOnly(t *testing.T) {
+	h := newHarness(t, "100="+general+",200="+strings.Repeat("99", 32))
+	h.m.links[1].guild.Store(7)
+	w, _ := h.chat(t, 3, concord.KindMessage, "hello")
+	h.deliver(t, w)
+	h.m.links[0].tally.fail()
+	r := h.m.Report(7)
+	all := core.Readout(r.Rows) + strings.Join(r.Notes, "\n")
+	for _, want := range []string{"community  test", "state      connected", "<#100> ↔ #general · readable", "1 in · 0 out · last 0s ago · 1 failed", "<#200> ↔ #99999999 · ! not readable"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("report is missing %q:\n%s", want, all)
+		}
+	}
+	if r := h.m.Report(8); len(r.Rows)+len(r.Notes) != 0 {
+		t.Errorf("another server sees %+v", r)
+	}
+	h.m.failing = "invite bundle not found on its relays"
+	if r := h.m.Report(7); !strings.Contains(strings.Join(r.Notes, "\n"), "the invite stopped reading") {
+		t.Errorf("a failing invite is not said: %+v", r)
+	}
+}
+
+func TestReportBeforeAndWithoutTheInvite(t *testing.T) {
+	v := loadVectors(t)
+	m, err := New(slog.New(slog.DiscardHandler), guard.New(), &fakePoster{}, filter.Default(), nil, Config{
+		Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: v.Direct.Recipient, Links: "100=" + general,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.links[0].guild.Store(7)
+	if r := m.Report(7); r.Rows[0][1] != "connecting" {
+		t.Errorf("before the first read: %+v", r)
+	}
+	// No bundle on the relays: the read fails, the loop carries on, and
+	// the report says why.
+	m.dial = func([]string) relays { return &fakeRelays{} }
+	m.rest = guildRest{}
+	go m.run()
+	defer m.Close()
+	waitFor(t, func() bool { return m.Report(7).Rows[0][1] == "can't read the invite" })
+	if r := m.Report(7); !strings.Contains(strings.Join(r.Notes, "\n"), "not found") {
+		t.Errorf("no reason: %+v", r)
+	}
 }

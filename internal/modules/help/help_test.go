@@ -442,3 +442,23 @@ func TestIndexWrapsOnlySubtext(t *testing.T) {
 		}
 	}
 }
+
+// reported is a module with a page and a status of its own.
+type reported struct{ paged }
+
+func (reported) Report(guild snowflake.ID) core.Report {
+	return core.Report{Rows: [][2]string{{"server", guild.String()}, {"links", "1"}}, Notes: []string{"-# all quiet"}}
+}
+
+func TestAdminsSeeAModulesStatus(t *testing.T) {
+	tern := reported{paged{fake{"tern", nil, core.Help{Color: brand.ColorOK, Line: "watches", About: "and reports"}}}}
+	r := newRouter(t, nil, tern, nest)
+	_, all := page(t, click(t, r, "help:pick", true, true, "tern"))
+	contains(t, "admin page", all, "### status", "server  3", "links   1", "-# all quiet")
+	if _, all := page(t, click(t, r, "help:pick", true, false, "tern")); strings.Contains(all, "### status") {
+		t.Error("a member sees the status")
+	}
+	if _, all := page(t, click(t, r, "help:pick", true, true, "nest")); strings.Contains(all, "### status") {
+		t.Error("a module with nothing to report shows a status")
+	}
+}

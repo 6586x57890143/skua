@@ -99,6 +99,7 @@ type link struct {
 	discord snowflake.ID
 	armada  string
 	guild   atomic.Uint64 // learned at boot, or from the first message
+	tally   tally
 	toArm   chan fromDiscord
 	toDisc  chan *concord.Opened
 }
@@ -157,6 +158,7 @@ type Module struct {
 	subs     map[string]context.CancelFunc // chat subscription per link
 	subKeys  map[string]string             // the authors it was opened with
 	missing  map[string]bool               // links already logged as unreadable
+	failing  string                        // why the invite last failed to read, or ""
 	puppets  map[string]concord.Key        // discord user id -> puppet
 	puppetPK map[string]bool
 	profiles map[string]profile         // armada pubkey -> name and avatar
@@ -367,6 +369,12 @@ func (m *Module) run() {
 	for {
 		last := time.Now()
 		c, err := m.resolve()
+		m.mu.Lock()
+		m.failing = ""
+		if err != nil {
+			m.failing = strings.TrimPrefix(err.Error(), "concord: ")
+		}
+		m.mu.Unlock()
 		switch {
 		case err != nil:
 			m.log.Warn("armada: reading the invite", "err", err)

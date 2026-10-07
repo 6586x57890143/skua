@@ -210,6 +210,18 @@ func (m *Module) page(name string, guild *snowflake.ID, admin bool) (discord.Mes
 			).WithAccessory(discord.NewThumbnail(att.add(brand.ModuleIcon(name, en.help.Color)))),
 			discord.NewTextDisplay(grid(en.mod.Commands())),
 		}
+		// What the module is doing in this server, for its admins: facts as
+		// a grid, anything longer below it.
+		if rep, ok := en.mod.(core.Reporter); ok && admin && guild != nil {
+			if r := rep.Report(*guild); len(r.Rows)+len(r.Notes) > 0 {
+				text := "### status\n"
+				if len(r.Rows) > 0 {
+					text += core.Readout(r.Rows)
+				}
+				text += strings.Join(r.Notes, "\n")
+				body = append(body, discord.NewSmallSeparator(), discord.NewTextDisplay(strings.TrimSuffix(text, "\n")))
+			}
+		}
 		if admin && m.toggles != nil && guild != nil && !fixed[name] {
 			state, button := "**on** in this server", discord.NewDangerButton("switch off", id+":off:"+name)
 			if m.off(guild, name) {

@@ -104,7 +104,7 @@ func (m *Module) status(ctx context.Context, e *events.ApplicationCommandInterac
 		}
 	}
 	rows = append(rows,
-		[2]string{"uptime", uptime(time.Since(m.started))},
+		[2]string{"uptime", core.Duration(time.Since(m.started))},
 		[2]string{"intents", names(p.Identified)},
 		[2]string{"privileged", names(p.Granted & gateway.IntentsPrivileged)},
 	)
@@ -115,57 +115,13 @@ func (m *Module) status(ctx context.Context, e *events.ApplicationCommandInterac
 	}
 	rows = append(rows, [2]string{"runtime", runtime.Version()}, [2]string{"build", core.Revision()})
 
-	embed, files := brand.Embed(color, "status", readout(rows)+strings.Join(notes, "\n"))
+	embed, files := brand.Embed(color, "status", core.Readout(rows)+strings.Join(notes, "\n"))
 	return e.CreateMessage(discord.MessageCreate{
 		Embeds:          []discord.Embed{embed},
 		Files:           files,
 		Flags:           discord.MessageFlagEphemeral,
 		AllowedMentions: core.NoPings(),
 	})
-}
-
-// labelWidth is the label column: the longest label, "privileged", and two
-// spaces. valueWidth holds every line to 40 columns, so the grid needs as
-// little room as the facts in it allow.
-const labelWidth, valueWidth = 12, 28
-
-// readout lays rows out as a code block grid. A value too long for its column
-// wraps after a comma, continuing in the value column.
-func readout(rows [][2]string) string {
-	var b strings.Builder
-	b.WriteString("```\n")
-	for _, r := range rows {
-		for i, line := range wrap(r[1], valueWidth) {
-			label := ""
-			if i == 0 {
-				label = r[0]
-			}
-			fmt.Fprintf(&b, "%-*s%s\n", labelWidth, label, line)
-		}
-	}
-	b.WriteString("```\n")
-	return b.String()
-}
-
-// wrap breaks a comma separated list into lines of at most width, breaking
-// only after a comma. A single item longer than width stays whole and runs
-// past the 40 column grid; every value status shows (intent names, module
-// names, durations) is far shorter.
-func wrap(s string, width int) []string {
-	var lines []string
-	line := ""
-	for i, item := range strings.Split(s, ", ") {
-		if i > 0 {
-			item = ", " + item
-		}
-		if line != "" && len(line)+len(item) > width {
-			lines = append(lines, line+",")
-			item = strings.TrimPrefix(item, ", ")
-			line = ""
-		}
-		line += item
-	}
-	return append(lines, line)
 }
 
 // ms is a round trip in milliseconds: one decimal under 10ms, where the
@@ -184,19 +140,6 @@ func gatewayMs(d time.Duration) string {
 		return "not measured yet"
 	}
 	return ms(d)
-}
-
-// uptime is the two largest units that matter: "45s", "12m", "3h 12m", "2d 4h".
-func uptime(d time.Duration) string {
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
-	}
-	return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
 }
 
 var intentNames = []struct {

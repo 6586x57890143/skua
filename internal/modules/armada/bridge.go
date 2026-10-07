@@ -97,8 +97,10 @@ func (m *Module) toArmada(l *link, msg discord.Message) {
 	}
 	if err != nil {
 		m.log.Warn("armada: publishing a discord message", "channel", l.discord, "err", err)
+		l.tally.fail()
 		return
 	}
+	l.tally.crossedOut()
 	if err := m.maps.insert(ctx, row{Message: msg.ID, Channel: l.discord, Rumor: r.ID, Origin: "discord", Author: user}); err != nil {
 		m.log.Warn("armada: recording a bridged message", "err", err)
 	}
@@ -159,6 +161,7 @@ func (m *Module) discordEdit(l *link, msg discord.Message) {
 	if w, err := concord.SealChat(r, ch, puppet.SK); err == nil {
 		if err := pool.Publish(ctx, w); err != nil {
 			m.log.Warn("armada: publishing an edit", "err", err)
+			l.tally.fail()
 		}
 	}
 }
@@ -264,6 +267,7 @@ func (m *Module) discordDelete(l *link, guild, id snowflake.ID) {
 	if w, err := concord.SealChat(r, ch, puppet.SK); err == nil {
 		if err := pool.Publish(ctx, w); err != nil {
 			m.log.Warn("armada: publishing a delete", "err", err)
+			l.tally.fail()
 		}
 	}
 }
@@ -334,6 +338,7 @@ func (m *Module) armadaEdit(ctx context.Context, l *link, guild snowflake.ID, o 
 		update := discord.WebhookMessageUpdate{Content: &content, AllowedMentions: core.NoPings()}
 		if err := m.post.Edit(ctx, m.rest, guild, l.discord, m.app, r.Webhook, r.Message, update); err != nil {
 			m.log.Warn("armada: editing a bridged message", "err", err)
+			l.tally.fail()
 		}
 	}
 	if len(parts) <= len(rows) {
@@ -344,6 +349,7 @@ func (m *Module) armadaEdit(ctx context.Context, l *link, guild snowflake.ID, o 
 		posted, err := m.post.Send(ctx, m.rest, guild, l.discord, m.app, discord.WebhookMessageCreate{Content: parts[i], Username: name, AvatarURL: avatar, AllowedMentions: core.NoPings()})
 		if err != nil {
 			m.log.Warn("armada: posting an edit's new part", "err", err)
+			l.tally.fail()
 			return
 		}
 		var hook snowflake.ID
@@ -383,7 +389,11 @@ func (m *Module) armadaPost(ctx context.Context, l *link, guild snowflake.ID, o 
 		posted, err := m.post.Send(ctx, m.rest, guild, l.discord, m.app, msg)
 		if err != nil {
 			m.log.Warn("armada: posting an armada message", "channel", l.discord, "err", err)
+			l.tally.fail()
 			return
+		}
+		if i == 0 {
+			l.tally.crossedIn()
 		}
 		var hook snowflake.ID
 		if posted.WebhookID != nil {
