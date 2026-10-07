@@ -91,6 +91,8 @@ func (m *Module) click(ctx context.Context, e *events.ComponentInteractionCreate
 		return e.Modal(form(v[0]))
 	case "drop":
 		return m.drop(ctx, e, *guild, e.StringSelectMenuInteractionData().Values)
+	case "test":
+		return m.test(ctx, e, *guild, e.StringSelectMenuInteractionData().Values)
 	}
 	return core.Tell("that panel is out of date; run /notify again")
 }
@@ -300,7 +302,8 @@ func (m *Module) panel(guild snowflake.ID, note string) discord.MessageCreate {
 		}
 		menu := discord.NewStringSelectMenu(id+":drop", "stop following...", opts...)
 		menu.MaxValues = len(opts)
-		body = append(body, discord.NewActionRow(menu))
+		body = append(body, discord.NewActionRow(menu),
+			discord.NewActionRow(discord.NewStringSelectMenu(id+":test", "post a test card for...", opts...)))
 	}
 	body = append(body, discord.NewTextDisplay(fmt.Sprintf("-# %d of %d · %s · a card only pings the role you give it", len(mine), perGuild, strings.Join(m.platforms(), ", "))))
 	return discord.MessageCreate{

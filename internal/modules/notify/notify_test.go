@@ -355,11 +355,30 @@ func TestRemember(t *testing.T) {
 }
 
 // restRec is the REST the panel makes after it defers: the edit of the
-// panel, and a followup for an error.
+// panel, a followup for an error, and a test card with the role reads it
+// takes.
 type restRec struct {
 	rest.Rest
 	updates   []discord.MessageUpdate
 	followups []discord.MessageCreate
+	posted    []sent
+	postErr   error
+}
+
+func (r *restRec) CreateMessage(channel snowflake.ID, m discord.MessageCreate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	if r.postErr != nil {
+		return nil, r.postErr
+	}
+	r.posted = append(r.posted, sent{channel, m})
+	return &discord.Message{}, nil
+}
+
+func (r *restRec) GetRoles(snowflake.ID, ...rest.RequestOpt) ([]discord.Role, error) {
+	return guildRoles(discord.PermissionManageRoles, 2, false), nil
+}
+
+func (r *restRec) GetMember(_, user snowflake.ID, _ ...rest.RequestOpt) (*discord.Member, error) {
+	return &discord.Member{User: discord.User{ID: user}, RoleIDs: []snowflake.ID{5}}, nil
 }
 
 func (r *restRec) UpdateInteractionResponse(_ snowflake.ID, _ string, u discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
