@@ -152,6 +152,7 @@ var (
 // and otherwise the worst reason there is one it couldn't take.
 func rekeyOnce(ctx context.Context, q querier, sk string, me [32]byte, c *Community, f *Folded, cid [32]byte, held PrivateKey) (PrivateKey, bool, Drift) {
 	var worst *Drift
+	arriving := false // an authorized, chained next rotation is still arriving
 	note := func(d Drift) {
 		if worst == nil || rank(d) < rank(*worst) {
 			worst = &d
@@ -212,6 +213,7 @@ func rekeyOnce(ctx context.Context, q querier, sk string, me [32]byte, c *Commun
 		}
 		if len(s.have) < s.chunks {
 			note(driftArriving)
+			arriving = true
 			continue
 		}
 		key, ok := openBlob(s, sk, me, cid)
@@ -228,6 +230,12 @@ func rekeyOnce(ctx context.Context, q querier, sk string, me [32]byte, c *Commun
 	}
 	if worst == nil {
 		return held, false, Drift{}
+	}
+	// A later rotation seen while the next one is still arriving is not a
+	// gap yet: it chains from that next one, which is on its way. Calling it
+	// stale would log an outage and then, chunks later, ok again.
+	if worst.Why == driftGap.Why && arriving {
+		worst = &driftArriving
 	}
 	d := *worst
 	d.Epoch = held.Epoch

@@ -152,3 +152,29 @@ func TestDriftIsNamedAndJunkCantMakeItStale(t *testing.T) {
 		t.Errorf("drift %v", drift)
 	}
 }
+
+// The next rotation still arriving while the one after it is already out
+// reads as arriving, not as a gap: no outage for a key that is on its way.
+func TestArrivingOutranksAGapItExplains(t *testing.T) {
+	u := load(t)
+	inv, _ := ParseInvite(u.Invite.URL)
+	c, _ := openBundle(u.Invite.Event, inv.Token, 0)
+	f := FoldControl(c, u.Community.A.Wraps)
+	id := strings.Repeat("22", 32)
+	cid, _ := hex32(id)
+	held := c.Private[id]
+	me, owner := keyOf(t, 0x50), keyOf(t, 1)
+	q := fixedQuery{
+		rotate(t, c, cid, owner, 4, held.Key, 5, fill32(1), 1, 2, me),
+		rotate(t, c, cid, owner, 5, fill32(1), 6, fill32(2), 1, 1, me),
+	}
+	_, drift := Rekeys(context.Background(), q, me.SK, c, f)
+	if d := drift[id]; d.Why != driftArriving.Why || d.Stale {
+		t.Fatalf("drift %+v", d)
+	}
+	// Without the arriving one, the later rotation is a real gap.
+	_, drift = Rekeys(context.Background(), q[1:], me.SK, c, f)
+	if d := drift[id]; d.Why != driftGap.Why || !d.Stale {
+		t.Fatalf("drift %+v", d)
+	}
+}
