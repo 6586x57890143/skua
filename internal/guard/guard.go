@@ -50,6 +50,11 @@ const (
 	// EmojiCreate is one application emoji uploaded, keyed by guild 0:
 	// they belong to the app, not a guild.
 	EmojiCreate
+	// AttachmentRefresh is one call to re-sign the Discord attachment links
+	// pasted in a bridged message. Not a write, but the endpoint is
+	// undocumented and the links come from members, so it is capped and
+	// breakered like one.
+	AttachmentRefresh
 	opCount
 )
 
@@ -76,6 +81,8 @@ var caps = [opCount]int64{
 	CommandSync: 8,
 	// A boot uploads only what was redrawn: a handful, never hundreds.
 	EmojiCreate: 50,
+	// One per bridged message with a pasted link: WebhookExecute's pace.
+	AttachmentRefresh: 300,
 }
 
 const (

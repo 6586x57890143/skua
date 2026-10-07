@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -268,6 +269,75 @@ func TestRehostAttachments(t *testing.T) {
 	if !slices.Contains(tags[0], "m image/png") || !slices.Contains(tags[0], "name a.png") || !slices.Contains(tags[1], "m image/png") {
 		t.Errorf("%v", tags)
 	}
+}
+
+// A pasted Discord attachment link is dead outside Discord until it is
+// signed, so it crosses refreshed, and as a file when Blossom is there.
+func TestPastedDiscordLinks(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	bare := "https://cdn.discordapp.com/attachments/1/2/bounce.gif"
+	other := "https://media.discordapp.net/attachments/3/4/x.png"
+	signed := bare + "?ex=1&is=2&hm=3&"
+	msg := discord.Message{Content: "why doesn't this load " + bare + " " + bare + " " + other}
+
+	// Discord refusing leaves the text as it was.
+	if got, _ := h.m.compose(context.Background(), 7, msg, key(t, 8)); got != msg.Content {
+		t.Errorf("refused %q", got)
+	}
+
+	// Each link is sent once; one Discord won't sign stays where it was.
+	h.rest.refreshed = map[string]string{bare: signed, other: "https://evil.example/x.png"}
+	got, tags := h.m.compose(context.Background(), 7, msg, key(t, 8))
+	if got != "why doesn't this load   "+other+"\n"+signed || len(tags) != 0 {
+		t.Errorf("no blossom %q %v", got, tags)
+	}
+
+	// With Blossom it goes across as a file.
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer up.Close()
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/gif")
+		_, _ = w.Write([]byte("gif bytes"))
+	}))
+	defer cdn.Close()
+	h.m.blob = &blossom{servers: []string{up.URL}, http: http.DefaultClient}
+	h.m.fetcher = &http.Client{Transport: redirectTo(cdn.URL)}
+	got, tags = h.m.compose(context.Background(), 7, discord.Message{Content: bare}, key(t, 8))
+	if !strings.HasPrefix(got, up.URL+"/") || !strings.HasSuffix(got, ".gif") || len(tags) != 1 || !slices.Contains(tags[0], "name bounce.gif") {
+		t.Errorf("rehosted %q %v", got, tags)
+	}
+}
+
+// One 403 from the refresh endpoint ends refreshing for the run, in every
+// guild: a 401 or 403 is never retried, and each counts toward the invalid
+// request ban on the IP. It leaves the guild's breaker alone.
+func TestPastedLinksStopOnRefusal(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	h.rest.fail = &rest.Error{Response: &http.Response{StatusCode: http.StatusForbidden}}
+	msg := discord.Message{Content: "https://cdn.discordapp.com/attachments/1/2/a.gif"}
+	for _, guild := range []snowflake.ID{7, 7, 8} {
+		if got, _ := h.m.compose(context.Background(), guild, msg, key(t, 8)); got != msg.Content {
+			t.Fatalf("refused %q", got)
+		}
+	}
+	if h.rest.calls != 1 {
+		t.Errorf("asked %d times after a 403", h.rest.calls)
+	}
+	if err := h.m.guard.Allow(7, guard.MessageSend); err != nil {
+		t.Errorf("breaker: %v", err)
+	}
+}
+
+// redirectTo sends every request to base, whatever host it names.
+type redirectTo string
+
+func (r redirectTo) RoundTrip(req *http.Request) (*http.Response, error) {
+	u, _ := url.Parse(string(r))
+	req = req.Clone(req.Context())
+	req.URL.Scheme, req.URL.Host = u.Scheme, u.Host
+	return http.DefaultTransport.RoundTrip(req)
 }
 
 func TestReadyRunsTheBridge(t *testing.T) {

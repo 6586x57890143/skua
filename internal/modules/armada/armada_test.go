@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -172,6 +173,26 @@ func (p *fakePoster) Delete(_ context.Context, _ rest.Rest, _, _, _, _, message 
 type fakeRest struct {
 	rest.Rest
 	deleted []snowflake.ID
+	// refreshed answers /attachments/refresh-urls; nil fails the call.
+	refreshed map[string]string
+	fail      error // what refresh-urls answers instead, when set
+	calls     int
+}
+
+func (r *fakeRest) Do(_ *rest.CompiledEndpoint, rq, rs any, _ ...rest.RequestOpt) error {
+	r.calls++
+	if r.fail != nil {
+		return r.fail
+	}
+	if r.refreshed == nil {
+		return errors.New("refused")
+	}
+	var out []map[string]string
+	for _, u := range rq.(map[string][]string)["attachment_urls"] {
+		out = append(out, map[string]string{"original": u, "refreshed": r.refreshed[u]})
+	}
+	b, _ := json.Marshal(map[string]any{"refreshed_urls": out})
+	return json.Unmarshal(b, rs)
 }
 
 func (r *fakeRest) GetChannel(id snowflake.ID, _ ...rest.RequestOpt) (discord.Channel, error) {

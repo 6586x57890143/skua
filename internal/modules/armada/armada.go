@@ -140,9 +140,12 @@ type Module struct {
 	byDisc  map[snowflake.ID]*link
 	blob    *blossom
 	klipy   *klipy
-	fetcher *http.Client
-	dial    func(urls []string) relays
-	gate    func(guild snowflake.ID) bool
+	// noRefresh is set by the first 401 or 403 from refresh-urls: the
+	// endpoint is closed to bots, so it is never called again this run.
+	noRefresh atomic.Bool
+	fetcher   *http.Client
+	dial      func(urls []string) relays
+	gate      func(guild snowflake.ID) bool
 
 	ctx context.Context
 	// wake reads the invite again early: a Direct Invite has arrived.

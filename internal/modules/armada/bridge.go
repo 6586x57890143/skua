@@ -11,7 +11,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -115,12 +118,59 @@ func (m *Module) compose(ctx context.Context, guild snowflake.ID, msg discord.Me
 			return g.URL, [][]string{g.tag()}
 		}
 	}
-	urls, metas := m.rehost(ctx, msg.Attachments, puppet)
+	content, pasted := m.pasted(ctx, guild, msg.Content)
+	urls, metas := m.rehost(ctx, append(slices.Clip(msg.Attachments), pasted...), puppet)
 	names := map[string]string{}
 	for _, u := range msg.Mentions {
 		names[u.ID.String()] = u.EffectiveName()
 	}
-	return toArmada(msg.Content, guild, names, urls), append(emojiTags(msg.Content), metas...)
+	return toArmada(content, guild, names, urls), append(emojiTags(content), metas...)
+}
+
+// cdnLink is a Discord attachment link pasted into a message's text.
+var cdnLink = regexp.MustCompile(`https://(?:cdn\.discordapp\.com|media\.discordapp\.net)/attachments/\d+/\d+/[^\s<>()|*~` + "`" + `]+`)
+
+var refreshURLs = rest.NewEndpoint(http.MethodPost, "/attachments/refresh-urls")
+
+// pasted turns the Discord attachment links in content into attachments to
+// rehost, and takes them out of the text. Discord only serves such a link
+// signed, re-signs it for its own clients and nowhere else, so pasted as is
+// it reaches Armada dead. A link Discord won't refresh stays in the text.
+func (m *Module) pasted(ctx context.Context, guild snowflake.ID, content string) (string, []discord.Attachment) {
+	links := slices.Compact(slices.Sorted(slices.Values(cdnLink.FindAllString(content, maxAttempts))))
+	if len(links) == 0 || m.noRefresh.Load() {
+		return content, nil
+	}
+	var res struct {
+		Refreshed []struct{ Original, Refreshed string } `json:"refreshed_urls"`
+	}
+	if err := m.guard.Allow(guild, guard.AttachmentRefresh); err != nil {
+		return content, nil
+	}
+	err := m.rest.Do(refreshURLs.Compile(nil), map[string][]string{"attachment_urls": links}, &res, rest.WithCtx(ctx))
+	m.guard.Report(guild, struggling(err))
+	// A 401 or 403 says the endpoint is closed to bots, which holds for the
+	// whole app; a retry would only count toward the invalid request ban.
+	if refused(err) {
+		if !m.noRefresh.Swap(true) {
+			m.log.Warn("armada: discord refused refresh-urls; pasted links cross as they are until restart", "err", err)
+		}
+		return content, nil
+	}
+	if err != nil {
+		m.log.Warn("armada: refreshing pasted discord links", "err", err)
+		return content, nil
+	}
+	var atts []discord.Attachment
+	var done []string
+	for _, r := range res.Refreshed {
+		if !slices.Contains(links, r.Original) || !cdnLink.MatchString(r.Refreshed) {
+			continue
+		}
+		done = append(done, r.Original)
+		atts = append(atts, discord.Attachment{URL: r.Refreshed, Filename: lastSegment(r.Original)})
+	}
+	return stripURLs(content, done), atts
 }
 
 // discordEdit publishes a Discord edit as a kind 3302 from the author's
@@ -454,6 +504,12 @@ func struggling(err error) bool {
 		return false
 	}
 	return re.Response.StatusCode == 429 || re.Response.StatusCode >= 500
+}
+
+// refused is a 401 or 403, which is never retried.
+func refused(err error) bool {
+	re, ok := errors.AsType[*rest.Error](err)
+	return ok && re.Response != nil && (re.Response.StatusCode == 401 || re.Response.StatusCode == 403)
 }
 
 // replyTarget is the rumor a message replies to: a kind 9's q tag, or a
