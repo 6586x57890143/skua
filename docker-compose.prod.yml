@@ -47,5 +47,23 @@ services:
     restart: unless-stopped
     mem_limit: 256m
 
+  # x and tiktok for notify: they have no free API, so an RSSHub reads them
+  # and skua reads its feeds at SKUA_NOTIFY_RSSHUB=http://rsshub:1200. Only
+  # on compose's network, and only with COMPOSE_PROFILES=rsshub in .env.
+  # Only the one variable it needs is passed, never skua's .env.
+  rsshub:
+    # Pinned to the build checked against tiktok, by tag and digest, so a
+    # deploy or a rollback pulls exactly this. Bump both together.
+    image: diygod/rsshub:2026-10-07@sha256:7e2cbe4862d94480e927737cf52f5d8e0c60f14b79d2fc2f02ae6f698b51e75a
+    profiles: [rsshub]
+    environment:
+      NODE_ENV: production
+      CACHE_EXPIRE: "120"
+      # The auth_token cookie of a throwaway x account; x refuses logged-out
+      # reads. Unset, x fails and tiktok still works.
+      TWITTER_AUTH_TOKEN: ${TWITTER_AUTH_TOKEN:-}
+    restart: unless-stopped
+    mem_limit: 384m
+
 volumes:
   pgdata:

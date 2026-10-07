@@ -73,6 +73,16 @@ func Mention(key string) string {
 	return "<:" + r.name + ":" + r.id.String() + ">"
 }
 
+// ComponentEmoji is key's emoji for a select option or a button, or nil
+// when there is none to show.
+func ComponentEmoji(key string) *discord.ComponentEmoji {
+	r, ok := emoji(key)
+	if !ok {
+		return nil
+	}
+	return &discord.ComponentEmoji{ID: r.id, Name: r.name}
+}
+
 // emojiURL is the CDN address of key's emoji, for a thumbnail. PNG, not
 // WebP: Discord does not take WebP in every image slot.
 func emojiURL(key string) (string, bool) {

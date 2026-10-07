@@ -220,6 +220,168 @@ var moduleGlyphs = map[string][]string{
 		"........................",
 		"........................",
 	},
+	"notify": { // bell
+		"........................",
+		"........................",
+		".........wwwwww.........",
+		".........wwwwww.........",
+		".......ww......ww.......",
+		".......ww......ww.......",
+		".....ww..........ww.....",
+		".....ww..........ww.....",
+		".....ww..........ww.....",
+		".....ww..........ww.....",
+		".....ww..........ww.....",
+		".....ww..........ww.....",
+		".....ww..........ww.....",
+		"...ww..............ww...",
+		"...ww..............ww...",
+		"...wwwwwwwwwwwwwwwwww...",
+		"...wwwwwwwwwwwwwwwwww...",
+		"........................",
+		"........ww....ww........",
+		"........ww....ww........",
+		"..........wwww..........",
+		"..........wwww..........",
+		"........................",
+		"........................",
+	},
+}
+
+// platformGlyphs are the platforms notify follows, drawn by hand on the
+// same grid from each one's logo (2 cell strokes, so 12 by 12 at heart),
+// in skua's bone on slate like every other tile. Written as pf_<name>.
+var platformGlyphs = map[string][]string{
+	"youtube": {
+		"........................",
+		"........................",
+		"..wwwwwwwwwwwwwwwwwwww..",
+		"..wwwwwwwwwwwwwwwwwwww..",
+		"wwwwwwwwwwwwwwwwwwwwwwww",
+		"wwwwwwwwwwwwwwwwwwwwwwww",
+		"wwwwwwww..wwwwwwwwwwwwww",
+		"wwwwwwww..wwwwwwwwwwwwww",
+		"wwwwwwww....wwwwwwwwwwww",
+		"wwwwwwww....wwwwwwwwwwww",
+		"wwwwwwww......wwwwwwwwww",
+		"wwwwwwww......wwwwwwwwww",
+		"wwwwwwww........wwwwwwww",
+		"wwwwwwww........wwwwwwww",
+		"wwwwwwww......wwwwwwwwww",
+		"wwwwwwww......wwwwwwwwww",
+		"wwwwwwww....wwwwwwwwwwww",
+		"wwwwwwww....wwwwwwwwwwww",
+		"wwwwwwww..wwwwwwwwwwwwww",
+		"wwwwwwww..wwwwwwwwwwwwww",
+		"wwwwwwwwwwwwwwwwwwwwwwww",
+		"wwwwwwwwwwwwwwwwwwwwwwww",
+		"..wwwwwwwwwwwwwwwwwwww..",
+		"..wwwwwwwwwwwwwwwwwwww..",
+	},
+	"twitch": {
+		"........................",
+		"........................",
+		"..wwwwwwwwwwwwwwwwwwww..",
+		"..wwwwwwwwwwwwwwwwwwww..",
+		"..ww................ww..",
+		"..ww................ww..",
+		"..ww....ww....ww....ww..",
+		"..ww....ww....ww....ww..",
+		"..ww....ww....ww....ww..",
+		"..ww....ww....ww....ww..",
+		"..ww....ww....ww....ww..",
+		"..ww....ww....ww....ww..",
+		"..ww................ww..",
+		"..ww................ww..",
+		"..ww..............wwww..",
+		"..ww..............wwww..",
+		"..ww............wwww....",
+		"..ww............wwww....",
+		"..wwwwww..wwwwwwww......",
+		"..wwwwww..wwwwwwww......",
+		"......ww..ww............",
+		"......ww..ww............",
+		"......wwww..............",
+		"......wwww..............",
+	},
+	"kick": {
+		"........................",
+		"........................",
+		"..wwwwww........wwwwww..",
+		"..wwwwww........wwwwww..",
+		"..wwwwww......wwwwww....",
+		"..wwwwww......wwwwww....",
+		"..wwwwww....wwwwww......",
+		"..wwwwww....wwwwww......",
+		"..wwwwww..wwwwww........",
+		"..wwwwww..wwwwww........",
+		"..wwwwwwwwwwww..........",
+		"..wwwwwwwwwwww..........",
+		"..wwwwwwwwwwww..........",
+		"..wwwwwwwwwwww..........",
+		"..wwwwww..wwwwww........",
+		"..wwwwww..wwwwww........",
+		"..wwwwww....wwwwww......",
+		"..wwwwww....wwwwww......",
+		"..wwwwww......wwwwww....",
+		"..wwwwww......wwwwww....",
+		"..wwwwww........wwwwww..",
+		"..wwwwww........wwwwww..",
+		"........................",
+		"........................",
+	},
+	"x": {
+		"........................",
+		"........................",
+		"........................",
+		"........................",
+		"..wwww............wwww..",
+		"..wwww............wwww..",
+		"....wwww........wwww....",
+		"....wwww........wwww....",
+		"......wwww....wwww......",
+		"......wwww....wwww......",
+		"........wwwwwwww........",
+		"........wwwwwwww........",
+		"..........wwww..........",
+		"..........wwww..........",
+		"........wwwwwwww........",
+		"........wwwwwwww........",
+		"......wwww....wwww......",
+		"......wwww....wwww......",
+		"....wwww........wwww....",
+		"....wwww........wwww....",
+		"..wwww............wwww..",
+		"..wwww............wwww..",
+		"........................",
+		"........................",
+	},
+	"tiktok": {
+		"........................",
+		"........................",
+		"............wwww........",
+		"............wwww........",
+		"............wwwwww......",
+		"............wwwwww......",
+		"............wwwwwwww....",
+		"............wwwwwwww....",
+		"............wwww..wwww..",
+		"............wwww..wwww..",
+		"............wwww........",
+		"............wwww........",
+		"............wwww........",
+		"............wwww........",
+		"....wwwwwwwwwwww........",
+		"....wwwwwwwwwwww........",
+		"..wwwwwwwwwwwwww........",
+		"..wwwwwwwwwwwwww........",
+		"..wwww....wwww..........",
+		"..wwww....wwww..........",
+		"..wwwwwwwwwwww..........",
+		"..wwwwwwwwwwww..........",
+		"....wwwwwwww............",
+		"....wwwwwwww............",
+	},
 }
 
 // Emoji are 128px, the size Discord keeps an application emoji at. The
@@ -268,13 +430,19 @@ func writeEmoji(b *image.NRGBA) {
 		mustWrite(filepath.Join(out, "skua_"+mood+".png"), img)
 	}
 	mustWrite(filepath.Join(out, "skua_avatar.png"), bird)
-	for name, g := range moduleGlyphs {
+	tiles(out, "mod_", moduleGlyphs)
+	tiles(out, "pf_", platformGlyphs)
+}
+
+// tiles writes each glyph centred on a tile, as prefix+name.
+func tiles(out, prefix string, glyphs map[string][]string) {
+	for name, g := range glyphs {
 		if len(g) != glyphCells {
-			log.Fatalf("module glyph %s has %d rows, want %d", name, len(g), glyphCells)
+			log.Fatalf("glyph %s%s has %d rows, want %d", prefix, name, len(g), glyphCells)
 		}
 		img := scale(tile(), emojiCell)
 		off := (tileCells - glyphCells) / 2 * emojiCell
 		drawScaled(img, g, off, off, map[byte]color.NRGBA{'w': bone[1]}, emojiCell)
-		mustWrite(filepath.Join(out, "mod_"+name+".png"), img)
+		mustWrite(filepath.Join(out, prefix+name+".png"), img)
 	}
 }

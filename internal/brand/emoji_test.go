@@ -95,6 +95,12 @@ func TestSyncUploadsOnlyWhatIsMissing(t *testing.T) {
 	if Mention("mod_nobody") != "" {
 		t.Error("a mention for an emoji that doesn't exist")
 	}
+	if e := ComponentEmoji("pf_kick"); e == nil || !strings.HasPrefix(e.Name, "pf_kick_") || e.ID == 0 {
+		t.Errorf("component emoji %+v", e)
+	}
+	if ComponentEmoji("mod_nobody") != nil {
+		t.Error("a component emoji that doesn't exist")
+	}
 }
 
 // Whatever could not be uploaded still goes as an attachment, and the rest

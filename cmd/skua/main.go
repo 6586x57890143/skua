@@ -33,6 +33,7 @@ import (
 	"github.com/6586x57890143/skua/internal/modules/armada"
 	"github.com/6586x57890143/skua/internal/modules/bird"
 	"github.com/6586x57890143/skua/internal/modules/help"
+	"github.com/6586x57890143/skua/internal/modules/notify"
 	"github.com/6586x57890143/skua/internal/modules/perf"
 	"github.com/6586x57890143/skua/internal/modules/preen"
 	"github.com/6586x57890143/skua/internal/modules/purge"
@@ -168,6 +169,13 @@ func run(log *slog.Logger) error {
 		}
 		all = append(all, bridge)
 	}
+
+	// notify keeps its follows in the purge pool too, or in memory without one.
+	notifier, err := notify.New(ctx, log, g, purgeDB, notify.FromEnv(), func(i discord.Interaction) bool { return router.Admin(i) })
+	if err != nil {
+		return err
+	}
+	all = append(all, notifier)
 
 	wants := make(map[string]intents.Want, len(all))
 	for _, m := range all {
