@@ -176,6 +176,18 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	all = append(all, notifier)
+	// Pushes from twitch, kick and youtube, which reach skua through the
+	// tunnel; nothing listens unless SKUA_HOOKS_URL says where they come in.
+	if os.Getenv("SKUA_HOOKS_URL") != "" {
+		hooks := &http.Server{Addr: env("SKUA_HOOKS_ADDR", ":8080"), Handler: notifier.Hooks(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second}
+		go func() {
+			log.Info("hooks listening", "addr", hooks.Addr)
+			if err := hooks.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+				log.Error("hooks stopped", "err", err)
+			}
+		}()
+		defer func() { _ = hooks.Shutdown(context.Background()) }()
+	}
 
 	wants := make(map[string]intents.Want, len(all))
 	for _, m := range all {

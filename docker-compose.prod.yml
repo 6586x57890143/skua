@@ -65,5 +65,22 @@ services:
     restart: unless-stopped
     mem_limit: 384m
 
+  # The way in for notify's pushes (twitch, kick, youtube): a Cloudflare
+  # Tunnel, so foundry opens no port. Its public hostname, hooks.skua.lol,
+  # set in the tunnel's dashboard, points at http://bot:8080, and
+  # SKUA_HOOKS_URL is https://hooks.skua.lol. Only with COMPOSE_PROFILES=tunnel in .env, and only the
+  # token is passed.
+  cloudflared:
+    # Pinned by release tag and digest: it holds the tunnel token and stands
+    # in front of the bot, so it changes only when bumped here.
+    image: cloudflare/cloudflared:2026.10.0@sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+    profiles: [tunnel]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    read_only: true
+    restart: unless-stopped
+    mem_limit: 128m
+
 volumes:
   pgdata:

@@ -34,7 +34,7 @@ const (
 
 // loop polls one platform until ctx ends.
 func (m *Module) loop(ctx context.Context, p Poster, platform string, src source) {
-	t := time.NewTicker(src.every())
+	t := time.NewTicker(m.every(src))
 	defer t.Stop()
 	for {
 		m.poll(ctx, p, platform, src)
@@ -44,6 +44,15 @@ func (m *Module) loop(ctx context.Context, p Poster, platform string, src source
 		case <-t.C:
 		}
 	}
+}
+
+// every is how often a platform is checked: its own pace, or with push on
+// its slower safety net.
+func (m *Module) every(src source) time.Duration {
+	if ps, ok := src.(pusher); ok && m.hooks.on() {
+		return ps.reconcile()
+	}
+	return src.every()
 }
 
 // poll is one round of a platform: every account anyone follows there,
@@ -94,6 +103,10 @@ func (m *Module) accounts(platform string) []string {
 // observe announces what an account shows that wasn't seen last time. The
 // first look at an account is a baseline: its backlog isn't news.
 func (m *Module) observe(ctx context.Context, p Poster, k key, items []item, src source) {
+	if turn := m.turns[k.platform]; turn != nil {
+		turn.Lock()
+		defer turn.Unlock()
+	}
 	m.mu.Lock()
 	prev, known := m.seen[k]
 	m.mu.Unlock()

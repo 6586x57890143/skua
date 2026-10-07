@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -81,7 +82,7 @@ func do(c *http.Client, req *http.Request, v any) ([]byte, error) {
 		return nil, statusError{req.URL.Host, res.StatusCode}
 	case err != nil:
 		return nil, err
-	case v != nil:
+	case v != nil && len(body) > 0:
 		return body, json.Unmarshal(body, v)
 	}
 	return body, nil
@@ -232,6 +233,10 @@ type youtube struct {
 	c    *http.Client
 	base string // https://www.youtube.com
 	img  string // https://i.ytimg.com
+	hub  string // https://pubsubhubbub.appspot.com/subscribe
+
+	mu     sync.Mutex
+	subbed []string // the channels last asked of the hub
 }
 
 // consent skips the EU cookie wall a server's address gets instead of the
@@ -244,9 +249,9 @@ var (
 	metaTitle = regexp.MustCompile(`<meta name="title" content="([^"]*)">`)
 )
 
-func (y youtube) every() time.Duration { return 3 * time.Minute }
+func (y *youtube) every() time.Duration { return 3 * time.Minute }
 
-func (y youtube) resolve(ctx context.Context, account string) (string, string, error) {
+func (y *youtube) resolve(ctx context.Context, account string) (string, string, error) {
 	a := strings.TrimRight(strings.TrimSpace(account), "/")
 	if i := strings.LastIndexByte(a, '/'); i >= 0 {
 		a = a[i+1:]
@@ -275,7 +280,7 @@ func (y youtube) resolve(ctx context.Context, account string) (string, string, e
 	return id, name, err
 }
 
-func (y youtube) check(ctx context.Context, accounts []string) (map[string][]item, error) {
+func (y *youtube) check(ctx context.Context, accounts []string) (map[string][]item, error) {
 	got := map[string][]item{}
 	var errs []error
 	for _, id := range accounts {
@@ -290,7 +295,7 @@ func (y youtube) check(ctx context.Context, accounts []string) (map[string][]ite
 }
 
 // channel is a channel's stream, while it is live, then its uploads.
-func (y youtube) channel(ctx context.Context, id string) ([]item, error) {
+func (y *youtube) channel(ctx context.Context, id string) ([]item, error) {
 	body, err := get(ctx, y.c, y.base+"/feeds/videos.xml?channel_id="+id, nil, nil)
 	if err != nil {
 		return nil, err
@@ -323,7 +328,7 @@ func (y youtube) channel(ctx context.Context, id string) ([]item, error) {
 // keep drops a stream's own feed entry, which appears as soon as it is
 // scheduled: the /live check announces it when it starts. A page that
 // can't be read is kept, since an extra card beats a lost one.
-func (y youtube) keep(ctx context.Context, it item) bool {
+func (y *youtube) keep(ctx context.Context, it item) bool {
 	page, err := get(ctx, y.c, y.base+"/watch?v="+url.QueryEscape(it.ID), consent, nil)
 	return err != nil || !strings.Contains(string(page), `"isLiveContent":true`)
 }
@@ -362,19 +367,38 @@ func (a *app) bearer(ctx context.Context) (string, error) {
 	return a.token, nil
 }
 
-// call is a GET with the app's token. A 401 drops the token, so the next
-// call fetches a fresh one.
+// call is a GET with the app's token.
 func (a *app) call(ctx context.Context, u string, h http.Header, v any) error {
+	return a.send(ctx, http.MethodGet, u, h, nil, v)
+}
+
+// send is a request with the app's token, body sent as JSON when there is
+// one. A 401 drops the token, so the next call fetches a fresh one.
+func (a *app) send(ctx context.Context, method, u string, h http.Header, body, v any) error {
 	tok, err := a.bearer(ctx)
 	if err != nil {
 		return err
 	}
-	hh := h.Clone()
-	if hh == nil {
-		hh = http.Header{}
+	var r io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		r = bytes.NewReader(b)
 	}
-	hh.Set("Authorization", "Bearer "+tok)
-	_, err = get(ctx, a.c, u, hh, v)
+	req, err := http.NewRequestWithContext(ctx, method, u, r)
+	if err != nil {
+		return err
+	}
+	for k, vs := range h {
+		req.Header[k] = vs
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	_, err = do(a.c, req, v)
 	if se, ok := errors.AsType[statusError](err); ok && se.code == http.StatusUnauthorized {
 		a.mu.Lock()
 		a.token = ""
@@ -461,9 +485,11 @@ func (t *twitch) check(ctx context.Context, accounts []string) (map[string][]ite
 type kick struct {
 	app *app
 	api string // https://api.kick.com/public/v1
+	key kickKey
 }
 
 type kickChannel struct {
+	ID       int64  `json:"broadcaster_user_id"`
 	Slug     string `json:"slug"`
 	Title    string `json:"stream_title"`
 	Category struct {

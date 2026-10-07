@@ -184,6 +184,7 @@ func (m *Module) submit(ctx context.Context, e *events.ModalSubmitInteractionCre
 	m.follows = slices.DeleteFunc(m.follows, func(o follow) bool { return o.same(f) })
 	m.follows = append(m.follows, f)
 	m.mu.Unlock()
+	go m.subscribe(platform)
 
 	_, err = e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(), m.update(*guild, "✓ following "+name+" on "+platform), rest.WithCtx(ctx))
 	return err
@@ -226,6 +227,9 @@ func (m *Module) drop(ctx context.Context, e *events.ComponentInteractionCreate,
 	})
 	m.mu.Unlock()
 	m.forget(ctx, keys...)
+	for _, k := range keys {
+		go m.subscribe(k.platform)
+	}
 	return m.redraw(e, guild, "✓ dropped "+strings.Join(names, ", "))
 }
 

@@ -11,6 +11,7 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -43,6 +44,9 @@ type Config struct {
 	RSSHub                 string
 	TwitchID, TwitchSecret string
 	KickID, KickSecret     string
+	// HooksURL is where twitch, kick and youtube push to, the tunnel's
+	// public address; HooksSecret signs what twitch and youtube send.
+	HooksURL, HooksSecret string
 }
 
 func FromEnv() Config {
@@ -50,12 +54,13 @@ func FromEnv() Config {
 		RSSHub:   strings.TrimRight(os.Getenv("SKUA_NOTIFY_RSSHUB"), "/"),
 		TwitchID: os.Getenv("SKUA_TWITCH_CLIENT_ID"), TwitchSecret: os.Getenv("SKUA_TWITCH_CLIENT_SECRET"),
 		KickID: os.Getenv("SKUA_KICK_CLIENT_ID"), KickSecret: os.Getenv("SKUA_KICK_CLIENT_SECRET"),
+		HooksURL: strings.TrimRight(os.Getenv("SKUA_HOOKS_URL"), "/"), HooksSecret: os.Getenv("SKUA_HOOKS_SECRET"),
 	}
 }
 
 // sources is every platform cfg sets up, against the real hosts.
 func sources(cfg Config, c *http.Client) map[string]source {
-	s := map[string]source{"youtube": youtube{c: c, base: "https://www.youtube.com", img: "https://i.ytimg.com"}}
+	s := map[string]source{"youtube": &youtube{c: c, base: "https://www.youtube.com", img: "https://i.ytimg.com", hub: "https://pubsubhubbub.appspot.com/subscribe"}}
 	if cfg.RSSHub != "" {
 		s["x"] = feed{c: c, base: cfg.RSSHub, path: func(h string) string { return "/twitter/user/" + h }}
 		s["tiktok"] = feed{c: c, base: cfg.RSSHub, path: func(h string) string { return "/tiktok/user/@" + h }}
@@ -84,12 +89,17 @@ type Module struct {
 	admin   func(discord.Interaction) bool
 	now     func() time.Time
 	boot    sync.Once
+	hooks   hooks
+	// turns keeps one platform's checks from overlapping, a push's and a
+	// timer's, so one post is never announced twice.
+	turns map[string]*sync.Mutex
 
 	mu      sync.Mutex
 	follows []follow
 	seen    map[key][]string
 	bound   map[snowflake.ID]snowflake.ID // guild -> where its cards go
 	health  map[string]health
+	poster  Poster                  // set once skua is up
 	failed  map[snowflake.ID]string // channel -> why its last post failed
 }
 
@@ -102,11 +112,19 @@ func New(ctx context.Context, log *slog.Logger, g *guard.Guard, db DB, cfg Confi
 	if err != nil {
 		return nil, fmt.Errorf("notify: loading follows: %w", err)
 	}
-	return &Module{
+	if cfg.HooksURL != "" && len(cfg.HooksSecret) < 16 {
+		return nil, errors.New("notify: SKUA_HOOKS_URL needs SKUA_HOOKS_SECRET, at least 16 characters (openssl rand -hex 32)")
+	}
+	m := &Module{
 		log: log, guard: g, db: db, sources: sources(cfg, &http.Client{Timeout: 20 * time.Second}),
 		on: func(snowflake.ID) bool { return true }, admin: admin, now: time.Now,
+		hooks: hooks{url: cfg.HooksURL, secret: cfg.HooksSecret}, turns: map[string]*sync.Mutex{},
 		follows: st.follows, seen: st.seen, bound: st.bound, health: map[string]health{}, failed: map[snowflake.ID]string{},
-	}, nil
+	}
+	for p := range m.sources {
+		m.turns[p] = &sync.Mutex{}
+	}
+	return m, nil
 }
 
 func (*Module) Name() string { return "notify" }
@@ -176,11 +194,32 @@ func (m *Module) OnEvent(ev bot.Event) {
 	}
 }
 
-// start runs a loop per platform for the life of the process.
+// start runs a loop per platform for the life of the process, and keeps
+// every platform that can push subscribed: now, and daily after.
 func (m *Module) start(ctx context.Context, p Poster) {
+	m.mu.Lock()
+	m.poster = p
+	m.mu.Unlock()
 	for platform, src := range m.sources {
 		go m.loop(ctx, p, platform, src)
 	}
+	if !m.hooks.on() {
+		return
+	}
+	go func() {
+		t := time.NewTicker(24 * time.Hour)
+		defer t.Stop()
+		for {
+			for platform := range m.sources {
+				m.subscribe(platform)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
 }
 
 func (m *Module) leave(guild snowflake.ID) {
