@@ -101,6 +101,7 @@ type Module struct {
 	live    map[stream][]posted           // live cards, until their stream ends
 	health  map[string]health
 	poster  Poster                  // set once skua is up
+	self    snowflake.ID            // skua's own user, once she is up
 	failed  map[snowflake.ID]string // channel -> why its last post failed
 }
 
@@ -182,7 +183,7 @@ func (m *Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorNotice,
 		Line:  "tells a channel when someone posts or goes live",
-		About: "she keeps an eye on accounts across " + strings.Join(m.platforms(), ", ") + " and drops a card in this server's notify channel when one posts or goes live, pinging a role if you give her one. the first look at an account only learns what's already there, so nobody gets a backlog. admins run /notify to pick the channel and add or drop who's followed",
+		About: "she keeps an eye on accounts across " + strings.Join(m.platforms(), ", ") + " and drops a card in this server's notify channel when one posts or goes live, pinging a role if you give her one. when she can hand that role out, each card has a ping me button so members can take it or drop it themselves. the first look at an account only learns what's already there, so nobody gets a backlog. admins run /notify to pick the channel and add or drop who's followed",
 	}
 }
 
@@ -234,6 +235,9 @@ func (m *Module) forget(ctx context.Context, keys ...key) {
 func (m *Module) OnEvent(ev bot.Event) {
 	switch e := ev.(type) {
 	case *events.Ready:
+		m.mu.Lock()
+		m.self = e.User.ID
+		m.mu.Unlock()
 		m.boot.Do(func() { m.start(context.Background(), e.Client().Rest) })
 	case *events.GuildLeave:
 		go m.leave(e.GuildID)

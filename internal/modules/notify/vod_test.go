@@ -122,7 +122,7 @@ func TestFallback(t *testing.T) {
 			t.Errorf("%s: %+v", c.platform, v)
 		}
 	}
-	if got := js(ended(key{"kick", "bird"}, item{Title: "t"}, vod{url: "https://kick.com/bird/videos", length: time.Hour}, 0)); !strings.Contains(got, `"label":"videos"`) || !strings.Contains(got, "1h 0m") {
+	if got := js(ended(key{"kick", "bird"}, item{Title: "t"}, vod{url: "https://kick.com/bird/videos", length: time.Hour}, 0, false)); !strings.Contains(got, `"label":"videos"`) || !strings.Contains(got, "1h 0m") {
 		t.Fatal(got)
 	}
 }

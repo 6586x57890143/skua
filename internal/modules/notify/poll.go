@@ -19,11 +19,14 @@ import (
 	"github.com/6586x57890143/skua/internal/guard"
 )
 
-// Poster is the REST notify calls as itself: a card, and the edit that
-// turns a live card into its VOD.
+// Poster is the REST notify calls as itself: a card, the edit that turns
+// a live card into its VOD, and the reads that say whether it can hand out
+// a card's ping role.
 type Poster interface {
 	CreateMessage(channel snowflake.ID, m discord.MessageCreate, opts ...rest.RequestOpt) (*discord.Message, error)
 	UpdateMessage(channel, message snowflake.ID, m discord.MessageUpdate, opts ...rest.RequestOpt) (*discord.Message, error)
+	GetRoles(guild snowflake.ID, opts ...rest.RequestOpt) ([]discord.Role, error)
+	GetMember(guild, user snowflake.ID, opts ...rest.RequestOpt) (*discord.Member, error)
 }
 
 const (
@@ -181,6 +184,8 @@ func (m *Module) announce(ctx context.Context, p Poster, k key, it item) {
 		}
 	}
 	m.mu.Unlock()
+	// Whether each server's ping role can be handed out, asked once a role.
+	grant := map[snowflake.ID]bool{}
 	for _, c := range cards {
 		// No channel: the panel and /help both say so.
 		if c.to == 0 || !m.on(c.f.guild) {
@@ -189,7 +194,10 @@ func (m *Module) announce(ctx context.Context, p Poster, k key, it item) {
 		err := m.guard.Allow(c.f.guild, guard.MessageSend)
 		if err == nil {
 			var msg *discord.Message
-			msg, err = p.CreateMessage(c.to, alert(k.platform, it, c.f.role))
+			if _, asked := grant[c.f.role]; !asked && c.f.role != 0 {
+				grant[c.f.role] = m.canGrant(p, c.f.guild, c.f.role)
+			}
+			msg, err = p.CreateMessage(c.to, alert(k.platform, it, c.f.role, grant[c.f.role]))
 			m.guard.Report(c.f.guild, struggling(err))
 			if err == nil && msg != nil && it.live() {
 				m.keepLive(ctx, posted{k: k, guild: c.f.guild, channel: c.to, message: msg.ID, role: c.f.role, it: it, at: m.now()})
@@ -242,16 +250,17 @@ func why(err error) string {
 var news = map[string]string{"youtube": "new on youtube", "x": "posted on x", "tiktok": "posted on tiktok"}
 
 // alert is the card for something new: a post, or a stream going live.
-func alert(platform string, it item, role snowflake.ID) discord.MessageCreate {
+// grant is whether the card carries the role's ping me button.
+func alert(platform string, it item, role snowflake.ID, grant bool) discord.MessageCreate {
 	if it.live() {
-		return card(platform, "live on "+platform, "watch", it, role)
+		return card(platform, "live on "+platform, "watch", it, role, grant)
 	}
-	return card(platform, news[platform], "open", it, role)
+	return card(platform, news[platform], "open", it, role, grant)
 }
 
 // card is a notify card: what happened in its head, the title linked, who
 // and what below it, the preview, and a button labelled label there.
-func card(platform, what, label string, it item, role snowflake.ID) discord.MessageCreate {
+func card(platform, what, label string, it item, role snowflake.ID, grant bool) discord.MessageCreate {
 	// The platform's colour, so a channel of cards reads by platform at a
 	// glance. Link buttons can't be coloured: Discord draws them grey.
 	color := brand.PlatformColor(platform)
@@ -279,10 +288,17 @@ func card(platform, what, label string, it item, role snowflake.ID) discord.Mess
 	if strings.HasPrefix(it.Image, "https://") {
 		extra = append(extra, discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: it.Image}}))
 	}
+	var buttons []discord.InteractiveComponent
 	if strings.HasPrefix(it.URL, "https://") {
 		button := discord.NewLinkButton(label, it.URL)
 		button.Emoji = brand.ComponentEmoji("pf_" + platform)
-		extra = append(extra, discord.NewActionRow(button))
+		buttons = append(buttons, button)
+	}
+	if grant && role != 0 {
+		buttons = append(buttons, roleButton(role))
+	}
+	if len(buttons) > 0 {
+		extra = append(extra, discord.NewActionRow(buttons...))
 	}
 	box := brand.Card(color, "notify", what, body, extra...)
 	if role == 0 {

@@ -74,6 +74,17 @@ type poster struct {
 	edits   []edit
 	fail    map[snowflake.ID]error
 	editErr error
+	roles   []discord.Role // the server's roles, for canGrant
+	mine    []snowflake.ID // skua's own
+	roleErr error
+}
+
+func (p *poster) GetRoles(snowflake.ID, ...rest.RequestOpt) ([]discord.Role, error) {
+	return p.roles, p.roleErr
+}
+
+func (p *poster) GetMember(_, user snowflake.ID, _ ...rest.RequestOpt) (*discord.Member, error) {
+	return &discord.Member{User: discord.User{ID: user}, RoleIDs: p.mine}, nil
 }
 
 type edit struct {
@@ -295,13 +306,13 @@ func TestGuardHoldsBackARunaway(t *testing.T) {
 }
 
 func TestAlert(t *testing.T) {
-	s := js(alert("youtube", item{ID: "v", Title: "a [weird]\ntitle", URL: "https://y/v", Author: "Bird", Image: "https://i"}, 0))
+	s := js(alert("youtube", item{ID: "v", Title: "a [weird]\ntitle", URL: "https://y/v", Author: "Bird", Image: "https://i"}, 0, false))
 	for _, want := range []string{"new on youtube", `**[a (weird) title](https://y/v)**`, "-# Bird", `"label":"open"`, `"parse":[]`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("no %q in %s", want, s)
 		}
 	}
-	s = js(alert("x", item{ID: "v", URL: "javascript:x", Image: "http://i"}, 7))
+	s = js(alert("x", item{ID: "v", URL: "javascript:x", Image: "http://i"}, 7, false))
 	if !strings.Contains(s, "**something new**") || strings.Contains(s, "javascript") || strings.Contains(s, "http://i") {
 		t.Fatalf("only https links and images: %s", s)
 	}
@@ -310,15 +321,15 @@ func TestAlert(t *testing.T) {
 	}
 	// A title with an emoji isn't a masked link: Discord would show the
 	// markdown. The button still links it.
-	s = js(alert("youtube", item{ID: "live:v", Title: "24/7 ambience \U0001F383 lofi", URL: "https://y/v"}, 0))
+	s = js(alert("youtube", item{ID: "live:v", Title: "24/7 ambience \U0001F383 lofi", URL: "https://y/v"}, 0, false))
 	if !strings.Contains(s, "**24/7 ambience \U0001F383 lofi**") || strings.Contains(s, "](https://y/v)") || !strings.Contains(s, `"url":"https://y/v"`) {
 		t.Fatalf("an emoji title: %s", s)
 	}
 	// A card wears its platform's muted tint; one without a tint, skua's notice.
-	if a := alert("youtube", item{ID: "v"}, 0).Components[0].(discord.ContainerComponent).AccentColor; a != brand.PlatformColor("youtube") {
+	if a := alert("youtube", item{ID: "v"}, 0, false).Components[0].(discord.ContainerComponent).AccentColor; a != brand.PlatformColor("youtube") {
 		t.Fatalf("youtube accent %v", a)
 	}
-	if a := alert("fake", item{ID: "v"}, 0).Components[0].(discord.ContainerComponent).AccentColor; a != brand.ColorNotice {
+	if a := alert("fake", item{ID: "v"}, 0, false).Components[0].(discord.ContainerComponent).AccentColor; a != brand.ColorNotice {
 		t.Fatalf("fallback accent %v", a)
 	}
 	if emoji("24/7 plain words") || !emoji("done \u2713") {

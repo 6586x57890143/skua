@@ -64,7 +64,7 @@ func (m *Module) end(ctx context.Context, p Poster, k key, id string, src source
 		}
 		err := m.guard.Allow(c.guild, guard.MessageSend)
 		if err == nil {
-			_, err = p.UpdateMessage(c.channel, c.message, ended(k, it, v, c.role))
+			_, err = p.UpdateMessage(c.channel, c.message, ended(k, it, v, c.role, m.canGrant(p, c.guild, c.role)))
 			m.guard.Report(c.guild, struggling(err))
 		}
 		if err != nil {
@@ -97,7 +97,7 @@ func (m *Module) fallback(k key, it item, posted time.Time) vod {
 
 // ended is a live card after its stream: the same card in the past tense,
 // its length beside the category, and a button to the VOD.
-func ended(k key, it item, v vod, role snowflake.ID) discord.MessageUpdate {
+func ended(k key, it item, v vod, role snowflake.ID, grant bool) discord.MessageUpdate {
 	was := it
 	was.ID, was.URL, was.Image = "", v.url, v.image
 	was.Detail = strings.TrimPrefix(was.Detail+" · "+core.Duration(v.length), " · ")
@@ -105,7 +105,7 @@ func ended(k key, it item, v vod, role snowflake.ID) discord.MessageUpdate {
 	if strings.HasSuffix(v.url, "/videos") {
 		label = "videos"
 	}
-	msg := card(k.platform, "was live on "+k.platform, label, was, role)
+	msg := card(k.platform, "was live on "+k.platform, label, was, role, grant)
 	// Editing never pings: the role was pinged when the stream started.
 	return discord.MessageUpdate{Components: &msg.Components, AllowedMentions: core.NoPings()}
 }

@@ -53,6 +53,14 @@ func (p *safePoster) UpdateMessage(snowflake.ID, snowflake.ID, discord.MessageUp
 	return &discord.Message{}, nil
 }
 
+func (p *safePoster) GetRoles(snowflake.ID, ...rest.RequestOpt) ([]discord.Role, error) {
+	return nil, nil
+}
+
+func (p *safePoster) GetMember(snowflake.ID, snowflake.ID, ...rest.RequestOpt) (*discord.Member, error) {
+	return &discord.Member{}, nil
+}
+
 func (p *safePoster) count() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()

@@ -42,7 +42,7 @@ func (m *Module) Commands() []core.Command {
 }
 
 func (m *Module) Components() []core.Component {
-	return []core.Component{{ID: id, Run: m.click}}
+	return []core.Component{{ID: id, Run: m.click}, {ID: roleID, Run: m.grab}}
 }
 
 func (m *Module) Modals() []core.Modal {
