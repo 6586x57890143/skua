@@ -180,6 +180,19 @@ type fakeRest struct {
 	refreshed map[string]string
 	fail      error // what refresh-urls answers instead, when set
 	calls     int
+	emojis    []discord.Emoji // the server's, for its pack
+}
+
+func (r *fakeRest) GetGuild(id snowflake.ID, _ bool, _ ...rest.RequestOpt) (*discord.RestGuild, error) {
+	icon := "abc"
+	return &discord.RestGuild{Guild: discord.Guild{ID: id, Name: "the cove", Icon: &icon}}, nil
+}
+
+func (r *fakeRest) GetEmojis(snowflake.ID, ...rest.RequestOpt) ([]discord.Emoji, error) {
+	if r.emojis == nil {
+		return nil, errors.New("refused")
+	}
+	return r.emojis, nil
 }
 
 func (r *fakeRest) Do(_ *rest.CompiledEndpoint, rq, rs any, _ ...rest.RequestOpt) error {
@@ -1013,5 +1026,93 @@ func TestDiscordClearsReactions(t *testing.T) {
 	h.m.OnEvent(&events.GuildMessageReactionRemoveAll{ChannelID: 101, MessageID: 1001})
 	if len(h.l.toArm) != 0 {
 		t.Fatal("queued a clear in an unlinked channel")
+	}
+}
+
+// A server's emoji go to Armada as skua's pack, under the names and URLs a
+// bridged message's tags carry, and again only when they change.
+func TestEmojiPack(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	packs := func() []*nostr.Event {
+		var out []*nostr.Event
+		for _, ev := range h.pool.take() {
+			if ev.Kind == kindEmojiPack {
+				out = append(out, ev)
+			}
+		}
+		return out
+	}
+	h.m.syncPacks(h.m.ctx) // the server refuses: nothing goes, nothing is remembered
+	if len(packs()) != 0 {
+		t.Fatal("published without the server's emoji")
+	}
+	h.rest.emojis = []discord.Emoji{
+		{ID: 300, Name: "blob", Available: true, Animated: true},
+		{ID: 200, Name: "blob", Available: true},
+		{ID: 100, Name: "gone", Available: false},
+	}
+	h.m.syncPacks(h.m.ctx)
+	got := packs()
+	if len(got) != 1 || got[0].PubKey != h.m.primary.PK {
+		t.Fatalf("packs %+v", got)
+	}
+	want := nostr.Tags{
+		{"d", "discord-7"}, {"title", "the cove emoji"}, {"image", "https://cdn.discordapp.com/icons/7/abc.png?size=256"},
+		{"emoji", "blob", "https://cdn.discordapp.com/emojis/200.png"},
+		{"emoji", "blob_2", "https://cdn.discordapp.com/emojis/300.gif"},
+	}
+	if fmt.Sprint(got[0].Tags) != fmt.Sprint(want) {
+		t.Fatalf("tags %v", got[0].Tags)
+	}
+	h.m.syncPacks(h.m.ctx)
+	if len(packs()) != 0 {
+		t.Fatal("published an unchanged pack")
+	}
+	h.rest.emojis = h.rest.emojis[1:]
+	h.m.syncPacks(h.m.ctx)
+	if len(packs()) != 1 {
+		t.Fatal("a changed pack was not published")
+	}
+
+	// Each puppet's palette names the pack, once.
+	user, _ := snowflake.Parse(h.v.Puppet.User)
+	lists := func() (n int) {
+		for _, ev := range h.pool.take() {
+			if ev.Kind == kindEmojiList && ev.PubKey == h.v.Puppet.PK && ev.Tags.Find("a")[1] == "30030:"+h.m.primary.PK+":discord-7" {
+				n++
+			}
+		}
+		return n
+	}
+	h.m.toArmada(h.l, discord.Message{ID: 1, ChannelID: 100, Content: "a", Author: discord.User{ID: user}})
+	h.m.toArmada(h.l, discord.Message{ID: 2, ChannelID: 100, Content: "b", Author: discord.User{ID: user}})
+	if n := lists(); n != 1 {
+		t.Fatalf("%d palettes", n)
+	}
+}
+
+// Whatever name an Armada palette gave a Discord emoji, it crosses back as
+// that emoji: Discord draws it by id.
+func TestEmojiNamesCrossBack(t *testing.T) {
+	cdn := "https://cdn.discordapp.com/emojis/123.png"
+	for in, want := range map[string]string{
+		"blob":            "blob",
+		"discord-7-blob":  "blob",
+		"blob_2":          "blob_2",
+		"pack-x":          "emoji",
+		"discord-7-blob-": "emoji",
+	} {
+		text := toDiscord("hi :"+in+":", [][]string{{"emoji", in, cdn}})
+		if text != "hi <:"+want+":123>" {
+			t.Errorf("%s: %s", in, text)
+		}
+		if got, ok := armadaEmoji(":"+in+":", [][]string{{"emoji", in, cdn}}); !ok || got != want+":123" {
+			t.Errorf("%s: %s %v", in, got, ok)
+		}
+	}
+	for _, bad := range []string{"a", "has space", "dot.ted", strings.Repeat("a", 97)} {
+		if text := toDiscord(":"+bad+":", [][]string{{"emoji", bad, cdn}}); text != ":"+bad+":" {
+			t.Errorf("%q became %s", bad, text)
+		}
 	}
 }

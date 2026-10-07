@@ -35,10 +35,13 @@ var (
 	commandMention = regexp.MustCompile(`</([^:<>\n]{1,96}):\d+>`)
 	nostrProfile   = regexp.MustCompile(`nostr:(npub1|nprofile1)([02-9ac-hj-np-z]+)`)
 	emojiName      = regexp.MustCompile(`^\w{2,32}$`)
-	emojiPath      = regexp.MustCompile(`^/emojis/(\d{1,25})\.(\w+)$`)
-	markdown       = regexp.MustCompile("[\\\\`*_~|\\[\\]()>#-]")
-	lineTail       = regexp.MustCompile(`[^\S\n]+\n`)
-	blankRun       = regexp.MustCompile(`\n{3,}`)
+	// shortcode is an Armada palette's name for an emoji: Discord's, or
+	// <pack>-<name> where two packs share one.
+	shortcode = regexp.MustCompile(`^[\w-]{2,96}$`)
+	emojiPath = regexp.MustCompile(`^/emojis/(\d{1,25})\.(\w+)$`)
+	markdown  = regexp.MustCompile("[\\\\`*_~|\\[\\]()>#-]")
+	lineTail  = regexp.MustCompile(`[^\S\n]+\n`)
+	blankRun  = regexp.MustCompile(`\n{3,}`)
 )
 
 // toArmada is Discord markup turned into Armada's plain text: user mentions
@@ -165,16 +168,16 @@ func armadaEmoji(content string, tags [][]string) (string, bool) {
 	if len(c) < 2 || c[0] != ':' || c[len(c)-1] != ':' {
 		return "", false
 	}
-	name := c[1 : len(c)-1]
-	if !emojiName.MatchString(name) {
+	code := c[1 : len(c)-1]
+	if !shortcode.MatchString(code) {
 		return "", false
 	}
 	for _, t := range tags {
-		if len(t) < 3 || t[0] != "emoji" || t[1] != name {
+		if len(t) < 3 || t[0] != "emoji" || t[1] != code {
 			continue
 		}
 		if id, _, ok := discordEmoji(t[2]); ok {
-			return name + ":" + id, true
+			return discordName(code) + ":" + id, true
 		}
 	}
 	return "", false
@@ -190,8 +193,8 @@ func toDiscord(content string, tags [][]string) string {
 		return "@" + m[1] + m[2][:min(8, len(m[2]))] + "..."
 	})
 	for _, t := range tags {
-		// The name goes into Discord markup, so it is held to Discord's rule.
-		if len(t) < 3 || t[0] != "emoji" || !emojiName.MatchString(t[1]) {
+		// Only discordName, held to Discord's rule, goes into the markup.
+		if len(t) < 3 || t[0] != "emoji" || !shortcode.MatchString(t[1]) {
 			continue
 		}
 		id, animated, ok := discordEmoji(t[2])
@@ -202,7 +205,7 @@ func toDiscord(content string, tags [][]string) string {
 		if animated {
 			a = "a"
 		}
-		out = strings.ReplaceAll(out, ":"+t[1]+":", fmt.Sprintf("<%s:%s:%s>", a, t[1], id))
+		out = strings.ReplaceAll(out, ":"+t[1]+":", fmt.Sprintf("<%s:%s:%s>", a, discordName(t[1]), id))
 	}
 	return out
 }

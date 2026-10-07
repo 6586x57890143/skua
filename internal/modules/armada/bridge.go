@@ -78,6 +78,7 @@ func (m *Module) toArmada(l *link, msg discord.Message) {
 		name = *msg.Member.Nick
 	}
 	m.syncProfile(ctx, pool, user, name, msg.Author.EffectiveAvatarURL(), puppet)
+	m.listPacks(ctx, user, puppet)
 	m.joinOnce(ctx, pool, c, user, puppet)
 	if ref := msg.MessageReference; ref != nil && ref.MessageID != nil {
 		// A NIP-C7 quote naming the rumor and its author. A message from
@@ -371,6 +372,7 @@ func (m *Module) discordReaction(l *link, r reacted) {
 			tags = append(tags, []string{"emoji", *r.emoji.Name, emojiURL(r.emoji.ID.String(), r.emoji.Animated)})
 		}
 		m.syncProfile(ctx, pool, user, r.name, r.avatar, puppet)
+		m.listPacks(ctx, user, puppet)
 	} else {
 		x, ok, err := m.maps.reactionByDiscord(ctx, r.message, user, emoji)
 		if err != nil || !ok {

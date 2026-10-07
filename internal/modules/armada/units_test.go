@@ -369,8 +369,24 @@ func TestReadyRunsTheBridge(t *testing.T) {
 		defer pool.mu.Unlock()
 		return len(pool.published) >= 5 // skua's profile and join, the puppet's profile, join and message
 	})
+	// The server's emoji went up as skua's pack, and the puppet's palette
+	// names it, so Armada can offer the pack from the puppet's emoji.
+	has := func(kind int, pk string, tag ...string) func() bool {
+		return func() bool {
+			pool.mu.Lock()
+			defer pool.mu.Unlock()
+			return slices.ContainsFunc(pool.published, func(ev *nostr.Event) bool {
+				return ev.Kind == kind && ev.PubKey == pk && slices.ContainsFunc(ev.Tags, func(t nostr.Tag) bool {
+					return len(t) >= len(tag) && slices.Equal(t[:len(tag)], tag)
+				})
+			})
+		}
+	}
+	waitFor(t, has(30030, m.primary.PK, "emoji", "blob", "https://cdn.discordapp.com/emojis/123.png"))
+	waitFor(t, has(10030, v.Puppet.PK, "a", "30030:"+m.primary.PK+":discord-7"))
+	pool.take()
 	m.OnEvent(&events.GuildMessageDelete{GenericGuildMessage: &events.GenericGuildMessage{MessageID: 1, ChannelID: 100, GuildID: 7}})
-	waitFor(t, func() bool { pool.mu.Lock(); defer pool.mu.Unlock(); return len(pool.published) >= 6 })
+	waitFor(t, func() bool { pool.mu.Lock(); defer pool.mu.Unlock(); return len(pool.published) >= 1 })
 	m.Close()
 	if fingerprint(&concord.Community{RootEpoch: 1}) == fingerprint(&concord.Community{RootEpoch: 2}) {
 		t.Error("a new epoch is not a new session")
@@ -382,6 +398,14 @@ func TestReadyRunsTheBridge(t *testing.T) {
 }
 
 type guildRest struct{ rest.Rest }
+
+func (guildRest) GetGuild(snowflake.ID, bool, ...rest.RequestOpt) (*discord.RestGuild, error) {
+	return &discord.RestGuild{Guild: discord.Guild{ID: 7, Name: "the cove"}}, nil
+}
+
+func (guildRest) GetEmojis(snowflake.ID, ...rest.RequestOpt) ([]discord.Emoji, error) {
+	return []discord.Emoji{{ID: 123, Name: "blob", Available: true}}, nil
+}
 
 func (guildRest) GetCurrentUser(string, ...rest.RequestOpt) (*discord.OAuth2User, error) {
 	return nil, errors.New("not in this test")

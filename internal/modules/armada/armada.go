@@ -191,6 +191,9 @@ type Module struct {
 	inbox    map[string]bool            // inbox wraps that have woken run
 	edited   map[snowflake.ID]time.Time // the last Discord edit sent, per message
 	lastEdit map[string]int64           // the newest Armada edit applied, per rumor
+	pub      relays                     // community and stock relays, for public events
+	packs    map[snowflake.ID]string    // the emoji pack published, per server
+	listed   map[string]string          // the packs a puppet's kind 10030 names, per discord user
 }
 
 type profile struct {
@@ -225,6 +228,7 @@ func New(log *slog.Logger, g *guard.Guard, p poster, s screen, db DB, cfg Config
 		subs: map[string]context.CancelFunc{}, subKeys: map[string]string{}, missing: map[string]bool{},
 		puppets: map[string]concord.Key{}, puppetPK: map[string]bool{}, profiles: map[string]profile{},
 		synced: map[string]string{}, joined: map[string]bool{}, seen: map[string]bool{}, inbox: map[string]bool{}, edited: map[snowflake.ID]time.Time{}, lastEdit: map[string]int64{},
+		packs: map[snowflake.ID]string{}, listed: map[string]string{},
 	}
 	m.maps = &memMappings{}
 	if db != nil {
@@ -333,7 +337,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorInfo,
 		Line:  "carries chosen channels to and from an armada community",
-		About: "she carries messages both ways between a discord channel and an armada channel and posts each one under its writer's name. edits, files and reactions cross too and armada's bans and deletes hold on this side. anything that crosses into discord is no longer end-to-end encrypted. which channels pair up is set when she is deployed. this part of her is under the agpl and her source is at https://github.com/6586x57890143/skua",
+		About: "she carries messages both ways between a discord channel and an armada channel and posts each one under its writer's name. edits, files and reactions cross too and armada's bans and deletes hold on this side. she hands armada this server's custom emoji as a pack with its name and icon on it, out in the open on nostr, so members there can use them too. anything that crosses into discord is no longer end-to-end encrypted. which channels pair up is set when she is deployed. this part of her is under the agpl and her source is at https://github.com/6586x57890143/skua",
 	}
 }
 
@@ -348,6 +352,9 @@ func (m *Module) Close() {
 	defer m.mu.Unlock()
 	if m.pool != nil {
 		m.pool.Close()
+	}
+	if m.pub != nil {
+		m.pub.Close()
 	}
 }
 
@@ -451,6 +458,9 @@ func (m *Module) run() {
 			current = fingerprint(c)
 			m.session(ctx, c)
 		}
+		if err == nil {
+			m.syncPacks(m.ctx)
+		}
 		select {
 		case <-m.ctx.Done():
 			return
@@ -539,11 +549,15 @@ func (m *Module) session(ctx context.Context, c *concord.Community) {
 	for _, w := range pool.Query(ctx, nostr.Filter{Kinds: []int{concord.KindWrap}, Authors: []string{control.PK}}) {
 		wraps[w.ID] = w
 	}
+	pub := m.dial(append(slices.Clone(c.Relays), concord.StockRelays...))
 	m.mu.Lock()
 	if m.pool != nil {
 		m.pool.Close()
 	}
-	m.pool, m.comm = pool, c
+	if m.pub != nil {
+		m.pub.Close()
+	}
+	m.pool, m.pub, m.comm = pool, pub, c
 	clear(m.subKeys)
 	for _, cancel := range m.subs {
 		cancel()
