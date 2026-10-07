@@ -26,6 +26,7 @@ const (
 	KindMessage       = 9
 	KindComment       = 1111
 	KindDelete        = 5
+	KindReaction      = 7
 	KindEdit          = 3302
 	KindJoinLeave     = 3306
 	KindControl       = 3308

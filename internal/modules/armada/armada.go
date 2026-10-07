@@ -2,7 +2,8 @@
 // A modified Go port of armada-discord-bridge; see NOTICE in this directory.
 
 // Package armada bridges chosen Discord channels with chosen channels of
-// one Armada community, both ways: text, replies, deletes and attachments.
+// one Armada community, both ways: text, replies, deletes, attachments and
+// reactions.
 // The two servers keep their own layouts; only the pairs in
 // SKUA_ARMADA_LINKS cross.
 //
@@ -91,10 +92,23 @@ func FromEnv() Config {
 // Configured is whether there is a bridge to run at all.
 func (c Config) Configured() bool { return c.Invite != "" }
 
-// fromDiscord is a Discord message on its way over: new, or an edit.
+// fromDiscord is a Discord message on its way over, new or an edit, or a
+// reaction on one.
 type fromDiscord struct {
-	msg  discord.Message
-	edit bool
+	msg   discord.Message
+	edit  bool
+	react *reacted
+}
+
+// reacted is a member's reaction added or taken off. Discord names no
+// member on a removal, so name and avatar are only set on an add. clear
+// is a moderator clearing one emoji off a message, or every emoji when its
+// name is empty.
+type reacted struct {
+	user, message snowflake.ID
+	emoji         discord.PartialEmoji
+	add, clear    bool
+	name, avatar  string
 }
 
 type link struct {
@@ -156,6 +170,7 @@ type Module struct {
 	start   sync.Once
 	rest    rest.Rest
 	app     snowflake.ID
+	self    snowflake.ID // skua's user, whose reactions stand for Armada's
 
 	mu       sync.RWMutex
 	comm     *concord.Community
@@ -294,15 +309,21 @@ func splitList(v string) []string {
 func (*Module) Name() string { return "armada" }
 
 // Want is guild messages and their content: the bridge reads what members
-// write in the linked channels and nowhere else.
+// write in the linked channels and nowhere else. Reactions are optional:
+// without them only the reactions stop crossing.
 func (*Module) Want() intents.Want {
-	return intents.Want{Required: gateway.IntentGuildMessages | gateway.IntentMessageContent}
+	return intents.Want{
+		Required: gateway.IntentGuildMessages | gateway.IntentMessageContent,
+		Optional: gateway.IntentGuildMessageReactions,
+	}
 }
 
-// Perms is the webhook Armada members speak through, and deleting a
-// member's message when an Armada moderator deletes its copy there.
+// Perms is the webhook Armada members speak through, deleting a member's
+// message or reaction when an Armada moderator deletes its copy there, and
+// reacting for Armada members.
 func (*Module) Perms() discord.Permissions {
-	return discord.PermissionViewChannel | discord.PermissionManageWebhooks | discord.PermissionManageMessages
+	return discord.PermissionViewChannel | discord.PermissionManageWebhooks | discord.PermissionManageMessages |
+		discord.PermissionAddReactions | discord.PermissionReadMessageHistory
 }
 
 func (*Module) Commands() []core.Command { return nil }
@@ -312,7 +333,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorInfo,
 		Line:  "carries chosen channels to and from an armada community",
-		About: "she carries messages both ways between a discord channel and an armada channel and posts each one under its writer's name. edits and files cross too and armada's bans and deletes hold on this side. anything that crosses into discord is no longer end-to-end encrypted. which channels pair up is set when she is deployed. this part of her is under the agpl and her source is at https://github.com/6586x57890143/skua",
+		About: "she carries messages both ways between a discord channel and an armada channel and posts each one under its writer's name. edits, files and reactions cross too and armada's bans and deletes hold on this side. anything that crosses into discord is no longer end-to-end encrypted. which channels pair up is set when she is deployed. this part of her is under the agpl and her source is at https://github.com/6586x57890143/skua",
 	}
 }
 
@@ -336,7 +357,7 @@ func (m *Module) OnEvent(ev bot.Event) {
 	switch e := ev.(type) {
 	case *events.Ready:
 		m.start.Do(func() {
-			m.rest, m.app = e.Client().Rest, e.Client().ApplicationID
+			m.rest, m.app, m.self = e.Client().Rest, e.Client().ApplicationID, e.User.ID
 			for _, l := range m.links {
 				go m.discordWorker(l)
 				go m.armadaWorker(l)
@@ -352,6 +373,39 @@ func (m *Module) OnEvent(ev bot.Event) {
 		if l, ok := m.byDisc[e.ChannelID]; ok {
 			go m.discordDelete(l, e.GuildID, e.MessageID)
 		}
+	case *events.GuildMessageReactionAdd:
+		if e.Member.User.Bot {
+			return
+		}
+		name := e.Member.User.EffectiveName()
+		if e.Member.Nick != nil {
+			name = *e.Member.Nick
+		}
+		g := e.GenericGuildMessageReaction
+		m.queueReaction(g.ChannelID, g.GuildID, reacted{user: g.UserID, message: g.MessageID, emoji: g.Emoji, add: true, name: name, avatar: e.Member.User.EffectiveAvatarURL()})
+	case *events.GuildMessageReactionRemove:
+		g := e.GenericGuildMessageReaction
+		m.queueReaction(g.ChannelID, g.GuildID, reacted{user: g.UserID, message: g.MessageID, emoji: g.Emoji})
+	case *events.GuildMessageReactionRemoveEmoji:
+		m.queueReaction(e.ChannelID, e.GuildID, reacted{message: e.MessageID, emoji: e.Emoji, clear: true})
+	case *events.GuildMessageReactionRemoveAll:
+		all := ""
+		m.queueReaction(e.ChannelID, e.GuildID, reacted{message: e.MessageID, emoji: discord.PartialEmoji{Name: &all}, clear: true})
+	}
+}
+
+// queueReaction puts a reaction in its link's queue behind the messages
+// before it, so it never arrives ahead of the message it is on.
+func (m *Module) queueReaction(channel, guild snowflake.ID, r reacted) {
+	l, ok := m.byDisc[channel]
+	if !ok || r.emoji.Name == nil {
+		return
+	}
+	l.guild.Store(uint64(guild))
+	select {
+	case l.toArm <- fromDiscord{react: &r}:
+	default:
+		m.log.Warn("armada: dropping a discord reaction, the queue is full", "channel", l.discord)
 	}
 }
 
@@ -365,7 +419,7 @@ func (m *Module) queue(e *events.GenericGuildMessage, edit bool) {
 	}
 	l.guild.Store(uint64(e.GuildID))
 	select {
-	case l.toArm <- fromDiscord{msg, edit}:
+	case l.toArm <- fromDiscord{msg: msg, edit: edit}:
 	default:
 		m.log.Warn("armada: dropping a discord message, the queue is full", "channel", l.discord)
 	}
@@ -682,9 +736,12 @@ func (m *Module) discordWorker(l *link) {
 		case <-m.ctx.Done():
 			return
 		case job := <-l.toArm:
-			if job.edit {
+			switch {
+			case job.react != nil:
+				m.discordReaction(l, *job.react)
+			case job.edit:
 				m.discordEdit(l, job.msg)
-			} else {
+			default:
 				m.toArmada(l, job.msg)
 			}
 		}

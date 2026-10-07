@@ -105,6 +105,81 @@ func discordEmoji(raw string) (id string, animated, ok bool) {
 	return m[1], m[2] == "gif", true
 }
 
+// maxReactionRunes bounds an emoji handed to Discord's reaction routes. A
+// real ZWJ sequence is about ten code points.
+const maxReactionRunes = 16
+
+// reactionEmoji is a kind 7's content as a unicode emoji Discord can react
+// with: "+" and "" are a like and "-" a dislike (NIP-25). It has to be emoji
+// and nothing else, because disgo puts it in the request path unescaped.
+func reactionEmoji(content string) (string, bool) {
+	c := strings.TrimSpace(content)
+	switch c {
+	case "", "+":
+		return "👍", true
+	case "-":
+		return "👎", true
+	}
+	if utf8.RuneCountInString(c) > maxReactionRunes {
+		return "", false
+	}
+	shown := false
+	for _, r := range c {
+		switch {
+		case pictograph(r) || r == 0x20E3: // 0x20E3 makes a keycap of a digit
+			shown = true
+		case r == 0x200D || r == 0xFE0F || r == '#' || r == '*' || (r >= '0' && r <= '9') || (r >= 0xE0020 && r <= 0xE007F):
+			// joiners, presentation, keycap bases and subdivision-flag tags
+		default:
+			return "", false
+		}
+	}
+	return c, shown
+}
+
+// pictographs is a loose superset of Unicode's Extended_Pictographic, which
+// Go's unicode tables don't carry, along with the flag letters and skin
+// tones. Loose is safe: Discord refuses what isn't an emoji, and nothing in
+// these ranges can shape a path.
+var pictographs = [][2]rune{
+	{0xA9, 0xA9}, {0xAE, 0xAE}, {0x203C, 0x203C}, {0x2049, 0x2049}, {0x2122, 0x2122},
+	{0x2139, 0x2139}, {0x2194, 0x21AA}, {0x231A, 0x23FF}, {0x24C2, 0x24C2}, {0x25AA, 0x27BF},
+	{0x2934, 0x2935}, {0x2B05, 0x2B55}, {0x3030, 0x3030}, {0x303D, 0x303D}, {0x3297, 0x3299},
+	{0x1F000, 0x1FAFF}, {0x1FC00, 0x1FFFD},
+}
+
+func pictograph(r rune) bool {
+	for _, p := range pictographs {
+		if r >= p[0] && r <= p[1] {
+			return true
+		}
+	}
+	return false
+}
+
+// armadaEmoji is a kind 7's custom emoji as Discord's name:id, when its
+// NIP-30 tag names the content and points at Discord's emoji CDN. Any other
+// image has nothing on Discord to react with, so it stays in Armada.
+func armadaEmoji(content string, tags [][]string) (string, bool) {
+	c := strings.TrimSpace(content)
+	if len(c) < 2 || c[0] != ':' || c[len(c)-1] != ':' {
+		return "", false
+	}
+	name := c[1 : len(c)-1]
+	if !emojiName.MatchString(name) {
+		return "", false
+	}
+	for _, t := range tags {
+		if len(t) < 3 || t[0] != "emoji" || t[1] != name {
+			continue
+		}
+		if id, _, ok := discordEmoji(t[2]); ok {
+			return name + ":" + id, true
+		}
+	}
+	return "", false
+}
+
 // toDiscord is Armada text made ready for Discord: bare npub and nprofile
 // URIs shortened (Discord shows them as dead links), and :name: turned back
 // into native emoji when its NIP-30 tag points at Discord's emoji CDN. Event

@@ -328,6 +328,154 @@ func (m *Module) discordDelete(l *link, guild, id snowflake.ID) {
 	}
 }
 
+// discordReaction carries a member's reaction over as a kind 7 from their
+// puppet, or its removal as a kind 5 naming that kind 7. A custom emoji
+// goes as :name: with a NIP-30 tag to its image on Discord's CDN. skua's
+// own reactions are Armada's coming the other way and never go back.
+func (m *Module) discordReaction(l *link, r reacted) {
+	ctx, cancel := context.WithTimeout(m.ctx, sendBy)
+	defer cancel()
+	if r.clear {
+		// skua's shared reaction went with them, so its rows go too, or
+		// the next Armada reactor of that emoji would never be shown.
+		// Armada keeps what it has: the reactions were made, and a
+		// moderator here is no moderator there.
+		if err := m.maps.clearReactions(ctx, r.message, r.emoji.Reaction()); err != nil {
+			m.log.Warn("armada: clearing bridged reactions", "err", err)
+		}
+		return
+	}
+	if r.user == m.self {
+		return
+	}
+	pool, _, f, chans := m.state()
+	ch, ok := chans[l.armada]
+	user := r.user.String()
+	puppet := m.puppet(user)
+	if !ok || f.IsBanned(puppet.PK) {
+		return
+	}
+	guild := snowflake.ID(l.guild.Load())
+	emoji := r.emoji.Reaction()
+	proxy := proxyTag(guild, l.discord, r.message)
+	kind, content, tags := concord.KindDelete, "", [][]string(nil)
+	if r.add {
+		rows, err := m.maps.byMessage(ctx, r.message)
+		if err != nil || len(rows) == 0 {
+			return
+		}
+		kind, content = concord.KindReaction, *r.emoji.Name
+		tags = [][]string{{"e", rows[0].Rumor}, {"k", strconv.Itoa(concord.KindMessage)}, proxy}
+		if r.emoji.ID != nil {
+			content = ":" + content + ":"
+			tags = append(tags, []string{"emoji", *r.emoji.Name, emojiURL(r.emoji.ID.String(), r.emoji.Animated)})
+		}
+		m.syncProfile(ctx, pool, user, r.name, r.avatar, puppet)
+	} else {
+		x, ok, err := m.maps.reactionByDiscord(ctx, r.message, user, emoji)
+		if err != nil || !ok {
+			return
+		}
+		tags = [][]string{{"e", x.Rumor}, {"k", strconv.Itoa(concord.KindReaction)}, proxy}
+	}
+	rumor, err := concord.NewChat(ch, kind, content, tags, puppet.PK, time.Now().UnixMilli())
+	if err != nil {
+		return
+	}
+	w, err := concord.SealChat(rumor, ch, puppet.SK)
+	if err == nil {
+		err = pool.Publish(ctx, w)
+	}
+	if err != nil {
+		m.log.Warn("armada: publishing a discord reaction", "channel", l.discord, "err", err)
+		l.tally.fail()
+		return
+	}
+	if r.add {
+		err = m.maps.addReaction(ctx, reaction{Rumor: rumor.ID, Channel: l.discord, Message: r.message, Emoji: emoji, Origin: "discord", Author: user})
+	} else {
+		err = m.maps.dropReaction(ctx, concord.Tag(tags, "e"))
+	}
+	if err != nil {
+		m.log.Warn("armada: recording a bridged reaction", "err", err)
+	}
+}
+
+// armadaReaction shows an Armada member's kind 7 on the Discord copy of
+// the message, as skua's own reaction: a webhook can't react. Every Armada
+// reactor of one emoji shares that one reaction. A custom emoji whose image
+// isn't on Discord's CDN has nothing to react with and stays in Armada.
+func (m *Module) armadaReaction(ctx context.Context, l *link, guild snowflake.ID, o *concord.Opened) {
+	if _, dup, err := m.maps.reactionByRumor(ctx, o.RumorID, l.discord); err != nil || dup {
+		return
+	}
+	emoji, ok := reactionEmoji(o.Content)
+	if !ok {
+		emoji, ok = armadaEmoji(o.Content, o.Tags)
+	}
+	target := concord.Tag(o.Tags, "e")
+	if !ok || target == "" {
+		return
+	}
+	rows, err := m.maps.byRumor(ctx, target, l.discord)
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	msg := rows[0].Message
+	if n, err := m.maps.armadaReactions(ctx, msg, emoji); err != nil {
+		return
+	} else if n == 0 {
+		err := m.react(guild, func() error { return m.rest.AddReaction(l.discord, msg, emoji, rest.WithCtx(ctx)) })
+		if err != nil {
+			m.log.Warn("armada: reacting for an armada member", "channel", l.discord, "err", err)
+			return
+		}
+	}
+	if err := m.maps.addReaction(ctx, reaction{Rumor: o.RumorID, Channel: l.discord, Message: msg, Emoji: emoji, Origin: "armada", Author: o.Author}); err != nil {
+		m.log.Warn("armada: recording a bridged reaction", "err", err)
+	}
+}
+
+// armadaUnreact applies a kind 5 that names a kind 7. Its author may take
+// it back, and so may a moderator, which takes a Discord member's reaction
+// off too. skua's reaction comes off with the last Armada reactor.
+func (m *Module) armadaUnreact(ctx context.Context, l *link, guild snowflake.ID, o *concord.Opened, f *concord.Folded, x reaction) {
+	own := x.Origin == "armada" && x.Author == o.Author
+	if !own && !f.IsModerator(o.Author) {
+		return
+	}
+	// The row goes first, so the removal Discord echoes back finds nothing
+	// to carry over.
+	if err := m.maps.dropReaction(ctx, x.Rumor); err != nil {
+		return
+	}
+	var err error
+	if x.Origin == "discord" {
+		user, perr := snowflake.Parse(x.Author)
+		if perr != nil {
+			return
+		}
+		err = m.react(guild, func() error {
+			return m.rest.RemoveUserReaction(l.discord, x.Message, x.Emoji, user, rest.WithCtx(ctx))
+		})
+	} else if n, cerr := m.maps.armadaReactions(ctx, x.Message, x.Emoji); cerr == nil && n == 0 {
+		err = m.react(guild, func() error { return m.rest.RemoveOwnReaction(l.discord, x.Message, x.Emoji, rest.WithCtx(ctx)) })
+	}
+	if err != nil {
+		m.log.Warn("armada: removing a bridged reaction", "channel", l.discord, "err", err)
+	}
+}
+
+// react is one reaction call, held to the guild's reaction cap.
+func (m *Module) react(guild snowflake.ID, call func() error) error {
+	if err := m.guard.Allow(guild, guard.Reaction); err != nil {
+		return err
+	}
+	err := call()
+	m.guard.Report(guild, struggling(err))
+	return err
+}
+
 // toDiscord posts an Armada message into its linked Discord channel, or
 // applies a delete.
 func (m *Module) toDiscord(l *link, o *concord.Opened) {
@@ -350,6 +498,8 @@ func (m *Module) toDiscord(l *link, o *concord.Opened) {
 		m.armadaPost(ctx, l, guild, o)
 	case concord.KindEdit:
 		m.armadaEdit(ctx, l, guild, o)
+	case concord.KindReaction:
+		m.armadaReaction(ctx, l, guild, o)
 	}
 }
 
@@ -470,10 +620,15 @@ func (m *Module) screened(o *concord.Opened, text string) (string, bool) {
 
 // armadaDelete removes the Discord side of each rumor a kind 5 names. It
 // counts when the deleter wrote the rumor or holds MANAGE_MESSAGES, so a
-// moderator's delete reaches Discord, the member's original included.
+// moderator's delete reaches Discord, the member's original included. A
+// rumor that was a reaction is taken back as one.
 func (m *Module) armadaDelete(ctx context.Context, l *link, guild snowflake.ID, o *concord.Opened, f *concord.Folded) {
 	for _, t := range o.Tags {
 		if len(t) < 2 || t[0] != "e" || t[1] == "" {
+			continue
+		}
+		if x, ok, err := m.maps.reactionByRumor(ctx, t[1], l.discord); err == nil && ok {
+			m.armadaUnreact(ctx, l, guild, o, f, x)
 			continue
 		}
 		rows, err := m.maps.byRumor(ctx, t[1], l.discord)

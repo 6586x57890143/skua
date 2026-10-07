@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
@@ -173,6 +175,7 @@ func (p *fakePoster) Delete(_ context.Context, _ rest.Rest, _, _, _, _, message 
 type fakeRest struct {
 	rest.Rest
 	deleted []snowflake.ID
+	reacts  []string // "+msg emoji", "-msg emoji", "-msg emoji user"
 	// refreshed answers /attachments/refresh-urls; nil fails the call.
 	refreshed map[string]string
 	fail      error // what refresh-urls answers instead, when set
@@ -201,6 +204,21 @@ func (r *fakeRest) GetChannel(id snowflake.ID, _ ...rest.RequestOpt) (discord.Ch
 
 func (r *fakeRest) DeleteMessage(_, id snowflake.ID, _ ...rest.RequestOpt) error {
 	r.deleted = append(r.deleted, id)
+	return nil
+}
+
+func (r *fakeRest) AddReaction(_, msg snowflake.ID, emoji string, _ ...rest.RequestOpt) error {
+	r.reacts = append(r.reacts, fmt.Sprint("+", msg, " ", emoji))
+	return nil
+}
+
+func (r *fakeRest) RemoveOwnReaction(_, msg snowflake.ID, emoji string, _ ...rest.RequestOpt) error {
+	r.reacts = append(r.reacts, fmt.Sprint("-", msg, " ", emoji))
+	return nil
+}
+
+func (r *fakeRest) RemoveUserReaction(_, msg snowflake.ID, emoji string, user snowflake.ID, _ ...rest.RequestOpt) error {
+	r.reacts = append(r.reacts, fmt.Sprint("-", msg, " ", emoji, " ", user))
 	return nil
 }
 
@@ -861,5 +879,139 @@ func TestReportBeforeAndWithoutTheInvite(t *testing.T) {
 	waitFor(t, func() bool { return m.Report(7).Rows[0][1] == healthOutage })
 	if r := m.Report(7); !strings.HasPrefix(r.Notes[0], "✗ outage: can't read the invite") {
 		t.Errorf("no reason: %+v", r)
+	}
+}
+
+func TestDiscordReactions(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	h.m.self = 99
+	user, _ := snowflake.Parse(h.v.Puppet.User)
+	h.m.toArmada(h.l, discord.Message{ID: 500, ChannelID: 100, Content: "hi", Author: discord.User{ID: user}})
+	msg := h.opened(t, concord.KindMessage)
+	thumb, blob, id := "👍", "blob", snowflake.ID(123)
+
+	h.m.discordReaction(h.l, reacted{user: user, message: 500, emoji: discord.PartialEmoji{Name: &thumb}, add: true, name: "kit"})
+	r := h.opened(t, concord.KindReaction)
+	if r == nil || r.Author != h.v.Puppet.PK || r.Content != "👍" || concord.Tag(r.Tags, "e") != msg.RumorID ||
+		concord.Tag(r.Tags, "k") != "9" || concord.Tag(r.Tags, "proxy") == "" {
+		t.Fatalf("reaction %+v", r)
+	}
+	h.m.discordReaction(h.l, reacted{user: user, message: 500, emoji: discord.PartialEmoji{Name: &blob, ID: &id, Animated: true}, add: true})
+	c := h.opened(t, concord.KindReaction)
+	if c == nil || c.Content != ":blob:" || !slices.ContainsFunc(c.Tags, func(t []string) bool {
+		return slices.Equal(t, []string{"emoji", "blob", "https://cdn.discordapp.com/emojis/123.gif"})
+	}) {
+		t.Fatalf("custom reaction %+v", c)
+	}
+
+	h.m.discordReaction(h.l, reacted{user: user, message: 500, emoji: discord.PartialEmoji{Name: &thumb}})
+	d := h.opened(t, concord.KindDelete)
+	if d == nil || concord.Tag(d.Tags, "e") != r.RumorID || concord.Tag(d.Tags, "k") != "7" {
+		t.Fatalf("removal %+v", d)
+	}
+	// What has no row never crosses: a second removal, skua's own reaction,
+	// and a reaction on a message from before the bridge.
+	h.m.discordReaction(h.l, reacted{user: user, message: 500, emoji: discord.PartialEmoji{Name: &thumb}})
+	h.m.discordReaction(h.l, reacted{user: 99, message: 500, emoji: discord.PartialEmoji{Name: &thumb}, add: true})
+	h.m.discordReaction(h.l, reacted{user: user, message: 1, emoji: discord.PartialEmoji{Name: &thumb}, add: true})
+	if evs := h.pool.take(); len(evs) != 0 {
+		t.Fatalf("published %d more", len(evs))
+	}
+
+	// An Armada moderator's delete takes the member's reaction off Discord.
+	mod, _ := h.chat(t, 1, concord.KindDelete, "", []string{"e", c.RumorID})
+	h.deliver(t, mod)
+	if want := fmt.Sprint("-500 blob:123 ", user); !slices.Equal(h.rest.reacts, []string{want}) {
+		t.Fatalf("reacts %v", h.rest.reacts)
+	}
+}
+
+func TestArmadaReactions(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	w, id := h.chat(t, 3, concord.KindMessage, "mine")
+	h.deliver(t, w) // posted as 1001
+	react := func(b byte, content string, tags ...[]string) string {
+		w, rid := h.chat(t, b, concord.KindReaction, content, append([][]string{{"e", id}}, tags...)...)
+		h.deliver(t, w)
+		return rid
+	}
+	mine := react(3, "🔥")
+	theirs := react(6, "🔥") // shares skua's one reaction
+	react(5, ":x:", []string{"emoji", "x", "https://example.com/x.png"})
+	react(5, "lol")
+	react(5, ":blob:", []string{"emoji", "blob", "https://cdn.discordapp.com/emojis/123.png"})
+	if want := []string{"+1001 🔥", "+1001 blob:123"}; !slices.Equal(h.rest.reacts, want) {
+		t.Fatalf("reacts %v", h.rest.reacts)
+	}
+
+	unreact := func(b byte, rid string) {
+		w, _ := h.chat(t, b, concord.KindDelete, "", []string{"e", rid}, []string{"k", "7"})
+		h.deliver(t, w)
+	}
+	unreact(0x42, mine) // a stranger
+	unreact(3, mine)    // theirs still stands
+	if len(h.rest.reacts) != 2 {
+		t.Fatalf("reacts %v", h.rest.reacts)
+	}
+	unreact(6, theirs)
+	if h.rest.reacts[2] != "-1001 🔥" {
+		t.Fatalf("reacts %v", h.rest.reacts)
+	}
+	// The message itself is untouched by a reaction's delete.
+	if len(h.post.deleted) != 0 {
+		t.Fatal("a reaction's delete removed the message")
+	}
+}
+
+func TestReactionEvents(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	thumb := "👍"
+	generic := func(ch snowflake.ID, name *string) *events.GenericGuildMessageReaction {
+		return &events.GenericGuildMessageReaction{UserID: 5, ChannelID: ch, MessageID: 500, GuildID: 9, Emoji: discord.PartialEmoji{Name: name}}
+	}
+	h.m.OnEvent(&events.GuildMessageReactionAdd{GenericGuildMessageReaction: generic(100, &thumb), Member: discord.Member{User: discord.User{Bot: true}}})
+	h.m.OnEvent(&events.GuildMessageReactionAdd{GenericGuildMessageReaction: generic(101, &thumb)})
+	h.m.OnEvent(&events.GuildMessageReactionRemove{GenericGuildMessageReaction: generic(100, nil)})
+	if len(h.l.toArm) != 0 {
+		t.Fatal("queued a bot's, an unlinked or a nameless reaction")
+	}
+	nick := "wren"
+	h.m.OnEvent(&events.GuildMessageReactionAdd{GenericGuildMessageReaction: generic(100, &thumb), Member: discord.Member{Nick: &nick}})
+	h.m.OnEvent(&events.GuildMessageReactionRemove{GenericGuildMessageReaction: generic(100, &thumb)})
+	add, remove := <-h.l.toArm, <-h.l.toArm
+	if add.react == nil || !add.react.add || add.react.name != "wren" || add.react.user != 5 || remove.react == nil || remove.react.add {
+		t.Fatalf("queued %+v %+v", add.react, remove.react)
+	}
+}
+
+// A Discord moderator clearing reactions takes skua's shared one off, so
+// its rows go too: the next Armada reactor of that emoji is shown again.
+func TestDiscordClearsReactions(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	w, id := h.chat(t, 3, concord.KindMessage, "mine")
+	h.deliver(t, w) // posted as 1001
+	react := func(b byte, content string) {
+		w, _ := h.chat(t, b, concord.KindReaction, content, []string{"e", id})
+		h.deliver(t, w)
+	}
+	run := func(ev bot.Event) {
+		h.m.OnEvent(ev)
+		job := <-h.l.toArm
+		h.m.discordReaction(h.l, *job.react)
+	}
+	fire := "🔥"
+	react(3, "🔥")
+	react(3, "👀")
+	run(&events.GuildMessageReactionRemoveEmoji{ChannelID: 100, MessageID: 1001, GuildID: 9, Emoji: discord.PartialEmoji{Name: &fire}})
+	react(6, "🔥")
+	react(6, "👀") // 👀 was not cleared, so it still stands
+	run(&events.GuildMessageReactionRemoveAll{ChannelID: 100, MessageID: 1001, GuildID: 9})
+	react(5, "👀")
+	if want := []string{"+1001 🔥", "+1001 👀", "+1001 🔥", "+1001 👀"}; !slices.Equal(h.rest.reacts, want) {
+		t.Fatalf("reacts %v", h.rest.reacts)
+	}
+	h.m.OnEvent(&events.GuildMessageReactionRemoveAll{ChannelID: 101, MessageID: 1001})
+	if len(h.l.toArm) != 0 {
+		t.Fatal("queued a clear in an unlinked channel")
 	}
 }

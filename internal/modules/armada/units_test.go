@@ -441,6 +441,47 @@ func TestPostgresMappings(t *testing.T) {
 		t.Errorf("%+v", rows)
 	}
 	_, _ = pool.Exec(ctx, "delete from armada_messages where rumor_id like $1", rumor+"%")
+
+	for _, x := range []reaction{
+		{Rumor: rumor + "a", Channel: 5, Message: 10, Emoji: "🔥", Origin: "armada", Author: "pk"},
+		{Rumor: rumor + "b", Channel: 5, Message: 10, Emoji: "🔥", Origin: "armada", Author: "pk2"},
+		{Rumor: rumor + "c", Channel: 5, Message: 10, Emoji: "🔥", Origin: "discord", Author: "1"},
+	} {
+		if err := p.addReaction(ctx, x); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := p.armadaReactions(ctx, 10, "🔥"); err != nil || n != 2 {
+		t.Fatalf("%d %v", n, err)
+	}
+	if x, ok, err := p.reactionByDiscord(ctx, 10, "1", "🔥"); err != nil || !ok || x.Rumor != rumor+"c" || x.Channel != 5 {
+		t.Fatalf("%+v %v %v", x, ok, err)
+	}
+	if _, ok, _ := p.reactionByDiscord(ctx, 10, "pk", "🔥"); ok {
+		t.Error("found an armada reaction as a discord one")
+	}
+	if _, ok, _ := p.reactionByRumor(ctx, rumor+"a", 6); ok {
+		t.Error("crossed links")
+	}
+	if err := p.dropReaction(ctx, rumor+"a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := p.reactionByRumor(ctx, rumor+"a", 5); ok {
+		t.Error("a dropped reaction stayed")
+	}
+	if err := p.clearReactions(ctx, 10, "👀"); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := p.armadaReactions(ctx, 10, "🔥"); n != 1 {
+		t.Error("clearing one emoji took another")
+	}
+	if err := p.clearReactions(ctx, 10, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := p.reactionByRumor(ctx, rumor+"b", 5); ok {
+		t.Error("clearing all left a reaction")
+	}
+	_, _ = pool.Exec(ctx, "delete from armada_reactions where rumor_id like $1", rumor+"%")
 }
 
 // A burst of wraps addressed to skua reads the invite again at most once a
@@ -590,5 +631,38 @@ func TestRelayHealthInTheReport(t *testing.T) {
 	// None up: no heard row, nothing to measure.
 	if rows, _ := relayHealth([]concord.RelayHealth{{URL: "wss://a"}}, now, nil, nil); len(rows) != 1 || rows[0][1] != "0 of 1 up" {
 		t.Errorf("%v", rows)
+	}
+}
+
+func TestReactionEmoji(t *testing.T) {
+	for in, want := range map[string]string{
+		"": "👍", "+": "👍", " - ": "👎", "🔥": "🔥", "👨‍👩‍👧‍👦": "👨‍👩‍👧‍👦", "👍🏽": "👍🏽",
+		"❤️": "❤️", "🇩🇰": "🇩🇰", "1️⃣": "1️⃣",
+		"👍 nice": "", ":blob:": "", "12": "", "a": "", "🔥/../x": "",
+		strings.Repeat("🔥", maxReactionRunes+1): "",
+	} {
+		got, ok := reactionEmoji(in)
+		if ok != (want != "") || got != want && ok {
+			t.Errorf("%q: %q %v", in, got, ok)
+		}
+	}
+}
+
+func TestArmadaEmoji(t *testing.T) {
+	cdn := []string{"emoji", "blob", "https://cdn.discordapp.com/emojis/123.png"}
+	for _, tc := range []struct {
+		content string
+		tags    [][]string
+		want    string
+	}{
+		{":blob:", [][]string{cdn}, "blob:123"},
+		{":blob:", [][]string{{"emoji", "blob", "https://example.com/emojis/123.png"}}, ""},
+		{":other:", [][]string{cdn}, ""},
+		{"blob", [][]string{cdn}, ""},
+		{":a:", [][]string{{"emoji", "a", "https://cdn.discordapp.com/emojis/1.png"}}, ""},
+	} {
+		if got, ok := armadaEmoji(tc.content, tc.tags); got != tc.want || ok != (tc.want != "") {
+			t.Errorf("%q: %q %v", tc.content, got, ok)
+		}
 	}
 }

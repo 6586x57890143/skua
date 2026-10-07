@@ -11,10 +11,11 @@ AGPL-3.0-only:
 Ported from packages/bridge (router.ts, transform.ts, puppets.ts,
 imeta.ts, blossom.ts, net.ts, index.ts, klipy.ts). Changed from the original:
 rewritten in Go as a skua module, configured from the environment with an
-explicit channel map instead of the portal, reactions, typing, backfill
-and the ffmpeg GIF transcode left out, Klipy GIFs tagged at their CDN URL
-rather than rehosted, edits on by default, and the outbound fetch guard
-moved into the dialer.
+explicit channel map instead of the portal, typing, backfill and the
+ffmpeg GIF transcode left out, Klipy GIFs tagged at their CDN URL rather
+than rehosted, edits on by default, the outbound fetch guard moved into
+the dialer, and a moderator's delete of a Discord member's reaction taken
+off Discord too.
 
 Copyright (C) 2026 Chad Curtis and contributors (the original)
 Copyright (C) 2026 6586x57890143 (the modifications)
