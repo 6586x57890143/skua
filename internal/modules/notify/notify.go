@@ -11,11 +11,11 @@ package notify
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -103,6 +103,46 @@ type Module struct {
 	failed  map[snowflake.ID]string // channel -> why its last post failed
 }
 
+// Every setting notify takes is optional, so none of them may stop skua:
+// one that doesn't hold together is logged once, as an error saying what to
+// fix, and notify runs without what it was for.
+
+// hooksFrom is push's settings when they hold together: an https address
+// and a secret of at least 16 characters. Otherwise push is off and every
+// platform is polled at its own pace.
+func hooksFrom(cfg Config, log *slog.Logger) hooks {
+	if cfg.HooksURL == "" {
+		return hooks{}
+	}
+	u, err := url.Parse(cfg.HooksURL)
+	switch {
+	case err != nil || u.Scheme != "https" || u.Host == "":
+		log.Error("notify: SKUA_HOOKS_URL isn't an https address; push is off and every platform is polled", "url", cfg.HooksURL)
+	case len(cfg.HooksSecret) < 16:
+		log.Error("notify: SKUA_HOOKS_URL is set but SKUA_HOOKS_SECRET is missing or under 16 characters (openssl rand -hex 32); push is off and every platform is polled")
+	default:
+		return hooks{url: cfg.HooksURL, secret: cfg.HooksSecret}
+	}
+	return hooks{}
+}
+
+// settle drops a platform whose key pair is half set, saying so, where it
+// would otherwise vanish from /notify without a word.
+func settle(cfg Config, log *slog.Logger) Config {
+	if (cfg.TwitchID == "") != (cfg.TwitchSecret == "") {
+		log.Error("notify: twitch needs both SKUA_TWITCH_CLIENT_ID and SKUA_TWITCH_CLIENT_SECRET; twitch is off")
+		cfg.TwitchID, cfg.TwitchSecret = "", ""
+	}
+	if (cfg.KickID == "") != (cfg.KickSecret == "") {
+		log.Error("notify: kick needs both SKUA_KICK_CLIENT_ID and SKUA_KICK_CLIENT_SECRET; kick is off")
+		cfg.KickID, cfg.KickSecret = "", ""
+	}
+	return cfg
+}
+
+// Pushing is whether push is on, which is whether main should serve Hooks.
+func (m *Module) Pushing() bool { return m.hooks.on() }
+
 // New reads what is followed from db, which may be nil. admin is the
 // router's rule, which the panel's components check again on every click.
 func New(ctx context.Context, log *slog.Logger, g *guard.Guard, db DB, cfg Config, admin func(discord.Interaction) bool) (*Module, error) {
@@ -112,13 +152,10 @@ func New(ctx context.Context, log *slog.Logger, g *guard.Guard, db DB, cfg Confi
 	if err != nil {
 		return nil, fmt.Errorf("notify: loading follows: %w", err)
 	}
-	if cfg.HooksURL != "" && len(cfg.HooksSecret) < 16 {
-		return nil, errors.New("notify: SKUA_HOOKS_URL needs SKUA_HOOKS_SECRET, at least 16 characters (openssl rand -hex 32)")
-	}
 	m := &Module{
-		log: log, guard: g, db: db, sources: sources(cfg, &http.Client{Timeout: 20 * time.Second}),
+		log: log, guard: g, db: db, sources: sources(settle(cfg, log), &http.Client{Timeout: 20 * time.Second}),
 		on: func(snowflake.ID) bool { return true }, admin: admin, now: time.Now,
-		hooks: hooks{url: cfg.HooksURL, secret: cfg.HooksSecret}, turns: map[string]*sync.Mutex{},
+		hooks: hooksFrom(cfg, log), turns: map[string]*sync.Mutex{},
 		follows: st.follows, seen: st.seen, bound: st.bound, health: map[string]health{}, failed: map[snowflake.ID]string{},
 	}
 	for p := range m.sources {

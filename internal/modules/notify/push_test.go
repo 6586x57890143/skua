@@ -15,6 +15,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -472,9 +473,6 @@ func (p *pushFake) calls() int {
 }
 
 func TestPushWiring(t *testing.T) {
-	if _, err := New(context.Background(), quiet(), guard.New(), nil, Config{HooksURL: "https://hooks", HooksSecret: "short"}, nil); err == nil {
-		t.Fatal("a short secret is refused")
-	}
 	pf := &pushFake{fake: newFake()}
 	m, _ := pushed(t, "fake", "bird", pf)
 	if m.every(pf) != 15*time.Minute || m.every(newFake()) != time.Hour {
@@ -496,5 +494,44 @@ func TestPushWiring(t *testing.T) {
 	m.subscribe("fake")
 	if pf.calls() != 2 {
 		t.Fatalf("push off subscribes nothing: %d", pf.calls())
+	}
+}
+
+// A bad optional setting never stops skua: New boots, logs one error
+// saying what to fix, and runs without what the setting was for.
+func TestBadSettingsNeverStopSkua(t *testing.T) {
+	good := Config{HooksURL: "https://hooks.skua.lol", HooksSecret: secret, TwitchID: "a", TwitchSecret: "b", KickID: "c", KickSecret: "d"}
+	for name, c := range map[string]struct {
+		edit         func(*Config)
+		push         bool
+		twitch, kick bool
+		errors       int
+		mentions     string
+	}{
+		"all good":          {func(*Config) {}, true, true, true, 0, ""},
+		"no push at all":    {func(c *Config) { c.HooksURL, c.HooksSecret = "", "" }, false, true, true, 0, ""},
+		"url, no secret":    {func(c *Config) { c.HooksSecret = "" }, false, true, true, 1, "SKUA_HOOKS_SECRET"},
+		"url, short secret": {func(c *Config) { c.HooksSecret = "short" }, false, true, true, 1, "SKUA_HOOKS_SECRET"},
+		"url not https":     {func(c *Config) { c.HooksURL = "http://hooks.skua.lol" }, false, true, true, 1, "SKUA_HOOKS_URL"},
+		"url not a url":     {func(c *Config) { c.HooksURL = "::nope" }, false, true, true, 1, "SKUA_HOOKS_URL"},
+		"twitch id only":    {func(c *Config) { c.TwitchSecret = "" }, true, false, true, 1, "SKUA_TWITCH_CLIENT_SECRET"},
+		"kick secret only":  {func(c *Config) { c.KickID = "" }, true, true, false, 1, "SKUA_KICK_CLIENT_ID"},
+	} {
+		cfg := good
+		c.edit(&cfg)
+		var logs strings.Builder
+		log := slog.New(slog.NewTextHandler(&logs, nil))
+		m, err := New(context.Background(), log, guard.New(), nil, cfg, nil)
+		if err != nil {
+			t.Fatalf("%s: New failed: %v", name, err)
+		}
+		_, twitch := m.sources["twitch"]
+		_, kick := m.sources["kick"]
+		if m.Pushing() != c.push || twitch != c.twitch || kick != c.kick {
+			t.Errorf("%s: push %v twitch %v kick %v", name, m.Pushing(), twitch, kick)
+		}
+		if n := strings.Count(logs.String(), "level=ERROR"); n != c.errors || !strings.Contains(logs.String(), c.mentions) {
+			t.Errorf("%s: %d errors, want %d naming %q: %s", name, n, c.errors, c.mentions, logs.String())
+		}
 	}
 }

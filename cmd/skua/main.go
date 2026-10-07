@@ -170,15 +170,17 @@ func run(log *slog.Logger) error {
 		all = append(all, bridge)
 	}
 
-	// notify keeps its follows in the purge pool too, or in memory without one.
+	// notify keeps its follows in the purge pool too, or in memory without
+	// one. It is optional: if it can't start, skua runs without it.
 	notifier, err := notify.New(ctx, log, g, purgeDB, notify.FromEnv(), func(i discord.Interaction) bool { return router.Admin(i) })
 	if err != nil {
-		return err
+		log.Error("notify is off: it couldn't start", "err", err)
+	} else {
+		all = append(all, notifier)
 	}
-	all = append(all, notifier)
 	// Pushes from twitch, kick and youtube, which reach skua through the
-	// tunnel; nothing listens unless SKUA_HOOKS_URL says where they come in.
-	if os.Getenv("SKUA_HOOKS_URL") != "" {
+	// tunnel; nothing listens unless notify took SKUA_HOOKS_URL.
+	if notifier != nil && notifier.Pushing() {
 		hooks := &http.Server{Addr: env("SKUA_HOOKS_ADDR", ":8080"), Handler: notifier.Hooks(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second}
 		go func() {
 			log.Info("hooks listening", "addr", hooks.Addr)
