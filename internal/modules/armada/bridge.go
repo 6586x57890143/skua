@@ -524,11 +524,11 @@ func replyTarget(o *concord.Opened) string {
 	return target
 }
 
-// replyLine is the subtext over a reply, naming who it answers and linking
-// the Discord copy. A webhook can't make a real Discord reply, and an embed
-// for it outweighed the message, so it is a line of small text the way the
-// rest of skua says detail. A Discord author is a mention, which shows their
-// name and pings no one under core.NoPings.
+// replyLine is the subtext under a reply, the way whisper marks its posts:
+// who it answers, their name linking the Discord copy. A webhook can't make
+// a real Discord reply, and an embed for it outweighed the message. A
+// mention can't be a link, so a Discord author is named by their puppet's
+// kind 0, as an Armada author is by theirs.
 func (m *Module) replyLine(ctx context.Context, l *link, guild snowflake.ID, target string) string {
 	if target == "" {
 		return ""
@@ -537,21 +537,20 @@ func (m *Module) replyLine(ctx context.Context, l *link, guild snowflake.ID, tar
 	if err != nil || len(rows) == 0 {
 		return ""
 	}
-	link := fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guild, rows[0].Channel, rows[0].Message)
-	who := "<@" + rows[0].Author + ">"
-	if rows[0].Origin == "armada" {
-		name, _ := m.profile(ctx, rows[0].Author)
-		who = escape(name)
+	pk := rows[0].Author
+	if rows[0].Origin != "armada" {
+		pk = m.puppet(pk).PK
 	}
-	return fmt.Sprintf("-# replying to %s · [view message](%s)", who, link)
+	name, _ := m.profile(ctx, pk)
+	return fmt.Sprintf("-# replying to [%s](https://discord.com/channels/%s/%s/%s)", escape(name), guild, rows[0].Channel, rows[0].Message)
 }
 
-// withReply puts the reply line, when there is one, over the text.
+// withReply puts the reply line, when there is one, under the text.
 func withReply(line, text string) string {
 	if line == "" || text == "" {
-		return line + text
+		return text + line
 	}
-	return line + "\n" + text
+	return text + "\n" + line
 }
 
 // files downloads an Armada message's attachments for upload, decrypting
