@@ -421,3 +421,83 @@ func TestChannelAndCommandMentions(t *testing.T) {
 		t.Errorf("%q\nwant %q", got, want)
 	}
 }
+
+func TestKlipyItem(t *testing.T) {
+	for raw, want := range map[string]string{
+		"https://klipy.com/gifs/dancing-cat":       "gifs/dancing-cat",
+		" https://www.klipy.com/stickers/wave-9/ ": "stickers/wave-9",
+		"https://klipy.com/clips/x":                "",
+		"http://klipy.com/gifs/x":                  "",
+		"https://evil.example/gifs/x":              "",
+		"https://klipy.com/gifs/a b":               "",
+		"look https://klipy.com/gifs/x":            "",
+	} {
+		kind, slug, ok := klipyItem(raw)
+		if got := kind + "/" + slug; (ok && got != want) || (!ok && want != "") {
+			t.Errorf("%q: %q %v", raw, got, ok)
+		}
+	}
+}
+
+// fakeKlipy is Klipy's Items API: nested data for gifs, flat for stickers,
+// and a 403 for a bad key.
+func fakeKlipy(t *testing.T) *klipy {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/bad/"):
+			w.WriteHeader(http.StatusForbidden)
+		case strings.Contains(r.URL.Path, "/gifs/items") && r.URL.Query().Get("slugs") == "dancing-cat":
+			_, _ = fmt.Fprint(w, `{"result":true,"data":{"data":[{"slug":"dancing-cat","file":{
+				"hd":{"gif":{"url":"https://static.klipy.com/a/HD.gif","width":498,"height":280,"size":20000000}},
+				"md":{"gif":{"url":"https://static.klipy.com/a/MD.gif","width":320,"height":180,"size":900000}}}}]}}`)
+		case strings.Contains(r.URL.Path, "/stickers/items"):
+			_, _ = fmt.Fprint(w, `{"data":[{"slug":"wave","file":{"sm":{"gif":{"url":"https://evil.example/x.gif"}},"xs":{"gif":{"url":"https://static.klipy.com/w/XS.gif"}}}}]}`)
+		default:
+			_, _ = fmt.Fprint(w, `{"data":{"data":[]}}`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return &klipy{key: "key", api: srv.URL, http: srv.Client()}
+}
+
+func TestKlipyGIF(t *testing.T) {
+	k := fakeKlipy(t)
+	ctx := context.Background()
+	// hd is over the 10 MB cap, so md wins.
+	if g, ok := k.gif(ctx, "https://klipy.com/gifs/dancing-cat"); !ok || g.URL != "https://static.klipy.com/a/MD.gif" || !slices.Equal(g.tag(), []string{"imeta", "url https://static.klipy.com/a/MD.gif", "m image/gif", "dim 320x180"}) {
+		t.Fatalf("%+v %v", g, ok)
+	}
+	// A rendition off Klipy's CDN is never taken.
+	if g, ok := k.gif(ctx, "https://klipy.com/stickers/wave"); !ok || g.URL != "https://static.klipy.com/w/XS.gif" || len(g.tag()) != 3 {
+		t.Fatalf("%+v %v", g, ok)
+	}
+	for _, page := range []string{"https://klipy.com/gifs/unknown", "https://example.com/gifs/x"} {
+		if _, ok := k.gif(ctx, page); ok {
+			t.Errorf("%s resolved", page)
+		}
+	}
+	k.key = "bad"
+	if _, ok := k.gif(ctx, "https://klipy.com/gifs/dancing-cat"); ok {
+		t.Error("a refused key resolved")
+	}
+}
+
+func TestKlipySendCrossesAsTheGIF(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	h.m.klipy = fakeKlipy(t)
+	user, _ := snowflake.Parse(h.v.Puppet.User)
+	h.m.toArmada(h.l, discord.Message{ID: 700, ChannelID: 100, Content: "https://klipy.com/gifs/dancing-cat", Author: discord.User{ID: user}})
+	o := h.opened(t, concord.KindMessage)
+	if o == nil || o.Content != "https://static.klipy.com/a/MD.gif" || concord.Tag(o.Tags, "imeta") != "url https://static.klipy.com/a/MD.gif" || !concord.HasTag(o.Tags, "proxy") {
+		t.Fatalf("%+v", o)
+	}
+	// Not a Klipy item, or a failed lookup: the link goes as it was.
+	h.m.toArmada(h.l, discord.Message{ID: 701, ChannelID: 100, Content: "https://klipy.com/gifs/unknown", Author: discord.User{ID: user}})
+	if o := h.opened(t, concord.KindMessage); o == nil || o.Content != "https://klipy.com/gifs/unknown" || concord.HasTag(o.Tags, "imeta") {
+		t.Fatalf("%+v", o)
+	}
+	if c := (Config{Klipy: "k"}); c.Klipy == "" || FromEnv().Klipy != os.Getenv("SKUA_ARMADA_KLIPY_KEY") {
+		t.Error("config")
+	}
+}

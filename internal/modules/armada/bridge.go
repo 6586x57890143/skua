@@ -109,6 +109,12 @@ func (m *Module) toArmada(l *link, msg discord.Message) {
 // compose is a Discord message's Armada text with its emoji and attachment
 // tags.
 func (m *Module) compose(ctx context.Context, guild snowflake.ID, msg discord.Message, puppet concord.Key) (string, [][]string) {
+	// A GIF-picker send is the page link alone; it crosses as the GIF.
+	if m.klipy != nil && len(msg.Attachments) == 0 {
+		if g, ok := m.klipy.gif(ctx, msg.Content); ok {
+			return g.URL, [][]string{g.tag()}
+		}
+	}
 	urls, metas := m.rehost(ctx, msg.Attachments, puppet)
 	names := map[string]string{}
 	for _, u := range msg.Mentions {

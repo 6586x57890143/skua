@@ -73,6 +73,7 @@ type Config struct {
 	Primary string // SKUA_ARMADA_PRIMARY_KEY, hex or nsec
 	Links   string // SKUA_ARMADA_LINKS, <discord channel>=<armada channel>,...
 	Blossom string // SKUA_ARMADA_BLOSSOM, comma-separated, in order
+	Klipy   string // SKUA_ARMADA_KLIPY_KEY, optional: GIF-picker sends cross as the GIF
 }
 
 // FromEnv reads the bridge's environment.
@@ -83,6 +84,7 @@ func FromEnv() Config {
 		Primary: os.Getenv("SKUA_ARMADA_PRIMARY_KEY"),
 		Links:   os.Getenv("SKUA_ARMADA_LINKS"),
 		Blossom: os.Getenv("SKUA_ARMADA_BLOSSOM"),
+		Klipy:   os.Getenv("SKUA_ARMADA_KLIPY_KEY"),
 	}
 }
 
@@ -136,6 +138,7 @@ type Module struct {
 	links   []*link
 	byDisc  map[snowflake.ID]*link
 	blob    *blossom
+	klipy   *klipy
 	fetcher *http.Client
 	dial    func(urls []string) relays
 	gate    func(guild snowflake.ID) bool
@@ -206,6 +209,9 @@ func New(log *slog.Logger, g *guard.Guard, p poster, s screen, db DB, cfg Config
 	m.maps = &memMappings{}
 	if db != nil {
 		m.maps = pgMappings{db}
+	}
+	if cfg.Klipy != "" {
+		m.klipy = &klipy{key: cfg.Klipy, api: klipyAPI, http: &http.Client{Timeout: 15 * time.Second}}
 	}
 	if servers := splitList(cfg.Blossom); len(servers) > 0 {
 		m.blob = &blossom{servers: servers, http: &http.Client{Timeout: time.Minute}}
