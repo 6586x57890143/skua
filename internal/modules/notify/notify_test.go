@@ -19,6 +19,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/core/coretest"
 	"github.com/6586x57890143/skua/internal/guard"
@@ -290,6 +291,22 @@ func TestAlert(t *testing.T) {
 	}
 	if !strings.Contains(s, `"content":"<@&7>"`) || !strings.Contains(s, `"roles":["7"]`) {
 		t.Fatalf("the role is mentioned and allowed: %s", s)
+	}
+	// A title with an emoji isn't a masked link: Discord would show the
+	// markdown. The button still links it.
+	s = js(alert("youtube", item{ID: "live:v", Title: "24/7 ambience \U0001F383 lofi", URL: "https://y/v"}, 0))
+	if !strings.Contains(s, "**24/7 ambience \U0001F383 lofi**") || strings.Contains(s, "](https://y/v)") || !strings.Contains(s, `"url":"https://y/v"`) {
+		t.Fatalf("an emoji title: %s", s)
+	}
+	// A card wears its platform's muted tint; one without a tint, skua's notice.
+	if a := alert("youtube", item{ID: "v"}, 0).Components[0].(discord.ContainerComponent).AccentColor; a != brand.PlatformColor("youtube") {
+		t.Fatalf("youtube accent %v", a)
+	}
+	if a := alert("fake", item{ID: "v"}, 0).Components[0].(discord.ContainerComponent).AccentColor; a != brand.ColorNotice {
+		t.Fatalf("fallback accent %v", a)
+	}
+	if emoji("24/7 plain words") || !emoji("done \u2713") {
+		t.Fatal("emoji")
 	}
 	if got := line(strings.Repeat("é", 300), 10); got != "ééééééé..." {
 		t.Fatal(got)

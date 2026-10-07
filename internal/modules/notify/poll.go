@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/disgoorg/disgo/discord"
@@ -228,19 +229,30 @@ var news = map[string]string{"youtube": "new on youtube", "x": "posted on x", "t
 // alert is the card: what happened in its head, the title linked, who and
 // what below it, the preview, and a button there.
 func alert(platform string, it item, role snowflake.ID) discord.MessageCreate {
-	color, what, label := brand.ColorNotice, news[platform], "open"
+	what, label := news[platform], "open"
 	if it.live() {
-		color, what, label = brand.ColorOK, "live on "+platform, "watch"
+		what, label = "live on "+platform, "watch"
 	}
+	// The platform's colour, so a channel of cards reads by platform at a
+	// glance. Link buttons can't be coloured: Discord draws them grey.
+	color := brand.PlatformColor(platform)
 	title := line(it.Title, 200)
 	if title == "" {
 		title = "something new"
 	}
+	// Discord leaves a masked link whose text holds an emoji as raw
+	// markdown, so such a title stays plain and the button carries it.
 	body := "**" + title + "**"
-	if strings.HasPrefix(it.URL, "https://") {
+	if strings.HasPrefix(it.URL, "https://") && !emoji(title) {
 		body = "**[" + title + "](" + it.URL + ")**"
 	}
-	body += "\n-# " + it.Author
+	// Who it was, behind their platform's tile, as on the /notify panel.
+	// Before the emoji sync the tile is left out, not attached.
+	who := it.Author
+	if mark := brand.Mention("pf_" + platform); mark != "" {
+		who = mark + " " + who
+	}
+	body += "\n-# " + who
 	if it.Detail != "" {
 		body += " · " + line(it.Detail, 60)
 	}
@@ -249,7 +261,9 @@ func alert(platform string, it item, role snowflake.ID) discord.MessageCreate {
 		extra = append(extra, discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: it.Image}}))
 	}
 	if strings.HasPrefix(it.URL, "https://") {
-		extra = append(extra, discord.NewActionRow(discord.NewLinkButton(label, it.URL)))
+		button := discord.NewLinkButton(label, it.URL)
+		button.Emoji = brand.ComponentEmoji("pf_" + platform)
+		extra = append(extra, discord.NewActionRow(button))
 	}
 	card := brand.Card(color, "notify", what, body, extra...)
 	if role == 0 {
@@ -266,6 +280,12 @@ func alert(platform string, it item, role snowflake.ID) discord.MessageCreate {
 // alert, and nothing else.
 func pingRole(role snowflake.ID) *discord.AllowedMentions {
 	return &discord.AllowedMentions{Parse: []discord.AllowedMentionType{}, Roles: []snowflake.ID{role}}
+}
+
+// emoji is whether s holds a pictograph: a symbol, or anything from the
+// emoji planes.
+func emoji(s string) bool {
+	return strings.ContainsFunc(s, func(r rune) bool { return r >= 0x1F000 || unicode.Is(unicode.So, r) })
 }
 
 // line is s on one line, at most n runes, with nothing that would break a

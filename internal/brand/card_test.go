@@ -24,3 +24,22 @@ func TestCard(t *testing.T) {
 		t.Errorf("synced head %q", got)
 	}
 }
+
+// Each platform has its own colour, none a mood's, so a platform card is
+// never read as ok or failed; one without a colour is a notice.
+func TestPlatformColor(t *testing.T) {
+	seen := map[int]string{}
+	for p := range platforms {
+		c := PlatformColor(p)
+		if _, mood := moods[c]; mood {
+			t.Errorf("%s wears a mood's colour %06X", p, c)
+		}
+		if other, dup := seen[c]; dup {
+			t.Errorf("%s and %s share %06X", p, other, c)
+		}
+		seen[c] = p
+	}
+	if PlatformColor("mastodon") != ColorNotice {
+		t.Error("fallback")
+	}
+}

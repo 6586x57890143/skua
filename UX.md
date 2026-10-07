@@ -55,6 +55,9 @@ The rules every bird shares, which `brand/voice_test.go` holds the status lines 
   decoration. Buttons go inside the container, below the text. A live readout is
   edited as a card too (`discord.NewMessageUpdateV2`) and its accent follows its state.
   Errors stay `core.Tell`, plain text.
+- A notify card is the one card accented by platform, not mood: its platform's
+  muted colour from `brand.PlatformColor`, because a channel of them reads by
+  platform. Its button and creator line wear the platform's tile.
 - A message skua posts as someone else (a bridge or a webhook) is their text. What
   skua adds to it, such as who it replies to, is a `-#` subtext line below it, never an
   embed: a webhook can't make a real Discord reply, and a box outweighs the message it

@@ -25,6 +25,25 @@ const (
 	ColorIdle    = 0x6A707A
 )
 
+// platforms are the platforms notify follows, each in its colour muted into
+// the palette above.
+var platforms = map[string]int{
+	"youtube": 0xA85A4E, // muted red
+	"twitch":  0x7A6A9C, // muted violet
+	"kick":    0x6F9A5B, // muted green
+	"x":       0x7C8796, // dark slate
+	"tiktok":  0xA8728A, // muted rose
+}
+
+// PlatformColor is platform's muted colour, or ColorNotice for one skua
+// has no colour for.
+func PlatformColor(platform string) int {
+	if c, ok := platforms[platform]; ok {
+		return c
+	}
+	return ColorNotice
+}
+
 //go:embed assets/*.png
 var assets embed.FS
 
