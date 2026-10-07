@@ -35,14 +35,14 @@ import (
 )
 
 func TestToArmada(t *testing.T) {
-	got := toArmada("<@!1> and <@2> say <a:wave:9>", map[string]string{"1": "kit"}, []string{"https://a/x.png", "https://a/y"})
+	got := toArmada("<@!1> and <@2> say <a:wave:9>", 7, map[string]string{"1": "kit"}, []string{"https://a/x.png", "https://a/y"})
 	if got != "@kit and <@2> say :wave:\nhttps://a/x.png\nhttps://a/y" {
 		t.Errorf("%q", got)
 	}
-	if got := toArmada("", nil, []string{"https://a/x.png"}); got != "https://a/x.png" {
+	if got := toArmada("", 7, nil, []string{"https://a/x.png"}); got != "https://a/x.png" {
 		t.Errorf("attachment only: %q", got)
 	}
-	if got := toArmada(strings.Repeat("é", armadaMaxChars+5), nil, nil); len([]rune(got)) != armadaMaxChars || !strings.HasSuffix(got, "...") {
+	if got := toArmada(strings.Repeat("é", armadaMaxChars+5), 7, nil, nil); len([]rune(got)) != armadaMaxChars || !strings.HasSuffix(got, "...") {
 		t.Error("not cut to the cap")
 	}
 	if tags := emojiTags("<:a:1> <a:b:2> <:a:1>"); len(tags) != 2 || tags[1][2] != "https://cdn.discordapp.com/emojis/2.gif" {
@@ -408,5 +408,12 @@ func TestWakesAreCapped(t *testing.T) {
 			t.Errorf("gap %v: %d reads of the invite, want %d", tc.gap, got, tc.want)
 		}
 		m.Close()
+	}
+}
+
+func TestChannelAndCommandMentions(t *testing.T) {
+	got := toArmada("join <#555> and run </purge now:42> or </ping:1>", 7, nil, nil)
+	if want := "join https://discord.com/channels/7/555 and run /purge now or /ping"; got != want {
+		t.Errorf("%q\nwant %q", got, want)
 	}
 }

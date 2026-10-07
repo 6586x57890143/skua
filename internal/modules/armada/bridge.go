@@ -65,7 +65,7 @@ func (m *Module) toArmada(l *link, msg discord.Message) {
 		return
 	}
 	guild := snowflake.ID(l.guild.Load())
-	content, tags := m.compose(ctx, msg, puppet)
+	content, tags := m.compose(ctx, snowflake.ID(l.guild.Load()), msg, puppet)
 	if content == "" {
 		return
 	}
@@ -106,13 +106,13 @@ func (m *Module) toArmada(l *link, msg discord.Message) {
 
 // compose is a Discord message's Armada text with its emoji and attachment
 // tags.
-func (m *Module) compose(ctx context.Context, msg discord.Message, puppet concord.Key) (string, [][]string) {
+func (m *Module) compose(ctx context.Context, guild snowflake.ID, msg discord.Message, puppet concord.Key) (string, [][]string) {
 	urls, metas := m.rehost(ctx, msg.Attachments, puppet)
 	names := map[string]string{}
 	for _, u := range msg.Mentions {
 		names[u.ID.String()] = u.EffectiveName()
 	}
-	return toArmada(msg.Content, names, urls), append(emojiTags(msg.Content), metas...)
+	return toArmada(msg.Content, guild, names, urls), append(emojiTags(msg.Content), metas...)
 }
 
 // discordEdit publishes a Discord edit as a kind 3302 from the author's
@@ -147,7 +147,7 @@ func (m *Module) discordEdit(l *link, msg discord.Message) {
 	if !ok || f.IsBanned(puppet.PK) {
 		return
 	}
-	content, tags := m.compose(ctx, msg, puppet)
+	content, tags := m.compose(ctx, snowflake.ID(l.guild.Load()), msg, puppet)
 	if content == "" {
 		return
 	}

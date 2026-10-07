@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/disgoorg/snowflake/v2"
 )
 
 const (
@@ -25,26 +27,34 @@ const (
 )
 
 var (
-	userMention  = regexp.MustCompile(`<@!?(\d+)>`)
-	customEmoji  = regexp.MustCompile(`<(a?):(\w+):(\d+)>`)
-	nostrProfile = regexp.MustCompile(`nostr:(npub1|nprofile1)([02-9ac-hj-np-z]+)`)
-	emojiName    = regexp.MustCompile(`^\w{2,32}$`)
-	emojiPath    = regexp.MustCompile(`^/emojis/(\d{1,25})\.(\w+)$`)
-	markdown     = regexp.MustCompile("[\\\\`*_~|\\[\\]()>#-]")
-	lineTail     = regexp.MustCompile(`[^\S\n]+\n`)
-	blankRun     = regexp.MustCompile(`\n{3,}`)
+	userMention = regexp.MustCompile(`<@!?(\d+)>`)
+	customEmoji = regexp.MustCompile(`<(a?):(\w+):(\d+)>`)
+	// channelMention is <#id>; commandMention is </name:id>, where a
+	// subcommand's name has spaces in it.
+	channelMention = regexp.MustCompile(`<#(\d+)>`)
+	commandMention = regexp.MustCompile(`</([^:<>\n]{1,96}):\d+>`)
+	nostrProfile   = regexp.MustCompile(`nostr:(npub1|nprofile1)([02-9ac-hj-np-z]+)`)
+	emojiName      = regexp.MustCompile(`^\w{2,32}$`)
+	emojiPath      = regexp.MustCompile(`^/emojis/(\d{1,25})\.(\w+)$`)
+	markdown       = regexp.MustCompile("[\\\\`*_~|\\[\\]()>#-]")
+	lineTail       = regexp.MustCompile(`[^\S\n]+\n`)
+	blankRun       = regexp.MustCompile(`\n{3,}`)
 )
 
 // toArmada is Discord markup turned into Armada's plain text: user mentions
-// become @name, custom emoji :name: (with NIP-30 tags alongside), and
-// attachment URLs follow one per line.
-func toArmada(content string, names map[string]string, urls []string) string {
+// become @name, a channel mention a link to that channel in guild (Armada
+// can't name a Discord channel, and the raw <#id> reads as noise), a slash
+// command mention /name, custom emoji :name: (with NIP-30 tags alongside),
+// and attachment URLs follow one per line.
+func toArmada(content string, guild snowflake.ID, names map[string]string, urls []string) string {
 	text := userMention.ReplaceAllStringFunc(content, func(raw string) string {
 		if n, ok := names[userMention.FindStringSubmatch(raw)[1]]; ok {
 			return "@" + n
 		}
 		return raw
 	})
+	text = channelMention.ReplaceAllString(text, "https://discord.com/channels/"+guild.String()+"/$1")
+	text = commandMention.ReplaceAllString(text, "/$1")
 	text = customEmoji.ReplaceAllString(text, ":$2:")
 	if len(urls) > 0 {
 		lines := []string{strings.TrimRight(text, " \t\n")}
