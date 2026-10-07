@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -84,7 +85,8 @@ func (m *Module) canGrant(p roleReader, guild, role snowflake.ID) bool {
 // link beside it: Discord offers four styles, never a custom colour.
 func roleButton(role snowflake.ID) discord.ButtonComponent {
 	b := discord.NewPrimaryButton("ping me", roleID+":"+role.String())
-	b.Emoji = brand.ComponentEmoji("mod_notify")
+	// The bell alone, not on its tile: a slate square on blurple is a hole.
+	b.Emoji = brand.ComponentEmoji("btn_notify")
 	return b
 }
 
@@ -106,12 +108,20 @@ func (m *Module) grab(ctx context.Context, e *events.ComponentInteractionCreate)
 	if err := m.guard.Allow(*guild, guard.MemberEdit); err != nil {
 		return core.Tell("too many role changes here this hour; try again in a bit")
 	}
+	// Answered at once, then worked: reading the roles and changing one can
+	// take Discord longer than the three seconds a press gets, which on
+	// flightless showed as "this interaction failed" on a drop.
+	if err := e.DeferCreateMessage(true); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
 	has := slices.Contains(member.RoleIDs, role)
 	r := e.Client().Rest
 	// Asked again at the press: the role may have gained permissions, or
 	// skua lost hers, since the card went out. Dropping a role never
 	// grants anything, so only taking one is checked.
-	if !has && !m.canGrant(r, *guild, role) {
+	if !has && !m.canGrant(withCtx{r, ctx}, *guild, role) {
 		return core.Tell("that role can't be handed out from cards; an admin can pick a role with no permissions of its own as the ping role")
 	}
 	opts := []rest.RequestOpt{rest.WithCtx(ctx), rest.WithReason("notify: the member pressed ping me")}
@@ -131,9 +141,24 @@ func (m *Module) grab(ctx context.Context, e *events.ComponentInteractionCreate)
 	if has {
 		text = "✓ no more pings from <@&" + role.String() + ">"
 	}
-	return e.CreateMessage(discord.MessageCreate{
-		Components:      []discord.LayoutComponent{brand.Card(brand.ColorOK, "notify", "", text)},
-		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
+	_, err = r.UpdateInteractionResponse(e.ApplicationID(), e.Token(), discord.MessageUpdate{
+		Components:      &[]discord.LayoutComponent{brand.Card(brand.ColorOK, "notify", "", text)},
+		Flags:           new(discord.MessageFlagIsComponentsV2),
 		AllowedMentions: core.NoPings(),
-	})
+	}, rest.WithCtx(ctx))
+	return err
+}
+
+// withCtx is a roleReader whose reads end with ctx.
+type withCtx struct {
+	r   roleReader
+	ctx context.Context
+}
+
+func (w withCtx) GetRoles(guild snowflake.ID, opts ...rest.RequestOpt) ([]discord.Role, error) {
+	return w.r.GetRoles(guild, append(opts, rest.WithCtx(w.ctx))...)
+}
+
+func (w withCtx) GetMember(guild, user snowflake.ID, opts ...rest.RequestOpt) (*discord.Member, error) {
+	return w.r.GetMember(guild, user, append(opts, rest.WithCtx(w.ctx))...)
 }

@@ -103,6 +103,7 @@ type roleRest struct {
 	added, removed []snowflake.ID
 	err            error
 	roles          []discord.Role
+	replies        []string // what the presser read after the deferral
 }
 
 func (r *roleRest) GetRoles(snowflake.ID, ...rest.RequestOpt) ([]discord.Role, error) {
@@ -129,7 +130,13 @@ func (r *roleRest) RemoveMemberRole(_, _, role snowflake.ID, _ ...rest.RequestOp
 	return nil
 }
 
-func (r *roleRest) CreateFollowupMessage(snowflake.ID, string, discord.MessageCreate, ...rest.RequestOpt) (*discord.Message, error) {
+func (r *roleRest) CreateFollowupMessage(_ snowflake.ID, _ string, m discord.MessageCreate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	r.replies = append(r.replies, js(m))
+	return &discord.Message{}, nil
+}
+
+func (r *roleRest) UpdateInteractionResponse(_ snowflake.ID, _ string, m discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	r.replies = append(r.replies, js(m))
 	return &discord.Message{}, nil
 }
 
@@ -147,8 +154,9 @@ func press(t *testing.T, r *core.Router, rr *roleRest, role string, holding ...s
 	var got []string
 	e.Respond = record(&got)
 	e.Client().Rest = rr
+	rr.replies = nil
 	r.OnComponent(e)
-	return strings.Join(got, "\n")
+	return strings.Join(append(got, rr.replies...), "\n")
 }
 
 func TestPressingPingMe(t *testing.T) {

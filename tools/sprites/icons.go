@@ -432,6 +432,16 @@ func writeEmoji(b *image.NRGBA) {
 	mustWrite(filepath.Join(out, "skua_avatar.png"), bird)
 	tiles(out, "mod_", moduleGlyphs)
 	tiles(out, "pf_", platformGlyphs)
+	bare(out, "btn_notify", moduleGlyphs["notify"])
+}
+
+// bare writes a glyph alone in bone on nothing, for a coloured button: on
+// blurple a slate tile reads as a dark square, the bare glyph as the icon.
+func bare(out, name string, g []string) {
+	img := image.NewNRGBA(image.Rect(0, 0, emojiSize, emojiSize))
+	off := (emojiSize - glyphCells*emojiCell) / 2
+	drawScaled(img, g, off, off, map[byte]color.NRGBA{'w': bone[1]}, emojiCell)
+	mustWrite(filepath.Join(out, name+".png"), img)
 }
 
 // tiles writes each glyph centred on a tile, as prefix+name.
