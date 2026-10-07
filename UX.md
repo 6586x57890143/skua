@@ -93,4 +93,9 @@ taken from the environment, is said out loud before it is used.
 - A badge glyph is 6 by 6 with equal margins on opposite sides, so it sits one 8 px cell
   inside the badge's interior on every side. `tools/sprites` refuses a glyph that is
   not.
+- Every module has an icon, the one `/help` and its cards wear: a pixelarticons glyph
+  (MIT) traced onto the 24 cell grid in `tools/sprites/icons.go`, one cell per unit of
+  the icon's 24 unit viewBox, with the source icon named beside it. A module ships
+  with its glyph; `internal/brand` fails any module whose `Name()` has no
+  `mod_<name>.png`.
 - Edit `art/source` or `tools/sprites` and rerun the generator, never the output PNGs.
