@@ -447,6 +447,10 @@ func (m *Module) resolve() (*concord.Community, error) {
 	if learned := concord.Intake(m.ctx, p, m.primary.SK, c, f); len(learned) > 0 {
 		m.log.Debug("armada: keys from a direct invite", "channels", len(learned))
 	}
+	// Then every rotation since, so she reads and writes the current key.
+	if moved := concord.Rekeys(m.ctx, p, m.primary.SK, c, f); len(moved) > 0 {
+		m.log.Debug("armada: keys followed through a rotation", "channels", len(moved))
+	}
 	return c, nil
 }
 
@@ -512,27 +516,35 @@ func (m *Module) session(ctx context.Context, c *concord.Community) {
 	// Senders backdate a gift wrap by up to two days on purpose, so the floor
 	// is three days back; what that replays on a reconnect is one capped read.
 	since := nostr.Now() - 3*24*60*60
-	pool.Subscribe(ctx, nostr.Filter{Kinds: []int{concord.KindWrap}, Tags: nostr.TagMap{"p": {m.primary.PK}, "k": {"3313"}}, Since: &since}, func(w *nostr.Event) {
-		// Only a wrap not seen before: a new session, or a second relay,
-		// replays the ones already read.
-		m.mu.Lock()
-		fresh := !m.inbox[w.ID]
-		if fresh {
-			if len(m.inbox) >= 4096 {
-				clear(m.inbox)
-			}
-			m.inbox[w.ID] = true
-		}
-		m.mu.Unlock()
-		if !fresh {
-			return
-		}
-		select {
-		case m.wake <- struct{}{}:
-		default:
-		}
-	})
+	pool.Subscribe(ctx, nostr.Filter{Kinds: []int{concord.KindWrap}, Tags: nostr.TagMap{"p": {m.primary.PK}, "k": {"3313"}}, Since: &since}, m.hint)
+	// A private channel's key rotating, after a ban say, is published where
+	// every member can find it; read it now too, or skua writes into a key
+	// Armada has retired and hears nothing until the next tick.
+	if addrs := concord.RekeyAddresses(c); len(addrs) > 0 {
+		pool.Subscribe(ctx, nostr.Filter{Kinds: []int{concord.KindWrap}, Authors: addrs, Since: &since}, m.hint)
+	}
 	m.log.Info("armada: bridge is up", "links", len(m.links))
+}
+
+// hint wakes run for a wrap not seen before: a new session, or a second
+// relay, replays the ones already read.
+func (m *Module) hint(w *nostr.Event) {
+	m.mu.Lock()
+	fresh := !m.inbox[w.ID]
+	if fresh {
+		if len(m.inbox) >= 4096 {
+			clear(m.inbox)
+		}
+		m.inbox[w.ID] = true
+	}
+	m.mu.Unlock()
+	if !fresh {
+		return
+	}
+	select {
+	case m.wake <- struct{}{}:
+	default:
+	}
 }
 
 func slicesOf(m map[string]*nostr.Event) []*nostr.Event {

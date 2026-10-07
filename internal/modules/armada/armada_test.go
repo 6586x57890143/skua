@@ -260,10 +260,11 @@ func (h *harness) opened(t *testing.T, kind int) *concord.Opened {
 
 func TestSessionSubscribesTheLinkedChannel(t *testing.T) {
 	h := newHarness(t, "100="+general+",200="+strings.Repeat("22", 32)+",300="+strings.Repeat("99", 32))
-	// The control plane, skua's inbox and both readable linked channels: the
+	// The control plane, skua's inbox, the private channel's rotation
+	// addresses and both readable linked channels: the
 	// private one is readable because the invite granted its key. The third
 	// is not in the community and is skipped by name.
-	if len(h.pool.subs) != 4 || !slices.ContainsFunc(h.pool.subs, func(f nostr.Filter) bool {
+	if len(h.pool.subs) != 5 || !slices.ContainsFunc(h.pool.subs, func(f nostr.Filter) bool {
 		return slices.Equal(f.Authors, h.chans[general].Authors()) && f.Since != nil
 	}) {
 		t.Fatalf("subs %+v", h.pool.subs)
@@ -274,7 +275,7 @@ func TestSessionSubscribesTheLinkedChannel(t *testing.T) {
 	// A refold with the same keys does not subscribe again.
 	c, f, _ := h.m.comm, h.m.folded, 0
 	h.m.apply(h.m.ctx, c, f)
-	if len(h.pool.subs) != 4 {
+	if len(h.pool.subs) != 5 {
 		t.Error("subscribed twice")
 	}
 }
