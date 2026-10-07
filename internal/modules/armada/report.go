@@ -11,6 +11,7 @@ import (
 
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/skua/internal/concord"
 	"github.com/6586x57890143/skua/internal/core"
 )
 
@@ -39,12 +40,13 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		return core.Report{}
 	}
 	m.mu.RLock()
-	c, f, chans, failing := m.comm, m.folded, m.chans, m.failing
+	c, f, chans, failing, pool := m.comm, m.folded, m.chans, m.failing, m.pool
 	m.mu.RUnlock()
+	now := time.Now()
 	var r core.Report
 	switch {
 	case c != nil && failing == "":
-		r.Rows = append(r.Rows, [2]string{"community", c.Name}, [2]string{"state", "connected"}, [2]string{"relays", strconv.Itoa(len(c.Relays))})
+		r.Rows = append(r.Rows, [2]string{"community", c.Name}, [2]string{"state", "connected"})
 	case c != nil:
 		r.Rows = append(r.Rows, [2]string{"community", c.Name}, [2]string{"state", "connected, invite unreadable"})
 		r.Notes = append(r.Notes, "! the invite stopped reading: "+failing+"; she keeps the keys she has")
@@ -54,7 +56,9 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 	default:
 		r.Rows = append(r.Rows, [2]string{"state", "connecting"})
 	}
-	now := time.Now()
+	if pool != nil {
+		r.Rows, r.Notes = relayHealth(pool.Health(), now, r.Rows, r.Notes)
+	}
 	for _, l := range here {
 		name, readable := l.armada[:8], false
 		if f != nil {
@@ -78,4 +82,36 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		r.Notes = append(r.Notes, line+" · since skua started")
 	}
 	return r
+}
+
+// relayHealth is how skua's sockets to the community's relays are: how many
+// are up, how long since the quietest of them was heard from (pings go every
+// 30s, so much past that means trouble), how many have died under use, and
+// which are down.
+func relayHealth(hs []concord.RelayHealth, now time.Time, rows [][2]string, notes []string) ([][2]string, []string) {
+	up, drops := 0, 0
+	var quietest time.Time
+	for _, h := range hs {
+		drops += h.Drops
+		if !h.Up {
+			if h.Heard.IsZero() {
+				notes = append(notes, "! "+h.URL+" is not connected")
+			} else {
+				notes = append(notes, fmt.Sprintf("! %s is down, last heard %s ago", h.URL, core.Duration(now.Sub(h.Heard))))
+			}
+			continue
+		}
+		up++
+		if quietest.IsZero() || h.Heard.Before(quietest) {
+			quietest = h.Heard
+		}
+	}
+	rows = append(rows, [2]string{"relays", fmt.Sprintf("%d of %d up", up, len(hs))})
+	if up > 0 {
+		rows = append(rows, [2]string{"heard", core.Duration(now.Sub(quietest)) + " ago"})
+	}
+	if drops > 0 {
+		rows = append(rows, [2]string{"drops", strconv.Itoa(drops)})
+	}
+	return rows, notes
 }

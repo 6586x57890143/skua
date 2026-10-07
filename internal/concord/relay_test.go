@@ -251,3 +251,50 @@ func TestResolve(t *testing.T) {
 		t.Fatalf("%v %v", o, err)
 	}
 }
+
+// A relay that stops answering is dropped once pongWait passes, so the pool
+// dials again; one that answers pings is kept.
+func TestSilentRelayIsDropped(t *testing.T) {
+	// Upgrades, then never reads: pings go unanswered, as on a dead link.
+	up := websocket.Upgrader{}
+	hold := make(chan struct{})
+	silent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if c, err := up.Upgrade(w, r, nil); err == nil {
+			<-hold
+			_ = c.Close()
+		}
+	}))
+	defer silent.Close()
+	defer close(hold)
+	healthy := newFakeRelay(t, false)
+
+	silentURL := "ws" + strings.TrimPrefix(silent.URL, "http")
+	p := NewPool([]string{silentURL, healthy.url(), "ws://127.0.0.1:1"})
+	p.pingEvery, p.pongWait = 50*time.Millisecond, 300*time.Millisecond
+	defer p.Close()
+	ctx := context.Background()
+	dead, err := p.relay(ctx, "ws"+strings.TrimPrefix(silent.URL, "http"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	alive, err := p.relay(ctx, healthy.url())
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, dead.isDone)
+	time.Sleep(2 * p.pongWait)
+	if alive.isDone() {
+		t.Fatal("a relay answering pings was dropped")
+	}
+	// Health says which is which: the silent one down with one drop, the
+	// healthy one up and heard within the wait, the never-dialled one zero.
+	h := p.Health()
+	if len(h) != 3 || h[0].Up || h[0].Drops != 1 || !h[1].Up || h[1].Drops != 0 || time.Since(h[1].Heard) > p.pongWait || h[2].Up || !h[2].Heard.IsZero() {
+		t.Fatalf("health %+v", h)
+	}
+	// The next use of the dead relay's URL dials a fresh socket.
+	again, err := p.relay(ctx, "ws"+strings.TrimPrefix(silent.URL, "http"))
+	if err != nil || again == dead {
+		t.Fatalf("not redialled: %v", err)
+	}
+}

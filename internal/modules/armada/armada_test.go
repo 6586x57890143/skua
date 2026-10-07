@@ -86,6 +86,7 @@ type fakeRelays struct {
 	stored    []*nostr.Event
 	subs      []nostr.Filter
 	fns       []func(*nostr.Event)
+	health    []concord.RelayHealth
 	refuse    bool
 }
 
@@ -119,7 +120,12 @@ func (f *fakeRelays) Subscribe(_ context.Context, flt nostr.Filter, fn func(*nos
 }
 
 func (f *fakeRelays) Register(...concord.StreamKey) {}
-func (f *fakeRelays) Close()                        {}
+func (f *fakeRelays) Health() []concord.RelayHealth {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.health
+}
+func (f *fakeRelays) Close() {}
 
 func (f *fakeRelays) take() []*nostr.Event {
 	f.mu.Lock()
@@ -682,9 +688,10 @@ func TestReportForItsServerOnly(t *testing.T) {
 	w, _ := h.chat(t, 3, concord.KindMessage, "hello")
 	h.deliver(t, w)
 	h.m.links[0].tally.fail()
+	h.pool.health = []concord.RelayHealth{{URL: "wss://a", Up: true, Heard: time.Now()}}
 	r := h.m.Report(7)
 	all := core.Readout(r.Rows) + strings.Join(r.Notes, "\n")
-	for _, want := range []string{"community  test", "state      connected", "<#100> ↔ #general · readable", "1 in · 0 out · last 0s ago · 1 failed", "<#200> ↔ #99999999 · ! not readable"} {
+	for _, want := range []string{"community  test", "state      connected", "relays     1 of 1 up", "<#100> ↔ #general · readable", "1 in · 0 out · last 0s ago · 1 failed", "<#200> ↔ #99999999 · ! not readable"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("report is missing %q:\n%s", want, all)
 		}

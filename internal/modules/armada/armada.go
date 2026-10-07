@@ -112,6 +112,7 @@ type relays interface {
 	Publish(ctx context.Context, ev *nostr.Event) error
 	Subscribe(ctx context.Context, f nostr.Filter, onEvent func(*nostr.Event))
 	Register(keys ...concord.StreamKey)
+	Health() []concord.RelayHealth
 	Close()
 }
 

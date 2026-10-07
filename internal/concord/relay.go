@@ -17,6 +17,14 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+// A relay connection can die without closing: an idle timeout, a dropped NAT
+// mapping, a relay restarted under it. Nothing would ever be read from it
+// again, so a subscription would hang and every publish would time out on
+// it, forever. Pings every pingEvery, and silence past pongWait, any frame
+// or pong resetting it, close the socket so the pool dials again. A pool's own
+// fields, so a test can shorten them for its pool alone.
+const pingEvery, pongWait = 30 * time.Second, 75 * time.Second
+
 const (
 	queryTimeout   = 10 * time.Second
 	publishTimeout = 8 * time.Second
@@ -42,15 +50,18 @@ type Pool struct {
 	urls []string
 	next atomic.Uint64
 
+	pingEvery, pongWait time.Duration
+
 	mu     sync.Mutex
 	conns  map[string]*conn
 	keys   map[string]string // stream pk -> sk, for AUTH
+	drops  map[string]int    // sockets that died under use, per relay
 	closed bool
 }
 
 // NewPool is a pool over urls. Nothing connects until it is used.
 func NewPool(urls []string) *Pool {
-	return &Pool{urls: urls, conns: map[string]*conn{}, keys: map[string]string{}}
+	return &Pool{urls: urls, conns: map[string]*conn{}, keys: map[string]string{}, drops: map[string]int{}, pingEvery: pingEvery, pongWait: pongWait}
 }
 
 // Register makes the pool AUTH as these stream keys, on sockets already
@@ -103,8 +114,12 @@ type okFrame struct {
 // reader shares is under mu.
 type conn struct {
 	url string
-	ws  *websocket.Conn
-	wmu sync.Mutex
+	// pongWait is how long the socket may be silent before it counts as dead.
+	pongWait time.Duration
+	// heard is when anything last came in, a frame or a pong; unix ms.
+	heard atomic.Int64
+	ws    *websocket.Conn
+	wmu   sync.Mutex
 
 	mu        sync.Mutex
 	subs      map[string]chan frame
@@ -133,10 +148,39 @@ func (p *Pool) relay(ctx context.Context, url string) (*conn, error) {
 		return nil, err
 	}
 	ws.SetReadLimit(maxFrame)
-	c := &conn{url: url, ws: ws, subs: map[string]chan frame{}, oks: map[string]chan okFrame{}, authed: map[string]chan struct{}{}, done: make(chan struct{})}
+	wait := p.pongWait
+	_ = ws.SetReadDeadline(time.Now().Add(wait))
+	c := &conn{url: url, pongWait: wait, ws: ws, subs: map[string]chan frame{}, oks: map[string]chan okFrame{}, authed: map[string]chan struct{}{}, done: make(chan struct{})}
+	c.heard.Store(time.Now().UnixMilli())
+	ws.SetPongHandler(func(string) error {
+		c.heard.Store(time.Now().UnixMilli())
+		return ws.SetReadDeadline(time.Now().Add(wait))
+	})
 	p.conns[url] = c
 	go p.read(c)
+	go c.keepalive(p.pingEvery)
 	return c, nil
+}
+
+// keepalive pings until the socket closes, and closes it when a ping can't
+// be written.
+func (c *conn) keepalive(every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-t.C:
+			c.wmu.Lock()
+			err := c.ws.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeTimeout))
+			c.wmu.Unlock()
+			if err != nil {
+				c.close()
+				return
+			}
+		}
+	}
 }
 
 func (c *conn) isDone() bool {
@@ -175,9 +219,16 @@ func (p *Pool) read(c *conn) {
 	for {
 		_, raw, err := c.ws.ReadMessage()
 		if err != nil {
+			p.mu.Lock()
+			if !p.closed {
+				p.drops[c.url]++
+			}
+			p.mu.Unlock()
 			c.close()
 			return
 		}
+		c.heard.Store(time.Now().UnixMilli())
+		_ = c.ws.SetReadDeadline(time.Now().Add(c.pongWait))
 		var msg []json.RawMessage
 		if json.Unmarshal(raw, &msg) != nil || len(msg) < 2 {
 			continue
@@ -510,4 +561,28 @@ func (p *Pool) stream(ctx context.Context, url string, f nostr.Filter, onEvent f
 			return last, false
 		}
 	}
+}
+
+// RelayHealth is one relay as the pool last saw it.
+type RelayHealth struct {
+	URL   string
+	Up    bool
+	Heard time.Time // zero when it has never been connected
+	Drops int       // sockets that died under use since the pool began
+}
+
+// Health is every relay the pool talks to, in order.
+func (p *Pool) Health() []RelayHealth {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]RelayHealth, 0, len(p.urls))
+	for _, url := range p.urls {
+		h := RelayHealth{URL: url, Drops: p.drops[url]}
+		if c := p.conns[url]; c != nil {
+			h.Up = !c.isDone()
+			h.Heard = time.UnixMilli(c.heard.Load())
+		}
+		out = append(out, h)
+	}
+	return out
 }

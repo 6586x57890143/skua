@@ -29,6 +29,7 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 
 	"github.com/6586x57890143/skua/internal/concord"
+	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/filter"
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/store"
@@ -499,5 +500,25 @@ func TestKlipySendCrossesAsTheGIF(t *testing.T) {
 	}
 	if c := (Config{Klipy: "k"}); c.Klipy == "" || FromEnv().Klipy != os.Getenv("SKUA_ARMADA_KLIPY_KEY") {
 		t.Error("config")
+	}
+}
+
+func TestRelayHealthInTheReport(t *testing.T) {
+	now := time.Now()
+	rows, notes := relayHealth([]concord.RelayHealth{
+		{URL: "wss://a", Up: true, Heard: now.Add(-5 * time.Second)},
+		{URL: "wss://b", Up: true, Heard: now.Add(-20 * time.Second), Drops: 2},
+		{URL: "wss://c", Heard: now.Add(-3 * time.Minute), Drops: 1},
+		{URL: "wss://d"},
+	}, now, nil, nil)
+	got := core.Readout(rows) + strings.Join(notes, "\n")
+	for _, want := range []string{"relays  2 of 4 up", "heard   20s ago", "drops   3", "! wss://c is down, last heard 3m ago", "! wss://d is not connected"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q:\n%s", want, got)
+		}
+	}
+	// None up: no heard row, nothing to measure.
+	if rows, _ := relayHealth([]concord.RelayHealth{{URL: "wss://a"}}, now, nil, nil); len(rows) != 1 || rows[0][1] != "0 of 1 up" {
+		t.Errorf("%v", rows)
 	}
 }
