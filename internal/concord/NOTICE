@@ -10,8 +10,8 @@ AGPL-3.0-only:
 
 Ported from packages/concord-core (derive.ts, stream.ts, invite.ts,
 edition.ts, version.ts, control.ts, roles.ts, community.ts, chat.ts,
-communityList.ts, guestbook.ts) and packages/bridge (concord/pool.ts,
-concord/client.ts). Changed from the original: cut to what a bridge reads
+communityList.ts, guestbook.ts, directInvite.ts) and packages/bridge
+(concord/pool.ts, concord/client.ts, concord/keyIntake.ts). Changed from the original: cut to what a bridge reads
 (no metadata, invite registry, pin, voice, rekey or snapshot handling),
 rewritten in Go, and the relay pool written over gorilla/websocket.
 

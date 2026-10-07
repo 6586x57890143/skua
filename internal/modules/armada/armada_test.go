@@ -45,6 +45,10 @@ type vectors struct {
 		URL   string
 		Event *nostr.Event
 	}
+	Direct struct {
+		Recipient              string
+		Owner, Helper, Foreign *nostr.Event
+	}
 }
 
 func loadVectors(t *testing.T) vectors {
@@ -80,6 +84,7 @@ type fakeRelays struct {
 	published []*nostr.Event
 	stored    []*nostr.Event
 	subs      []nostr.Filter
+	fns       []func(*nostr.Event)
 	refuse    bool
 }
 
@@ -105,10 +110,11 @@ func (f *fakeRelays) Publish(_ context.Context, ev *nostr.Event) error {
 	return nil
 }
 
-func (f *fakeRelays) Subscribe(_ context.Context, flt nostr.Filter, _ func(*nostr.Event)) {
+func (f *fakeRelays) Subscribe(_ context.Context, flt nostr.Filter, fn func(*nostr.Event)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.subs = append(f.subs, flt)
+	f.fns = append(f.fns, fn)
 }
 
 func (f *fakeRelays) Register(...concord.StreamKey) {}
@@ -185,14 +191,14 @@ func newHarness(t *testing.T, links string) *harness {
 	t.Helper()
 	v := loadVectors(t)
 	m, err := New(slog.New(slog.DiscardHandler), guard.New(), &fakePoster{}, filter.Default(), nil, Config{
-		Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: strings.Repeat("0a", 32), Links: links,
+		Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: v.Direct.Recipient, Links: links,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(m.Close)
 	h := &harness{m: m, l: m.links[0], pool: &fakeRelays{}, post: m.post.(*fakePoster), rest: &fakeRest{}, v: v}
-	h.pool.stored = append([]*nostr.Event{v.Invite.Event}, v.Community.A.Wraps...)
+	h.pool.stored = append([]*nostr.Event{v.Invite.Event, v.Direct.Owner, v.Direct.Helper, v.Direct.Foreign}, v.Community.A.Wraps...)
 	m.dial = func([]string) relays { return h.pool }
 	m.fetcher = http.DefaultClient
 	m.rest, m.app = h.rest, 1
@@ -247,10 +253,10 @@ func (h *harness) opened(t *testing.T, kind int) *concord.Opened {
 
 func TestSessionSubscribesTheLinkedChannel(t *testing.T) {
 	h := newHarness(t, "100="+general+",200="+strings.Repeat("22", 32)+",300="+strings.Repeat("99", 32))
-	// The control plane and both readable linked channels: the private one
-	// is readable because the invite granted its key. The third is not in
-	// the community and is skipped by name.
-	if len(h.pool.subs) != 3 || !slices.ContainsFunc(h.pool.subs, func(f nostr.Filter) bool {
+	// The control plane, skua's inbox and both readable linked channels: the
+	// private one is readable because the invite granted its key. The third
+	// is not in the community and is skipped by name.
+	if len(h.pool.subs) != 4 || !slices.ContainsFunc(h.pool.subs, func(f nostr.Filter) bool {
 		return slices.Equal(f.Authors, h.chans[general].Authors()) && f.Since != nil
 	}) {
 		t.Fatalf("subs %+v", h.pool.subs)
@@ -261,7 +267,7 @@ func TestSessionSubscribesTheLinkedChannel(t *testing.T) {
 	// A refold with the same keys does not subscribe again.
 	c, f, _ := h.m.comm, h.m.folded, 0
 	h.m.apply(h.m.ctx, c, f)
-	if len(h.pool.subs) != 3 {
+	if len(h.pool.subs) != 4 {
 		t.Error("subscribed twice")
 	}
 }
@@ -588,5 +594,60 @@ func TestArmadaTextIsScreened(t *testing.T) {
 	h.deliver(t, edit)
 	if len(h.post.edits) != 0 {
 		t.Fatalf("edited to %v", h.post.edits)
+	}
+}
+
+func TestDirectInviteKeyIsTaken(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	// The invite carried the private channel at epoch 4; the owner's Direct
+	// Invite moved it to 7. The helper's grant of general and the bundle
+	// for another community were not taken.
+	if k := h.m.comm.Private[strings.Repeat("22", 32)]; k.Epoch != 7 {
+		t.Fatalf("private channel at epoch %d", k.Epoch)
+	}
+	if _, ok := h.m.comm.Private[general]; ok {
+		t.Fatal("took a key from someone without manage channels")
+	}
+	// skua said where her inbox is.
+	h.m.announce(context.Background(), h.pool, h.m.comm)
+	var inbox *nostr.Event
+	for _, ev := range h.pool.take() {
+		if ev.Kind == concord.KindDMRelays {
+			inbox = ev
+		}
+	}
+	if inbox == nil || inbox.PubKey != h.m.primary.PK {
+		t.Fatal("no inbox relay list")
+	}
+}
+
+func TestInboxWakesOncePerWrap(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	var inbox func(*nostr.Event)
+	for i, f := range h.pool.subs {
+		if len(f.Tags["k"]) > 0 {
+			inbox = h.pool.fns[i]
+		}
+	}
+	if inbox == nil {
+		t.Fatal("no inbox subscription")
+	}
+	wakes := func() int {
+		select {
+		case <-h.m.wake:
+			return 1
+		default:
+			return 0
+		}
+	}
+	// A replay of a wrap already seen, from a second relay or a new
+	// session, does not wake run again; a new one does.
+	inbox(&nostr.Event{ID: "a"})
+	first := wakes()
+	inbox(&nostr.Event{ID: "a"})
+	again := wakes()
+	inbox(&nostr.Event{ID: "b"})
+	if first != 1 || again != 0 || wakes() != 1 {
+		t.Fatal("a replayed wrap woke run, or a new one didn't")
 	}
 }

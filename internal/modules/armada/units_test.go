@@ -17,6 +17,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -365,4 +366,47 @@ func TestPostgresMappings(t *testing.T) {
 		t.Errorf("%+v", rows)
 	}
 	_, _ = pool.Exec(ctx, "delete from armada_messages where rumor_id like $1", rumor+"%")
+}
+
+// A burst of wraps addressed to skua reads the invite again at most once a
+// wakeGap: anyone can send them, and each read dials relays and folds.
+func TestWakesAreCapped(t *testing.T) {
+	v := loadVectors(t)
+	for _, tc := range []struct {
+		gap  time.Duration
+		want int32
+	}{{time.Hour, 1}, {0, 2}} {
+		pool := &fakeRelays{stored: append([]*nostr.Event{v.Invite.Event}, v.Community.A.Wraps...)}
+		m, err := New(slog.New(slog.DiscardHandler), guard.New(), &fakePoster{}, filter.Default(), nil, Config{
+			Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: v.Direct.Recipient, Links: "100=" + general,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var reads atomic.Int32
+		m.dial = func(urls []string) relays {
+			if slices.Equal(urls, m.invite.Bootstrap) {
+				reads.Add(1)
+			}
+			return pool
+		}
+		m.rest, m.wakeGap = guildRest{}, tc.gap
+		go m.run()
+		waitFor(t, func() bool { _, _, _, chans := m.state(); _, ok := chans[general]; return ok })
+		for range 50 {
+			select {
+			case m.wake <- struct{}{}:
+			default:
+			}
+		}
+		if tc.want > 1 {
+			waitFor(t, func() bool { return reads.Load() >= tc.want })
+		}
+		time.Sleep(200 * time.Millisecond)
+		// With no gap a burst still coalesces, into a read or two more.
+		if got := reads.Load(); got < tc.want || (tc.gap > 0 && got != tc.want) {
+			t.Errorf("gap %v: %d reads of the invite, want %d", tc.gap, got, tc.want)
+		}
+		m.Close()
+	}
 }

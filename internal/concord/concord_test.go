@@ -4,6 +4,7 @@
 package concord
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -322,3 +323,56 @@ func TestFragment(t *testing.T) {
 }
 
 func encodeB64(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
+
+type fixedQuery []*nostr.Event
+
+func (q fixedQuery) Query(context.Context, nostr.Filter) []*nostr.Event { return q }
+
+func TestIntakeMatchesUpstream(t *testing.T) {
+	u := load(t)
+	raw, _ := os.ReadFile("testdata/upstream.json")
+	var d struct {
+		Direct struct {
+			Recipient              string
+			Owner, Helper, Foreign *nostr.Event
+		}
+	}
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatal(err)
+	}
+	inv, _ := ParseInvite(u.Invite.URL)
+	c, err := openBundle(u.Invite.Event, inv.Token, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := FoldControl(c, u.Community.A.Wraps)
+	tampered := *d.Direct.Owner
+	tampered.Content = strings.Replace(tampered.Content, "A", "B", 1)
+	q := fixedQuery{d.Direct.Helper, d.Direct.Foreign, &tampered, d.Direct.Owner}
+	secret := strings.Repeat("22", 32)
+	if got := Intake(context.Background(), q, d.Direct.Recipient, c, f); !slices.Equal(got, []string{secret}) {
+		t.Fatalf("learned %v", got)
+	}
+	if k := c.Private[secret]; k.Epoch != 7 || hexOf(k.Key) != strings.Repeat("d4", 32) {
+		t.Fatalf("key %+v", k)
+	}
+	// The helper holds MANAGE_MESSAGES, not MANAGE_CHANNELS: their grant of
+	// general is not taken.
+	if _, ok := c.Private[strings.Repeat("21", 32)]; ok {
+		t.Fatal("took a key from someone without manage channels")
+	}
+	// Read again, nothing is new; and nothing is read for someone else.
+	if got := Intake(context.Background(), q, d.Direct.Recipient, c, f); len(got) != 0 {
+		t.Fatalf("learned again %v", got)
+	}
+	if got := Intake(context.Background(), q, strings.Repeat("51", 32), c, f); len(got) != 0 {
+		t.Fatal("opened another member's invites")
+	}
+	if Intake(context.Background(), q, d.Direct.Recipient, c, nil) != nil || Intake(context.Background(), q, "zz", c, f) != nil {
+		t.Fatal("no fold or no key")
+	}
+	ev, err := DMRelays([]string{"wss://a.example"}, d.Direct.Recipient)
+	if err != nil || ev.Kind != KindDMRelays || Tag(tagsOf(ev), "relay") != "wss://a.example" {
+		t.Fatal(ev, err)
+	}
+}

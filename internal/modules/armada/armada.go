@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -137,11 +138,15 @@ type Module struct {
 	dial    func(urls []string) relays
 	gate    func(guild snowflake.ID) bool
 
-	ctx   context.Context
-	stop  context.CancelFunc
-	start sync.Once
-	rest  rest.Rest
-	app   snowflake.ID
+	ctx context.Context
+	// wake reads the invite again early: a Direct Invite has arrived.
+	wake chan struct{}
+	// wakeGap is the least time between two wake-driven reads.
+	wakeGap time.Duration
+	stop    context.CancelFunc
+	start   sync.Once
+	rest    rest.Rest
+	app     snowflake.ID
 
 	mu       sync.RWMutex
 	comm     *concord.Community
@@ -157,6 +162,7 @@ type Module struct {
 	synced   map[string]string          // discord user id -> profile published
 	joined   map[string]bool            // discord user ids whose puppet joined
 	seen     map[string]bool            // rumor ids already queued
+	inbox    map[string]bool            // inbox wraps that have woken run
 	edited   map[snowflake.ID]time.Time // the last Discord edit sent, per message
 	lastEdit map[string]int64           // the newest Armada edit applied, per rumor
 }
@@ -192,7 +198,7 @@ func New(log *slog.Logger, g *guard.Guard, p poster, s screen, db DB, cfg Config
 		dial: func(urls []string) relays { return concord.NewPool(urls) },
 		subs: map[string]context.CancelFunc{}, subKeys: map[string]string{}, missing: map[string]bool{},
 		puppets: map[string]concord.Key{}, puppetPK: map[string]bool{}, profiles: map[string]profile{},
-		synced: map[string]string{}, joined: map[string]bool{}, seen: map[string]bool{}, edited: map[snowflake.ID]time.Time{}, lastEdit: map[string]int64{},
+		synced: map[string]string{}, joined: map[string]bool{}, seen: map[string]bool{}, inbox: map[string]bool{}, edited: map[snowflake.ID]time.Time{}, lastEdit: map[string]int64{},
 	}
 	m.maps = &memMappings{}
 	if db != nil {
@@ -204,6 +210,8 @@ func New(log *slog.Logger, g *guard.Guard, p poster, s screen, db DB, cfg Config
 	for _, l := range links {
 		m.byDisc[l.discord] = l
 	}
+	m.wake = make(chan struct{}, 1)
+	m.wakeGap = time.Minute
 	m.ctx, m.stop = context.WithCancel(context.Background())
 	return m, nil
 }
@@ -356,6 +364,7 @@ func (m *Module) run() {
 	end := func() {}
 	defer func() { end() }()
 	for {
+		last := time.Now()
 		c, err := m.resolve()
 		switch {
 		case err != nil:
@@ -371,6 +380,18 @@ func (m *Module) run() {
 		case <-m.ctx.Done():
 			return
 		case <-time.After(reresolve):
+		case <-m.wake:
+			// Anyone can address a wrap to skua, so a wake is a hint, not an
+			// order: at most one wake-driven read a wakeGap, and a burst of
+			// wraps meanwhile is one more read, not one each. A real grant
+			// can wait that long.
+			if wait := time.Until(last.Add(m.wakeGap)); wait > 0 {
+				select {
+				case <-m.ctx.Done():
+					return
+				case <-time.After(wait):
+				}
+			}
 		}
 	}
 }
@@ -390,10 +411,27 @@ func (m *Module) learnGuilds() {
 	}
 }
 
+// resolve reads the invite, then the Direct Invites addressed to skua: a
+// private channel granted to her after the invite was made, or a key that
+// rotated with her kept in it, arrives that way. Those are read from the
+// community's relays and the stock ones, where a sender puts them before
+// skua has said where her inbox is.
 func (m *Module) resolve() (*concord.Community, error) {
-	p := m.dial(m.invite.Bootstrap)
+	boot := m.dial(m.invite.Bootstrap)
+	c, err := concord.Resolve(m.ctx, m.invite, boot)
+	boot.Close()
+	if err != nil {
+		return nil, err
+	}
+	p := m.dial(append(slices.Clone(c.Relays), concord.StockRelays...))
 	defer p.Close()
-	return concord.Resolve(m.ctx, m.invite, p)
+	control := concord.ControlStream(c)
+	p.Register(control)
+	f := concord.FoldControl(c, p.Query(m.ctx, nostr.Filter{Kinds: []int{concord.KindWrap}, Authors: []string{control.PK}}))
+	if learned := concord.Intake(m.ctx, p, m.primary.SK, c, f); len(learned) > 0 {
+		m.log.Debug("armada: keys from a direct invite", "channels", len(learned))
+	}
+	return c, nil
 }
 
 // fingerprint is what changing would need a new session: the root, its
@@ -454,6 +492,30 @@ func (m *Module) session(ctx context.Context, c *concord.Community) {
 			})
 		}
 	})
+	// A grant to skua lands in her inbox; read it now, not on the next tick.
+	// Senders backdate a gift wrap by up to two days on purpose, so the floor
+	// is three days back; what that replays on a reconnect is one capped read.
+	since := nostr.Now() - 3*24*60*60
+	pool.Subscribe(ctx, nostr.Filter{Kinds: []int{concord.KindWrap}, Tags: nostr.TagMap{"p": {m.primary.PK}, "k": {"3313"}}, Since: &since}, func(w *nostr.Event) {
+		// Only a wrap not seen before: a new session, or a second relay,
+		// replays the ones already read.
+		m.mu.Lock()
+		fresh := !m.inbox[w.ID]
+		if fresh {
+			if len(m.inbox) >= 4096 {
+				clear(m.inbox)
+			}
+			m.inbox[w.ID] = true
+		}
+		m.mu.Unlock()
+		if !fresh {
+			return
+		}
+		select {
+		case m.wake <- struct{}{}:
+		default:
+		}
+	})
 	m.log.Info("armada: bridge is up", "links", len(m.links))
 }
 
@@ -512,6 +574,13 @@ func (m *Module) announce(ctx context.Context, pool relays, c *concord.Community
 	if err := ev.Sign(m.primary.SK); err == nil {
 		if err := pool.Publish(ctx, ev); err != nil {
 			m.log.Warn("armada: publishing skua's profile", "err", err)
+		}
+	}
+	// Where skua's inbox is, so a Direct Invite to her goes to the community's
+	// relays rather than the stock ones.
+	if ev, err := concord.DMRelays(c.Relays, m.primary.SK); err == nil {
+		if err := pool.Publish(ctx, ev); err != nil {
+			m.log.Warn("armada: publishing skua's inbox relays", "err", err)
 		}
 	}
 	if j, err := concord.Join(c, m.primary.PK, m.primary.SK, time.Now().UnixMilli()); err == nil {
