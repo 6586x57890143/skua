@@ -31,6 +31,19 @@ cd ~/skua
 test -f .env || { echo "~/skua/.env is missing; run go run ./tools/setup -host <alias> -no-deploy first" >&2; exit 1; }
 export SKUA_IMAGE_TAG="$1"
 docker compose -f docker-compose.prod.yml up -d --remove-orphans
+# Rolled back if it does not stay up for 30s, as in CI.
+sleep 30
+state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}}' "$(docker compose -f docker-compose.prod.yml ps -aq bot)")
+if [ "$state" != "running 0" ]; then
+  echo "skua $1 did not stay up ($state)" >&2
+  docker compose -f docker-compose.prod.yml logs --tail 30 bot >&2
+  if [ -f deployed-tag.env ]; then
+    set -a; . ./deployed-tag.env; set +a
+    docker compose -f docker-compose.prod.yml up -d bot
+    echo "rolled back to $SKUA_IMAGE_TAG" >&2
+  fi
+  exit 1
+fi
 # Only after it is running, as in CI.
 [ -f deployed-tag.env ] && cp deployed-tag.env previous-tag.env
 echo "SKUA_IMAGE_TAG=$1" > deployed-tag.env

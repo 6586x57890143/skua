@@ -182,6 +182,21 @@ jobs:
             docker compose -f docker-compose.prod.yml pull bot
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
             docker logout ghcr.io
+            # A bot that dies in its first 30s (a bad token, a failed
+            # migration) goes back to the tag that was running, and the
+            # deploy fails. Its logs stay on the host: this repository's
+            # Actions logs are public.
+            sleep 30
+            state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}}' "$(docker compose -f docker-compose.prod.yml ps -aq bot)")
+            if [ "$state" != "running 0" ]; then
+              echo "skua $IMAGE_TAG did not stay up ($state); see docker compose logs bot on the host"
+              if [ -f deployed-tag.env ]; then
+                set -a; . ./deployed-tag.env; set +a
+                docker compose -f docker-compose.prod.yml up -d bot
+                echo "rolled back to $SKUA_IMAGE_TAG"
+              fi
+              exit 1
+            fi
             # Written only once the tag is actually running: the file is
             # read at the moment somebody needs to roll back, so it must
             # name a version that exists on the host.
