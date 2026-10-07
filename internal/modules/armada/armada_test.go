@@ -692,7 +692,8 @@ func TestReportForItsServerOnly(t *testing.T) {
 	h.pool.health = []concord.RelayHealth{{URL: "wss://a", Up: true, Heard: time.Now()}}
 	r := h.m.Report(7)
 	all := core.Readout(r.Rows) + strings.Join(r.Notes, "\n")
-	for _, want := range []string{"community  test", "state      connected", "relays     1 of 1 up", "<#100> ↔ #general · readable", "1 in · 0 out · last 0s ago · 1 failed", "<#200> ↔ #99999999 · ! not readable"} {
+	for _, want := range []string{"health     outage", "✗ outage: #99999999 isn't readable", "community  test", "relays     1 of 1 up",
+		"<#100> ↔ #general · readable", "1 in · 0 out · last 0s ago · 1 failed", "<#200> ↔ #99999999 · not readable"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("report is missing %q:\n%s", want, all)
 		}
@@ -700,9 +701,105 @@ func TestReportForItsServerOnly(t *testing.T) {
 	if r := h.m.Report(8); len(r.Rows)+len(r.Notes) != 0 {
 		t.Errorf("another server sees %+v", r)
 	}
-	h.m.failing = "invite bundle not found on its relays"
-	if r := h.m.Report(7); !strings.Contains(strings.Join(r.Notes, "\n"), "the invite stopped reading") {
-		t.Errorf("a failing invite is not said: %+v", r)
+}
+
+// Every verdict, from what skua holds: the worst reason leads.
+func TestHealthVerdicts(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	l := h.m.links[0]
+	up := []concord.RelayHealth{{URL: "wss://a", Up: true}, {URL: "wss://b", Up: true}}
+	base := func() snapshot {
+		s := h.m.snapshot()
+		s.relays = up
+		return s
+	}
+	now := time.Now()
+	for name, tc := range map[string]struct {
+		edit  func(*snapshot)
+		level string
+		why   string
+	}{
+		"ok":             {func(*snapshot) {}, healthOK, ""},
+		"no invite":      {func(s *snapshot) { s.comm, s.failing = nil, "invite bundle not found on its relays" }, healthOutage, "can't read the invite: invite bundle not found"},
+		"connecting":     {func(s *snapshot) { s.comm = nil }, healthDegraded, "still connecting"},
+		"invite stopped": {func(s *snapshot) { s.failing = "this invite link has expired" }, healthDegraded, "the invite stopped reading"},
+		"no relays":      {func(s *snapshot) { s.relays = []concord.RelayHealth{{URL: "wss://a"}} }, healthOutage, "no relay is reachable"},
+		"a relay down":   {func(s *snapshot) { s.relays = []concord.RelayHealth{{URL: "wss://a", Up: true}, {URL: "wss://b"}} }, healthDegraded, "1 of 2 relays are down"},
+		"unreadable":     {func(s *snapshot) { s.chans = nil }, healthOutage, "#general isn't readable"},
+		"stale key": {func(s *snapshot) {
+			s.drift = map[string]concord.Drift{general: {Epoch: 0, Why: "the key moved on without skua: give her the channel again", Stale: true}}
+		}, healthOutage, "#general: the key moved on without skua"},
+		"arriving": {func(s *snapshot) {
+			s.drift = map[string]concord.Drift{general: {Why: "a rotation is still arriving"}}
+		}, healthDegraded, "#general: a rotation is still arriving"},
+	} {
+		s := base()
+		tc.edit(&s)
+		v := s.health([]*link{l}, now)
+		if v.level != tc.level || !strings.HasPrefix(v.why, tc.why) {
+			t.Errorf("%s: %+v", name, v)
+		}
+	}
+	// One way for an hour: messages out, nothing back. Then one comes back.
+	l.tally.crossedOut()
+	if v := base().health([]*link{l}, now.Add(oneWay+time.Minute)); v.level != healthDegraded || !strings.Contains(v.why, "with nothing back") {
+		t.Errorf("one way: %+v", v)
+	}
+	l.tally.crossedIn()
+	if v := base().health([]*link{l}, now.Add(oneWay+time.Minute)); v.level != healthOK {
+		t.Errorf("after an answer: %+v", v)
+	}
+}
+
+// recorder keeps the records a logger was given.
+type recorder struct {
+	mu   sync.Mutex
+	recs []slog.Record
+}
+
+func (r *recorder) Enabled(context.Context, slog.Level) bool { return true }
+func (r *recorder) Handle(_ context.Context, rec slog.Record) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.recs = append(r.recs, rec)
+	return nil
+}
+func (r *recorder) WithAttrs([]slog.Attr) slog.Handler { return r }
+func (r *recorder) WithGroup(string) slog.Handler      { return r }
+
+func (r *recorder) health() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for _, rec := range r.recs {
+		if strings.HasPrefix(rec.Message, "armada: health") {
+			out = append(out, rec.Level.String()+" "+rec.Message)
+		}
+	}
+	return out
+}
+
+// The watcher logs a change of verdict once, not on every tick, and the
+// return to ok.
+func TestHealthIsLoggedOnChangeOnly(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	rec := &recorder{}
+	h.m.log = slog.New(rec)
+	h.pool.health = []concord.RelayHealth{{URL: "wss://a", Up: true}}
+	go h.m.watchHealth(10 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+	h.pool.mu.Lock()
+	h.pool.health = []concord.RelayHealth{{URL: "wss://a"}}
+	h.pool.mu.Unlock()
+	waitFor(t, func() bool { return len(rec.health()) == 1 })
+	time.Sleep(50 * time.Millisecond)
+	h.pool.mu.Lock()
+	h.pool.health = []concord.RelayHealth{{URL: "wss://a", Up: true}}
+	h.pool.mu.Unlock()
+	waitFor(t, func() bool { return len(rec.health()) == 2 })
+	time.Sleep(50 * time.Millisecond)
+	if got := rec.health(); !slices.Equal(got, []string{"WARN armada: health outage", "INFO armada: health ok again"}) {
+		t.Errorf("logged %v", got)
 	}
 }
 
@@ -715,17 +812,17 @@ func TestReportBeforeAndWithoutTheInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.links[0].guild.Store(7)
-	if r := m.Report(7); r.Rows[0][1] != "connecting" {
+	if r := m.Report(7); r.Rows[0][1] != healthDegraded || r.Notes[0] != "! degraded: still connecting" {
 		t.Errorf("before the first read: %+v", r)
 	}
-	// No bundle on the relays: the read fails, the loop carries on, and
-	// the report says why.
+	// No bundle on the relays: the read fails, the loop carries on, and the
+	// report says why.
 	m.dial = func([]string) relays { return &fakeRelays{} }
 	m.rest = guildRest{}
 	go m.run()
 	defer m.Close()
-	waitFor(t, func() bool { return m.Report(7).Rows[0][1] == "can't read the invite" })
-	if r := m.Report(7); !strings.Contains(strings.Join(r.Notes, "\n"), "not found") {
+	waitFor(t, func() bool { return m.Report(7).Rows[0][1] == healthOutage })
+	if r := m.Report(7); !strings.HasPrefix(r.Notes[0], "✗ outage: can't read the invite") {
 		t.Errorf("no reason: %+v", r)
 	}
 }

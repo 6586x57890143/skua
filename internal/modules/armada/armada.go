@@ -163,6 +163,7 @@ type Module struct {
 	subKeys  map[string]string             // the authors it was opened with
 	missing  map[string]bool               // links already logged as unreadable
 	failing  string                        // why the invite last failed to read, or ""
+	drift    map[string]concord.Drift      // held keys that rotations skua can't take have passed
 	puppets  map[string]concord.Key        // discord user id -> puppet
 	puppetPK map[string]bool
 	profiles map[string]profile         // armada pubkey -> name and avatar
@@ -338,6 +339,7 @@ func (m *Module) OnEvent(ev bot.Event) {
 				go m.armadaWorker(l)
 			}
 			go m.run()
+			go m.watchHealth(time.Minute)
 		})
 	case *events.GuildMessageCreate:
 		m.queue(e.GenericGuildMessage, false)
@@ -448,9 +450,14 @@ func (m *Module) resolve() (*concord.Community, error) {
 		m.log.Debug("armada: keys from a direct invite", "channels", len(learned))
 	}
 	// Then every rotation since, so she reads and writes the current key.
-	if moved := concord.Rekeys(m.ctx, p, m.primary.SK, c, f); len(moved) > 0 {
+	// What it can't follow is kept as drift, for the health check.
+	moved, drift := concord.Rekeys(m.ctx, p, m.primary.SK, c, f)
+	if len(moved) > 0 {
 		m.log.Debug("armada: keys followed through a rotation", "channels", len(moved))
 	}
+	m.mu.Lock()
+	m.drift = drift
+	m.mu.Unlock()
 	return c, nil
 }
 

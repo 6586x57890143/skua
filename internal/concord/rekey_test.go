@@ -101,17 +101,54 @@ func TestRekeysFollowOnlyAuthorizedChainedRotations(t *testing.T) {
 		rotate(t, c, cid, admin, 6, fill32(0x66), 7, fill32(0x03), 1, 1, owner),
 		rotate(t, c, cid, owner, 6, fill32(0x66), 7, fill32(0x04), 1, 2, me),
 	}
-	moved := Rekeys(context.Background(), q, me.SK, c, f)
+	moved, drift := Rekeys(context.Background(), q, me.SK, c, f)
 	if len(moved) != 1 || moved[0] != id {
 		t.Fatalf("moved %v", moved)
 	}
 	if got := c.Private[id]; got.Epoch != 6 || got.Key != fill32(0x66) {
 		t.Fatalf("held epoch %d key %x", got.Epoch, got.Key[:2])
 	}
-	if again := Rekeys(context.Background(), q, me.SK, c, f); len(again) != 0 {
+	// It stops at 6, and says why: the admin's complete rotation to 7 left her
+	// out, which outranks the owner's still arriving.
+	if d := drift[id]; d.Epoch != 6 || d.Why != driftLeftOut.Why || !d.Stale {
+		t.Fatalf("drift %+v", d)
+	}
+	if again, _ := Rekeys(context.Background(), q, me.SK, c, f); len(again) != 0 {
 		t.Fatalf("moved again %v", again)
 	}
-	if len(RekeyAddresses(c)) != rekeyLookahead || Rekeys(context.Background(), q, me.SK, c, nil) != nil {
+	if len(RekeyAddresses(c)) != rekeyLookahead || func() bool { m, d := Rekeys(context.Background(), q, me.SK, c, nil); return m != nil || d != nil }() {
 		t.Fatal("addresses or a nil fold")
+	}
+}
+
+func TestDriftIsNamedAndJunkCantMakeItStale(t *testing.T) {
+	u := load(t)
+	inv, _ := ParseInvite(u.Invite.URL)
+	c, _ := openBundle(u.Invite.Event, inv.Token, 0)
+	f := FoldControl(c, u.Community.A.Wraps)
+	id := strings.Repeat("22", 32)
+	cid, _ := hex32(id)
+	held := c.Private[id]
+	me := keyOf(t, 0x50)
+	for name, tc := range map[string]struct {
+		w    *nostr.Event
+		want Drift
+	}{
+		"junk":     {rotate(t, c, cid, keyOf(t, 5), 4, held.Key, 5, fill32(1), 1, 1, me), driftForbidden},
+		"fork":     {rotate(t, c, cid, keyOf(t, 1), 4, fill32(9), 5, fill32(1), 1, 1, me), driftFork},
+		"gap":      {rotate(t, c, cid, keyOf(t, 1), 5, fill32(9), 6, fill32(1), 1, 1, me), driftGap},
+		"arriving": {rotate(t, c, cid, keyOf(t, 1), 4, held.Key, 5, fill32(1), 1, 3, me), driftArriving},
+		"left out": {rotate(t, c, cid, keyOf(t, 1), 4, held.Key, 5, fill32(1), 1, 1, keyOf(t, 2)), driftLeftOut},
+	} {
+		cc := *c
+		cc.Private = map[string]PrivateKey{id: held}
+		_, drift := Rekeys(context.Background(), fixedQuery{tc.w}, me.SK, &cc, f)
+		if d := drift[id]; d.Why != tc.want.Why || d.Stale != tc.want.Stale || d.Epoch != 4 {
+			t.Errorf("%s: %+v", name, d)
+		}
+	}
+	// Nothing published: no drift at all.
+	if _, drift := Rekeys(context.Background(), fixedQuery{}, me.SK, c, f); len(drift) != 0 {
+		t.Errorf("drift %v", drift)
 	}
 }

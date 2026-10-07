@@ -89,13 +89,17 @@ type rotation struct {
 //
 // Two valid rotations to one epoch converge on the lower new key (CORD-06
 // §3), as every member does.
-func Rekeys(ctx context.Context, q querier, sk string, c *Community, f *Folded) []string {
+//
+// A channel that has rotations skua can't take is returned in drift with
+// why, so the bridge can say so instead of going quiet: that is how it went
+// silent for hours once, with nothing anywhere saying a key had moved.
+func Rekeys(ctx context.Context, q querier, sk string, c *Community, f *Folded) (moved []string, drift map[string]Drift) {
 	me, err := nostr.GetPublicKey(sk)
 	if err != nil || f == nil {
-		return nil
+		return nil, nil
 	}
 	meB, _ := hex32(me)
-	var moved []string
+	drift = map[string]Drift{}
 	for id, held := range c.Private {
 		cid, err := hex32(id)
 		if err != nil {
@@ -103,8 +107,11 @@ func Rekeys(ctx context.Context, q querier, sk string, c *Community, f *Folded) 
 		}
 		start := held.Epoch
 		for {
-			next, ok := rekeyOnce(ctx, q, sk, meB, c, f, cid, held)
+			next, ok, d := rekeyOnce(ctx, q, sk, meB, c, f, cid, held)
 			if !ok {
+				if d.Why != "" {
+					drift[id] = d
+				}
 				break
 			}
 			held = next
@@ -117,11 +124,39 @@ func Rekeys(ctx context.Context, q querier, sk string, c *Community, f *Folded) 
 			moved = append(moved, id)
 		}
 	}
-	return moved
+	return moved, drift
 }
 
-// rekeyOnce finds the rotation that follows held, if one has been published.
-func rekeyOnce(ctx context.Context, q querier, sk string, me [32]byte, c *Community, f *Folded, cid [32]byte, held PrivateKey) (PrivateKey, bool) {
+// Drift is a held channel key that rotations skua can't take have passed:
+// the epoch she holds, why, and whether it means the channel has really
+// moved on without her (Stale) or is only worth a note. Anyone in the
+// community can publish at a rotation address, so only a rotation by someone
+// allowed to rotate can make a key stale; junk from anyone else is just
+// noted.
+type Drift struct {
+	Epoch uint64
+	Why   string
+	Stale bool
+}
+
+// The ways a rotation can't be taken, worst first.
+var (
+	driftLeftOut   = Drift{Why: "the key moved on without skua: give her the channel again", Stale: true}
+	driftGap       = Drift{Why: "the key moved on past a rotation skua can't see: give her the channel again", Stale: true}
+	driftFork      = Drift{Why: "a rotation chains from a key skua never held", Stale: true}
+	driftArriving  = Drift{Why: "a rotation is still arriving"}
+	driftForbidden = Drift{Why: "a rotation from someone not allowed to rotate was ignored"}
+)
+
+// rekeyOnce finds the rotation that follows held, if one has been published,
+// and otherwise the worst reason there is one it couldn't take.
+func rekeyOnce(ctx context.Context, q querier, sk string, me [32]byte, c *Community, f *Folded, cid [32]byte, held PrivateKey) (PrivateKey, bool, Drift) {
+	var worst *Drift
+	note := func(d Drift) {
+		if worst == nil || rank(d) < rank(*worst) {
+			worst = &d
+		}
+	}
 	addrs := map[string]uint64{}
 	keys := map[string]Key{}
 	var authors []string
@@ -145,11 +180,17 @@ func rekeyOnce(ctx context.Context, q querier, sk string, me [32]byte, c *Commun
 		if !ok || r.newEpoch != addrs[w.PubKey] || Tag(o.Tags, "scope") != hexOf(cid) {
 			continue
 		}
-		// Chains from exactly the key skua holds, by someone who may rotate.
-		if r.prevEpoch != held.Epoch || r.prevCommit != commit {
+		// By someone who may rotate, chaining from exactly the key skua holds.
+		if !f.Roster.authorized(r.rotator, c.Owner, PermManageChannels) && !f.Roster.authorized(r.rotator, c.Owner, PermBan) {
+			note(driftForbidden)
 			continue
 		}
-		if !f.Roster.authorized(r.rotator, c.Owner, PermManageChannels) && !f.Roster.authorized(r.rotator, c.Owner, PermBan) {
+		if r.prevEpoch != held.Epoch || r.prevCommit != commit {
+			if r.prevEpoch > held.Epoch {
+				note(driftGap)
+			} else {
+				note(driftFork)
+			}
 			continue
 		}
 		key := r.rotator + ":" + strconv.FormatUint(r.newEpoch, 10)
@@ -166,21 +207,41 @@ func rekeyOnce(ctx context.Context, q querier, sk string, me [32]byte, c *Commun
 	}
 	var best *PrivateKey
 	for _, s := range sets {
-		if len(s.have) < s.chunks || s.newEpoch != held.Epoch+1 {
-			continue // incomplete, or a later epoch that needs this one first
+		if s.newEpoch != held.Epoch+1 {
+			continue // a later epoch that needs this one first
+		}
+		if len(s.have) < s.chunks {
+			note(driftArriving)
+			continue
 		}
 		key, ok := openBlob(s, sk, me, cid)
 		if !ok {
+			note(driftLeftOut)
 			continue
 		}
 		if best == nil || bytes.Compare(key[:], best.Key[:]) < 0 {
 			best = &PrivateKey{Key: key, Epoch: s.newEpoch, Name: held.Name}
 		}
 	}
-	if best == nil {
-		return held, false
+	if best != nil {
+		return *best, true, Drift{}
 	}
-	return *best, true
+	if worst == nil {
+		return held, false, Drift{}
+	}
+	d := *worst
+	d.Epoch = held.Epoch
+	return held, false, d
+}
+
+// rank orders drift worst first.
+func rank(d Drift) int {
+	for i, x := range []Drift{driftLeftOut, driftGap, driftFork, driftArriving, driftForbidden} {
+		if d.Why == x.Why {
+			return i
+		}
+	}
+	return 99
 }
 
 func parseRekey(o *Opened) (*rotation, bool) {
