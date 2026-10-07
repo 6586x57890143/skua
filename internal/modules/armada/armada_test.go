@@ -190,7 +190,7 @@ func (r *fakeRest) GetStickers(snowflake.ID, ...rest.RequestOpt) ([]discord.Stic
 
 func (r *fakeRest) GetGuild(id snowflake.ID, _ bool, _ ...rest.RequestOpt) (*discord.RestGuild, error) {
 	icon := "abc"
-	return &discord.RestGuild{Guild: discord.Guild{ID: id, Name: "the cove", Icon: &icon}}, nil
+	return &discord.RestGuild{ID: id, Name: "the cove", Icon: &icon}, nil
 }
 
 func (r *fakeRest) GetEmojis(snowflake.ID, ...rest.RequestOpt) ([]discord.Emoji, error) {
@@ -735,7 +735,7 @@ func TestInboxWakesOncePerWrap(t *testing.T) {
 
 func (r *fakeRest) GetCurrentUser(string, ...rest.RequestOpt) (*discord.OAuth2User, error) {
 	avatar, banner := "a1b2", "c3d4"
-	return &discord.OAuth2User{User: discord.User{ID: 42, Avatar: &avatar, Banner: &banner}}, nil
+	return &discord.OAuth2User{ID: 42, Avatar: &avatar, Banner: &banner}, nil
 }
 
 func TestSkuasProfileWearsHerDiscordLook(t *testing.T) {

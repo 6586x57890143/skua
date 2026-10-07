@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -303,9 +304,7 @@ func (p *Pool) auth(ctx context.Context, c *conn) {
 	}
 	p.mu.Lock()
 	keys := make(map[string]string, len(p.keys))
-	for pk, sk := range p.keys {
-		keys[pk] = sk
-	}
+	maps.Copy(keys, p.keys)
 	p.mu.Unlock()
 	var wg sync.WaitGroup
 	for pk, sk := range keys {

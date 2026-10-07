@@ -406,7 +406,7 @@ func TestEveryPageKeepsTheVoice(t *testing.T) {
 		if utf8.RuneCountInString(h.Help().Line) > 100 {
 			t.Errorf("%s: line over 100", mod.Name())
 		}
-		for _, line := range strings.Split(grid(mod.Commands()), "\n") {
+		for line := range strings.SplitSeq(grid(mod.Commands()), "\n") {
 			if utf8.RuneCountInString(line) > 40 {
 				t.Errorf("%s: grid line %q is over 40 columns", mod.Name(), line)
 			}
@@ -436,7 +436,7 @@ func TestIndexWrapsOnlySubtext(t *testing.T) {
 	if !ok {
 		t.Fatalf("component 2 is %T, not the module list", c.Components[2])
 	}
-	for _, l := range strings.Split(list.Content, "\n") {
+	for l := range strings.SplitSeq(list.Content, "\n") {
 		if !strings.HasPrefix(l, "-# ") && utf8.RuneCountInString(l) > 40 {
 			t.Errorf("%q can wrap on a phone", l)
 		}

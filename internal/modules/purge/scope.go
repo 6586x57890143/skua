@@ -3,6 +3,7 @@ package purge
 import (
 	"context"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -64,14 +65,14 @@ func scopeOf(ids []int64) scope {
 
 // mentions is s as channel mentions, for a reply.
 func (s scope) mentions() string {
-	out := ""
+	var out strings.Builder
 	for i, id := range s {
 		if i > 0 {
-			out += " "
+			out.WriteString(" ")
 		}
-		out += "<#" + id.String() + ">"
+		out.WriteString("<#" + id.String() + ">")
 	}
-	return out
+	return out.String()
 }
 
 // parentTTL is how long live remembers a channel's parent: a channel moved

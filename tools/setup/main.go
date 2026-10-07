@@ -533,7 +533,7 @@ func proxied(cfg string) string {
 
 // sshField is one setting from `ssh -G` output, which is "key value" lines.
 func sshField(cfg, key string) string {
-	for _, line := range strings.Split(cfg, "\n") {
+	for line := range strings.SplitSeq(cfg, "\n") {
 		// Case-insensitive: OpenSSH 10.5 prints "User deploy" beside "hostname x".
 		if k, v, ok := strings.Cut(strings.TrimSpace(line), " "); ok && strings.EqualFold(k, key) {
 			return v

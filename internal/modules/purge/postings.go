@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -245,9 +246,7 @@ func (x *memIndex) marks(_ context.Context, guild snowflake.ID) (map[snowflake.I
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	out := map[snowflake.ID]mark{}
-	for ch, mk := range x.mk[guild] {
-		out[ch] = mk
-	}
+	maps.Copy(out, x.mk[guild])
 	return out, nil
 }
 

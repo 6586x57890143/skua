@@ -400,7 +400,7 @@ func TestReadyRunsTheBridge(t *testing.T) {
 type guildRest struct{ rest.Rest }
 
 func (guildRest) GetGuild(snowflake.ID, bool, ...rest.RequestOpt) (*discord.RestGuild, error) {
-	return &discord.RestGuild{Guild: discord.Guild{ID: 7, Name: "the cove"}}, nil
+	return &discord.RestGuild{ID: 7, Name: "the cove"}, nil
 }
 
 func (guildRest) GetEmojis(snowflake.ID, ...rest.RequestOpt) ([]discord.Emoji, error) {

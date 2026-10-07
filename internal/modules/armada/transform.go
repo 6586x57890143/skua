@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -237,8 +238,8 @@ func split(text string) []string {
 }
 
 func lastIndex(r []rune, c rune) int {
-	for i := len(r) - 1; i >= 0; i-- {
-		if r[i] == c {
+	for i, v := range slices.Backward(r) {
+		if v == c {
 			return i
 		}
 	}

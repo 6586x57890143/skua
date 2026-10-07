@@ -241,7 +241,7 @@ func TestReadoutFillsIn(t *testing.T) {
 			t.Errorf("deleting lacks %q:\n%s", want, got)
 		}
 	}
-	for _, l := range strings.Split(got, "\n") {
+	for l := range strings.SplitSeq(got, "\n") {
 		if n := utf8.RuneCountInString(l); n > 40 && !strings.HasPrefix(l, "-#") {
 			t.Errorf("%d columns: %q", n, l)
 		}

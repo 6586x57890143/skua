@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -201,9 +202,7 @@ func rekeyOnce(ctx context.Context, q querier, sk string, me [32]byte, c *Commun
 			sets[key] = s
 		}
 		if r.chunks == s.chunks {
-			for i, b := range r.have {
-				s.have[i] = b
-			}
+			maps.Copy(s.have, r.have)
 		}
 	}
 	var best *PrivateKey
