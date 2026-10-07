@@ -22,7 +22,7 @@ func Install(running []Module) discord.InstallParams {
 }
 
 // SyncInstall makes want the app's Default Install Settings, which is what
-// Discord's bare install link (and skua.melting.lol, which redirects to it)
+// Discord's bare install link (and skua.lol, which redirects to it)
 // asks a server for. Guild install only: user install is switched off,
 // since every command is guild-only. It writes only when Discord's copy
 // differs, so a restart costs one comparison, and reports whether it wrote.

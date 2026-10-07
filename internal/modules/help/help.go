@@ -26,7 +26,7 @@ import (
 
 // Where the index's two link buttons go.
 const (
-	invite = "https://skua.melting.lol"
+	invite = "https://skua.lol"
 	source = "https://github.com/6586x57890143/skua"
 )
 

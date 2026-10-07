@@ -51,7 +51,7 @@ with live state (connections, counts, failures) implements `core.Reporter`: its 
 shows on its `/help` page to that server's admins, so keep it to that server, build it
 from what the module already holds, and use `core.Readout`/`core.Duration`. skua writes
 the union of the running modules' `Perms` into the app's install settings at boot, which
-is what https://skua.melting.lol asks a server for. It ships with handler
+is what https://skua.lol asks a server for. It ships with handler
 tests: `internal/core/coretest` builds the interaction and records replies, and a test
 that needs REST sets `e.Client().Rest` to a fake embedding `rest.Rest`. CI fails any
 `internal/` package under 85% coverage. If it needs a table, add
@@ -74,7 +74,7 @@ curl -o skua.trace localhost:6060/debug/skua/flight && go tool trace skua.trace 
 cp .env.example .env && docker compose up --build   # local bot + Postgres
 go run ./cmd/skua                                   # native, DB optional
 go run ./tools/setup                                # go live / rotate the token: .env, profile, deploy
-(cd web && wrangler deploy)                         # skua.melting.lol invite redirect; only when web/ changes
+(cd web && wrangler deploy)                         # skua.lol invite redirect; only when web/ changes
 scripts/deploy.sh                                   # manual path: commit first; deploys HEAD via foundry-deploy
 ```
 

@@ -230,7 +230,7 @@ func (m *Module) get(ctx context.Context, u string, limit int64) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "skua (https://skua.melting.lol)")
+	req.Header.Set("User-Agent", "skua (https://skua.lol)")
 	res, err := m.http.Do(req)
 	if err != nil {
 		return nil, err

@@ -42,7 +42,7 @@ const api = "https://discord.com/api/v10"
 // inviteURL is web/'s Worker, which redirects to Discord's bare install
 // link. That link asks for the app's Default Install Settings, which skua
 // itself writes at every boot from what its running modules declare.
-const inviteURL = "https://skua.melting.lol"
+const inviteURL = "https://skua.lol"
 
 type application struct {
 	ID    string `json:"id"`

@@ -12,7 +12,7 @@ reports the privileged intents, deploys through GitHub Actions, waits for the bo
 connect, and prints the invite. Safe to run again at any time, for example to rotate
 the token.
 
-Then add skua to a server from **https://skua.melting.lol**. That is `web/`, a Worker
+Then add skua to a server from **https://skua.lol**. That is `web/`, a Worker
 that redirects to Discord's install link. What that link asks for is written by skua
 itself at every boot: the bot and its slash commands, plus the permissions the running
 modules declare. A module's new permission reaches the link on the deploy that ships it.
