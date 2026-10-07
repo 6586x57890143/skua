@@ -337,7 +337,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorInfo,
 		Line:  "carries chosen channels to and from an armada community",
-		About: "she carries messages both ways between a discord channel and an armada channel and posts each one under its writer's name. edits, files and reactions cross too and armada's bans and deletes hold on this side. she hands armada this server's custom emoji as a pack with its name and icon on it, out in the open on nostr, so members there can use them too. anything that crosses into discord is no longer end-to-end encrypted. which channels pair up is set when she is deployed. this part of her is under the agpl and her source is at https://github.com/6586x57890143/skua",
+		About: "she carries messages both ways between a discord channel and an armada channel and posts each one under its writer's name. edits, files and reactions cross too and armada's bans and deletes hold on this side. she hands armada this server's custom emoji and stickers as a pack with its name and icon on it, out in the open on nostr, so members there can use them too. anything that crosses into discord is no longer end-to-end encrypted. which channels pair up is set when she is deployed. this part of her is under the agpl and her source is at https://github.com/6586x57890143/skua",
 	}
 }
 

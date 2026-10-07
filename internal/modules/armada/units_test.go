@@ -407,6 +407,10 @@ func (guildRest) GetEmojis(snowflake.ID, ...rest.RequestOpt) ([]discord.Emoji, e
 	return []discord.Emoji{{ID: 123, Name: "blob", Available: true}}, nil
 }
 
+func (guildRest) GetStickers(snowflake.ID, ...rest.RequestOpt) ([]discord.Sticker, error) {
+	return nil, nil
+}
+
 func (guildRest) GetCurrentUser(string, ...rest.RequestOpt) (*discord.OAuth2User, error) {
 	return nil, errors.New("not in this test")
 }

@@ -181,6 +181,11 @@ type fakeRest struct {
 	fail      error // what refresh-urls answers instead, when set
 	calls     int
 	emojis    []discord.Emoji // the server's, for its pack
+	stickers  []discord.Sticker
+}
+
+func (r *fakeRest) GetStickers(snowflake.ID, ...rest.RequestOpt) ([]discord.Sticker, error) {
+	return r.stickers, nil
 }
 
 func (r *fakeRest) GetGuild(id snowflake.ID, _ bool, _ ...rest.RequestOpt) (*discord.RestGuild, error) {
@@ -1051,15 +1056,27 @@ func TestEmojiPack(t *testing.T) {
 		{ID: 200, Name: "blob", Available: true},
 		{ID: 100, Name: "gone", Available: false},
 	}
+	no := false
+	h.rest.stickers = []discord.Sticker{
+		{ID: 600, Name: "blob", FormatType: discord.StickerFormatTypeGIF},
+		{ID: 500, Name: "happy wumpus!", FormatType: discord.StickerFormatTypeAPNG},
+		{ID: 700, Name: "spin", FormatType: discord.StickerFormatTypeLottie},
+		{ID: 800, Name: "gone", FormatType: discord.StickerFormatTypePNG, Available: &no},
+		{ID: 900, Name: "?", FormatType: discord.StickerFormatTypePNG},
+	}
 	h.m.syncPacks(h.m.ctx)
 	got := packs()
 	if len(got) != 1 || got[0].PubKey != h.m.primary.PK {
 		t.Fatalf("packs %+v", got)
 	}
+	// Stickers follow the emoji, never taking a name one has.
 	want := nostr.Tags{
 		{"d", "discord-7"}, {"title", "the cove emoji"}, {"image", "https://cdn.discordapp.com/icons/7/abc.png?size=256"},
 		{"emoji", "blob", "https://cdn.discordapp.com/emojis/200.png"},
 		{"emoji", "blob_2", "https://cdn.discordapp.com/emojis/300.gif"},
+		{"emoji", "happy_wumpus_", "https://media.discordapp.net/stickers/500.png"},
+		{"emoji", "blob_3", "https://media.discordapp.net/stickers/600.gif"},
+		{"emoji", "sticker", "https://media.discordapp.net/stickers/900.png"},
 	}
 	if fmt.Sprint(got[0].Tags) != fmt.Sprint(want) {
 		t.Fatalf("tags %v", got[0].Tags)
@@ -1114,5 +1131,27 @@ func TestEmojiNamesCrossBack(t *testing.T) {
 		if text := toDiscord(":"+bad+":", [][]string{{"emoji", bad, cdn}}); text != ":"+bad+":" {
 			t.Errorf("%q became %s", bad, text)
 		}
+	}
+}
+
+// A sticker crosses as its image at the URL its pack entry has, so a
+// sticker alone is no longer an empty message, and a Lottie one Armada
+// can't draw crosses as its name.
+func TestDiscordStickers(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	user, _ := snowflake.Parse(h.v.Puppet.User)
+	h.m.toArmada(h.l, discord.Message{ID: 1, ChannelID: 100, Author: discord.User{ID: user}, StickerItems: []discord.MessageSticker{
+		{ID: 600, Name: "blob", FormatType: discord.StickerFormatTypeGIF},
+		{ID: 700, Name: "spin", FormatType: discord.StickerFormatTypeLottie},
+	}})
+	o := h.opened(t, concord.KindMessage)
+	url := "https://media.discordapp.net/stickers/600.gif"
+	if o == nil || o.Content != "sticker: spin\n"+url {
+		t.Fatalf("published %+v", o)
+	}
+	if !slices.ContainsFunc(o.Tags, func(t []string) bool {
+		return slices.Equal(t, []string{"imeta", "url " + url, "m image/gif"})
+	}) {
+		t.Errorf("tags %v", o.Tags)
 	}
 }

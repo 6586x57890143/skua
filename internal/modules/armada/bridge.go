@@ -110,8 +110,8 @@ func (m *Module) toArmada(l *link, msg discord.Message) {
 	}
 }
 
-// compose is a Discord message's Armada text with its emoji and attachment
-// tags.
+// compose is a Discord message's Armada text with its emoji, attachment
+// and sticker tags.
 func (m *Module) compose(ctx context.Context, guild snowflake.ID, msg discord.Message, puppet concord.Key) (string, [][]string) {
 	// A GIF-picker send is the page link alone; it crosses as the GIF.
 	if m.klipy != nil && len(msg.Attachments) == 0 {
@@ -121,11 +121,15 @@ func (m *Module) compose(ctx context.Context, guild snowflake.ID, msg discord.Me
 	}
 	content, pasted := m.pasted(ctx, guild, msg.Content)
 	urls, metas := m.rehost(ctx, append(slices.Clip(msg.Attachments), pasted...), puppet)
+	surls, lines, smetas := crossStickers(msg.StickerItems)
+	if len(lines) > 0 {
+		content = strings.TrimSpace(strings.Join(append([]string{content}, lines...), "\n"))
+	}
 	names := map[string]string{}
 	for _, u := range msg.Mentions {
 		names[u.ID.String()] = u.EffectiveName()
 	}
-	return toArmada(content, guild, names, urls), append(emojiTags(content), metas...)
+	return toArmada(content, guild, names, append(urls, surls...)), slices.Concat(emojiTags(content), metas, smetas)
 }
 
 // cdnLink is a Discord attachment link pasted into a message's text.
