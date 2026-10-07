@@ -70,8 +70,15 @@ func (f *fake) show(account string, items ...item) {
 
 // poster records each card and fails a channel the test names.
 type poster struct {
-	sent []sent
-	fail map[snowflake.ID]error
+	sent    []sent
+	edits   []edit
+	fail    map[snowflake.ID]error
+	editErr error
+}
+
+type edit struct {
+	channel, message snowflake.ID
+	msg              discord.MessageUpdate
 }
 
 type sent struct {
@@ -84,6 +91,15 @@ func (p *poster) CreateMessage(channel snowflake.ID, m discord.MessageCreate, _ 
 		return nil, err
 	}
 	p.sent = append(p.sent, sent{channel, m})
+	// Each card its own message ID, from 1.
+	return &discord.Message{ID: snowflake.ID(len(p.sent))}, nil
+}
+
+func (p *poster) UpdateMessage(channel, message snowflake.ID, m discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	if p.editErr != nil {
+		return nil, p.editErr
+	}
+	p.edits = append(p.edits, edit{channel, message, m})
 	return &discord.Message{}, nil
 }
 
@@ -269,7 +285,7 @@ func TestGuardHoldsBackARunaway(t *testing.T) {
 	for g.Allow(1, guard.MessageSend) == nil {
 	}
 	m.guard = g
-	m.announce(&poster{}, key{"fake", "bird"}, post("a"))
+	m.announce(context.Background(), &poster{}, key{"fake", "bird"}, post("a"))
 	if !strings.Contains(m.failed[10], "held back") {
 		t.Fatal(m.failed[10])
 	}
@@ -557,7 +573,7 @@ func TestCardsGoToTheServersChannel(t *testing.T) {
 	m := module(t, src)
 	m.follows = []follow{{guild: 1, platform: "fake", account: "bird", name: "Bird"}}
 	p := &poster{}
-	m.announce(p, key{"fake", "bird"}, post("a"))
+	m.announce(context.Background(), p, key{"fake", "bird"}, post("a"))
 	if len(p.sent) != 0 {
 		t.Fatal("a card with nowhere to go")
 	}
@@ -565,7 +581,7 @@ func TestCardsGoToTheServersChannel(t *testing.T) {
 		t.Fatal(r.Notes)
 	}
 	m.bound[1] = 9
-	m.announce(p, key{"fake", "bird"}, post("a"))
+	m.announce(context.Background(), p, key{"fake", "bird"}, post("a"))
 	if len(p.sent) != 1 || p.sent[0].channel != 9 {
 		t.Fatalf("%+v", p.sent)
 	}
@@ -639,7 +655,7 @@ func TestStore(t *testing.T) {
 	if err := store.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	for _, q := range []string{"delete from notify_follow", "delete from notify_seen", "delete from notify_guild"} {
+	for _, q := range []string{"delete from notify_follow", "delete from notify_seen", "delete from notify_guild", "delete from notify_live"} {
 		if _, err := pool.Exec(ctx, q); err != nil {
 			t.Fatal(err)
 		}
@@ -672,6 +688,36 @@ func TestStore(t *testing.T) {
 		t.Fatalf("%+v %v %v", m.follows, m.seen, m.bound)
 	}
 
+	// A live card survives a restart, item and all, until its stream ends.
+	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	card := posted{k: key{"twitch", "bird"}, guild: 9, channel: 2, message: 77, role: 3, at: at,
+		it: item{ID: "live:5", Title: "t", URL: "https://t/bird", Started: at.Add(-time.Hour)}}
+	for range 2 {
+		if err := saveLive(ctx, pool, card); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := saveLive(ctx, pool, posted{k: key{"twitch", "bird"}, guild: 1, message: 78, it: item{ID: "live:6"}, at: at}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := load(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := st.live[stream{key{"twitch", "bird"}, "live:5"}]
+	if len(got) != 1 || got[0].message != 77 || got[0].role != 3 || !got[0].it.Started.Equal(card.it.Started) || !got[0].at.Equal(at) || got[0].it.Title != "t" {
+		t.Fatalf("%+v", got)
+	}
+	if err := dropLive(ctx, pool, key{"twitch", "bird"}, "live:5"); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := load(ctx, pool); len(st.live) != 1 {
+		t.Fatalf("one stream's cards go, the other's stay: %+v", st.live)
+	}
+	if err := dropLive(ctx, pool, key{"twitch", "bird"}, ""); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := dropFollow(ctx, pool, f); err != nil {
 		t.Fatal(err)
 	}
@@ -681,8 +727,8 @@ func TestStore(t *testing.T) {
 	if err := dropGuild(ctx, pool, 9); err != nil {
 		t.Fatal(err)
 	}
-	st, err := load(ctx, pool)
-	if err != nil || len(st.follows) != 0 || len(st.seen) != 0 || len(st.bound) != 0 {
+	st, err = load(ctx, pool)
+	if err != nil || len(st.follows) != 0 || len(st.seen) != 0 || len(st.bound) != 0 || len(st.live) != 0 {
 		t.Fatalf("%+v %v", st, err)
 	}
 }

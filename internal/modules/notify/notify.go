@@ -98,6 +98,7 @@ type Module struct {
 	follows []follow
 	seen    map[key][]string
 	bound   map[snowflake.ID]snowflake.ID // guild -> where its cards go
+	live    map[stream][]posted           // live cards, until their stream ends
 	health  map[string]health
 	poster  Poster                  // set once skua is up
 	failed  map[snowflake.ID]string // channel -> why its last post failed
@@ -156,7 +157,7 @@ func New(ctx context.Context, log *slog.Logger, g *guard.Guard, db DB, cfg Confi
 		log: log, guard: g, db: db, sources: sources(settle(cfg, log), &http.Client{Timeout: 20 * time.Second}),
 		on: func(snowflake.ID) bool { return true }, admin: admin, now: time.Now,
 		hooks: hooksFrom(cfg, log), turns: map[string]*sync.Mutex{},
-		follows: st.follows, seen: st.seen, bound: st.bound, health: map[string]health{}, failed: map[snowflake.ID]string{},
+		follows: st.follows, seen: st.seen, bound: st.bound, live: st.live, health: map[string]health{}, failed: map[snowflake.ID]string{},
 	}
 	for p := range m.sources {
 		m.turns[p] = &sync.Mutex{}
@@ -209,6 +210,11 @@ func (m *Module) forget(ctx context.Context, keys ...key) {
 	for _, k := range keys {
 		if !slices.ContainsFunc(m.follows, func(f follow) bool { return f.platform == k.platform && f.account == k.account }) {
 			delete(m.seen, k)
+			for s := range m.live {
+				if s.k == k {
+					delete(m.live, s)
+				}
+			}
 			gone = append(gone, k)
 		}
 	}
@@ -216,6 +222,9 @@ func (m *Module) forget(ctx context.Context, keys ...key) {
 	for _, k := range gone {
 		if err := saveSeen(ctx, m.db, k, nil); err != nil {
 			m.log.Warn("notify: forgetting an account", "account", k.account, "err", err)
+		}
+		if err := dropLive(ctx, m.db, k, ""); err != nil {
+			m.log.Warn("notify: forgetting an account's live cards", "account", k.account, "err", err)
 		}
 	}
 }
@@ -267,6 +276,12 @@ func (m *Module) leave(guild snowflake.ID) {
 	}
 	m.mu.Lock()
 	delete(m.bound, guild)
+	for s, cards := range m.live {
+		m.live[s] = slices.DeleteFunc(cards, func(p posted) bool { return p.guild == guild })
+		if len(m.live[s]) == 0 {
+			delete(m.live, s)
+		}
+	}
 	var keys []key
 	m.follows = slices.DeleteFunc(m.follows, func(f follow) bool {
 		if f.guild == guild {

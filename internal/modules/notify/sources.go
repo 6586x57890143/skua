@@ -22,6 +22,9 @@ import (
 // so the next one is news again.
 type item struct {
 	ID, Title, URL, Image, Author, Detail string
+	// Started is when a stream began, where the platform says; zero
+	// otherwise, and the card's own time stands in.
+	Started time.Time
 }
 
 func (it item) live() bool { return strings.HasPrefix(it.ID, "live:") }
@@ -460,6 +463,7 @@ func (t *twitch) check(ctx context.Context, accounts []string) (map[string][]ite
 				Game  string `json:"game_name"`
 				Title string `json:"title"`
 				Thumb string `json:"thumbnail_url"`
+				Start string `json:"started_at"`
 			} `json:"data"`
 		}
 		if err := t.app.call(ctx, t.api+"/streams?"+q.Encode(), t.header(), &raw); err != nil {
@@ -471,10 +475,11 @@ func (t *twitch) check(ctx context.Context, accounts []string) (map[string][]ite
 		}
 		for _, s := range raw.Data {
 			thumb := strings.NewReplacer("{width}", "1280", "{height}", "720").Replace(s.Thumb)
+			start, _ := time.Parse(time.RFC3339, s.Start)
 			got[s.Login] = []item{{
 				ID: "live:" + s.ID, Title: s.Title, URL: "https://www.twitch.tv/" + s.Login,
 				// The preview is cached by URL: the stream's ID makes it this stream's.
-				Image: thumb + "?s=" + s.ID, Author: s.Name, Detail: s.Game,
+				Image: thumb + "?s=" + s.ID, Author: s.Name, Detail: s.Game, Started: start,
 			}}
 		}
 	}
@@ -543,9 +548,10 @@ func (k *kick) check(ctx context.Context, accounts []string) (map[string][]item,
 			if !c.Stream.Live {
 				continue
 			}
+			start, _ := time.Parse(time.RFC3339, c.Stream.Start)
 			got[c.Slug] = []item{{
 				ID: "live:" + first(c.Stream.Start, "on"), Title: c.Title, URL: "https://kick.com/" + c.Slug,
-				Image: c.Stream.Thumbnail, Author: c.Slug, Detail: c.Category.Name,
+				Image: c.Stream.Thumbnail, Author: c.Slug, Detail: c.Category.Name, Started: start,
 			}}
 		}
 	}

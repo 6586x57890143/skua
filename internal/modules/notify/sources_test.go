@@ -276,7 +276,7 @@ func TestTwitch(t *testing.T) {
 			if got := r.URL.Query()["user_login"]; len(got) != 2 {
 				t.Errorf("logins %v", got)
 			}
-			_, _ = w.Write([]byte(`{"data":[{"id":"9","user_login":"bird","user_name":"Bird","game_name":"Just Chatting","title":"hi","thumbnail_url":"https://t/{width}x{height}.jpg"}]}`))
+			_, _ = w.Write([]byte(`{"data":[{"id":"9","user_login":"bird","user_name":"Bird","game_name":"Just Chatting","title":"hi","thumbnail_url":"https://t/{width}x{height}.jpg","started_at":"2026-10-07T09:00:00Z"}]}`))
 		}
 	})
 	tw := &twitch{app: &app{c: srv.Client(), url: srv.URL + "/token", id: "id", secret: "s"}, api: srv.URL}
@@ -295,7 +295,7 @@ func TestTwitch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := item{ID: "live:9", Title: "hi", URL: "https://www.twitch.tv/bird", Image: "https://t/1280x720.jpg?s=9", Author: "Bird", Detail: "Just Chatting"}
+	want := item{ID: "live:9", Title: "hi", URL: "https://www.twitch.tv/bird", Image: "https://t/1280x720.jpg?s=9", Author: "Bird", Detail: "Just Chatting", Started: time.Date(2026, 10, 7, 9, 0, 0, 0, time.UTC)}
 	if len(got["bird"]) != 1 || got["bird"][0] != want {
 		t.Fatalf("live:\n got %+v\nwant %+v", got["bird"], want)
 	}
@@ -352,7 +352,7 @@ func TestKick(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := item{ID: "live:2026-10-07T10:00:00Z", Title: "flying", URL: "https://kick.com/bird", Image: "https://k/t.jpg", Author: "bird", Detail: "IRL"}
+	want := item{ID: "live:2026-10-07T10:00:00Z", Title: "flying", URL: "https://kick.com/bird", Image: "https://k/t.jpg", Author: "bird", Detail: "IRL", Started: time.Date(2026, 10, 7, 10, 0, 0, 0, time.UTC)}
 	if len(got["bird"]) != 1 || got["bird"][0] != want {
 		t.Fatalf("live:\n got %+v\nwant %+v", got["bird"], want)
 	}

@@ -184,12 +184,12 @@ func (m *Module) kickPush(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Header.Get("Kick-Event-Type") == "livestream.status.updated" {
 		var ev struct {
-			Live        bool `json:"is_live"`
 			Broadcaster struct {
 				Slug string `json:"channel_slug"`
 			} `json:"broadcaster"`
 		}
-		if json.Unmarshal(b, &ev) == nil && ev.Live {
+		// Started or ended: either way the card changes, live or to its VOD.
+		if json.Unmarshal(b, &ev) == nil {
 			m.refresh("kick", strings.ToLower(ev.Broadcaster.Slug))
 		}
 	}
@@ -272,8 +272,12 @@ func (y *youtube) subscribe(ctx context.Context, ids []string, h hooks) error {
 // so its /live page is still read every few minutes.
 func (y *youtube) reconcile() time.Duration { return y.every() }
 
-// subscribe keeps one stream.online subscription per followed login, all
-// pointing at skua's hook.
+// twitchEvents are what skua takes from twitch: a stream starting, for its
+// card, and ending, to turn that card into its VOD.
+var twitchEvents = []string{"stream.online", "stream.offline"}
+
+// subscribe keeps one subscription per followed login for each of
+// twitchEvents, all pointing at skua's hook.
 func (t *twitch) subscribe(ctx context.Context, logins []string, h hooks) error {
 	want := map[string]bool{} // broadcaster id
 	for _, b := range batches(logins, 100) {
@@ -292,6 +296,18 @@ func (t *twitch) subscribe(ctx context.Context, logins []string, h hooks) error 
 			want[u.ID] = true
 		}
 	}
+	var errs []error
+	for _, typ := range twitchEvents {
+		if err := t.keepSubs(ctx, typ, want, h); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// keepSubs makes twitch's typ subscriptions exactly one working one per
+// broadcaster in want: it drops the rest, and adds what's missing.
+func (t *twitch) keepSubs(ctx context.Context, typ string, want map[string]bool, h hooks) error {
 	type sub struct {
 		ID        string `json:"id"`
 		Status    string `json:"status"`
@@ -311,7 +327,7 @@ func (t *twitch) subscribe(ctx context.Context, logins []string, h hooks) error 
 				Cursor string `json:"cursor"`
 			} `json:"pagination"`
 		}
-		q := url.Values{"type": {"stream.online"}}
+		q := url.Values{"type": {typ}}
 		if after != "" {
 			q.Set("after", after)
 		}
@@ -338,12 +354,12 @@ func (t *twitch) subscribe(ctx context.Context, logins []string, h hooks) error 
 			continue
 		}
 		body := map[string]any{
-			"type": "stream.online", "version": "1",
+			"type": typ, "version": "1",
 			"condition": map[string]string{"broadcaster_user_id": id},
 			"transport": map[string]string{"method": "webhook", "callback": h.url + "/twitch", "secret": h.secret},
 		}
 		if err := t.app.send(ctx, http.MethodPost, t.api+"/eventsub/subscriptions", t.header(), body, nil); err != nil {
-			errs = append(errs, fmt.Errorf("subscribing %s: %w", id, err))
+			errs = append(errs, fmt.Errorf("subscribing %s to %s: %w", id, typ, err))
 		}
 	}
 	return errors.Join(errs...)

@@ -2,6 +2,8 @@ package notify
 
 import (
 	"context"
+	"encoding/json"
+	"time"
 
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/jackc/pgx/v5"
@@ -27,20 +29,61 @@ type follow struct {
 // key is an account on a platform, polled once however many follow it.
 type key struct{ platform, account string }
 
+// posted is a live card skua put up, kept until its stream ends.
+type posted struct {
+	k                             key
+	guild, channel, message, role snowflake.ID
+	it                            item
+	at                            time.Time
+}
+
+// stream is a stream's live cards are found by: an account and the
+// stream's ID.
+type stream struct {
+	k  key
+	id string
+}
+
 // state is everything notify keeps.
 type state struct {
 	follows []follow
 	seen    map[key][]string
 	bound   map[snowflake.ID]snowflake.ID // guild -> its channel
+	live    map[stream][]posted
 }
 
-// load reads every follow, everything seen and each guild's channel.
+// load reads every follow, everything seen, each guild's channel and the
+// live cards still up.
 func load(ctx context.Context, db DB) (state, error) {
-	st := state{seen: map[key][]string{}, bound: map[snowflake.ID]snowflake.ID{}}
+	st := state{seen: map[key][]string{}, bound: map[snowflake.ID]snowflake.ID{}, live: map[stream][]posted{}}
 	if db == nil {
 		return st, nil
 	}
-	rows, err := db.Query(ctx, "select guild_id, channel_id from notify_guild")
+	rows, err := db.Query(ctx, "select platform, account, live_id, guild_id, channel_id, message_id, role_id, item, posted_at from notify_live")
+	if err != nil {
+		return st, err
+	}
+	for rows.Next() {
+		var p posted
+		var id string
+		var g, c, msg, r int64
+		var raw []byte
+		if err := rows.Scan(&p.k.platform, &p.k.account, &id, &g, &c, &msg, &r, &raw, &p.at); err != nil {
+			rows.Close()
+			return st, err
+		}
+		if err := json.Unmarshal(raw, &p.it); err != nil {
+			rows.Close()
+			return st, err
+		}
+		p.guild, p.channel, p.message, p.role = snowflake.ID(g), snowflake.ID(c), snowflake.ID(msg), snowflake.ID(r)
+		s := stream{p.k, id}
+		st.live[s] = append(st.live[s], p)
+	}
+	if err := rows.Err(); err != nil {
+		return st, err
+	}
+	rows, err = db.Query(ctx, "select guild_id, channel_id from notify_guild")
 	if err != nil {
 		return st, err
 	}
@@ -121,10 +164,35 @@ func dropGuild(ctx context.Context, db DB, guild snowflake.ID) error {
 	if db == nil {
 		return nil
 	}
-	if _, err := db.Exec(ctx, "delete from notify_follow where guild_id = $1", int64(guild)); err != nil {
+	for _, table := range []string{"notify_follow", "notify_guild", "notify_live"} {
+		if _, err := db.Exec(ctx, "delete from "+table+" where guild_id = $1", int64(guild)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func saveLive(ctx context.Context, db DB, p posted) error {
+	if db == nil {
+		return nil
+	}
+	raw, err := json.Marshal(p.it)
+	if err != nil {
 		return err
 	}
-	_, err := db.Exec(ctx, "delete from notify_guild where guild_id = $1", int64(guild))
+	_, err = db.Exec(ctx, `insert into notify_live (message_id, platform, account, live_id, guild_id, channel_id, role_id, item, posted_at)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9) on conflict (message_id) do nothing`,
+		int64(p.message), p.k.platform, p.k.account, p.it.ID, int64(p.guild), int64(p.channel), int64(p.role), raw, p.at)
+	return err
+}
+
+// dropLive forgets a stream's live cards, or every one of an account's
+// when id is empty.
+func dropLive(ctx context.Context, db DB, k key, id string) error {
+	if db == nil {
+		return nil
+	}
+	_, err := db.Exec(ctx, "delete from notify_live where platform = $1 and account = $2 and ($3 = '' or live_id = $3)", k.platform, k.account, id)
 	return err
 }
 

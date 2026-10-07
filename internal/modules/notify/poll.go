@@ -19,9 +19,11 @@ import (
 	"github.com/6586x57890143/skua/internal/guard"
 )
 
-// Poster is the one REST call notify makes as itself.
+// Poster is the REST notify calls as itself: a card, and the edit that
+// turns a live card into its VOD.
 type Poster interface {
 	CreateMessage(channel snowflake.ID, m discord.MessageCreate, opts ...rest.RequestOpt) (*discord.Message, error)
+	UpdateMessage(channel, message snowflake.ID, m discord.MessageUpdate, opts ...rest.RequestOpt) (*discord.Message, error)
 }
 
 const (
@@ -128,7 +130,15 @@ func (m *Module) observe(ctx context.Context, p Poster, k key, items []item, src
 		if kp != nil && !it.live() && !kp.keep(ctx, it) {
 			continue
 		}
-		m.announce(p, k, it)
+		m.announce(ctx, p, k, it)
+	}
+	// A stream seen last time and gone now has ended.
+	if known {
+		for _, id := range prev {
+			if strings.HasPrefix(id, "live:") && !slices.ContainsFunc(items, func(it item) bool { return it.ID == id }) {
+				m.end(ctx, p, k, id, src)
+			}
+		}
 	}
 	if known && slices.Equal(prev, next) {
 		return
@@ -156,8 +166,9 @@ func remember(items []item, prev []string) []string {
 	return next[:min(len(next), keepIDs)]
 }
 
-// announce posts it to every channel following its account.
-func (m *Module) announce(p Poster, k key, it item) {
+// announce posts it to every channel following its account, keeping each
+// live card so the stream's end can turn it into the VOD.
+func (m *Module) announce(ctx context.Context, p Poster, k key, it item) {
 	type card struct {
 		f  follow
 		to snowflake.ID
@@ -177,8 +188,12 @@ func (m *Module) announce(p Poster, k key, it item) {
 		}
 		err := m.guard.Allow(c.f.guild, guard.MessageSend)
 		if err == nil {
-			_, err = p.CreateMessage(c.to, alert(k.platform, it, c.f.role))
+			var msg *discord.Message
+			msg, err = p.CreateMessage(c.to, alert(k.platform, it, c.f.role))
 			m.guard.Report(c.f.guild, struggling(err))
+			if err == nil && msg != nil && it.live() {
+				m.keepLive(ctx, posted{k: k, guild: c.f.guild, channel: c.to, message: msg.ID, role: c.f.role, it: it, at: m.now()})
+			}
 		}
 		m.mu.Lock()
 		if err != nil {
@@ -226,13 +241,17 @@ func why(err error) string {
 // news is what a post's card says happened, by platform.
 var news = map[string]string{"youtube": "new on youtube", "x": "posted on x", "tiktok": "posted on tiktok"}
 
-// alert is the card: what happened in its head, the title linked, who and
-// what below it, the preview, and a button there.
+// alert is the card for something new: a post, or a stream going live.
 func alert(platform string, it item, role snowflake.ID) discord.MessageCreate {
-	what, label := news[platform], "open"
 	if it.live() {
-		what, label = "live on "+platform, "watch"
+		return card(platform, "live on "+platform, "watch", it, role)
 	}
+	return card(platform, news[platform], "open", it, role)
+}
+
+// card is a notify card: what happened in its head, the title linked, who
+// and what below it, the preview, and a button labelled label there.
+func card(platform, what, label string, it item, role snowflake.ID) discord.MessageCreate {
 	// The platform's colour, so a channel of cards reads by platform at a
 	// glance. Link buttons can't be coloured: Discord draws them grey.
 	color := brand.PlatformColor(platform)
@@ -265,12 +284,12 @@ func alert(platform string, it item, role snowflake.ID) discord.MessageCreate {
 		button.Emoji = brand.ComponentEmoji("pf_" + platform)
 		extra = append(extra, discord.NewActionRow(button))
 	}
-	card := brand.Card(color, "notify", what, body, extra...)
+	box := brand.Card(color, "notify", what, body, extra...)
 	if role == 0 {
-		return discord.MessageCreate{Components: []discord.LayoutComponent{card}, Flags: discord.MessageFlagIsComponentsV2, AllowedMentions: core.NoPings()}
+		return discord.MessageCreate{Components: []discord.LayoutComponent{box}, Flags: discord.MessageFlagIsComponentsV2, AllowedMentions: core.NoPings()}
 	}
 	return discord.MessageCreate{
-		Components:      []discord.LayoutComponent{discord.NewTextDisplay("<@&" + role.String() + ">"), card},
+		Components:      []discord.LayoutComponent{discord.NewTextDisplay("<@&" + role.String() + ">"), box},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: pingRole(role),
 	}

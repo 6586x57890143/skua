@@ -49,6 +49,10 @@ func (p *safePoster) CreateMessage(channel snowflake.ID, _ discord.MessageCreate
 	return &discord.Message{}, nil
 }
 
+func (p *safePoster) UpdateMessage(snowflake.ID, snowflake.ID, discord.MessageUpdate, ...rest.RequestOpt) (*discord.Message, error) {
+	return &discord.Message{}, nil
+}
+
 func (p *safePoster) count() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -373,7 +377,7 @@ func TestSubscribeTwitch(t *testing.T) {
 		case r.Method == http.MethodPost:
 			var b map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&b)
-			if b["transport"].(map[string]any)["secret"] != secret || b["type"] != "stream.online" {
+			if b["transport"].(map[string]any)["secret"] != secret || (b["type"] != "stream.online" && b["type"] != "stream.offline") {
 				t.Errorf("subscription %v", b)
 			}
 			w.WriteHeader(http.StatusAccepted)
@@ -394,9 +398,10 @@ func TestSubscribeTwitch(t *testing.T) {
 			posts++
 		}
 	}
-	// s2 is someone unfollowed, s3 failed and s4 doubles s1: three go; 2
-	// and 3 have none that works, so two come.
-	if deletes != 3 || posts != 2 {
+	// For each of online and offline: s2 is someone unfollowed, s3 failed
+	// and s4 doubles s1, so three go; 2 and 3 have none that works, so two
+	// come.
+	if deletes != 6 || posts != 4 {
 		t.Fatalf("%d deletes, %d posts: %q", deletes, posts, calls)
 	}
 	if tw.reconcile() != 15*time.Minute {
