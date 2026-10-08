@@ -457,7 +457,7 @@ func TestSubscribeKick(t *testing.T) {
 	if !slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "DELETE") }) || !slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "POST") }) {
 		t.Fatalf("%q", calls)
 	}
-	if k.reconcile() != 15*time.Minute {
+	if k.reconcile() != k.every() {
 		t.Fatal("reconcile")
 	}
 }

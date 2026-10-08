@@ -178,7 +178,11 @@ func (m *Module) kickPush(w http.ResponseWriter, r *http.Request) {
 	}
 	signed := r.Header.Get("Kick-Event-Message-Id") + "." + r.Header.Get("Kick-Event-Message-Timestamp") + "." + string(b)
 	sig, err := base64.StdEncoding.DecodeString(r.Header.Get("Kick-Event-Signature"))
-	if err != nil || k.verify(r.Context(), []byte(signed), sig) != nil {
+	if err == nil {
+		err = k.verify(r.Context(), []byte(signed), sig)
+	}
+	if err != nil {
+		m.log.Warn("notify: refused a kick push", "err", err)
 		http.Error(w, "bad signature", http.StatusForbidden)
 		return
 	}
@@ -190,6 +194,7 @@ func (m *Module) kickPush(w http.ResponseWriter, r *http.Request) {
 		}
 		// Started or ended: either way the card changes, live or to its VOD.
 		if json.Unmarshal(b, &ev) == nil {
+			m.log.Info("notify: kick pushed", "account", ev.Broadcaster.Slug)
 			m.refresh("kick", strings.ToLower(ev.Broadcaster.Slug))
 		}
 	}
@@ -430,7 +435,10 @@ func (k *kick) subscribe(ctx context.Context, slugs []string, _ hooks) error {
 	return errors.Join(errs...)
 }
 
-func (k *kick) reconcile() time.Duration { return 15 * time.Minute }
+// reconcile is kick's usual minute: one call covers fifty channels, and a
+// push that never comes (the webhook URL unset in kick's app settings, or a
+// subscription kick dropped) would otherwise hold a card for 15 minutes.
+func (k *kick) reconcile() time.Duration { return k.every() }
 
 // kickKey is kick's signing key, fetched on first use and again when a
 // signature fails against it, since kick may rotate it: at most once a
