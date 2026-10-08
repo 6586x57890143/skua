@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -165,17 +166,21 @@ func (m *Module) off(guild *snowflake.ID, name string) bool {
 
 // index is compact: one small avatar by the title, then every module in one
 // text block, so a page holds as many modules as Discord's text limit allows
-// rather than as many thumbnails. Each module is its name on a short line and
-// what it does as subtext below, which can wrap on a phone without dragging
-// anything out of line.
+// rather than as many thumbnails. Each module is its branch of the tree and
+// its name on a short line that never wraps, and what it does as subtext
+// below, which can wrap on a phone without dragging anything out of line.
 func (m *Module) index(guild *snowflake.ID) discord.MessageCreate {
 	es := m.entries()
 	var att files
 	commands := 0
 	var list strings.Builder
-	for _, en := range es {
+	for i, en := range es {
 		commands += len(en.mod.Commands())
-		fmt.Fprintf(&list, "%s**%s**", icon(en.mod.Name()), en.mod.Name())
+		branch := "├"
+		if i == len(es)-1 {
+			branch = "└"
+		}
+		fmt.Fprintf(&list, "`%s` %s**%s**", branch, icon(en.mod.Name()), en.mod.Name())
 		if m.off(guild, en.mod.Name()) {
 			list.WriteString(" · `off here`")
 		}
@@ -203,12 +208,19 @@ func (m *Module) page(name string, guild *snowflake.ID, admin bool) (discord.Mes
 		if en.mod.Name() != name {
 			continue
 		}
+		// The about goes below the icon, not beside it: beside a thumbnail
+		// a phone gives text a narrow column.
 		var att files
 		body := []discord.ContainerSubComponent{
 			discord.NewSection(
-				discord.NewTextDisplay("## " + name + "\n-# " + en.help.Line + "\n" + en.help.About),
+				discord.NewTextDisplay("## " + name + "\n-# " + en.help.Line),
 			).WithAccessory(discord.NewThumbnail(att.add(brand.ModuleIcon(name, en.help.Color)))),
-			discord.NewTextDisplay(grid(en.mod.Commands())),
+			discord.NewTextDisplay(en.help.About),
+		}
+		if cmds := en.mod.Commands(); len(cmds) > 0 {
+			body = append(body, discord.NewTextDisplay(grid(cmds)))
+		} else {
+			body = append(body, discord.NewTextDisplay("-# no commands: it works on its own"))
 		}
 		// What the module is doing in this server, for its admins: facts as
 		// a grid, anything longer below it.
@@ -292,7 +304,8 @@ func (f *files) add(file *discord.File, url string) string {
 }
 
 // grid is a module's commands as a code block grid (UX.md): the invocation,
-// then its options, and who may run it when that isn't everyone.
+// then its options, and who may run it when that isn't everyone. A command
+// with subcommands is its own line with each subcommand a branch below it.
 func grid(cmds []core.Command) string {
 	var rows [][2]string
 	for _, c := range cmds {
@@ -303,30 +316,42 @@ func grid(cmds []core.Command) string {
 		case core.BreakGlass:
 			who = "keeper"
 		}
-		switch cr := c.Create.(type) {
-		case discord.SlashCommandCreate:
-			subs := false
-			for _, o := range cr.Options {
-				if s, ok := o.(discord.ApplicationCommandOptionSubCommand); ok {
-					subs = true
-					rows = append(rows, [2]string{"/" + cr.Name + " " + s.Name, join(names(s.Options), who)})
-				}
-			}
-			if !subs {
-				rows = append(rows, [2]string{"/" + cr.Name, join(names(cr.Options), who)})
-			}
-		default:
+		cr, ok := c.Create.(discord.SlashCommandCreate)
+		if !ok {
 			rows = append(rows, [2]string{c.Create.CommandName(), join("apps menu", who)})
+			continue
+		}
+		var subs []discord.ApplicationCommandOptionSubCommand
+		for _, o := range cr.Options {
+			if s, ok := o.(discord.ApplicationCommandOptionSubCommand); ok {
+				subs = append(subs, s)
+			}
+		}
+		if len(subs) == 0 {
+			rows = append(rows, [2]string{"/" + cr.Name, join(names(cr.Options), who)})
+			continue
+		}
+		rows = append(rows, [2]string{"/" + cr.Name, who})
+		for i, s := range subs {
+			branch := "├ "
+			if i == len(subs)-1 {
+				branch = "└ "
+			}
+			rows = append(rows, [2]string{branch + s.Name, names(s.Options)})
 		}
 	}
 	width := 0
 	for _, r := range rows {
-		width = max(width, len(r[0]))
+		width = max(width, utf8.RuneCountInString(r[0]))
 	}
 	var b strings.Builder
 	b.WriteString("```\n")
 	for _, r := range rows {
-		fmt.Fprintf(&b, "%-*s%s\n", width+2, r[0], r[1])
+		if r[1] == "" {
+			b.WriteString(r[0] + "\n")
+			continue
+		}
+		b.WriteString(r[0] + strings.Repeat(" ", width+2-utf8.RuneCountInString(r[0])) + r[1] + "\n")
 	}
 	b.WriteString("```")
 	return b.String()

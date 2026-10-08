@@ -148,7 +148,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorWarn,
 		Line:  "deletes your own messages when you ask her to",
-		About: "she only ever touches messages you wrote, in any channel she can read. now clears them all at once, live deletes each new one after a delay you pick and every sweeps on a schedule. anything older than 14 days has to go one message at a time, so the first run can take a while. nothing comes back once it's gone. if an admin switches purge off here the scheduled sweeps stop too",
+		About: "/purge deletes messages you wrote and nothing else, in any channel she can read\n`now` clears everything you've sent here at once\n`live` deletes each new message a while after you send it, from 10s to 1h\n`every` sweeps your messages on a schedule, from every 6h to every 7d\n`stop` ends live and every\n`status` shows what's set up and how your last sweep went\nadd `in` to any of them to keep it to one channel or category\n\nmessages older than 14 days have to go one at a time, so a first run can take a while. nothing comes back once it's deleted. if an admin switches purge off here the scheduled sweeps stop too",
 	}
 }
 

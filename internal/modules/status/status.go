@@ -51,7 +51,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorIdle,
 		Line:  "how she's doing right now",
-		About: "/ping shows how long the gateway takes to answer her. /status is for admins and lists the intents she holds, whether the database is answering and how long she's been up",
+		About: "two quick checks on how she's doing. /ping shows how long discord's gateway takes to answer her, which is the first thing to look at when she feels slow. /status is for admins and shows the intents discord granted her, whether her database answers and how long she's been up",
 	}
 }
 

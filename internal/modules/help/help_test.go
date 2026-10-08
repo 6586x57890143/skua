@@ -22,6 +22,7 @@ import (
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
 	"github.com/6586x57890143/skua/internal/modules/bird"
+	"github.com/6586x57890143/skua/internal/modules/notify"
 	"github.com/6586x57890143/skua/internal/modules/perf"
 	"github.com/6586x57890143/skua/internal/modules/preen"
 	"github.com/6586x57890143/skua/internal/modules/purge"
@@ -154,7 +155,7 @@ func TestIndexListsTheRunningModulesWithAPage(t *testing.T) {
 		t.Fatalf("accent %#06x", c.AccentColor)
 	}
 	all := mustJSON(t, m.Components)
-	contains(t, "index", all, "**nest**\\n-# where she sleeps\\n**gull** · `off here`\\n-# loud\"", "2 modules · 3 commands · build `"+core.Revision()+"`", `"help:pick"`, invite, source)
+	contains(t, "index", all, "`├` **nest**\\n-# where she sleeps\\n`└` **gull** · `off here`\\n-# loud\"", "2 modules · 3 commands · build `"+core.Revision()+"`", `"help:pick"`, invite, source)
 	if strings.Contains(all, "hidden") {
 		t.Error("a module without a page is listed")
 	}
@@ -285,12 +286,33 @@ func TestPickingTurnsAnEphemeralGuideInPlace(t *testing.T) {
 	if c.AccentColor != brand.ColorOK {
 		t.Errorf("page accent %#06x, want the module's colour", c.AccentColor)
 	}
-	contains(t, "page", all, "## nest", "twigs mostly", "/nest build", "twig, count", "/nest leave", "Steal egg", "apps menu · admin", `"default":true`, `"help:index"`)
+	contains(t, "page", all, "## nest", "twigs mostly", "/nest\\n├ build", "twig, count", "└ leave\\n", "Steal egg", "apps menu · admin", `"default":true`, `"help:index"`)
 	if strings.Contains(all, "help:off") {
 		t.Error("a member is shown the switch")
 	}
 	if _, all := page(t, click(t, r, "help:index", true, false)); !strings.Contains(all, "**gull**") {
 		t.Error("back did not return to the index")
+	}
+}
+
+// A module with nothing to run says so rather than showing an empty block.
+func TestAPageWithoutCommandsHasNoEmptyGrid(t *testing.T) {
+	tern := paged{fake{"tern", nil, core.Help{Color: brand.ColorOK, Line: "watches", About: "on its own"}}}
+	r := newRouter(t, nil, tern)
+	_, all := page(t, click(t, r, "help:pick", true, false, "tern"))
+	if strings.Contains(all, "```") {
+		t.Error("a page with no commands shows a code block")
+	}
+	contains(t, "page", all, "-# no commands: it works on its own")
+}
+
+// The grid is a tree: a command with subcommands heads its branches, and
+// no line carries trailing spaces.
+func TestGridBranchesSubcommands(t *testing.T) {
+	got := grid(nest.cmds)
+	want := "```\n/nest\n├ build    twig, count\n└ leave\nSteal egg  apps menu · admin\n```"
+	if got != want {
+		t.Errorf("grid\n%s\nwant\n%s", got, want)
 	}
 }
 
@@ -367,6 +389,10 @@ func TestSwitchesRefuseAnyoneElse(t *testing.T) {
 func TestEveryPageKeepsTheVoice(t *testing.T) {
 	generated := string([]rune{0x2014, 0x2013, 0x2026, 0x2018, 0x2019, 0x201c, 0x201d})
 	oxford := regexp.MustCompile(`, [^,]+, (and|or) `)
+	watcher, err := notify.New(context.Background(), slog.New(slog.DiscardHandler), nil, nil, notify.Config{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	mods := []core.Module{
 		status.New(nil, nil, nil),
 		whisper.New(nil, nil, nil),
@@ -374,6 +400,7 @@ func TestEveryPageKeepsTheVoice(t *testing.T) {
 		purge.New(nil, nil, slog.New(slog.DiscardHandler), snowflake.ID(0)),
 		preen.New(nil, obs.New(), nil),
 		perf.New(obs.New()),
+		watcher,
 	}
 	for _, mod := range mods {
 		h, ok := mod.(core.Helper)
@@ -406,9 +433,11 @@ func TestEveryPageKeepsTheVoice(t *testing.T) {
 		if utf8.RuneCountInString(h.Help().Line) > 100 {
 			t.Errorf("%s: line over 100", mod.Name())
 		}
+		// A 360 px phone fits about 34 columns of code block, so the grid
+		// keeps to 32 and never wraps there.
 		for line := range strings.SplitSeq(grid(mod.Commands()), "\n") {
-			if utf8.RuneCountInString(line) > 40 {
-				t.Errorf("%s: grid line %q is over 40 columns", mod.Name(), line)
+			if utf8.RuneCountInString(line) > 32 {
+				t.Errorf("%s: grid line %q is over 32 columns", mod.Name(), line)
 			}
 		}
 	}
@@ -439,6 +468,11 @@ func TestIndexWrapsOnlySubtext(t *testing.T) {
 	for l := range strings.SplitSeq(list.Content, "\n") {
 		if !strings.HasPrefix(l, "-# ") && utf8.RuneCountInString(l) > 40 {
 			t.Errorf("%q can wrap on a phone", l)
+		}
+		// A branch glyph only ever leads a short name line: one that led a
+		// wrapping line would leave its text hanging under the glyph.
+		if strings.ContainsAny(l, "├└│") && !strings.HasPrefix(l, "`├` ") && !strings.HasPrefix(l, "`└` ") {
+			t.Errorf("%q carries a branch glyph outside a name line", l)
 		}
 	}
 }

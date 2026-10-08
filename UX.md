@@ -43,7 +43,13 @@ The rules every bird shares, which `brand/voice_test.go` holds the status lines 
 - A page built from components (`/help`) is one Components V2 container, accented in
   a brand colour, wearing its mood icon (`brand.Icon`) as a section thumbnail, with any
   footer as `-#` subtext. It points at synced app emoji, attaching only what hasn't
-  synced.
+  synced. Only the title and its `-#` line sit beside the thumbnail; the about goes
+  below at full width, because beside a thumbnail a phone gives text a narrow column.
+  The about says what the module does and how to use it before anything else.
+- An ASCII glyph that leads a line (`├ └ ▸`) leads only a line short enough never to
+  wrap, or one inside a code block: a wrapped line leaves its text hanging under the
+  glyph on a phone. The `/help` index's tree marks each module's name line, and its
+  command grid branches subcommands inside the code block.
 - Every other reply is a card (`brand.Card`, `/purge` is the reference): one
   Components V2 container, accented in the mood of what it says (ok when done, warn
   while working, error when it failed, info for a readout), whose first line is the
@@ -65,7 +71,8 @@ The rules every bird shares, which `brand/voice_test.go` holds the status lines 
   layout rather than inventing a new one.
 - Facts go in a code block grid (`status.readout`): the label column is the longest
   label plus two spaces, a value wraps after a comma inside 28 columns, and a whole line
-  stays within 40. Anything that is not a short fact goes on a line below the block,
+  stays within 40. A 360 px phone fits only about 34 columns of code block, so a grid
+  read on phones keeps to 32 (`/help`'s command grid does). Anything that is not a short fact goes on a line below the block,
   detail as `-#` subtext. A code block, because monospace lines up the same in every
   client, where how embed fields wrap is up to the client.
 - Numbers: `42 ms` with a space, one decimal under 10 ms. Durations use the two largest
