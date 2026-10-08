@@ -98,6 +98,9 @@ type Module struct {
 	// turns keeps one platform's checks from overlapping, a push's and a
 	// timer's, so one post is never announced twice.
 	turns map[string]*sync.Mutex
+	// looks is whether a preview answers as an image, so a card never
+	// carries one Discord shows as not found.
+	looks func(ctx context.Context, url string) bool
 
 	mu      sync.Mutex
 	follows []follow
@@ -162,9 +165,11 @@ func New(ctx context.Context, log *slog.Logger, g *guard.Guard, db DB, cfg Confi
 	if err != nil {
 		return nil, fmt.Errorf("notify: loading follows: %w", err)
 	}
+	c := &http.Client{Timeout: 20 * time.Second}
 	m := &Module{
-		log: log, guard: g, db: db, sources: sources(settle(cfg, log), &http.Client{Timeout: 20 * time.Second}),
-		on: func(snowflake.ID) bool { return true }, admin: admin, now: time.Now,
+		log: log, guard: g, db: db, sources: sources(settle(cfg, log), c),
+		looks: func(ctx context.Context, u string) bool { return image(ctx, c, u) },
+		on:    func(snowflake.ID) bool { return true }, admin: admin, now: time.Now,
 		hooks: hooksFrom(cfg, log), turns: map[string]*sync.Mutex{},
 		follows: st.follows, seen: st.seen, bound: st.bound, live: st.live, health: map[string]health{}, pushedAt: map[key]time.Time{}, failed: map[snowflake.ID]string{},
 	}

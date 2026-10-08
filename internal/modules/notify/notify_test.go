@@ -123,6 +123,7 @@ func module(t *testing.T, src *fake) *Module {
 		t.Fatal(err)
 	}
 	m.sources = map[string]source{"fake": src}
+	m.looks = func(context.Context, string) bool { return true }
 	return m
 }
 
@@ -650,6 +651,7 @@ func TestModule(t *testing.T) {
 	// start runs a loop per platform until its context ends.
 	src := newFake()
 	m.sources = map[string]source{"fake": src}
+	m.looks = func(context.Context, string) bool { return true }
 	m.follows = []follow{{guild: 1, channel: 10, platform: "fake", account: "bird"}}
 	src.show("bird", post("a"))
 	ctx, cancel := context.WithCancel(context.Background())

@@ -35,6 +35,7 @@ type posted struct {
 	guild, channel, message, role snowflake.ID
 	it                            item
 	at                            time.Time
+	edited                        time.Time // its last freshen; not stored, so a restart starts from at
 }
 
 // stream is a stream's live cards are found by: an account and the
