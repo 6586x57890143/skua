@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 const atom = `<?xml version="1.0" encoding="UTF-8"?>
@@ -382,5 +383,21 @@ func TestSourcesFollowConfig(t *testing.T) {
 	t.Setenv("SKUA_NOTIFY_RSSHUB", "https://hub/")
 	if c := FromEnv(); c.RSSHub != "https://hub" {
 		t.Fatal(c.RSSHub)
+	}
+}
+
+func TestStatusErrorSaysWhy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("{\"message\":\n  \"webhook not enabled\"}" + strings.Repeat("é", 200)))
+	}))
+	defer srv.Close()
+	_, err := get(context.Background(), srv.Client(), srv.URL, nil, nil)
+	msg := err.Error()
+	if !strings.Contains(msg, `answered 400: {"message": "webhook not enabled"}`) || !strings.HasSuffix(msg, "...") || !utf8.ValidString(msg) {
+		t.Fatal(msg)
+	}
+	if got := (statusError{host: "h", code: 500}).Error(); got != "notify: h answered 500" {
+		t.Fatal(got)
 	}
 }
