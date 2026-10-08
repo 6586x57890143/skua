@@ -80,6 +80,7 @@ func pushed(t *testing.T, platform, account string, src source) (*Module, *safeP
 		t.Fatal(err)
 	}
 	m.sources = map[string]source{platform: src}
+	m.looks = func(context.Context, string) bool { return true }
 	m.turns = map[string]*sync.Mutex{platform: {}}
 	m.follows = []follow{{guild: 1, channel: 10, platform: platform, account: account, name: account}}
 	m.seen[key{platform, account}] = []string{}

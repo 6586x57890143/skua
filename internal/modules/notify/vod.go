@@ -58,6 +58,7 @@ func (m *Module) end(ctx context.Context, p Poster, k key, id string, src source
 			v = got
 		}
 	}
+	v.image = m.picture(ctx, v.image)
 	for _, c := range cards {
 		if !m.on(c.guild) {
 			continue
