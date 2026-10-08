@@ -136,11 +136,10 @@ func (m *Module) observe(ctx context.Context, p Poster, k key, items []item, src
 		m.announce(ctx, p, k, it)
 		m.unpushed(k, it, src)
 	}
-	// A stream still on whose card went up without its preview gets it
-	// once the platform has made one.
+	// A stream still on keeps its cards current.
 	for _, it := range items {
 		if it.live() && slices.Contains(prev, it.ID) {
-			m.fill(ctx, p, k, it)
+			m.freshen(ctx, p, k, it)
 		}
 	}
 	// A stream seen last time and gone now has ended.

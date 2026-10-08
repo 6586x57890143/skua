@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,7 +18,8 @@ import (
 // A card's preview is checked before it is posted: Discord shows a link
 // that doesn't answer as an image as "image not found", and keeps it.
 // youtube makes its largest preview only for some videos and streams, and
-// kick a stream's only a while after it starts.
+// kick a stream's only a while after it starts. A live card is kept
+// current while its stream is on (freshen).
 
 // image is whether u answers as an image.
 func image(ctx context.Context, c *http.Client, u string) bool {
@@ -54,40 +56,75 @@ func (m *Module) picture(ctx context.Context, u string) string {
 	return ""
 }
 
-// fill puts a preview on a live stream's cards that went up without one,
-// once the platform answers with it. Checked each round until it does.
-func (m *Module) fill(ctx context.Context, p Poster, k key, it item) {
+// restyle is how often a live card is brought up to date: its title and
+// category, and a fresh preview.
+const restyle = 10 * time.Minute
+
+// freshen keeps a live stream's cards current while it is on: a new title
+// or category at once, a preview the card went up without once the
+// platform has made one, and every restyle a fresh preview, on a new link
+// so Discord fetches it again instead of keeping a stale or missing one.
+func (m *Module) freshen(ctx context.Context, p Poster, k key, it item) {
 	s := stream{k, it.ID}
 	m.mu.Lock()
 	cards := slices.Clone(m.live[s])
 	m.mu.Unlock()
-	if len(cards) == 0 || cards[0].it.Image != "" {
+	if len(cards) == 0 {
 		return
 	}
-	img := m.picture(ctx, it.Image)
-	if img == "" {
+	was := cards[0].it
+	last := cards[0].edited
+	if last.IsZero() {
+		last = cards[0].at
+	}
+	changed := it.Title != was.Title || it.Detail != was.Detail
+	due := m.now().Sub(last) >= restyle
+	missing := was.Image == "" && it.Image != ""
+	if !changed && !due && !missing {
 		return
+	}
+	now := it
+	if now.Started.IsZero() {
+		now.Started = was.Started
+	}
+	if now.Image = m.picture(ctx, bust(it.Image, m.now())); now.Image == "" {
+		// Still not made: a card waiting only for it waits on.
+		if !changed && !due {
+			return
+		}
+		now.Image = was.Image
 	}
 	m.mu.Lock()
 	for i := range m.live[s] {
-		m.live[s][i].it.Image = img
+		m.live[s][i].it, m.live[s][i].edited = now, m.now()
 	}
 	m.mu.Unlock()
 	for _, c := range cards {
 		if !m.on(c.guild) {
 			continue
 		}
-		was := c.it
-		was.Image = img
 		err := m.guard.Allow(c.guild, guard.MessageSend)
 		if err == nil {
-			_, err = p.UpdateMessage(c.channel, c.message, relive(k.platform, was, c.role, m.canGrant(p, c.guild, c.role)))
+			_, err = p.UpdateMessage(c.channel, c.message, relive(k.platform, now, c.role, m.canGrant(p, c.guild, c.role)))
 			m.guard.Report(c.guild, struggling(err))
 		}
 		if err != nil {
-			m.log.Warn("notify: adding a live card's preview", "guild", c.guild, "channel", c.channel, "err", err)
+			m.log.Warn("notify: bringing a live card up to date", "guild", c.guild, "channel", c.channel, "err", err)
 		}
 	}
+}
+
+// bust is u with the time on it, so each restyle's preview is a link
+// Discord hasn't fetched before.
+func bust(u string, t time.Time) string {
+	if u == "" {
+		return ""
+	}
+	sep := "?"
+	if strings.Contains(u, "?") {
+		sep = "&"
+	}
+	return u + sep + "t=" + strconv.FormatInt(t.Unix(), 10)
 }
 
 // relive is a live card again, as an edit: it never pings, since the role
