@@ -134,6 +134,7 @@ func (m *Module) observe(ctx context.Context, p Poster, k key, items []item, src
 			continue
 		}
 		m.announce(ctx, p, k, it)
+		m.unpushed(k, it, src)
 	}
 	// A stream seen last time and gone now has ended.
 	if known {

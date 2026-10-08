@@ -23,6 +23,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/6586x57890143/skua/internal/core"
 )
 
 // Push: twitch (EventSub), kick (webhooks) and youtube (WebSub) call skua
@@ -40,7 +42,19 @@ type pusher interface {
 	subscribe(ctx context.Context, accounts []string, h hooks) error
 	// reconcile is how often to check anyway while push is on.
 	reconcile() time.Duration
+	// pushes is whether a push should have brought it: a stream for
+	// twitch and kick, an upload for youtube.
+	pushes(it item) bool
 }
+
+// pushLag is how long after a push its card can still land: refreshAt's
+// last check, and some slack.
+const pushLag = 2 * time.Minute
+
+// resubscribe is how often subscriptions are brought back in line, so
+// one a platform drops (kick does after a day of failed deliveries)
+// comes back within the hour.
+const resubscribe = time.Hour
 
 // hooks is where pushes arrive and the secret they are signed with.
 type hooks struct {
@@ -73,7 +87,20 @@ func (m *Module) Hooks() http.Handler {
 // refresh checks one account now and at each of refreshAt.
 func (m *Module) refresh(platform, account string) {
 	src, ok := m.sources[platform]
-	if !ok || !slices.Contains(m.accounts(platform), account) {
+	if !ok {
+		return
+	}
+	followed := slices.Contains(m.accounts(platform), account)
+	// Any push that gets this far proves the platform reaches skua.
+	m.mu.Lock()
+	h := m.health[platform]
+	h.pushed, h.missed = m.now(), 0
+	m.health[platform] = h
+	if followed {
+		m.pushedAt[key{platform, account}] = m.now()
+	}
+	m.mu.Unlock()
+	if !followed {
 		return
 	}
 	for _, d := range refreshAt {
@@ -106,9 +133,55 @@ func (m *Module) subscribe(platform string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if err := src.subscribe(ctx, m.accounts(platform), m.hooks); err != nil {
+	err := src.subscribe(ctx, m.accounts(platform), m.hooks)
+	if err != nil {
 		m.log.Warn("notify: subscribing to pushes", "platform", platform, "err", err)
 	}
+	m.mu.Lock()
+	h := m.health[platform]
+	h.subbed, h.sub = true, err
+	m.health[platform] = h
+	m.mu.Unlock()
+}
+
+// unpushed counts a card the timer found that a push should have brought
+// first. Any push for the platform clears the count, so it only grows
+// while none arrive at all.
+func (m *Module) unpushed(k key, it item, src source) {
+	ps, ok := src.(pusher)
+	if !ok || !m.hooks.on() || !ps.pushes(it) {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.now().Sub(m.pushedAt[k]) <= pushLag {
+		return
+	}
+	h := m.health[k.platform]
+	h.missed++
+	m.health[k.platform] = h
+	if h.missed == missedPushes {
+		m.log.Warn("notify: cards are coming without pushes; check the platform's webhook settings", "platform", k.platform)
+	}
+}
+
+// missedPushes is how many cards in a row without a push mean push is
+// broken, not just a push trailing its card.
+const missedPushes = 2
+
+// pushState is a platform's push as an admin reads it on /help.
+func pushState(h health, now time.Time) string {
+	switch {
+	case !h.subbed:
+		return "not subscribed yet"
+	case h.sub != nil:
+		return "refused: " + line(strings.ReplaceAll(h.sub.Error(), "notify: ", ""), 160)
+	case h.missed >= missedPushes:
+		return fmt.Sprintf("missed the last %d, check its webhook settings", h.missed)
+	case !h.pushed.IsZero():
+		return "ok, last push " + core.Duration(now.Sub(h.pushed)) + " ago"
+	}
+	return "subscribed, no push yet"
 }
 
 // body reads a push up to maxPush.
@@ -135,6 +208,7 @@ func (m *Module) twitchPush(w http.ResponseWriter, r *http.Request) {
 	want := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 	sent, err := time.Parse(time.RFC3339Nano, at)
 	if !hmac.Equal([]byte(want), []byte(r.Header.Get("Twitch-Eventsub-Message-Signature"))) || err != nil || m.now().Sub(sent).Abs() > replay {
+		m.log.Warn("notify: refused a twitch push", "sent", at)
 		http.Error(w, "bad signature", http.StatusForbidden)
 		return
 	}
@@ -157,6 +231,7 @@ func (m *Module) twitchPush(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, msg.Challenge)
 		return
 	case "notification":
+		m.log.Info("notify: twitch pushed", "account", msg.Event.Login)
 		m.refresh("twitch", strings.ToLower(msg.Event.Login))
 	case "revocation":
 		m.log.Warn("notify: twitch revoked a push", "status", msg.Subscription.Status)
@@ -235,8 +310,11 @@ func (m *Module) youtubePush(w http.ResponseWriter, r *http.Request) {
 			} `xml:"entry"`
 		}
 		if xml.Unmarshal(b, &feed) == nil && len(feed.Entries) > 0 {
+			m.log.Info("notify: youtube pushed", "account", feed.Entries[0].Channel)
 			m.refresh("youtube", feed.Entries[0].Channel)
 		}
+	} else {
+		m.log.Warn("notify: refused a youtube push")
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -276,6 +354,8 @@ func (y *youtube) subscribe(ctx context.Context, ids []string, h hooks) error {
 // reconcile is youtube's usual check: a stream starting is never pushed,
 // so its /live page is still read every few minutes.
 func (y *youtube) reconcile() time.Duration { return y.every() }
+
+func (*youtube) pushes(it item) bool { return !it.live() }
 
 // twitchEvents are what skua takes from twitch: a stream starting, for its
 // card, and ending, to turn that card into its VOD.
@@ -370,7 +450,11 @@ func (t *twitch) keepSubs(ctx context.Context, typ string, want map[string]bool,
 	return errors.Join(errs...)
 }
 
-func (t *twitch) reconcile() time.Duration { return 15 * time.Minute }
+// reconcile is twitch's usual minute, as kick's: one call covers a
+// hundred logins, and a lost push would otherwise hold a card 15 minutes.
+func (t *twitch) reconcile() time.Duration { return t.every() }
+
+func (*twitch) pushes(it item) bool { return it.live() }
 
 // kickEvent is the one event skua takes from kick.
 const kickEvent = "livestream.status.updated"
@@ -439,6 +523,8 @@ func (k *kick) subscribe(ctx context.Context, slugs []string, _ hooks) error {
 // push that never comes (the webhook URL unset in kick's app settings, or a
 // subscription kick dropped) would otherwise hold a card for 15 minutes.
 func (k *kick) reconcile() time.Duration { return k.every() }
+
+func (*kick) pushes(it item) bool { return it.live() }
 
 // kickKey is kick's signing key, fetched on first use and again when a
 // signature fails against it, since kick may rotate it: at most once a
