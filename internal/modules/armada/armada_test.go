@@ -438,7 +438,7 @@ func TestArmadaToDiscord(t *testing.T) {
 	if got.AllowedMentions == nil || len(got.AllowedMentions.Parse) != 0 {
 		t.Error("it could ping")
 	}
-	if len(got.Files) != 1 || got.Files[0].Name != "blob.png" {
+	if len(got.Files) != 1 || !strings.HasSuffix(got.Files[0].Name, ".png") || got.Files[0].Name == "blob.png" {
 		t.Fatalf("files %+v", got.Files)
 	}
 	if b, _ := io.ReadAll(got.Files[0].Reader); string(b) != string(plain) {

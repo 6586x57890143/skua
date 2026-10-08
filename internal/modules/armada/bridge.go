@@ -239,6 +239,7 @@ func (m *Module) rehost(ctx context.Context, atts []discord.Attachment, puppet c
 			continue
 		}
 		data, served, err := fetch(ctx, m.fetcher, a.URL, maxFile)
+		data = scrub(data)
 		typ := served
 		if a.ContentType != nil && *a.ContentType != "" {
 			typ = strings.Split(*a.ContentType, ";")[0]
@@ -257,9 +258,7 @@ func (m *Module) rehost(ctx context.Context, atts []discord.Attachment, puppet c
 			continue
 		}
 		tag := []string{"imeta", "url " + u, "m " + typ, "x " + hash, "size " + strconv.Itoa(len(data))}
-		if a.Filename != "" {
-			tag = append(tag, "name "+a.Filename)
-		}
+		tag = append(tag, "name "+filename(a.URL, typ, a.Filename))
 		urls, tags = append(urls, u), append(tags, tag)
 	}
 	return urls, tags
@@ -760,6 +759,7 @@ func (m *Module) files(ctx context.Context, tags [][]string) ([]*discord.File, [
 				typ = served
 			}
 		}
+		data = scrub(data)
 		files = append(files, discord.NewFile(filename(u, typ, meta["name"]), "", bytes.NewReader(data)))
 		held += len(data)
 		urls = append(urls, u)

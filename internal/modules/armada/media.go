@@ -130,7 +130,6 @@ var mimeByExt = map[string]string{
 var (
 	extRe     = regexp.MustCompile(`\.[A-Za-z0-9]{1,8}$`)
 	subtypeRe = regexp.MustCompile(`^[a-z0-9]{1,8}$`)
-	unsafeRe  = regexp.MustCompile(`[^\w.\- ]+`)
 )
 
 func extFor(mimeType string) string {
@@ -181,19 +180,14 @@ func withExt(raw, mimeType string) string {
 	return u.String()
 }
 
-// filename is a safe upload name: the declared one, else the URL's, with
-// the extension the type implies when it has none.
+// filename is a random upload name keeping the declared extension, else
+// the URL's, else the one the type implies: the original says too much.
 func filename(raw, mimeType, declared string) string {
 	name := strings.TrimSpace(declared)
 	if name == "" {
 		name = lastSegment(raw)
 	}
-	name = strings.TrimSpace(strings.TrimLeft(unsafeRe.ReplaceAllString(name, "_"), ". \t"))
-	if name == "" {
-		name = "file"
-	}
-	ext := extRe.FindString(name)
-	stem := strings.TrimSuffix(name, ext)
+	ext := strings.ToLower(extRe.FindString(name))
 	if ext == "" {
 		if e := extFor(mimeType); e != "" {
 			ext = "." + e
@@ -201,13 +195,7 @@ func filename(raw, mimeType, declared string) string {
 			ext = ".bin"
 		}
 	}
-	if r := []rune(stem); len(r) > 96-len(ext) {
-		stem = string(r[:96-len(ext)])
-	}
-	if stem == "" {
-		stem = "file"
-	}
-	return stem + ext
+	return randomName() + ext
 }
 
 // blossom rehosts Discord attachments, whose signed CDN links expire in a

@@ -187,18 +187,21 @@ func TestMedia(t *testing.T) {
 		t.Error("with ext")
 	}
 	for in, want := range map[[3]string]string{
-		{"https://a/x/../../etc/passwd", "", ""}:        "passwd.bin",
-		{"https://a/abc", "image/png", ""}:              "abc.png",
-		{"https://a/", "", "..hidden"}:                  "hidden.bin",
-		{"https://a/", "", "<script>.js"}:               "_script_.js",
-		{"https://a/", "", strings.Repeat("n", 200)}:    strings.Repeat("n", 92) + ".bin",
-		{"https://a/", "image/gif", "  "}:               "file.gif",
-		{"https://a/x.tar.gz", "application/gzip", ""}:  "x.tar.gz",
-		{"https://a/x", "application/octet-stream", ""}: "x.bin",
+		{"https://a/x/../../etc/passwd", "", ""}:           ".bin",
+		{"https://a/abc", "image/png", ""}:                 ".png",
+		{"https://a/", "", "<script>.JS"}:                  ".js",
+		{"https://a/", "image/gif", "  "}:                  ".gif",
+		{"https://a/x.tar.gz", "application/gzip", ""}:     ".gz",
+		{"https://a/x", "application/octet-stream", ""}:    ".bin",
+		{"https://a/IMG_4471.jpg", "", "home address.jpg"}: ".jpg",
 	} {
-		if got := filename(in[0], in[1], in[2]); got != want {
+		got := filename(in[0], in[1], in[2])
+		if stem, ext, _ := strings.Cut(got, "."); "."+ext != want || len(stem) != 8 || strings.ToLower(stem) != stem {
 			t.Errorf("%v: %q", in, got)
 		}
+	}
+	if a := filename("", "", "a.png"); a == filename("", "", "a.png") {
+		t.Error("the same name twice")
 	}
 }
 
@@ -266,7 +269,7 @@ func TestRehostAttachments(t *testing.T) {
 	if len(urls) != 4 || len(tags) != 2 || !strings.HasPrefix(urls[0], up.URL+"/") || urls[2] != cdn.URL+"/huge" || urls[3] != "http://127.0.0.1:1/dead" {
 		t.Fatalf("%v %v", urls, tags)
 	}
-	if !slices.Contains(tags[0], "m image/png") || !slices.Contains(tags[0], "name a.png") || !slices.Contains(tags[1], "m image/png") {
+	if !slices.Contains(tags[0], "m image/png") || !strings.HasSuffix(tags[0][len(tags[0])-1], ".png") || slices.Contains(tags[0], "name a.png") || !slices.Contains(tags[1], "m image/png") {
 		t.Errorf("%v", tags)
 	}
 }
@@ -305,7 +308,7 @@ func TestPastedDiscordLinks(t *testing.T) {
 	h.m.blob = &blossom{servers: []string{up.URL}, http: http.DefaultClient}
 	h.m.fetcher = &http.Client{Transport: redirectTo(cdn.URL)}
 	got, tags = h.m.compose(context.Background(), 7, discord.Message{Content: bare}, key(t, 8))
-	if !strings.HasPrefix(got, up.URL+"/") || !strings.HasSuffix(got, ".gif") || len(tags) != 1 || !slices.Contains(tags[0], "name bounce.gif") {
+	if !strings.HasPrefix(got, up.URL+"/") || !strings.HasSuffix(got, ".gif") || len(tags) != 1 || slices.Contains(tags[0], "name bounce.gif") {
 		t.Errorf("rehosted %q %v", got, tags)
 	}
 }
