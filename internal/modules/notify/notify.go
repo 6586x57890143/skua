@@ -196,7 +196,7 @@ func (m *Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorNotice,
 		Line:  "tells a channel when someone posts or goes live",
-		About: "she keeps an eye on accounts across " + strings.Join(m.platforms(), ", ") + " and drops a card in this server's notify channel when one posts or goes live, pinging a role if you give her one. when she can hand that role out, each card has a ping me button so members can take it or drop it themselves. the first look at an account only learns what's already there, so nobody gets a backlog. admins run /notify to pick the channel and add or drop who's followed",
+		About: "admins run /notify to open a panel: pick the channel cards go to, add or drop accounts to follow and pick a role to ping. she watches those accounts on " + strings.Join(m.platforms(), ", ") + " and posts a card when one of them posts or goes live. a live card turns into the vod once the stream ends. when she can hand out the role, each card gets a ping me button so members can take it or drop it themselves. a new follow starts from what the account already has, so it never floods the channel with old posts",
 	}
 }
 

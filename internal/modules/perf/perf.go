@@ -49,7 +49,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorInfo,
 		Line:  "where her time goes with the slowest first",
-		About: "every module is timed in four parts: in is the trip from the gateway to her, run is her own work, wait is time spent behind discord's rate limits and http is the round trip itself. drop counts calls that gave up while still waiting. the go runtime's own overhead sits underneath. it covers every server she's in, which is why only her keeper can run it",
+		About: "/perf lists where her time goes in each module with the slowest first. every call is split four ways: in is the trip from discord's gateway to her, run is her own work, wait is time held back by discord's rate limits and http is the request itself. drop counts calls that gave up while waiting. the go runtime's own overhead is listed underneath. it covers every server she's in, so only her keeper can run it",
 	}
 }
 

@@ -99,7 +99,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorInfo,
 		Line:  "posts for you under your name when the chat won't let you",
-		About: "she posts your message through a webhook that wears your name, with a small line underneath saying it came through her. every whisper is screened first and still follows the channel's slowmode. right click one of yours to edit or delete it",
+		About: "/whisper posts your message in the channel under your own name and avatar. it goes out through a webhook, so a small line underneath says it came through her. use it when you can't post there as yourself. every whisper is screened first: slurs are swapped for something daft and credentials or bad links are refused. it still follows the channel's slowmode. to edit or delete one, right click it and look under apps",
 	}
 }
 

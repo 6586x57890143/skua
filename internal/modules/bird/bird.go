@@ -124,7 +124,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorOK,
 		Line:  "turns a member into a bird for a while",
-		About: "for up to an hour each message they send is swapped for a single bird call from xeno-canto, posted under their name with the species linked to its recording. setting minutes to 0 turns them back",
+		About: "an admin runs /bird on a member for up to 60 minutes. until the time runs out each message they send is swapped for a single real bird call from xeno-canto, posted under their name with the species linked to its recording. run it again with 0 minutes to turn them back early",
 	}
 }
 

@@ -162,7 +162,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorNotice,
 		Line:  "puts up a little flock when you react to your own post",
-		About: "react to your own message or your own whisper and she covers it in birds, fifteen of them picked at random, then takes your reaction away. keep doing it and she gets stingy: five a post until two minutes have passed. there's nothing to run",
+		About: "react to your own message or your own whisper with any emoji and she covers it in fifteen bird reactions picked at random, then takes your reaction away. do it again within two minutes and she only puts up five. she does it wherever she can add reactions",
 	}
 }
 
