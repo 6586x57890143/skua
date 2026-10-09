@@ -74,10 +74,15 @@ func sources(cfg Config, c *http.Client) map[string]source {
 	return s
 }
 
-// health is how a platform's last round went.
+// health is how a platform's last round went, and its push.
 type health struct {
 	ok  time.Time // the last round anything came back
 	err error     // the last round's failures
+
+	subbed bool      // a subscribe has run
+	sub    error     // what the last subscribe failed with
+	pushed time.Time // the last push that passed its signature
+	missed int       // cards since then that a push should have brought
 }
 
 type Module struct {
@@ -93,6 +98,9 @@ type Module struct {
 	// turns keeps one platform's checks from overlapping, a push's and a
 	// timer's, so one post is never announced twice.
 	turns map[string]*sync.Mutex
+	// looks is whether a preview answers as an image, so a card never
+	// carries one Discord shows as not found.
+	looks func(ctx context.Context, url string) bool
 
 	mu      sync.Mutex
 	follows []follow
@@ -100,9 +108,12 @@ type Module struct {
 	bound   map[snowflake.ID]snowflake.ID // guild -> where its cards go
 	live    map[stream][]posted           // live cards, until their stream ends
 	health  map[string]health
-	poster  Poster                  // set once skua is up
-	self    snowflake.ID            // skua's own user, once she is up
-	failed  map[snowflake.ID]string // channel -> why its last post failed
+	// pushedAt is each account's last push, so a card can tell whether
+	// one brought it.
+	pushedAt map[key]time.Time
+	poster   Poster                  // set once skua is up
+	self     snowflake.ID            // skua's own user, once she is up
+	failed   map[snowflake.ID]string // channel -> why its last post failed
 }
 
 // Every setting notify takes is optional, so none of them may stop skua:
@@ -154,11 +165,13 @@ func New(ctx context.Context, log *slog.Logger, g *guard.Guard, db DB, cfg Confi
 	if err != nil {
 		return nil, fmt.Errorf("notify: loading follows: %w", err)
 	}
+	c := &http.Client{Timeout: 20 * time.Second}
 	m := &Module{
-		log: log, guard: g, db: db, sources: sources(settle(cfg, log), &http.Client{Timeout: 20 * time.Second}),
-		on: func(snowflake.ID) bool { return true }, admin: admin, now: time.Now,
+		log: log, guard: g, db: db, sources: sources(settle(cfg, log), c),
+		looks: func(ctx context.Context, u string) bool { return image(ctx, c, u) },
+		on:    func(snowflake.ID) bool { return true }, admin: admin, now: time.Now,
 		hooks: hooksFrom(cfg, log), turns: map[string]*sync.Mutex{},
-		follows: st.follows, seen: st.seen, bound: st.bound, live: st.live, health: map[string]health{}, failed: map[snowflake.ID]string{},
+		follows: st.follows, seen: st.seen, bound: st.bound, live: st.live, health: map[string]health{}, pushedAt: map[key]time.Time{}, failed: map[snowflake.ID]string{},
 	}
 	for p := range m.sources {
 		m.turns[p] = &sync.Mutex{}
@@ -211,6 +224,7 @@ func (m *Module) forget(ctx context.Context, keys ...key) {
 	for _, k := range keys {
 		if !slices.ContainsFunc(m.follows, func(f follow) bool { return f.platform == k.platform && f.account == k.account }) {
 			delete(m.seen, k)
+			delete(m.pushedAt, k)
 			for s := range m.live {
 				if s.k == k {
 					delete(m.live, s)
@@ -245,7 +259,7 @@ func (m *Module) OnEvent(ev bot.Event) {
 }
 
 // start runs a loop per platform for the life of the process, and keeps
-// every platform that can push subscribed: now, and daily after.
+// every platform that can push subscribed: now, and hourly after.
 func (m *Module) start(ctx context.Context, p Poster) {
 	m.mu.Lock()
 	m.poster = p
@@ -257,7 +271,7 @@ func (m *Module) start(ctx context.Context, p Poster) {
 		return
 	}
 	go func() {
-		t := time.NewTicker(24 * time.Hour)
+		t := time.NewTicker(resubscribe)
 		defer t.Stop()
 		for {
 			for platform := range m.sources {
@@ -335,6 +349,9 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 			state = "ok " + core.Duration(m.now().Sub(h.ok)) + " ago"
 		}
 		r.Rows = append(r.Rows, [2]string{p, state})
+		if _, ok := m.sources[p].(pusher); ok && m.hooks.on() {
+			r.Rows = append(r.Rows, [2]string{p + " push", pushState(h, m.now())})
+		}
 	}
 	return r
 }

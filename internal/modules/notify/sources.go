@@ -49,12 +49,29 @@ type keeper interface {
 var errUnknown = errors.New("notify: no such account")
 
 // statusError is a platform answering something other than 2xx or 404.
+// why is the start of what it said, which is the only place a 400 names
+// the field it refused.
 type statusError struct {
 	host string
 	code int
+	why  string
 }
 
-func (e statusError) Error() string { return fmt.Sprintf("notify: %s answered %d", e.host, e.code) }
+func (e statusError) Error() string {
+	if e.why == "" {
+		return fmt.Sprintf("notify: %s answered %d", e.host, e.code)
+	}
+	return fmt.Sprintf("notify: %s answered %d: %s", e.host, e.code, e.why)
+}
+
+// gist is the start of a body on one line, for an error.
+func gist(body []byte) string {
+	s := strings.Join(strings.Fields(string(body)), " ")
+	if len(s) > 200 {
+		s = strings.ToValidUTF8(s[:200], "") + "..."
+	}
+	return s
+}
 
 // maxBody caps what one fetch reads: a youtube page is about 1 MB.
 const maxBody = 4 << 20
@@ -82,7 +99,7 @@ func do(c *http.Client, req *http.Request, v any) ([]byte, error) {
 	case res.StatusCode == http.StatusNotFound:
 		return nil, errUnknown
 	case res.StatusCode/100 != 2:
-		return nil, statusError{req.URL.Host, res.StatusCode}
+		return nil, statusError{req.URL.Host, res.StatusCode, gist(body)}
 	case err != nil:
 		return nil, err
 	case v != nil && len(body) > 0:

@@ -134,6 +134,13 @@ func (m *Module) observe(ctx context.Context, p Poster, k key, items []item, src
 			continue
 		}
 		m.announce(ctx, p, k, it)
+		m.unpushed(k, it, src)
+	}
+	// A stream still on keeps its cards current.
+	for _, it := range items {
+		if it.live() && slices.Contains(prev, it.ID) {
+			m.freshen(ctx, p, k, it)
+		}
 	}
 	// A stream seen last time and gone now has ended.
 	if known {
@@ -172,6 +179,7 @@ func remember(items []item, prev []string) []string {
 // announce posts it to every channel following its account, keeping each
 // live card so the stream's end can turn it into the VOD.
 func (m *Module) announce(ctx context.Context, p Poster, k key, it item) {
+	it.Image = m.picture(ctx, it.Image)
 	type card struct {
 		f  follow
 		to snowflake.ID

@@ -80,6 +80,7 @@ func pushed(t *testing.T, platform, account string, src source) (*Module, *safeP
 		t.Fatal(err)
 	}
 	m.sources = map[string]source{platform: src}
+	m.looks = func(context.Context, string) bool { return true }
 	m.turns = map[string]*sync.Mutex{platform: {}}
 	m.follows = []follow{{guild: 1, channel: 10, platform: platform, account: account, name: account}}
 	m.seen[key{platform, account}] = []string{}
@@ -412,7 +413,7 @@ func TestSubscribeTwitch(t *testing.T) {
 	if deletes != 6 || posts != 4 {
 		t.Fatalf("%d deletes, %d posts: %q", deletes, posts, calls)
 	}
-	if tw.reconcile() != 15*time.Minute {
+	if tw.reconcile() != tw.every() {
 		t.Fatal("reconcile")
 	}
 	if err := tw.subscribe(context.Background(), nil, hooks{url: "https://hooks", secret: secret}); err != nil {
@@ -457,7 +458,7 @@ func TestSubscribeKick(t *testing.T) {
 	if !slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "DELETE") }) || !slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "POST") }) {
 		t.Fatalf("%q", calls)
 	}
-	if k.reconcile() != 15*time.Minute {
+	if k.reconcile() != k.every() {
 		t.Fatal("reconcile")
 	}
 }
@@ -478,6 +479,8 @@ func (p *pushFake) subscribe(_ context.Context, accounts []string, _ hooks) erro
 }
 
 func (p *pushFake) reconcile() time.Duration { return 15 * time.Minute }
+
+func (p *pushFake) pushes(it item) bool { return it.live() }
 
 func (p *pushFake) calls() int {
 	p.mu.Lock()
@@ -546,5 +549,92 @@ func TestBadSettingsNeverStopSkua(t *testing.T) {
 		if n := strings.Count(logs.String(), "level=ERROR"); n != c.errors || !strings.Contains(logs.String(), c.mentions) {
 			t.Errorf("%s: %d errors, want %d naming %q: %s", name, n, c.errors, c.mentions, logs.String())
 		}
+	}
+}
+
+// Push health: a refused subscribe, a quiet one, cards the timer brings
+// without a push, and a push clearing them, each as /help shows it.
+func TestPushHealth(t *testing.T) {
+	pf := &pushFake{fake: newFake()}
+	m, p := pushed(t, "fake", "bird", pf)
+	var clock sync.Mutex
+	now := time.Date(2026, 10, 8, 18, 0, 0, 0, time.UTC)
+	m.now = func() time.Time { clock.Lock(); defer clock.Unlock(); return now }
+	row := func() string {
+		t.Helper()
+		for _, r := range m.Report(1).Rows {
+			if r[0] == "fake push" {
+				return r[1]
+			}
+		}
+		t.Fatalf("no push row: %v", m.Report(1).Rows)
+		return ""
+	}
+	if got := row(); got != "not subscribed yet" {
+		t.Fatal(got)
+	}
+	pf.err = errors.New(`subscribing 4407272: notify: api.kick.com answered 400: {"message":"webhooks off"}`)
+	m.subscribe("fake")
+	if got := row(); got != `refused: subscribing 4407272: api.kick.com answered 400: {"message":"webhooks off"}` {
+		t.Fatal(got)
+	}
+	pf.err = nil
+	m.subscribe("fake")
+	if got := row(); got != "subscribed, no push yet" {
+		t.Fatal(got)
+	}
+
+	// Two streams the timer found with no push: push is broken. A post
+	// is never pushed here, so it counts for nothing.
+	ctx := context.Background()
+	for i, id := range []string{"live:1", "a", "live:2"} {
+		pf.show("bird", item{ID: id, URL: "https://k/" + id})
+		m.poll(ctx, p, "fake", pf)
+		if i == 0 && row() != "subscribed, no push yet" {
+			t.Fatalf("one miss is a push trailing its card: %s", row())
+		}
+	}
+	if got := row(); got != "missed the last 2, check its webhook settings" {
+		t.Fatal(got)
+	}
+
+	// A push clears it; a card it brings isn't a miss.
+	pf.show("bird", item{ID: "live:3", URL: "https://k/3"})
+	m.refresh("fake", "bird")
+	waitFor(t, p, 4)
+	clock.Lock()
+	now = now.Add(3 * time.Minute)
+	clock.Unlock()
+	if got := row(); got != "ok, last push 3m ago" {
+		t.Fatal(got)
+	}
+	pf.show("bird", item{ID: "live:4", URL: "https://k/4"})
+	m.mu.Lock()
+	m.pushedAt[key{"fake", "bird"}] = m.now()
+	m.mu.Unlock()
+	m.poll(ctx, p, "fake", pf)
+	m.mu.Lock()
+	missed := m.health["fake"].missed
+	m.mu.Unlock()
+	if missed != 0 {
+		t.Fatal("a card a push just asked for counted as a miss")
+	}
+
+	// Push off: no row, nothing counted.
+	m.hooks = hooks{}
+	m.unpushed(key{"fake", "bird"}, item{ID: "live:9"}, pf)
+	for _, r := range m.Report(1).Rows {
+		if r[0] == "fake push" {
+			t.Fatal("a push row with push off")
+		}
+	}
+}
+
+func TestWhatEachPlatformPushes(t *testing.T) {
+	stream, upload := item{ID: "live:1"}, item{ID: "v1"}
+	if !(&twitch{}).pushes(stream) || (&twitch{}).pushes(upload) ||
+		!(&kick{}).pushes(stream) || (&kick{}).pushes(upload) ||
+		(&youtube{}).pushes(stream) || !(&youtube{}).pushes(upload) {
+		t.Fatal("twitch and kick push streams, youtube uploads")
 	}
 }
