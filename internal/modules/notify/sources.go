@@ -511,9 +511,10 @@ func (t *twitch) check(ctx context.Context, accounts []string) (map[string][]ite
 
 // kick is Kick's public API with an app token: fifty slugs a call.
 type kick struct {
-	app *app
-	api string // https://api.kick.com/public/v1
-	key kickKey
+	app  *app
+	api  string // https://api.kick.com/public/v1
+	site string // https://kick.com, for VODs
+	key  kickKey
 }
 
 type kickChannel struct {

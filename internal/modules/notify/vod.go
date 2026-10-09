@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -57,6 +58,9 @@ func (m *Module) end(ctx context.Context, p Poster, k key, id string, src source
 	v := m.fallback(k, it, cards[0].at)
 	if vd, ok := src.(vodder); ok {
 		if got, ok := vd.vod(ctx, k.account, it); ok {
+			if got.length == 0 {
+				got.length = v.length
+			}
 			v = got
 		}
 	}
@@ -156,6 +160,46 @@ func (t *twitch) vod(ctx context.Context, login string, it item) (vod, bool) {
 		// A thumbnail still being made comes back empty.
 		thumb := strings.NewReplacer("%{width}", "1280", "%{height}", "720").Replace(v.Thumb)
 		return vod{url: v.URL, image: thumb, length: length}, true
+	}
+	return vod{}, false
+}
+
+// kickVideo is one stream session on kick's site, its VOD from the
+// moment it starts.
+type kickVideo struct {
+	Start    string `json:"start_time"` // UTC, "2006-01-02 15:04:05"
+	Duration int64  `json:"duration"`   // ms; 0 while live
+	Thumb    struct {
+		Src string `json:"src"`
+	} `json:"thumbnail"`
+	Video struct {
+		UUID string `json:"uuid"`
+	} `json:"video"`
+}
+
+// vod is the stream's VOD on kick: its own page, preview and length. The
+// public API has none, so this is the list kick's own site reads, which
+// is undocumented: anything it doesn't answer, or answers differently,
+// is false, and the card points at the videos page instead.
+func (k *kick) vod(ctx context.Context, slug string, it item) (vod, bool) {
+	var videos []kickVideo
+	h := http.Header{"Accept": {"application/json"}}
+	if _, err := get(ctx, k.app.c, k.site+"/api/v2/channels/"+url.PathEscape(slug)+"/videos", h, &videos); err != nil {
+		return vod{}, false
+	}
+	for _, v := range videos {
+		start, err := time.Parse(time.DateTime, v.Start)
+		if err != nil || v.Video.UUID == "" {
+			continue
+		}
+		// Newest first: without a start of its own, the stream is the newest.
+		if !it.Started.IsZero() && start.Sub(it.Started).Abs() > 2*time.Minute {
+			continue
+		}
+		out := vod{url: k.site + "/" + url.PathEscape(slug) + "/videos/" + url.PathEscape(v.Video.UUID), image: v.Thumb.Src}
+		// 0 when it ended moments ago and kick hasn't written it yet.
+		out.length = time.Duration(v.Duration) * time.Millisecond
+		return out, true
 	}
 	return vod{}, false
 }

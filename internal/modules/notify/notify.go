@@ -69,7 +69,7 @@ func sources(cfg Config, c *http.Client) map[string]source {
 		s["twitch"] = &twitch{app: &app{c: c, url: "https://id.twitch.tv/oauth2/token", id: cfg.TwitchID, secret: cfg.TwitchSecret}, api: "https://api.twitch.tv/helix"}
 	}
 	if cfg.KickID != "" && cfg.KickSecret != "" {
-		s["kick"] = &kick{app: &app{c: c, url: "https://id.kick.com/oauth/token", id: cfg.KickID, secret: cfg.KickSecret}, api: "https://api.kick.com/public/v1"}
+		s["kick"] = &kick{app: &app{c: c, url: "https://id.kick.com/oauth/token", id: cfg.KickID, secret: cfg.KickSecret}, api: "https://api.kick.com/public/v1", site: "https://kick.com"}
 	}
 	return s
 }
