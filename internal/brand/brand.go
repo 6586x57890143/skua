@@ -92,6 +92,13 @@ func Icon(color int) (*discord.File, string) {
 	return asset("skua_" + mood)
 }
 
+// Art is one of skua's application emoji as its PNG: the bird alone is
+// "skua_avatar". Nil for a name that has none.
+func Art(key string) []byte {
+	data, _ := emojiArt.ReadFile("emoji/" + key + ".png")
+	return data
+}
+
 // Avatar is the bird alone, with no badge, as Icon gives it.
 func Avatar() (*discord.File, string) { return asset("skua_avatar") }
 

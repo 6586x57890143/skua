@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"image"
 	"io"
 	"log/slog"
 	"net/http"
@@ -81,6 +82,7 @@ func pushed(t *testing.T, platform, account string, src source) (*Module, *safeP
 	}
 	m.sources = map[string]source{platform: src}
 	m.looks = func(context.Context, string) bool { return true }
+	m.fetchFrame = func(context.Context, string) (image.Image, error) { return nil, errors.New("no frame") }
 	m.turns = map[string]*sync.Mutex{platform: {}}
 	m.follows = []follow{{guild: 1, channel: 10, platform: platform, account: account, name: account}}
 	m.seen[key{platform, account}] = []string{}

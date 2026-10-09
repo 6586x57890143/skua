@@ -15,14 +15,14 @@ import (
 	"github.com/6586x57890143/skua/internal/guard"
 )
 
-// A card's preview is checked before it is posted: Discord shows a link
+// A post's preview is checked before it is posted: Discord shows a link
 // that doesn't answer as an image as "image not found", and keeps it.
-// youtube makes its largest preview only for some videos and streams, and
-// kick a stream's only a while after it starts. A live card is kept
-// current while its stream is on (freshen).
+// youtube makes its largest preview only for some videos. A stream's card
+// carries skua's own picture instead (shot.go), kept current while the
+// stream is on (freshen).
 
-// image is whether u answers as an image.
-func image(ctx context.Context, c *http.Client, u string) bool {
+// answers is whether u answers as an image.
+func answers(ctx context.Context, c *http.Client, u string) bool {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return false
@@ -61,9 +61,8 @@ func (m *Module) picture(ctx context.Context, u string) string {
 const restyle = 10 * time.Minute
 
 // freshen keeps a live stream's cards current while it is on: a new title
-// or category at once, a preview the card went up without once the
-// platform has made one, and every restyle a fresh preview, on a new link
-// so Discord fetches it again instead of keeping a stale or missing one.
+// or category at once, a frame the picture went without once the platform
+// has made one, and every restyle a fresh frame and the time on air.
 func (m *Module) freshen(ctx context.Context, p Poster, k key, it item) {
 	s := stream{k, it.ID}
 	m.mu.Lock()
@@ -91,16 +90,27 @@ func (m *Module) freshen(ctx context.Context, p Poster, k key, it item) {
 		return
 	}
 	now := it
-	now.Cover = was.Cover
 	if now.Started.IsZero() {
 		now.Started = was.Started
 	}
-	if now.Image = m.picture(ctx, bust(it.Image, m.now())); now.Image == "" {
-		// Still not made: a card waiting only for it waits on.
-		if !changed && !due {
-			return
-		}
+	// A fresh frame, on a new link so no cache hands back an old one.
+	base, _ := m.frame(ctx, bust(it.Image, m.now()))
+	m.mu.Lock()
+	if base != nil {
+		m.frames[s] = base
+	} else {
+		base = m.frames[s]
 		now.Image = was.Image
+	}
+	m.mu.Unlock()
+	if now.Image == "" && !changed && !due {
+		// Still not made: a picture waiting only for it waits on.
+		return
+	}
+	pic, err := compose(base, headline(now), foot(now, m.now().Sub(start(now, cards[0].at)), false))
+	if err != nil {
+		m.log.Warn("notify: drawing a stream's picture", "account", k.account, "err", err)
+		return
 	}
 	m.mu.Lock()
 	for i := range m.live[s] {
@@ -113,13 +123,22 @@ func (m *Module) freshen(ctx context.Context, p Poster, k key, it item) {
 		}
 		err := m.guard.Allow(c.guild, guard.MessageSend)
 		if err == nil {
-			_, err = p.UpdateMessage(c.channel, c.message, relive(k.platform, now, c.role, m.canGrant(p, c.guild, c.role)))
+			shown, file := shot(now, pic)
+			_, err = p.UpdateMessage(c.channel, c.message, relive(k.platform, shown, c.role, m.canGrant(p, c.guild, c.role), file))
 			m.guard.Report(c.guild, struggling(err))
 		}
 		if err != nil {
 			m.log.Warn("notify: bringing a live card up to date", "guild", c.guild, "channel", c.channel, "err", err)
 		}
 	}
+}
+
+// start is when a stream began: where the platform says, or its card.
+func start(it item, posted time.Time) time.Time {
+	if it.Started.IsZero() {
+		return posted
+	}
+	return it.Started
 }
 
 // bust is u with the time on it, so each restyle's preview is a link
@@ -135,9 +154,19 @@ func bust(u string, t time.Time) string {
 	return u + sep + "t=" + strconv.FormatInt(t.Unix(), 10)
 }
 
-// relive is a live card again, as an edit: it never pings, since the role
-// was pinged when the stream started.
-func relive(platform string, it item, role snowflake.ID, grant bool) discord.MessageUpdate {
+// relive is a live card again, as an edit carrying its new picture in
+// place of the old: it never pings, since the role was pinged when the
+// stream started.
+func relive(platform string, it item, role snowflake.ID, grant bool, pic *discord.File) discord.MessageUpdate {
 	msg := alert(platform, it, role, grant)
-	return discord.MessageUpdate{Components: &msg.Components, AllowedMentions: core.NoPings()}
+	return withPicture(discord.MessageUpdate{Components: &msg.Components, AllowedMentions: core.NoPings()}, pic)
+}
+
+// withPicture swaps an edited card's upload for pic, when there is one.
+func withPicture(u discord.MessageUpdate, pic *discord.File) discord.MessageUpdate {
+	if pic != nil {
+		u.Files = []*discord.File{pic}
+		u.Attachments = &[]discord.AttachmentUpdate{}
+	}
+	return u
 }

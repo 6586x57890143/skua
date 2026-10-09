@@ -46,3 +46,9 @@ func TestPlatformColor(t *testing.T) {
 		t.Error("fallback")
 	}
 }
+
+func TestArt(t *testing.T) {
+	if len(Art("skua_avatar")) == 0 || Art("nobody") != nil {
+		t.Fatal("art")
+	}
+}

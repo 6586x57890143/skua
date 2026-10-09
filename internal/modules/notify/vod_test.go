@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"errors"
+	"image"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -85,7 +86,7 @@ func TestTheVODComesFromThePlatformWhenItHasOne(t *testing.T) {
 	m.keepLive(ctx, posted{k: key{"fake", "bird"}, guild: 1, channel: 10, message: 5, it: item{ID: "live:9", Title: "t", URL: "https://p/9"}, at: m.now()})
 	m.end(ctx, p, key{"fake", "bird"}, "live:9", vf)
 	got := js(p.edits[0].msg)
-	if !strings.Contains(got, "https://v/1") || !strings.Contains(got, "https://v/1.jpg") || !strings.Contains(got, "1h 30m") {
+	if !strings.Contains(got, "https://v/1") || !strings.Contains(got, "attachment://stream.jpg") || !strings.Contains(got, "1h 30m") {
 		t.Fatal(got)
 	}
 
@@ -123,7 +124,7 @@ func TestFallback(t *testing.T) {
 			t.Errorf("%s: %+v", c.platform, v)
 		}
 	}
-	if got := js(ended(key{"kick", "bird"}, item{Title: "t"}, vod{url: "https://kick.com/bird/videos", length: time.Hour}, 0, false)); !strings.Contains(got, `"label":"videos"`) || !strings.Contains(got, "1h 0m") {
+	if got := js(ended(key{"kick", "bird"}, item{Title: "t"}, vod{url: "https://kick.com/bird/videos", length: time.Hour}, 0, false, nil)); !strings.Contains(got, `"label":"videos"`) || !strings.Contains(got, "1h 0m") {
 		t.Fatal(got)
 	}
 }
@@ -242,6 +243,11 @@ func TestKickEndsOnItsVOD(t *testing.T) {
 	defer srv.Close()
 	k := &kick{app: &app{c: srv.Client()}, site: srv.URL}
 	m := module(t, newFake())
+	var asked []string
+	m.fetchFrame = func(_ context.Context, u string) (image.Image, error) {
+		asked = append(asked, u)
+		return image.NewRGBA(image.Rect(0, 0, 16, 9)), nil
+	}
 	now := time.Date(2026, 10, 9, 20, 20, 57, 0, time.UTC)
 	m.now = func() time.Time { return now }
 	p := &poster{}
@@ -250,7 +256,10 @@ func TestKickEndsOnItsVOD(t *testing.T) {
 		it: item{ID: "live:x", Title: "private investigator munki", URL: "https://kick.com/munkiki", Started: time.Date(2026, 10, 9, 18, 50, 57, 0, time.UTC)}})
 	m.end(ctx, p, key{"kick", "munkiki"}, "live:x", k)
 	got := js(p.edits[0].msg)
-	for _, want := range []string{srv.URL + "/munkiki/videos/u1", "https://k/vod.webp", `"label":"vod"`, "1h 30m"} {
+	if len(asked) == 0 || asked[0] != "https://k/vod.webp" {
+		t.Errorf("the picture is drawn on the VOD's own frame: %q", asked)
+	}
+	for _, want := range []string{srv.URL + "/munkiki/videos/u1", "attachment://stream.jpg", `"label":"vod"`, "1h 30m"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("no %q in %s", want, got)
 		}

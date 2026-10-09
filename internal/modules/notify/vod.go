@@ -64,11 +64,21 @@ func (m *Module) end(ctx context.Context, p Poster, k key, id string, src source
 			v = got
 		}
 	}
-	// The VOD's own preview, or the stream's last, or its stand in.
-	for _, img := range []string{v.image, it.Image, it.Cover} {
-		if v.image = m.picture(ctx, img); v.image != "" {
-			break
-		}
+	// The picture keeps the VOD's own frame, or the stream's last, or a
+	// fresh one of its link after a restart, or slate.
+	base, _ := m.frame(ctx, v.image)
+	m.mu.Lock()
+	if base == nil {
+		base = m.frames[s]
+	}
+	delete(m.frames, s)
+	m.mu.Unlock()
+	if base == nil {
+		base, _ = m.frame(ctx, it.Image)
+	}
+	pic, err := compose(base, headline(it), foot(it, v.length, true))
+	if err != nil {
+		m.log.Warn("notify: drawing a stream's picture", "account", k.account, "err", err)
 	}
 	for _, c := range cards {
 		if !m.on(c.guild) {
@@ -76,7 +86,11 @@ func (m *Module) end(ctx context.Context, p Poster, k key, id string, src source
 		}
 		err := m.guard.Allow(c.guild, guard.MessageSend)
 		if err == nil {
-			_, err = p.UpdateMessage(c.channel, c.message, ended(k, it, v, c.role, m.canGrant(p, c.guild, c.role)))
+			var file *discord.File
+			if pic != nil {
+				_, file = shot(it, pic)
+			}
+			_, err = p.UpdateMessage(c.channel, c.message, ended(k, it, v, c.role, m.canGrant(p, c.guild, c.role), file))
 			m.guard.Report(c.guild, struggling(err))
 		}
 		if err != nil {
@@ -108,10 +122,14 @@ func (m *Module) fallback(k key, it item, posted time.Time) vod {
 }
 
 // ended is a live card after its stream: the same card in the past tense,
-// its length beside the category, and a button to the VOD.
-func ended(k key, it item, v vod, role snowflake.ID, grant bool) discord.MessageUpdate {
+// its length beside the category, its picture redrawn as over, and a
+// button to the VOD.
+func ended(k key, it item, v vod, role snowflake.ID, grant bool, pic *discord.File) discord.MessageUpdate {
 	was := it
-	was.ID, was.URL, was.Image, was.Cover = "", v.url, v.image, ""
+	was.ID, was.URL, was.Image = "", v.url, ""
+	if pic != nil {
+		was.Image = "attachment://" + shotName
+	}
 	was.Detail = strings.TrimPrefix(was.Detail+" · "+core.Duration(v.length), " · ")
 	if was.Viewers > 0 {
 		was.Detail += " · peak " + count(was.Viewers)
@@ -122,7 +140,7 @@ func ended(k key, it item, v vod, role snowflake.ID, grant bool) discord.Message
 	}
 	msg := card(brand.ColorEnded, k.platform, "was live on "+k.platform, label, was, role, grant)
 	// Editing never pings: the role was pinged when the stream started.
-	return discord.MessageUpdate{Components: &msg.Components, AllowedMentions: core.NoPings()}
+	return withPicture(discord.MessageUpdate{Components: &msg.Components, AllowedMentions: core.NoPings()}, pic)
 }
 
 // vod is the stream's archive on twitch: its page, length and thumbnail.

@@ -22,9 +22,6 @@ import (
 // so the next one is news again.
 type item struct {
 	ID, Title, URL, Image, Author, Detail string
-	// Cover stands in for Image until the platform has made one, as a
-	// kick stream's first preview is a minute or two away.
-	Cover string
 	// Viewers is a stream's audience now, where the platform says.
 	Viewers int
 	// Started is when a stream began, where the platform says; zero

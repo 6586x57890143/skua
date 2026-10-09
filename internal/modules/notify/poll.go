@@ -180,11 +180,23 @@ func remember(items []item, prev []string) []string {
 // announce posts it to every channel following its account, keeping each
 // live card so the stream's end can turn it into the VOD.
 func (m *Module) announce(ctx context.Context, p Poster, k key, it item) {
-	// The preview, or until the platform has made one, the stand in.
-	if it.Image = m.picture(ctx, it.Image); it.Image == "" {
-		it.Cover = m.picture(ctx, it.Cover)
+	// A stream gets skua's picture of it, on its frame once the platform
+	// has made one; a post its preview, if that answers.
+	var pic []byte
+	if it.live() {
+		base, _ := m.frame(ctx, it.Image)
+		if base == nil {
+			it.Image = ""
+		}
+		m.mu.Lock()
+		m.frames[stream{k, it.ID}] = base
+		m.mu.Unlock()
+		var err error
+		if pic, err = compose(base, headline(it), foot(it, m.now().Sub(start(it, m.now())), false)); err != nil {
+			m.log.Warn("notify: drawing a stream's picture", "account", k.account, "err", err)
+		}
 	} else {
-		it.Cover = ""
+		it.Image = m.picture(ctx, it.Image)
 	}
 	type card struct {
 		f  follow
@@ -211,7 +223,16 @@ func (m *Module) announce(ctx context.Context, p Poster, k key, it item) {
 			if _, asked := grant[c.f.role]; !asked && c.f.role != 0 {
 				grant[c.f.role] = m.canGrant(p, c.f.guild, c.f.role)
 			}
-			msg, err = p.CreateMessage(c.to, alert(k.platform, it, c.f.role, grant[c.f.role]))
+			shown, create := it, discord.MessageCreate{}
+			var file *discord.File
+			if pic != nil {
+				shown, file = shot(it, pic)
+			}
+			create = alert(k.platform, shown, c.f.role, grant[c.f.role])
+			if file != nil {
+				create.Files = []*discord.File{file}
+			}
+			msg, err = p.CreateMessage(c.to, create)
 			m.guard.Report(c.f.guild, struggling(err))
 			if err == nil && msg != nil && it.live() {
 				m.keepLive(ctx, posted{k: k, guild: c.f.guild, channel: c.to, message: msg.ID, role: c.f.role, it: it, at: m.now()})
@@ -302,8 +323,8 @@ func card(color int, platform, what, label string, it item, role snowflake.ID, g
 		body += " · " + count(it.Viewers) + " watching"
 	}
 	var extra []discord.ContainerSubComponent
-	if img := first(it.Image, it.Cover); strings.HasPrefix(img, "https://") {
-		extra = append(extra, discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: img}}))
+	if strings.HasPrefix(it.Image, "https://") || strings.HasPrefix(it.Image, "attachment://") {
+		extra = append(extra, discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: it.Image}}))
 	}
 	var buttons []discord.InteractiveComponent
 	if strings.HasPrefix(it.URL, "https://") {
