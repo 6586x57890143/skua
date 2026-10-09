@@ -22,8 +22,8 @@ import (
 // so the next one is news again.
 type item struct {
 	ID, Title, URL, Image, Author, Detail string
-	// Cover stands in for Image until the platform has made one: kick's
-	// channel banner, while its stream's first preview is minutes away.
+	// Cover stands in for Image until the platform has made one, as a
+	// kick stream's first preview is a minute or two away.
 	Cover string
 	// Viewers is a stream's audience now, where the platform says.
 	Viewers int
@@ -521,7 +521,6 @@ type kickChannel struct {
 	ID       int64  `json:"broadcaster_user_id"`
 	Slug     string `json:"slug"`
 	Title    string `json:"stream_title"`
-	Banner   string `json:"banner_picture"`
 	Category struct {
 		Name string `json:"name"`
 	} `json:"category"`
@@ -577,7 +576,7 @@ func (k *kick) check(ctx context.Context, accounts []string) (map[string][]item,
 			start, _ := time.Parse(time.RFC3339, c.Stream.Start)
 			got[c.Slug] = []item{{
 				ID: "live:" + first(c.Stream.Start, "on"), Title: c.Title, URL: "https://kick.com/" + c.Slug,
-				Image: c.Stream.Thumbnail, Cover: c.Banner, Author: c.Slug, Detail: c.Category.Name, Started: start,
+				Image: c.Stream.Thumbnail, Author: c.Slug, Detail: c.Category.Name, Started: start,
 				Viewers: c.Stream.Viewers,
 			}}
 		}
