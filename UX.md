@@ -63,7 +63,9 @@ The rules every bird shares, which `brand/voice_test.go` holds the status lines 
   Errors stay `core.Tell`, plain text.
 - A notify card is the one card accented by platform, not mood: its platform's
   muted colour from `brand.PlatformColor`, because a channel of them reads by
-  platform. Its button and creator line wear the platform's tile. Once its stream
+  platform. Its button and creator line wear the platform's tile, the glyph in the
+  platform's colour lifted to read on slate (`platformInk` in `tools/sprites`). Its
+  title is the card's heading (`###`), linked to the post or stream. Once its stream
   is over it turns `brand.ColorEnded`, one muted ember for every platform, so live
   reads apart from finished. A stream's card carries skua's picture of it: the
   platform's frame under a slate band holding the bird (128 px, one px a cell),
