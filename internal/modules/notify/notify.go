@@ -12,6 +12,7 @@ package notify
 import (
 	"context"
 	"fmt"
+	"image"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -69,7 +70,7 @@ func sources(cfg Config, c *http.Client) map[string]source {
 		s["twitch"] = &twitch{app: &app{c: c, url: "https://id.twitch.tv/oauth2/token", id: cfg.TwitchID, secret: cfg.TwitchSecret}, api: "https://api.twitch.tv/helix"}
 	}
 	if cfg.KickID != "" && cfg.KickSecret != "" {
-		s["kick"] = &kick{app: &app{c: c, url: "https://id.kick.com/oauth/token", id: cfg.KickID, secret: cfg.KickSecret}, api: "https://api.kick.com/public/v1"}
+		s["kick"] = &kick{app: &app{c: c, url: "https://id.kick.com/oauth/token", id: cfg.KickID, secret: cfg.KickSecret}, api: "https://api.kick.com/public/v1", site: "https://kick.com"}
 	}
 	return s
 }
@@ -101,12 +102,15 @@ type Module struct {
 	// looks is whether a preview answers as an image, so a card never
 	// carries one Discord shows as not found.
 	looks func(ctx context.Context, url string) bool
+	// fetchFrame fetches and decodes a stream's frame for its picture.
+	fetchFrame func(ctx context.Context, url string) (image.Image, error)
 
 	mu      sync.Mutex
 	follows []follow
 	seen    map[key][]string
 	bound   map[snowflake.ID]snowflake.ID // guild -> where its cards go
 	live    map[stream][]posted           // live cards, until their stream ends
+	frames  map[stream]image.Image        // each live stream's last frame, for its picture
 	health  map[string]health
 	// pushedAt is each account's last push, so a card can tell whether
 	// one brought it.
@@ -168,10 +172,11 @@ func New(ctx context.Context, log *slog.Logger, g *guard.Guard, db DB, cfg Confi
 	c := &http.Client{Timeout: 20 * time.Second}
 	m := &Module{
 		log: log, guard: g, db: db, sources: sources(settle(cfg, log), c),
-		looks: func(ctx context.Context, u string) bool { return image(ctx, c, u) },
-		on:    func(snowflake.ID) bool { return true }, admin: admin, now: time.Now,
+		looks:      func(ctx context.Context, u string) bool { return answers(ctx, c, u) },
+		fetchFrame: func(ctx context.Context, u string) (image.Image, error) { return fetchImage(ctx, c, u) },
+		on:         func(snowflake.ID) bool { return true }, admin: admin, now: time.Now,
 		hooks: hooksFrom(cfg, log), turns: map[string]*sync.Mutex{},
-		follows: st.follows, seen: st.seen, bound: st.bound, live: st.live, health: map[string]health{}, pushedAt: map[key]time.Time{}, failed: map[snowflake.ID]string{},
+		follows: st.follows, seen: st.seen, bound: st.bound, live: st.live, health: map[string]health{}, pushedAt: map[key]time.Time{}, frames: map[stream]image.Image{}, failed: map[snowflake.ID]string{},
 	}
 	for p := range m.sources {
 		m.turns[p] = &sync.Mutex{}
@@ -228,6 +233,7 @@ func (m *Module) forget(ctx context.Context, keys ...key) {
 			for s := range m.live {
 				if s.k == k {
 					delete(m.live, s)
+					delete(m.frames, s)
 				}
 			}
 			gone = append(gone, k)

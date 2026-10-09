@@ -277,7 +277,7 @@ func TestTwitch(t *testing.T) {
 			if got := r.URL.Query()["user_login"]; len(got) != 2 {
 				t.Errorf("logins %v", got)
 			}
-			_, _ = w.Write([]byte(`{"data":[{"id":"9","user_login":"bird","user_name":"Bird","game_name":"Just Chatting","title":"hi","thumbnail_url":"https://t/{width}x{height}.jpg","started_at":"2026-10-07T09:00:00Z"}]}`))
+			_, _ = w.Write([]byte(`{"data":[{"id":"9","user_login":"bird","user_name":"Bird","game_name":"Just Chatting","title":"hi","thumbnail_url":"https://t/{width}x{height}.jpg","started_at":"2026-10-07T09:00:00Z","viewer_count":42}]}`))
 		}
 	})
 	tw := &twitch{app: &app{c: srv.Client(), url: srv.URL + "/token", id: "id", secret: "s"}, api: srv.URL}
@@ -296,7 +296,7 @@ func TestTwitch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := item{ID: "live:9", Title: "hi", URL: "https://www.twitch.tv/bird", Image: "https://t/1280x720.jpg?s=9", Author: "Bird", Detail: "Just Chatting", Started: time.Date(2026, 10, 7, 9, 0, 0, 0, time.UTC)}
+	want := item{ID: "live:9", Title: "hi", URL: "https://www.twitch.tv/bird", Image: "https://t/1280x720.jpg?s=9", Author: "Bird", Detail: "Just Chatting", Started: time.Date(2026, 10, 7, 9, 0, 0, 0, time.UTC), Viewers: 42}
 	if len(got["bird"]) != 1 || got["bird"][0] != want {
 		t.Fatalf("live:\n got %+v\nwant %+v", got["bird"], want)
 	}
@@ -334,7 +334,7 @@ func TestKick(t *testing.T) {
 			return
 		}
 		_, _ = w.Write([]byte(`{"data":[
-			{"slug":"bird","stream_title":"flying","category":{"name":"IRL"},"stream":{"is_live":true,"thumbnail":"https://k/t.jpg","start_time":"2026-10-07T10:00:00Z"}},
+			{"slug":"bird","stream_title":"flying","category":{"name":"IRL"},"stream":{"is_live":true,"thumbnail":"https://k/t.jpg","start_time":"2026-10-07T10:00:00Z","viewer_count":1234}},
 			{"slug":"quiet","stream":{"is_live":false}}]}`))
 	})
 	k := &kick{app: &app{c: srv.Client(), url: srv.URL + "/token", id: "id", secret: "s"}, api: srv.URL}
@@ -353,7 +353,7 @@ func TestKick(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := item{ID: "live:2026-10-07T10:00:00Z", Title: "flying", URL: "https://kick.com/bird", Image: "https://k/t.jpg", Author: "bird", Detail: "IRL", Started: time.Date(2026, 10, 7, 10, 0, 0, 0, time.UTC)}
+	want := item{ID: "live:2026-10-07T10:00:00Z", Title: "flying", URL: "https://kick.com/bird", Image: "https://k/t.jpg", Author: "bird", Detail: "IRL", Started: time.Date(2026, 10, 7, 10, 0, 0, 0, time.UTC), Viewers: 1234}
 	if len(got["bird"]) != 1 || got["bird"][0] != want {
 		t.Fatalf("live:\n got %+v\nwant %+v", got["bird"], want)
 	}

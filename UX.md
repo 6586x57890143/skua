@@ -63,7 +63,12 @@ The rules every bird shares, which `brand/voice_test.go` holds the status lines 
   Errors stay `core.Tell`, plain text.
 - A notify card is the one card accented by platform, not mood: its platform's
   muted colour from `brand.PlatformColor`, because a channel of them reads by
-  platform. Its button and creator line wear the platform's tile.
+  platform. Its button and creator line wear the platform's tile. Once its stream
+  is over it turns `brand.ColorEnded`, one muted ember for every platform, so live
+  reads apart from finished. A stream's card carries skua's picture of it: the
+  platform's frame under a slate band holding the bird (128 px, one px a cell),
+  the title in the 7 by 13 pixel face at 3 px a cell and who, how long and the
+  audience at 2 px, on slate with the bird at 2 px a cell until there is a frame.
 - A message skua posts as someone else (a bridge or a webhook) is their text. What
   skua adds to it, such as who it replies to, is a `-#` subtext line below it, never an
   embed: a webhook can't make a real Discord reply, and a box outweighs the message it

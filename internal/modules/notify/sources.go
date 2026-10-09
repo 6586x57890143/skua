@@ -22,6 +22,8 @@ import (
 // so the next one is news again.
 type item struct {
 	ID, Title, URL, Image, Author, Detail string
+	// Viewers is a stream's audience now, where the platform says.
+	Viewers int
 	// Started is when a stream began, where the platform says; zero
 	// otherwise, and the card's own time stands in.
 	Started time.Time
@@ -481,6 +483,7 @@ func (t *twitch) check(ctx context.Context, accounts []string) (map[string][]ite
 				Title string `json:"title"`
 				Thumb string `json:"thumbnail_url"`
 				Start string `json:"started_at"`
+				Seen  int    `json:"viewer_count"`
 			} `json:"data"`
 		}
 		if err := t.app.call(ctx, t.api+"/streams?"+q.Encode(), t.header(), &raw); err != nil {
@@ -496,7 +499,7 @@ func (t *twitch) check(ctx context.Context, accounts []string) (map[string][]ite
 			got[s.Login] = []item{{
 				ID: "live:" + s.ID, Title: s.Title, URL: "https://www.twitch.tv/" + s.Login,
 				// The preview is cached by URL: the stream's ID makes it this stream's.
-				Image: thumb + "?s=" + s.ID, Author: s.Name, Detail: s.Game, Started: start,
+				Image: thumb + "?s=" + s.ID, Author: s.Name, Detail: s.Game, Started: start, Viewers: s.Seen,
 			}}
 		}
 	}
@@ -505,9 +508,10 @@ func (t *twitch) check(ctx context.Context, accounts []string) (map[string][]ite
 
 // kick is Kick's public API with an app token: fifty slugs a call.
 type kick struct {
-	app *app
-	api string // https://api.kick.com/public/v1
-	key kickKey
+	app  *app
+	api  string // https://api.kick.com/public/v1
+	site string // https://kick.com, for VODs
+	key  kickKey
 }
 
 type kickChannel struct {
@@ -521,6 +525,7 @@ type kickChannel struct {
 		Live      bool   `json:"is_live"`
 		Thumbnail string `json:"thumbnail"`
 		Start     string `json:"start_time"`
+		Viewers   int    `json:"viewer_count"`
 	} `json:"stream"`
 }
 
@@ -569,6 +574,7 @@ func (k *kick) check(ctx context.Context, accounts []string) (map[string][]item,
 			got[c.Slug] = []item{{
 				ID: "live:" + first(c.Stream.Start, "on"), Title: c.Title, URL: "https://kick.com/" + c.Slug,
 				Image: c.Stream.Thumbnail, Author: c.Slug, Detail: c.Category.Name, Started: start,
+				Viewers: c.Stream.Viewers,
 			}}
 		}
 	}

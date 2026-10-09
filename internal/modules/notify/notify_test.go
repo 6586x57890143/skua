@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
 	"io"
 	"log/slog"
 	"net/http"
@@ -124,6 +125,7 @@ func module(t *testing.T, src *fake) *Module {
 	}
 	m.sources = map[string]source{"fake": src}
 	m.looks = func(context.Context, string) bool { return true }
+	m.fetchFrame = func(context.Context, string) (image.Image, error) { return nil, errors.New("no frame") }
 	return m
 }
 
@@ -219,7 +221,7 @@ func TestPollAnnouncesEachStreamOnce(t *testing.T) {
 		t.Fatalf("a stream that ended and started again is news: %d", len(p.sent))
 	}
 	b, _ := json.Marshal(p.sent[0].msg)
-	for _, want := range []string{"live on fake", "watch", "https://img", "IRL", `"parse":[]`} {
+	for _, want := range []string{"live on fake", "watch", "attachment://stream.jpg", "IRL", `"parse":[]`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("the live card has no %q: %s", want, b)
 		}
@@ -652,6 +654,7 @@ func TestModule(t *testing.T) {
 	src := newFake()
 	m.sources = map[string]source{"fake": src}
 	m.looks = func(context.Context, string) bool { return true }
+	m.fetchFrame = func(context.Context, string) (image.Image, error) { return nil, errors.New("no frame") }
 	m.follows = []follow{{guild: 1, channel: 10, platform: "fake", account: "bird"}}
 	src.show("bird", post("a"))
 	ctx, cancel := context.WithCancel(context.Background())
