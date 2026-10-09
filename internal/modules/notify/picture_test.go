@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/disgoorg/snowflake/v2"
+
+	"github.com/6586x57890143/skua/internal/brand"
 )
 
 func TestImageAnswersOnlyForAnImage(t *testing.T) {
@@ -210,6 +212,77 @@ func TestBust(t *testing.T) {
 	for in, want := range map[string]string{"https://a/b.jpg": "https://a/b.jpg?t=100", "https://a/b.jpg?s=1": "https://a/b.jpg?s=1&t=100", "": ""} {
 		if got := bust(in, at); got != want {
 			t.Errorf("%q: %q", in, got)
+		}
+	}
+}
+
+// kick's stream preview is minutes away when it goes live: the card shows
+// the channel's banner at once, swaps it for the preview as soon as there
+// is one, and shows who is watching. Ended, it turns ember with the peak
+// and the stream's last preview.
+func TestACardShowsSomethingAtOnce(t *testing.T) {
+	src := newFake()
+	m := module(t, src)
+	m.follows = []follow{{guild: 1, channel: 10, platform: "fake", account: "bird", name: "Bird"}}
+	ready := map[string]bool{"https://k/banner.webp": true}
+	var mu sync.Mutex
+	m.looks = func(_ context.Context, u string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for k := range ready {
+			if strings.HasPrefix(u, k) {
+				return true
+			}
+		}
+		return false
+	}
+	p := &poster{}
+	ctx := context.Background()
+	stream := item{ID: "live:1", Title: "on air", URL: "https://p/live1", Image: "https://k/t.webp", Cover: "https://k/banner.webp", Viewers: 950}
+	js := func(v any) string { b, _ := json.Marshal(v); return string(b) }
+
+	src.show("bird")
+	m.poll(ctx, p, "fake", src)
+	src.show("bird", stream)
+	m.poll(ctx, p, "fake", src)
+	if got := js(p.sent[0].msg); !strings.Contains(got, "https://k/banner.webp") || strings.Contains(got, "https://k/t.webp") || !strings.Contains(got, "950 watching") {
+		t.Fatalf("the banner and the audience at once: %s", got)
+	}
+
+	stream.Viewers = 1530
+	src.show("bird", stream)
+	m.poll(ctx, p, "fake", src)
+	if len(p.edits) != 0 {
+		t.Fatal("an edit for the audience alone")
+	}
+	mu.Lock()
+	ready["https://k/t.webp"] = true
+	mu.Unlock()
+	stream.Viewers = 1200
+	src.show("bird", stream)
+	m.poll(ctx, p, "fake", src)
+	if len(p.edits) != 1 {
+		t.Fatalf("the preview replaces the banner: %d edits", len(p.edits))
+	}
+	if got := js(p.edits[0].msg); !strings.Contains(got, "https://k/t.webp") || strings.Contains(got, "banner") || !strings.Contains(got, "1.2k watching") {
+		t.Fatalf("swapped: %s", got)
+	}
+
+	src.show("bird")
+	m.poll(ctx, p, "fake", src)
+	got := js(p.edits[len(p.edits)-1].msg)
+	if !strings.Contains(got, "was live on fake") || !strings.Contains(got, "peak 1.5k") || !strings.Contains(got, "https://k/t.webp") || strings.Contains(got, "watching") {
+		t.Fatalf("the ended card: %s", got)
+	}
+	if !strings.Contains(got, `"accent_color":`+strconv.Itoa(brand.ColorEnded)) {
+		t.Fatalf("an ended card is ember: %s", got)
+	}
+}
+
+func TestCount(t *testing.T) {
+	for n, want := range map[int]string{0: "0", 950: "950", 1000: "1k", 1234: "1.2k", 9999: "9.9k", 12345: "12k", 999_999: "999k", 1_250_000: "1.2m", 3_000_000: "3m"} {
+		if got := count(n); got != want {
+			t.Errorf("%d: %q, want %q", n, got, want)
 		}
 	}
 }

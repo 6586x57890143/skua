@@ -9,6 +9,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/guard"
 )
@@ -52,13 +53,19 @@ func (m *Module) end(ctx context.Context, p Poster, k key, id string, src source
 		m.log.Warn("notify: forgetting a live card", "account", k.account, "err", err)
 	}
 	it := cards[0].it
+	it.Viewers = max(it.Viewers, cards[0].peak)
 	v := m.fallback(k, it, cards[0].at)
 	if vd, ok := src.(vodder); ok {
 		if got, ok := vd.vod(ctx, k.account, it); ok {
 			v = got
 		}
 	}
-	v.image = m.picture(ctx, v.image)
+	// The VOD's own preview, or the stream's last, or its stand in.
+	for _, img := range []string{v.image, it.Image, it.Cover} {
+		if v.image = m.picture(ctx, img); v.image != "" {
+			break
+		}
+	}
 	for _, c := range cards {
 		if !m.on(c.guild) {
 			continue
@@ -100,13 +107,16 @@ func (m *Module) fallback(k key, it item, posted time.Time) vod {
 // its length beside the category, and a button to the VOD.
 func ended(k key, it item, v vod, role snowflake.ID, grant bool) discord.MessageUpdate {
 	was := it
-	was.ID, was.URL, was.Image = "", v.url, v.image
+	was.ID, was.URL, was.Image, was.Cover = "", v.url, v.image, ""
 	was.Detail = strings.TrimPrefix(was.Detail+" · "+core.Duration(v.length), " · ")
+	if was.Viewers > 0 {
+		was.Detail += " · peak " + count(was.Viewers)
+	}
 	label := "vod"
 	if strings.HasSuffix(v.url, "/videos") {
 		label = "videos"
 	}
-	msg := card(k.platform, "was live on "+k.platform, label, was, role, grant)
+	msg := card(brand.ColorEnded, k.platform, "was live on "+k.platform, label, was, role, grant)
 	// Editing never pings: the role was pinged when the stream started.
 	return discord.MessageUpdate{Components: &msg.Components, AllowedMentions: core.NoPings()}
 }

@@ -35,6 +35,11 @@ var platforms = map[string]int{
 	"tiktok":  0xA8728A, // muted rose
 }
 
+// ColorEnded is a stream's card once the stream is over, on every
+// platform: a muted ember in the platforms' tone, so a channel reads live
+// from finished at a glance.
+const ColorEnded = 0xA8744E
+
 // PlatformColor is platform's muted colour, or ColorNotice for one skua
 // has no colour for.
 func PlatformColor(platform string) int {

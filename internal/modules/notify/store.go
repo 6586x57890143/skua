@@ -36,6 +36,7 @@ type posted struct {
 	it                            item
 	at                            time.Time
 	edited                        time.Time // its last freshen; not stored, so a restart starts from at
+	peak                          int       // the most viewers seen; not stored either
 }
 
 // stream is a stream's live cards are found by: an account and the

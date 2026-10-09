@@ -10,6 +10,7 @@ import (
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/guard"
 )
@@ -51,7 +52,7 @@ func testCard(f follow, grant bool) discord.MessageCreate {
 	if !grant || f.role == 0 {
 		it.Detail = ""
 	}
-	msg := card(f.platform, "test card", "open", it, f.role, grant)
+	msg := card(brand.PlatformColor(f.platform), f.platform, "test card", "open", it, f.role, grant)
 	// A test pings no one: the role's mention line goes, and so does its
 	// allowance.
 	if f.role != 0 {

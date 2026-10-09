@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -179,7 +180,12 @@ func remember(items []item, prev []string) []string {
 // announce posts it to every channel following its account, keeping each
 // live card so the stream's end can turn it into the VOD.
 func (m *Module) announce(ctx context.Context, p Poster, k key, it item) {
-	it.Image = m.picture(ctx, it.Image)
+	// The preview, or until the platform has made one, the stand in.
+	if it.Image = m.picture(ctx, it.Image); it.Image == "" {
+		it.Cover = m.picture(ctx, it.Cover)
+	} else {
+		it.Cover = ""
+	}
 	type card struct {
 		f  follow
 		to snowflake.ID
@@ -261,17 +267,17 @@ var news = map[string]string{"youtube": "new on youtube", "x": "posted on x", "t
 // grant is whether the card carries the role's ping me button.
 func alert(platform string, it item, role snowflake.ID, grant bool) discord.MessageCreate {
 	if it.live() {
-		return card(platform, "live on "+platform, "watch", it, role, grant)
+		return card(brand.PlatformColor(platform), platform, "live on "+platform, "watch", it, role, grant)
 	}
-	return card(platform, news[platform], "open", it, role, grant)
+	return card(brand.PlatformColor(platform), platform, news[platform], "open", it, role, grant)
 }
 
-// card is a notify card: what happened in its head, the title linked, who
-// and what below it, the preview, and a button labelled label there.
-func card(platform, what, label string, it item, role snowflake.ID, grant bool) discord.MessageCreate {
-	// The platform's colour, so a channel of cards reads by platform at a
-	// glance. Link buttons can't be coloured: Discord draws them grey.
-	color := brand.PlatformColor(platform)
+// card is a notify card in color: what happened in its head, the title
+// linked, who and what below it, the preview, and a button labelled label
+// there. A live card is its platform's colour, so a channel of cards reads
+// by platform at a glance. Link buttons can't be coloured: Discord draws
+// them grey.
+func card(color int, platform, what, label string, it item, role snowflake.ID, grant bool) discord.MessageCreate {
 	title := line(it.Title, 200)
 	if title == "" {
 		title = "something new"
@@ -292,9 +298,12 @@ func card(platform, what, label string, it item, role snowflake.ID, grant bool) 
 	if it.Detail != "" {
 		body += " · " + line(it.Detail, 60)
 	}
+	if it.live() && it.Viewers > 0 {
+		body += " · " + count(it.Viewers) + " watching"
+	}
 	var extra []discord.ContainerSubComponent
-	if strings.HasPrefix(it.Image, "https://") {
-		extra = append(extra, discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: it.Image}}))
+	if img := first(it.Image, it.Cover); strings.HasPrefix(img, "https://") {
+		extra = append(extra, discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: img}}))
 	}
 	var buttons []discord.InteractiveComponent
 	if strings.HasPrefix(it.URL, "https://") {
@@ -340,4 +349,17 @@ func line(s string, n int) string {
 	}
 	r := []rune(s)
 	return strings.TrimSpace(string(r[:n-3])) + "..."
+}
+
+// count is a number as a card reads it: 950, 1.2k, 12k, 1.3m.
+func count(n int) string {
+	switch {
+	case n < 1000:
+		return strconv.Itoa(n)
+	case n < 10_000:
+		return strings.TrimSuffix(strconv.FormatFloat(float64(n/100)/10, 'f', 1, 64), ".0") + "k"
+	case n < 1_000_000:
+		return strconv.Itoa(n/1000) + "k"
+	}
+	return strings.TrimSuffix(strconv.FormatFloat(float64(n/100_000)/10, 'f', 1, 64), ".0") + "m"
 }

@@ -22,6 +22,11 @@ import (
 // so the next one is news again.
 type item struct {
 	ID, Title, URL, Image, Author, Detail string
+	// Cover stands in for Image until the platform has made one: kick's
+	// channel banner, while its stream's first preview is minutes away.
+	Cover string
+	// Viewers is a stream's audience now, where the platform says.
+	Viewers int
 	// Started is when a stream began, where the platform says; zero
 	// otherwise, and the card's own time stands in.
 	Started time.Time
@@ -481,6 +486,7 @@ func (t *twitch) check(ctx context.Context, accounts []string) (map[string][]ite
 				Title string `json:"title"`
 				Thumb string `json:"thumbnail_url"`
 				Start string `json:"started_at"`
+				Seen  int    `json:"viewer_count"`
 			} `json:"data"`
 		}
 		if err := t.app.call(ctx, t.api+"/streams?"+q.Encode(), t.header(), &raw); err != nil {
@@ -496,7 +502,7 @@ func (t *twitch) check(ctx context.Context, accounts []string) (map[string][]ite
 			got[s.Login] = []item{{
 				ID: "live:" + s.ID, Title: s.Title, URL: "https://www.twitch.tv/" + s.Login,
 				// The preview is cached by URL: the stream's ID makes it this stream's.
-				Image: thumb + "?s=" + s.ID, Author: s.Name, Detail: s.Game, Started: start,
+				Image: thumb + "?s=" + s.ID, Author: s.Name, Detail: s.Game, Started: start, Viewers: s.Seen,
 			}}
 		}
 	}
@@ -514,6 +520,7 @@ type kickChannel struct {
 	ID       int64  `json:"broadcaster_user_id"`
 	Slug     string `json:"slug"`
 	Title    string `json:"stream_title"`
+	Banner   string `json:"banner_picture"`
 	Category struct {
 		Name string `json:"name"`
 	} `json:"category"`
@@ -521,6 +528,7 @@ type kickChannel struct {
 		Live      bool   `json:"is_live"`
 		Thumbnail string `json:"thumbnail"`
 		Start     string `json:"start_time"`
+		Viewers   int    `json:"viewer_count"`
 	} `json:"stream"`
 }
 
@@ -568,7 +576,8 @@ func (k *kick) check(ctx context.Context, accounts []string) (map[string][]item,
 			start, _ := time.Parse(time.RFC3339, c.Stream.Start)
 			got[c.Slug] = []item{{
 				ID: "live:" + first(c.Stream.Start, "on"), Title: c.Title, URL: "https://kick.com/" + c.Slug,
-				Image: c.Stream.Thumbnail, Author: c.Slug, Detail: c.Category.Name, Started: start,
+				Image: c.Stream.Thumbnail, Cover: c.Banner, Author: c.Slug, Detail: c.Category.Name, Started: start,
+				Viewers: c.Stream.Viewers,
 			}}
 		}
 	}

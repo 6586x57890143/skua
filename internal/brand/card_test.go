@@ -39,6 +39,9 @@ func TestPlatformColor(t *testing.T) {
 		}
 		seen[c] = p
 	}
+	if _, mood := moods[ColorEnded]; mood || seen[ColorEnded] != "" {
+		t.Errorf("ended wears a mood's or a platform's colour %06X", ColorEnded)
+	}
 	if PlatformColor("mastodon") != ColorNotice {
 		t.Error("fallback")
 	}

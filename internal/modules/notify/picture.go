@@ -72,6 +72,13 @@ func (m *Module) freshen(ctx context.Context, p Poster, k key, it item) {
 	if len(cards) == 0 {
 		return
 	}
+	if it.Viewers > cards[0].peak {
+		m.mu.Lock()
+		for i := range m.live[s] {
+			m.live[s][i].peak = max(m.live[s][i].peak, it.Viewers)
+		}
+		m.mu.Unlock()
+	}
 	was := cards[0].it
 	last := cards[0].edited
 	if last.IsZero() {
@@ -84,6 +91,7 @@ func (m *Module) freshen(ctx context.Context, p Poster, k key, it item) {
 		return
 	}
 	now := it
+	now.Cover = was.Cover
 	if now.Started.IsZero() {
 		now.Started = was.Started
 	}
