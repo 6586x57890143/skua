@@ -310,13 +310,13 @@ func TestGuardHoldsBackARunaway(t *testing.T) {
 
 func TestAlert(t *testing.T) {
 	s := js(alert("youtube", item{ID: "v", Title: "a [weird]\ntitle", URL: "https://y/v", Author: "Bird", Image: "https://i"}, 0, false))
-	for _, want := range []string{"new on youtube", `**[a (weird) title](https://y/v)**`, "-# Bird", `"label":"open"`, `"parse":[]`} {
+	for _, want := range []string{"new on youtube", `### [a (weird) title](https://y/v)`, "-# Bird", `"label":"open"`, `"parse":[]`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("no %q in %s", want, s)
 		}
 	}
 	s = js(alert("x", item{ID: "v", URL: "javascript:x", Image: "http://i"}, 7, false))
-	if !strings.Contains(s, "**something new**") || strings.Contains(s, "javascript") || strings.Contains(s, "http://i") {
+	if !strings.Contains(s, "### something new") || strings.Contains(s, "javascript") || strings.Contains(s, "http://i") {
 		t.Fatalf("only https links and images: %s", s)
 	}
 	if !strings.Contains(s, `"content":"<@&7>"`) || !strings.Contains(s, `"roles":["7"]`) {
@@ -325,7 +325,7 @@ func TestAlert(t *testing.T) {
 	// A title with an emoji isn't a masked link: Discord would show the
 	// markdown. The button still links it.
 	s = js(alert("youtube", item{ID: "live:v", Title: "24/7 ambience \U0001F383 lofi", URL: "https://y/v"}, 0, false))
-	if !strings.Contains(s, "**24/7 ambience \U0001F383 lofi**") || strings.Contains(s, "](https://y/v)") || !strings.Contains(s, `"url":"https://y/v"`) {
+	if !strings.Contains(s, "### 24/7 ambience \U0001F383 lofi") || strings.Contains(s, "](https://y/v)") || !strings.Contains(s, `"url":"https://y/v"`) {
 		t.Fatalf("an emoji title: %s", s)
 	}
 	// A card wears its platform's muted tint; one without a tint, skua's notice.

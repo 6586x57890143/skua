@@ -303,11 +303,12 @@ func card(color int, platform, what, label string, it item, role snowflake.ID, g
 	if title == "" {
 		title = "something new"
 	}
-	// Discord leaves a masked link whose text holds an emoji as raw
-	// markdown, so such a title stays plain and the button carries it.
-	body := "**" + title + "**"
+	// The title is the card's heading, so it reads first. Discord leaves a
+	// masked link whose text holds an emoji as raw markdown, so such a
+	// title stays plain and the button carries it.
+	body := "### " + title
 	if strings.HasPrefix(it.URL, "https://") && !emoji(title) {
-		body = "**[" + title + "](" + it.URL + ")**"
+		body = "### [" + title + "](" + it.URL + ")"
 	}
 	// Who it was, behind their platform's tile, as on the /notify panel.
 	// Before the emoji sync the tile is left out, not attached.

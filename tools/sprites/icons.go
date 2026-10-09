@@ -250,7 +250,7 @@ var moduleGlyphs = map[string][]string{
 
 // platformGlyphs are the platforms notify follows, drawn by hand on the
 // same grid from each one's logo (2 cell strokes, so 12 by 12 at heart),
-// in skua's bone on slate like every other tile. Written as pf_<name>.
+// on slate like every other tile but in platformInk. Written as pf_<name>.
 var platformGlyphs = map[string][]string{
 	"youtube": {
 		"........................",
@@ -384,6 +384,18 @@ var platformGlyphs = map[string][]string{
 	},
 }
 
+// platformInk is each platform's glyph colour: its muted colour in brand
+// (PlatformColor) lifted to read on the slate tile, so a tile says which
+// platform at a glance and still sits in skua's palette. x has no colour
+// of its own and stays bone.
+var platformInk = map[string]color.NRGBA{
+	"youtube": rgb(0xD07A6C), // brand 0xA85A4E
+	"twitch":  rgb(0xA392C8), // brand 0x7A6A9C
+	"kick":    rgb(0x8FBF77), // brand 0x6F9A5B
+	"tiktok":  rgb(0xCF97AE), // brand 0xA8728A
+	"x":       bone[1],
+}
+
 // Emoji are 128px, the size Discord keeps an application emoji at. The
 // mood emoji are the bird at 1px cells, which is its own 128 cell grid,
 // wearing its badge at 4px cells; a module emoji is its glyph at 4px cells
@@ -430,8 +442,8 @@ func writeEmoji(b *image.NRGBA) {
 		mustWrite(filepath.Join(out, "skua_"+mood+".png"), img)
 	}
 	mustWrite(filepath.Join(out, "skua_avatar.png"), bird)
-	tiles(out, "mod_", moduleGlyphs)
-	tiles(out, "pf_", platformGlyphs)
+	tiles(out, "mod_", moduleGlyphs, nil)
+	tiles(out, "pf_", platformGlyphs, platformInk)
 	bare(out, "btn_notify", moduleGlyphs["notify"])
 }
 
@@ -444,15 +456,20 @@ func bare(out, name string, g []string) {
 	mustWrite(filepath.Join(out, name+".png"), img)
 }
 
-// tiles writes each glyph centred on a tile, as prefix+name.
-func tiles(out, prefix string, glyphs map[string][]string) {
+// tiles writes each glyph centred on a tile, as prefix+name, in its ink
+// from inks or bone.
+func tiles(out, prefix string, glyphs map[string][]string, inks map[string]color.NRGBA) {
 	for name, g := range glyphs {
 		if len(g) != glyphCells {
 			log.Fatalf("glyph %s%s has %d rows, want %d", prefix, name, len(g), glyphCells)
 		}
 		img := scale(tile(), emojiCell)
 		off := (tileCells - glyphCells) / 2 * emojiCell
-		drawScaled(img, g, off, off, map[byte]color.NRGBA{'w': bone[1]}, emojiCell)
+		ink, ok := inks[name]
+		if !ok {
+			ink = bone[1]
+		}
+		drawScaled(img, g, off, off, map[byte]color.NRGBA{'w': ink}, emojiCell)
 		mustWrite(filepath.Join(out, prefix+name+".png"), img)
 	}
 }
