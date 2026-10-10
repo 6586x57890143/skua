@@ -265,6 +265,9 @@ func run(log *slog.Logger) error {
 	// the link stale, which is no reason not to boot.
 	install := core.Install(running)
 	man := core.Manifest(running, identify)
+	// Which app skua is, so cygnet can build her install link and find her
+	// in a server.
+	man.App = app.ID.String()
 	manifest.Store(&man)
 	if wrote, err := core.SyncInstall(probeRest, app, install); err != nil {
 		log.Warn("updating the install settings", "err", err)
