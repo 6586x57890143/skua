@@ -2,10 +2,15 @@ package core
 
 import (
 	"errors"
+	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/rest"
+
+	"github.com/6586x57890143/cygnet/link"
 )
 
 type permsMod struct {
@@ -22,6 +27,28 @@ func TestInstallIsTheUnionOfRunningModules(t *testing.T) {
 	}
 	if !sameInstall(got, discord.InstallParams{Scopes: []discord.OAuth2Scope{discord.OAuth2ScopeBot, discord.OAuth2ScopeApplicationsCommands}, Permissions: got.Permissions}) {
 		t.Errorf("scopes = %v, want bot and applications.commands", got.Scopes)
+	}
+}
+
+func TestManifestIsWhatIsRunning(t *testing.T) {
+	cmds := []Command{
+		{Create: discord.SlashCommandCreate{Name: "ping"}, Tier: Public},
+		{Create: discord.SlashCommandCreate{Name: "status"}, Tier: Admin},
+		{Create: discord.MessageCommandCreate{Name: "purge"}, Tier: BreakGlass},
+	}
+	got := Manifest([]Module{permsMod{mod{cmds}, discord.PermissionManageWebhooks}, permsMod{p: discord.PermissionViewChannel}}, gateway.IntentGuilds|gateway.IntentGuildMessages)
+	if got.Perms != strconv.FormatUint(uint64(discord.PermissionManageWebhooks|discord.PermissionViewChannel), 10) {
+		t.Errorf("perms = %s", got.Perms)
+	}
+	if got.Intents != uint64(gateway.IntentGuilds|gateway.IntentGuildMessages) || got.Build != Revision() {
+		t.Errorf("intents %d, build %q", got.Intents, got.Build)
+	}
+	want := []link.Command{{Name: "ping", Tier: link.Public}, {Name: "status", Tier: link.Admin}, {Name: "purge", Tier: link.BreakGlass}}
+	if !slices.Equal(got.Commands, want) {
+		t.Errorf("commands = %v", got.Commands)
+	}
+	if empty := Manifest(nil, 0); empty.Commands == nil || empty.Perms != "0" {
+		t.Errorf("no modules: %+v, want an empty list and perms 0", empty)
 	}
 }
 
