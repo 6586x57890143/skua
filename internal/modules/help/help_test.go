@@ -394,7 +394,7 @@ func TestEveryPageKeepsTheVoice(t *testing.T) {
 		t.Fatal(err)
 	}
 	mods := []core.Module{
-		status.New(nil, nil, nil),
+		status.New(nil, nil, nil, nil),
 		whisper.New(nil, nil, nil),
 		bird.New(nil, nil, nil, ""),
 		purge.New(nil, nil, slog.New(slog.DiscardHandler), snowflake.ID(0)),

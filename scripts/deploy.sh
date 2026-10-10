@@ -30,6 +30,7 @@ set -euo pipefail
 cd ~/skua
 test -f .env || { echo "~/skua/.env is missing; run go run ./tools/setup -host <alias> -no-deploy first" >&2; exit 1; }
 export SKUA_IMAGE_TAG="$1"
+docker network inspect fleet >/dev/null 2>&1 || docker network create fleet
 docker compose -f docker-compose.prod.yml up -d --remove-orphans
 # Rolled back if it does not stay up for 30s, as in CI.
 sleep 30

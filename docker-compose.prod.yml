@@ -27,6 +27,10 @@ services:
     stop_grace_period: 30s
     mem_limit: 256m
     cpus: 1.0
+    # fleet is cygnet's hub network, shared by every bird on this host and
+    # never published: skua dials ws://cygnet:7700/v1/link on it. The deploy
+    # creates it if cygnet's stack hasn't yet.
+    networks: [default, fleet]
     logging:
       driver: json-file
       options:
@@ -84,3 +88,7 @@ services:
 
 volumes:
   pgdata:
+
+networks:
+  fleet:
+    external: true

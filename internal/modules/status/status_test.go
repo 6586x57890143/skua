@@ -65,11 +65,11 @@ func command(t *testing.T, m *Module, name string) discord.MessageCreate {
 }
 
 func TestPing(t *testing.T) {
-	m := New(nil, nil, func() time.Duration { return 42 * time.Millisecond })
+	m := New(nil, nil, nil, func() time.Duration { return 42 * time.Millisecond })
 	if got := command(t, m, "ping").Content; got != "pong · gateway 42 ms" {
 		t.Fatalf("got %q", got)
 	}
-	m = New(nil, nil, func() time.Duration { return 0 })
+	m = New(nil, nil, nil, func() time.Duration { return 0 })
 	if got := command(t, m, "ping").Content; got != "pong · gateway not measured yet" {
 		t.Fatalf("before the first heartbeat: %q", got)
 	}
@@ -80,17 +80,21 @@ func TestStatus(t *testing.T) {
 		name  string
 		probe Probe
 		db    Pinger
+		fleet Pinger
 		color int
 		want  string
 	}{
-		{"no database", Probe{Granted: gateway.IntentGuilds}, nil, brand.ColorOK, "\ndatabase    not configured\n"},
-		{"database up", Probe{}, pinger{}, brand.ColorOK, "\ndatabase    0."},
-		{"database down", Probe{}, pinger{errors.New("refused")}, brand.ColorError, "```\n-# database: refused"},
-		{"gateway not measured", Probe{}, nil, brand.ColorOK, "\ngateway     not measured yet\n"},
-		{"module skipped", Probe{Skipped: []string{"whisper"}}, nil, brand.ColorWarn, "\nskipped     whisper\n"},
+		{"no database", Probe{Granted: gateway.IntentGuilds}, nil, nil, brand.ColorOK, "\ndatabase    not configured\n"},
+		{"database up", Probe{}, pinger{}, nil, brand.ColorOK, "\ndatabase    0."},
+		{"database down", Probe{}, pinger{errors.New("refused")}, nil, brand.ColorError, "```\n-# database: refused"},
+		{"gateway not measured", Probe{}, nil, nil, brand.ColorOK, "\ngateway     not measured yet\n"},
+		{"cygnet up", Probe{}, nil, pinger{}, brand.ColorOK, "\ncygnet      0."},
+		{"cygnet down", Probe{}, nil, pinger{errors.New("offline: not linked")}, brand.ColorError, "```\n-# cygnet: offline: not linked"},
+		{"no cygnet", Probe{}, nil, nil, brand.ColorOK, "\ncygnet      not configured\n"},
+		{"module skipped", Probe{Skipped: []string{"whisper"}}, nil, nil, brand.ColorWarn, "\nskipped     whisper\n"},
 	}
 	for _, c := range cases {
-		m := New(func() Probe { return c.probe }, c.db, func() time.Duration { return 0 })
+		m := New(func() Probe { return c.probe }, c.db, c.fleet, func() time.Duration { return 0 })
 		r := command(t, m, "status")
 		if len(r.Embeds) != 1 || len(r.Files) != 1 {
 			t.Fatalf("%s: want one embed with its icon file, got %+v", c.name, r)
@@ -112,7 +116,7 @@ func TestMs(t *testing.T) {
 }
 
 func TestModuleContract(t *testing.T) {
-	m := New(nil, nil, nil)
+	m := New(nil, nil, nil, nil)
 	if m.Name() != "status" || m.Want().Required != gateway.IntentGuilds {
 		t.Fatal("status must require only guilds")
 	}
