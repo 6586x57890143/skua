@@ -166,21 +166,17 @@ func (m *Module) off(guild *snowflake.ID, name string) bool {
 
 // index is compact: one small avatar by the title, then every module in one
 // text block, so a page holds as many modules as Discord's text limit allows
-// rather than as many thumbnails. Each module is its branch of the tree and
-// its name on a short line that never wraps, and what it does as subtext
-// below, which can wrap on a phone without dragging anything out of line.
+// rather than as many thumbnails. Each module is its icon and name on a
+// short line that never wraps, and what it does as subtext below, which can
+// wrap on a phone without dragging anything out of line.
 func (m *Module) index(guild *snowflake.ID) discord.MessageCreate {
 	es := m.entries()
 	var att files
 	commands := 0
 	var list strings.Builder
-	for i, en := range es {
+	for _, en := range es {
 		commands += len(en.mod.Commands())
-		branch := "├"
-		if i == len(es)-1 {
-			branch = "└"
-		}
-		fmt.Fprintf(&list, "`%s` %s**%s**", branch, icon(en.mod.Name()), en.mod.Name())
+		fmt.Fprintf(&list, "%s**%s**", icon(en.mod.Name()), en.mod.Name())
 		if m.off(guild, en.mod.Name()) {
 			list.WriteString(" · `off here`")
 		}
