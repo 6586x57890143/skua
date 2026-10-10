@@ -28,6 +28,8 @@ func TestReadout(t *testing.T) {
 	rec.Add("whisper", obs.Run, 3*time.Millisecond)
 	rec.Add("put reactions/@me", obs.Wait, 250*time.Millisecond)
 	rec.Add("whisper", obs.HTTP, 80*time.Millisecond)
+	rec.Add("preen fill", obs.Run, 9417*time.Millisecond)
+	rec.Add("get channels", obs.Wait, 3758*time.Millisecond)
 	for range 1500 {
 		rec.Add("bird", obs.In, 40*time.Millisecond)
 	}
@@ -39,10 +41,11 @@ func TestReadout(t *testing.T) {
 		}
 	}
 	first := lines[2]
-	if !strings.HasPrefix(first, "put reacti wait ████") {
-		t.Errorf("first row %q, want the rate limit wait with a full bar", first)
+	if !strings.HasPrefix(first, "preen fill run     █") {
+		t.Errorf("first row %q, want the slowest with a full bar", first)
 	}
-	for _, s := range []string{"whisper run", "1.5k", "go sched", "40 µs", "go gc pause", "build " + core.Revision()} {
+	// Every value keeps a gap from the one before it.
+	for _, s := range []string{"9.4s   9.4s", "3.8s   3.8s", "get channels wait", "put reactions wait", "whisper run", "1.5k", "go sched", "40 µs", "go gc pause", "build " + core.Revision()} {
 		if !strings.Contains(got, s) {
 			t.Errorf("readout is missing %q:\n%s", s, got)
 		}
@@ -96,6 +99,7 @@ func TestFormatting(t *testing.T) {
 		85 * time.Microsecond:   "85 µs",
 		3100 * time.Microsecond: "3.1 ms",
 		250 * time.Millisecond:  "250 ms",
+		9417 * time.Millisecond: "9.4s",
 		12 * time.Second:        "12s",
 	} {
 		if got := dur(d); got != want {
