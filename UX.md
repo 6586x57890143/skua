@@ -48,8 +48,9 @@ The rules every bird shares, which `brand/voice_test.go` holds the status lines 
   The about says what the module does and how to use it before anything else.
 - An ASCII glyph that leads a line (`├ └ ▸`) leads only a line short enough never to
   wrap, or one inside a code block: a wrapped line leaves its text hanging under the
-  glyph on a phone. The `/help` index's tree marks each module's name line, and its
-  command grid branches subcommands inside the code block.
+  glyph on a phone. The `/help` index has no tree: each module's emoji leads its name
+  line, with what it does as `-#` subtext below. Its command grid branches subcommands
+  inside the code block.
 - Every other reply is a card (`brand.Card`, `/purge` is the reference): one
   Components V2 container, accented in the mood of what it says (ok when done, warn
   while working, error when it failed, info for a readout), whose first line is the
