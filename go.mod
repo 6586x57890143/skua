@@ -16,7 +16,7 @@ require (
 )
 
 require (
-	github.com/6586x57890143/cygnet/link v0.1.0 // indirect
+	github.com/6586x57890143/cygnet/link v0.2.0 // indirect
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.5 // indirect
 	github.com/btcsuite/btcd/chainhash/v2 v2.0.0 // indirect
