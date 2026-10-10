@@ -72,9 +72,10 @@ func (m *Module) perf(_ context.Context, e *events.ApplicationCommandInteraction
 	})
 }
 
-// The grid's columns: label, bar, p99, p50, count. 16+5+7+7+5 is 40, the
-// line limit UX.md sets.
-const labelW, barW = 16, 5
+// The grid's columns: label, bar, p99, p50, count. 19+2+7+7+5 is 40, the
+// line limit UX.md sets. A value is at most 6 wide, so its column keeps a
+// gap, and the label gets the room a call's name needs.
+const labelW, barW = 19, 2
 
 func (m *Module) readout() string {
 	rows := m.rec.Rows()
@@ -121,8 +122,10 @@ func dur(d time.Duration) string {
 		return fmt.Sprintf("%d µs", d.Microseconds())
 	case d < 10*time.Millisecond:
 		return fmt.Sprintf("%.1f ms", float64(d)/float64(time.Millisecond))
-	case d < 10*time.Second:
+	case d < time.Second:
 		return fmt.Sprintf("%d ms", d.Milliseconds())
+	case d < 10*time.Second:
+		return fmt.Sprintf("%.1fs", d.Seconds())
 	}
 	return fmt.Sprintf("%ds", int(d.Seconds()))
 }
