@@ -3,6 +3,7 @@ module github.com/6586x57890143/skua
 go 1.27.0
 
 require (
+	github.com/6586x57890143/cygnet/link v0.2.0
 	github.com/btcsuite/btcd/btcec/v2 v2.5.0
 	github.com/disgoorg/disgo v0.19.6
 	github.com/disgoorg/omit v1.0.0
@@ -16,7 +17,6 @@ require (
 )
 
 require (
-	github.com/6586x57890143/cygnet/link v0.2.0 // indirect
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.5 // indirect
 	github.com/btcsuite/btcd/chainhash/v2 v2.0.0 // indirect
