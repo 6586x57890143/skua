@@ -180,6 +180,7 @@ jobs:
             export SKUA_IMAGE_TAG="$IMAGE_TAG"
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             docker compose -f docker-compose.prod.yml pull bot
+            docker network inspect fleet >/dev/null 2>&1 || docker network create fleet
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
             docker logout ghcr.io
             # A bot that dies in its first 30s (a bad token, a failed

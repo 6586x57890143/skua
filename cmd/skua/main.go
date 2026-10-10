@@ -25,6 +25,8 @@ import (
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/cygnet/link"
+
 	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/filter"
@@ -124,6 +126,19 @@ func run(log *slog.Logger) error {
 		toggles = core.NewToggles(off, store.SaveModule(pool))
 	}
 
+	// The link to cygnet, the fleet's hub, only where it is configured. It
+	// runs on ctx, so a shutdown says goaway before the gateway closes.
+	var fleet status.Pinger
+	linked := make(chan struct{})
+	if url, tok := os.Getenv("SKUA_CYGNET_URL"), os.Getenv("SKUA_CYGNET_TOKEN"); url != "" && tok != "" {
+		c := link.New(link.Config{URL: url, Token: tok, Build: core.Revision(), Log: log})
+		c.Handle("ping", func(context.Context, link.Call) (any, error) { return nil, nil })
+		fleet = hub{c}
+		go func() { _ = c.Run(ctx); close(linked) }()
+	} else {
+		close(linked)
+	}
+
 	// Ask the portal what is granted before choosing what to identify with.
 	probeRest := rest.New(rest.NewClient(token))
 	app, err := probeRest.GetCurrentApplication()
@@ -147,7 +162,7 @@ func run(log *slog.Logger) error {
 	// deploy.
 	preener := preen.New(g, obs.Default, whispers)
 	all := []core.Module{
-		status.New(func() status.Probe { return probe }, db, func() time.Duration {
+		status.New(func() status.Probe { return probe }, db, fleet, func() time.Duration {
 			if client == nil || client.Gateway == nil {
 				return 0
 			}
@@ -303,6 +318,7 @@ func run(log *slog.Logger) error {
 		case <-ctx.Done():
 			// No new events, then the self-reacts already taken are answered
 			// before the REST client closes (docker-compose.prod.yml gives 30s).
+			<-linked
 			client.Gateway.Close(context.Background())
 			if !preener.Drain(drainBy) {
 				log.Warn("shutting down with preen work still owed")
@@ -352,6 +368,11 @@ func servePprof(addr string, log *slog.Logger) error {
 	}()
 	return nil
 }
+
+// hub is cygnet as /status pings it: a round trip through the hub.
+type hub struct{ *link.Client }
+
+func (h hub) Ping(ctx context.Context) error { return h.Call(ctx, "cygnet.ping", nil, nil) }
 
 func env(k, def string) string {
 	if v := os.Getenv(k); v != "" {

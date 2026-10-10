@@ -25,18 +25,19 @@ type Probe struct {
 	Skipped             []string
 }
 
-// Pinger is the database, or nil when skua runs without one.
+// Pinger is the database, or cygnet's hub, or nil when skua runs without
+// it.
 type Pinger interface{ Ping(context.Context) error }
 
 type Module struct {
-	probe   func() Probe
-	db      Pinger
-	latency func() time.Duration
-	started time.Time
+	probe     func() Probe
+	db, fleet Pinger
+	latency   func() time.Duration
+	started   time.Time
 }
 
-func New(probe func() Probe, db Pinger, latency func() time.Duration) *Module {
-	return &Module{probe: probe, db: db, latency: latency, started: time.Now()}
+func New(probe func() Probe, db, fleet Pinger, latency func() time.Duration) *Module {
+	return &Module{probe: probe, db: db, fleet: fleet, latency: latency, started: time.Now()}
 }
 
 func (*Module) Name() string { return "status" }
@@ -51,7 +52,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorIdle,
 		Line:  "how she's doing right now",
-		About: "two quick checks on how she's doing. /ping shows how long discord's gateway takes to answer her, which is the first thing to look at when she feels slow. /status is for admins and shows the intents discord granted her, whether her database answers and how long she's been up",
+		About: "two quick checks on how she's doing. /ping shows how long discord's gateway takes to answer her, which is the first thing to look at when she feels slow. /status is for admins and shows the intents discord granted her, whether her database and cygnet answer and how long she's been up",
 	}
 }
 
@@ -63,7 +64,7 @@ func (m *Module) Commands() []core.Command {
 			Run:    m.ping,
 		},
 		{
-			Create: discord.SlashCommandCreate{Name: "status", Description: "intents, database and uptime"},
+			Create: discord.SlashCommandCreate{Name: "status", Description: "intents, database, cygnet and uptime"},
 			Tier:   core.Admin,
 			Run:    m.status,
 		},
@@ -88,19 +89,15 @@ func (m *Module) status(ctx context.Context, e *events.ApplicationCommandInterac
 	var notes []string
 
 	rows = append(rows, [2]string{"gateway", gatewayMs(m.latency())})
-	if m.db == nil {
-		rows = append(rows, [2]string{"database", "not configured"})
-	} else {
-		ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		start := time.Now()
-		err := m.db.Ping(ctx)
-		cancel()
-		if err != nil {
+	for _, p := range []struct {
+		name string
+		p    Pinger
+	}{{"database", m.db}, {"cygnet", m.fleet}} {
+		row, note := ping(ctx, p.name, p.p)
+		rows = append(rows, [2]string{p.name, row})
+		if note != "" {
 			color = brand.ColorError
-			rows = append(rows, [2]string{"database", "unreachable"})
-			notes = append(notes, "-# database: "+truncate(err.Error(), 200))
-		} else {
-			rows = append(rows, [2]string{"database", ms(time.Since(start))})
+			notes = append(notes, note)
 		}
 	}
 	rows = append(rows,
@@ -122,6 +119,21 @@ func (m *Module) status(ctx context.Context, e *events.ApplicationCommandInterac
 		Flags:           discord.MessageFlagEphemeral,
 		AllowedMentions: core.NoPings(),
 	})
+}
+
+// ping is one dependency's row: its round trip, or why it has none, with
+// the error as a note below the grid.
+func ping(ctx context.Context, name string, p Pinger) (row, note string) {
+	if p == nil {
+		return "not configured", ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	start := time.Now()
+	if err := p.Ping(ctx); err != nil {
+		return "unreachable", "-# " + name + ": " + truncate(err.Error(), 200)
+	}
+	return ms(time.Since(start)), ""
 }
 
 // ms is a round trip in milliseconds: one decimal under 10ms, where the
