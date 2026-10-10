@@ -2,9 +2,13 @@ package core
 
 import (
 	"slices"
+	"strconv"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/rest"
+
+	"github.com/6586x57890143/cygnet/link"
 )
 
 // Install is what adding skua to a server asks for: the bot and its slash
@@ -19,6 +23,28 @@ func Install(running []Module) discord.InstallParams {
 		Scopes:      []discord.OAuth2Scope{discord.OAuth2ScopeApplicationsCommands, discord.OAuth2ScopeBot},
 		Permissions: p,
 	}
+}
+
+// tiers is core's Tier in the fleet's shared terms.
+var tiers = map[Tier]link.Tier{Public: link.Public, Admin: link.Admin, BreakGlass: link.BreakGlass}
+
+// Manifest is what skua tells cygnet about herself when asked: the same
+// permissions Install asks a server for, the intents she identified with,
+// and every running module's commands with who may run them. It describes
+// the process, never one server's module switches.
+func Manifest(running []Module, identify gateway.Intents) link.Manifest {
+	m := link.Manifest{
+		Build:    Revision(),
+		Perms:    strconv.FormatUint(uint64(Install(running).Permissions), 10),
+		Intents:  uint64(identify),
+		Commands: []link.Command{},
+	}
+	for _, mod := range running {
+		for _, c := range mod.Commands() {
+			m.Commands = append(m.Commands, link.Command{Name: c.Create.CommandName(), Tier: tiers[c.Tier]})
+		}
+	}
+	return m
 }
 
 // SyncInstall makes want the app's Default Install Settings, which is what

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -129,10 +130,20 @@ func run(log *slog.Logger) error {
 	// The link to cygnet, the fleet's hub, only where it is configured. It
 	// runs on ctx, so a shutdown says goaway before the gateway closes.
 	var fleet status.Pinger
+	var manifest atomic.Pointer[link.Manifest]
 	linked := make(chan struct{})
 	if url, tok := os.Getenv("SKUA_CYGNET_URL"), os.Getenv("SKUA_CYGNET_TOKEN"); url != "" && tok != "" {
 		c := link.New(link.Config{URL: url, Token: tok, Build: core.Revision(), Log: log})
 		c.Handle("ping", func(context.Context, link.Call) (any, error) { return nil, nil })
+		// What cygnet installs skua with. Read once the modules are resolved;
+		// a call before then is refused busy, as the hub would for a full link.
+		c.Handle(link.ManifestMethod, func(context.Context, link.Call) (any, error) {
+			m := manifest.Load()
+			if m == nil {
+				return nil, link.Err(link.Busy, "starting")
+			}
+			return m, nil
+		})
 		fleet = hub{c}
 		go func() { _ = c.Run(ctx); close(linked) }()
 	} else {
@@ -253,6 +264,8 @@ func run(log *slog.Logger) error {
 	// follows every module added, removed or skipped. A failure only leaves
 	// the link stale, which is no reason not to boot.
 	install := core.Install(running)
+	man := core.Manifest(running, identify)
+	manifest.Store(&man)
 	if wrote, err := core.SyncInstall(probeRest, app, install); err != nil {
 		log.Warn("updating the install settings", "err", err)
 	} else if wrote {
