@@ -155,7 +155,7 @@ func TestIndexListsTheRunningModulesWithAPage(t *testing.T) {
 		t.Fatalf("accent %#06x", c.AccentColor)
 	}
 	all := mustJSON(t, m.Components)
-	contains(t, "index", all, "`├` **nest**\\n-# where she sleeps\\n`└` **gull** · `off here`\\n-# loud\"", "2 modules · 3 commands · build `"+core.Revision()+"`", `"help:pick"`, invite, source)
+	contains(t, "index", all, "**nest**\\n-# where she sleeps\\n**gull** · `off here`\\n-# loud\"", "2 modules · 3 commands · build `"+core.Revision()+"`", `"help:pick"`, invite, source)
 	if strings.Contains(all, "hidden") {
 		t.Error("a module without a page is listed")
 	}
@@ -469,10 +469,10 @@ func TestIndexWrapsOnlySubtext(t *testing.T) {
 		if !strings.HasPrefix(l, "-# ") && utf8.RuneCountInString(l) > 40 {
 			t.Errorf("%q can wrap on a phone", l)
 		}
-		// A branch glyph only ever leads a short name line: one that led a
-		// wrapping line would leave its text hanging under the glyph.
-		if strings.ContainsAny(l, "├└│") && !strings.HasPrefix(l, "`├` ") && !strings.HasPrefix(l, "`└` ") {
-			t.Errorf("%q carries a branch glyph outside a name line", l)
+		// No tree: its glyphs can't join across the subtext lines between
+		// the names.
+		if strings.ContainsAny(l, "├└│") {
+			t.Errorf("%q carries a branch glyph", l)
 		}
 	}
 }
