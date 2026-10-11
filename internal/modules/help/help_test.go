@@ -155,10 +155,15 @@ func TestIndexListsTheRunningModulesWithAPage(t *testing.T) {
 		t.Fatalf("accent %#06x", c.AccentColor)
 	}
 	all := mustJSON(t, m.Components)
-	contains(t, "index", all, "**nest**\\n-# where she sleeps\\n**gull** · `off here`\\n-# loud\"", "2 modules · 3 commands · build `"+core.Revision()+"`", `"help:pick"`, invite, source)
+	contains(t, "index", all, "**nest**\\n-# where she sleeps\"", "1 modules · 2 commands · build `"+core.Revision()+"`", `"help:pick"`, invite, source)
 	if strings.Contains(all, "hidden") {
 		t.Error("a module without a page is listed")
 	}
+	if strings.Contains(all, "gull") {
+		t.Error("a module that is off shows to a member")
+	}
+	_, all = page(t, click(t, r, "help:index", true, true))
+	contains(t, "admin index", all, "**nest**\\n-# where she sleeps\\n**gull** · `off here`\\n-# loud\"", "2 modules · 3 commands")
 	checkFiles(t, m.Components, m.Files)
 	if len(m.Files) != 1 || m.Files[0].Name != "skua_avatar.png" {
 		t.Errorf("files %v; the index is compact: one avatar and no more", m.Files)
@@ -351,6 +356,22 @@ func TestAdminsSwitchModulesFromTheGuide(t *testing.T) {
 
 	if _, all := page(t, click(t, r, "help:pick", true, true, "status")); strings.Contains(all, "help:off") {
 		t.Error("status offers a switch")
+	}
+}
+
+func TestAnOffModuleShowsOnlyToAdmins(t *testing.T) {
+	r := newRouter(t, &toggles{off: map[string]bool{"gull": true}}, nest, gull)
+	if res := click(t, r, "help:pick", true, false, "gull"); res.create == nil || !strings.HasPrefix(res.create.Content, "✗ that module isn't running") {
+		t.Fatalf("a member opened an off page: %+v", res)
+	}
+	_, all := page(t, click(t, r, "help:pick", true, true, "gull"))
+	contains(t, "admin page", all, "**off** in this server")
+
+	// Everyone reads a posted guide, so it lists only what's on.
+	e, sent := coretest.Event(t, "help", func(p map[string]any) { post(p); admin(p) })
+	r.OnCommand(e)
+	if all := mustJSON(t, (*sent)[0].Components); strings.Contains(all, "gull") {
+		t.Error("the posted guide lists an off module")
 	}
 }
 
