@@ -93,7 +93,8 @@ func (m *Module) help(_ context.Context, e *events.ApplicationCommandInteraction
 	if post && !m.admin(e) {
 		return core.Tell("only this server's admins can post the guide; /help on its own shows it to you")
 	}
-	msg := m.index(e.GuildID())
+	// A posted guide is read by everyone, so it lists only what's on.
+	msg := m.index(e.GuildID(), !post && m.admin(e))
 	if !post {
 		msg.Flags = msg.Flags.Add(discord.MessageFlagEphemeral)
 	}
@@ -103,17 +104,18 @@ func (m *Module) help(_ context.Context, e *events.ApplicationCommandInteraction
 // turn answers the select, the back button and the switches.
 func (m *Module) turn(ctx context.Context, e *events.ComponentInteractionCreate) error {
 	guild := e.GuildID()
-	msg := m.index(guild)
+	admin := m.admin(e)
+	msg := m.index(guild, admin)
 	action, name, _ := strings.Cut(strings.TrimPrefix(e.Data.CustomID(), id+":"), ":")
 	switch action {
 	case "on", "off":
 		// The custom ID came from the member's client: check it all again,
 		// down to the name being a module with a page, so a forged one never
 		// reaches the store.
-		if m.toggles == nil || guild == nil || fixed[name] || !m.admin(e) {
+		if m.toggles == nil || guild == nil || fixed[name] || !admin {
 			return core.Tell("only this server's admins can switch modules")
 		}
-		if !slices.ContainsFunc(m.entries(), func(en entry) bool { return en.mod.Name() == name }) {
+		if !slices.ContainsFunc(m.entries(nil, true), func(en entry) bool { return en.mod.Name() == name }) {
 			return core.Tell("that module isn't running anymore; run /help again")
 		}
 		if err := m.toggles.Set(ctx, *guild, name, action == "on"); err != nil {
@@ -126,7 +128,7 @@ func (m *Module) turn(ctx context.Context, e *events.ComponentInteractionCreate)
 	}
 	if action != "index" {
 		var ok bool
-		if msg, ok = m.page(name, guild, m.admin(e)); !ok {
+		if msg, ok = m.page(name, guild, admin); !ok {
 			return core.Tell("that module isn't running anymore; run /help again")
 		}
 	}
@@ -149,10 +151,12 @@ type entry struct {
 	help core.Help
 }
 
-func (m *Module) entries() []entry {
+// entries is every running module with a page that the viewer may see: one
+// switched off in guild shows only to its admins, who can switch it back on.
+func (m *Module) entries(guild *snowflake.ID, admin bool) []entry {
 	var out []entry
 	for _, mod := range m.running() {
-		if h, ok := mod.(core.Helper); ok {
+		if h, ok := mod.(core.Helper); ok && (admin || !m.off(guild, mod.Name())) {
 			out = append(out, entry{mod, h.Help()})
 		}
 	}
@@ -169,8 +173,8 @@ func (m *Module) off(guild *snowflake.ID, name string) bool {
 // rather than as many thumbnails. Each module is its icon and name on a
 // short line that never wraps, and what it does as subtext below, which can
 // wrap on a phone without dragging anything out of line.
-func (m *Module) index(guild *snowflake.ID) discord.MessageCreate {
-	es := m.entries()
+func (m *Module) index(guild *snowflake.ID, admin bool) discord.MessageCreate {
+	es := m.entries(guild, admin)
 	var att files
 	commands := 0
 	var list strings.Builder
@@ -196,10 +200,11 @@ func (m *Module) index(guild *snowflake.ID) discord.MessageCreate {
 	return message(brand.ColorPrimary, body, att)
 }
 
-// page is one module's page, or false when name isn't running. An admin in
+// page is one module's page, or false when name isn't running or is
+// hidden from the viewer. An admin in
 // a server also gets the module's switch.
 func (m *Module) page(name string, guild *snowflake.ID, admin bool) (discord.MessageCreate, bool) {
-	es := m.entries()
+	es := m.entries(guild, admin)
 	for _, en := range es {
 		if en.mod.Name() != name {
 			continue
