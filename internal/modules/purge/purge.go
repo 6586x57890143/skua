@@ -397,8 +397,77 @@ func (m *Module) confirm(_ context.Context, e *events.ModalSubmitInteractionCrea
 		cancel()
 		return err
 	}
+	m.remember(k, j.began, where)
 	go m.follow(ctx, cancel, k, j)
 	go m.watch(j, e.Client().Rest, e.ApplicationID(), e.Token(), user, by)
+	return nil
+}
+
+// remember keeps an unfinished /purge now for a restart to pick up, until
+// record clears it. Without it the purge still runs, it just won't resume.
+func (m *Module) remember(k target, since time.Time, where scope) {
+	if m.db == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := m.db.Exec(ctx, `insert into purge_subs (guild_id, user_id, now_since, now_channels) values ($1, $2, $3, $4)
+		on conflict (guild_id, user_id) do update set now_since = excluded.now_since, now_channels = excluded.now_channels`,
+		int64(k.guild), int64(k.user), since, where.int64s()); err != nil {
+		m.log.Warn("purge: remembering a purge", "guild", k.guild, "user", k.user, "err", err)
+	}
+}
+
+// resume starts again every /purge now a restart cut short, with its first
+// cutoff, so it deletes what the member asked for and nothing they sent
+// since. The index already lost what was deleted, so it carries on rather
+// than starting over. The readout watching it went with the old process;
+// /purge status still shows it running.
+func (m *Module) resume(ctx context.Context, r rest.Rest) error {
+	rows, err := m.db.Query(ctx, `select guild_id, user_id, now_since, now_channels from purge_subs where now_since is not null`)
+	if err != nil {
+		return err
+	}
+	type unfinished struct {
+		k     target
+		since time.Time
+		in    []int64
+	}
+	var all []unfinished
+	for rows.Next() {
+		var g, u int64
+		var un unfinished
+		if err := rows.Scan(&g, &u, &un.since, &un.in); err != nil {
+			rows.Close()
+			return err
+		}
+		un.k = target{snowflake.ID(g), snowflake.ID(u)}
+		all = append(all, un)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, un := range all {
+		if !m.on(un.k.guild) {
+			// Switched off here: it stops, as a scheduled sweep would.
+			if _, err := m.db.Exec(ctx, `update purge_subs set now_since = null where guild_id = $1 and user_id = $2`,
+				int64(un.k.guild), int64(un.k.user)); err != nil {
+				m.log.Warn("purge: dropping a purge", "guild", un.k.guild, "err", err)
+			}
+			continue
+		}
+		j := m.newJob(r, un.k.guild, []snowflake.ID{un.k.user}, "purge now, picked up after a restart, for")
+		j.began, j.sweep.cutoff = un.since, snowflake.New(un.since)
+		j.sweep.in[un.k.user] = scopeOf(un.in)
+		jctx, cancel := context.WithCancel(context.Background())
+		if _, loaded := m.running.LoadOrStore(un.k, &run{cancel, j, false}); loaded {
+			cancel()
+			continue
+		}
+		m.log.Info("purge: picking up a purge", "guild", un.k.guild, "user", un.k.user, "since", un.since)
+		go m.follow(jctx, cancel, un.k, j)
+	}
 	return nil
 }
 
