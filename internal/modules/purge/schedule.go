@@ -30,7 +30,8 @@ var errNotAChoice = core.Tell("that isn't one of the choices; pick one from the 
 
 // start runs once, on the first Ready: it reads who is live, queues a
 // catch-up sweep for each of them (whatever they posted while skua was down
-// is still up), and starts the scheduler.
+// is still up) and again any scheduled sweep a restart cut short, picks up
+// every unfinished /purge now, and starts the scheduler.
 func (m *Module) start(r rest.Rest) {
 	if m.db == nil {
 		return
@@ -40,8 +41,11 @@ func (m *Module) start(r rest.Rest) {
 		m.log.Warn("purge: loading live members", "err", err)
 	}
 	if _, err := m.db.Exec(ctx, `update purge_subs set next_run = now()
-		where live_delay_s is not null and (next_run is null or next_run > now())`); err != nil {
+		where (live_delay_s is not null or claimed) and (next_run is null or next_run > now())`); err != nil {
 		m.log.Warn("purge: queueing catch-up sweeps", "err", err)
+	}
+	if err := m.resume(ctx, r); err != nil {
+		m.log.Warn("purge: picking up unfinished purges", "err", err)
 	}
 	cancel()
 	go func() {
@@ -52,7 +56,7 @@ func (m *Module) start(r rest.Rest) {
 }
 
 // due claims every subscription whose sweep is due, moving its next run on
-// in the same statement, and starts one job per guild for all of them: one
+// and marking it claimed until record clears it, in the same statement, and starts one job per guild for all of them: one
 // catch-up of the guild serves every member in it. A member whose own
 // purge is still running here goes back in the queue, as does a guild
 // whose last scheduled job is still going: two purges for one member would
@@ -64,7 +68,8 @@ func (m *Module) due(r rest.Rest) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	rows, err := m.db.Query(ctx, `update purge_subs
-		set next_run = case when every_s is null then null else now() + every_s * interval '1 second' end
+		set next_run = case when every_s is null then null else now() + every_s * interval '1 second' end,
+			claimed = true
 		where next_run <= now()
 		returning guild_id, user_id, live_delay_s, every_s, live_channels, every_channels`)
 	if err != nil {
@@ -159,7 +164,8 @@ func sweepScope(live, every *int32, liveIn, everyIn scope) (in scope, ok bool) {
 }
 
 // record writes how a job went for each of its authors, each seeing only
-// their own count.
+// their own count. The job is over, stopped or not, so a restart has
+// nothing of it to pick up.
 func (m *Module) record(j *job, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -175,7 +181,8 @@ func (m *Module) record(j *job, err error) {
 			values ($1, $2, $3, $4, $5, now())
 			on conflict (guild_id, user_id) do update set
 				last_deleted = excluded.last_deleted, unreachable = excluded.unreachable,
-				last_ok = excluded.last_ok, last_finished = excluded.last_finished`,
+				last_ok = excluded.last_ok, last_finished = excluded.last_finished,
+				now_since = null, claimed = false`,
 			int64(s.guild), int64(user), int32(n.Load()), unreachable, ok)
 		if err != nil {
 			m.log.Warn("purge: recording a sweep", "guild", s.guild, "user", user, "err", err)

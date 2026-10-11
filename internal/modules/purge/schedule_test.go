@@ -169,3 +169,94 @@ func TestChoiceName(t *testing.T) {
 		t.Errorf("90s reads %q", got)
 	}
 }
+
+// A /purge now that a restart cut short starts again at boot with the
+// cutoff it was asked with and its scope, so what the member sent since,
+// and anywhere else, stays. Once done there is nothing left to pick up.
+func TestUnfinishedPurgeNowResumes(t *testing.T) {
+	db := testDB(t)
+	g := freshGuild()
+	asked := time.Now()
+	before := newModule()
+	before.useDB(db)
+	before.remember(target{g, me}, asked, scope{textCh})
+
+	f := server(t, asked)
+	f.guild = g
+	s := seq{n: 1000}
+	since := s.at(asked.Add(time.Minute), me)
+	f.msgs[textCh] = append(f.msgs[textCh], since)
+
+	after := liveModule()
+	after.useDB(db)
+	if err := after.resume(context.Background(), f); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := after.running.Load(target{g, me}); !ok {
+		t.Fatal("the purge isn't running again")
+	}
+	eventually(t, "the resumed purge finished", func() bool {
+		_, running := after.running.Load(target{g, me})
+		return !running
+	})
+	for ch, msgs := range f.msgs {
+		for _, msg := range msgs {
+			want := msg.Author.ID == me && (ch == textCh || ch == activeTh) && msg.ID != since.ID
+			if f.gone[msg.ID] != want {
+				t.Errorf("message %d by %d in %d: gone %v, want %v", msg.ID, msg.Author.ID, ch, f.gone[msg.ID], want)
+			}
+		}
+	}
+	f.mu.Lock()
+	for _, r := range f.reasons {
+		if !strings.HasPrefix(r, "purge now, picked up after a restart, for ") {
+			t.Errorf("audit log reason %q", r)
+		}
+	}
+	f.mu.Unlock()
+	var left *time.Time
+	if err := db.QueryRow(context.Background(), `select now_since from purge_subs where guild_id = $1 and user_id = $2`, int64(g), int64(me)).Scan(&left); err != nil || left != nil {
+		t.Fatalf("now_since %v, %v: a finished purge is still remembered", left, err)
+	}
+}
+
+// A guild that switched purge off doesn't get it back after a restart.
+func TestUnfinishedPurgeNowInAnOffGuildIsDropped(t *testing.T) {
+	db := testDB(t)
+	g := freshGuild()
+	m := liveModule()
+	m.useDB(db)
+	m.remember(target{g, me}, time.Now(), nil)
+	m.Gate(func(guild snowflake.ID) bool { return guild != g })
+	if err := m.resume(context.Background(), newFake()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.running.Load(target{g, me}); ok {
+		t.Fatal("it runs where purge is off")
+	}
+	var left *time.Time
+	if err := db.QueryRow(context.Background(), `select now_since from purge_subs where guild_id = $1 and user_id = $2`, int64(g), int64(me)).Scan(&left); err != nil || left != nil {
+		t.Fatalf("now_since %v, %v", left, err)
+	}
+}
+
+// A scheduled sweep a restart cut short is due again at boot, not a whole
+// period later.
+func TestClaimedSweepIsDueAgainAtBoot(t *testing.T) {
+	db := testDB(t)
+	g := freshGuild()
+	m := liveModule()
+	m.useDB(db)
+	if got := subCmd(t, m, "every", "every", "7d", g); !strings.HasPrefix(got, "**purge** · every\n✓") {
+		t.Fatal(got)
+	}
+	// What due leaves behind when the process dies mid-sweep.
+	if _, err := db.Exec(context.Background(), `update purge_subs set claimed = true, next_run = now() + interval '7 days' where guild_id = $1`, int64(g)); err != nil {
+		t.Fatal(err)
+	}
+	m.start(newFake())
+	var next time.Time
+	if err := db.QueryRow(context.Background(), `select next_run from purge_subs where guild_id = $1 and user_id = $2`, int64(g), int64(me)).Scan(&next); err != nil || next.After(time.Now()) {
+		t.Fatalf("next_run %v, %v: the cut-short sweep waits a period", next, err)
+	}
+}
