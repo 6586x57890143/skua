@@ -27,6 +27,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/cygnet/link"
+	"github.com/6586x57890143/cygnet/link/perms"
 
 	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
@@ -131,6 +132,12 @@ func run(log *slog.Logger) error {
 	// runs on ctx, so a shutdown says goaway before the gateway closes.
 	var fleet status.Pinger
 	var manifest atomic.Pointer[link.Manifest]
+	// refused tells cygnet when Discord refuses skua for want of a
+	// permission, so she can grant it (perms.Watch under the REST client).
+	// Without the link it's only logged.
+	refused := func(m perms.Missing) {
+		log.Warn("discord refused skua for want of a permission", "op", m.Op, "guild", m.Guild, "channel", m.Channel)
+	}
 	linked := make(chan struct{})
 	if url, tok := os.Getenv("SKUA_CYGNET_URL"), os.Getenv("SKUA_CYGNET_TOKEN"); url != "" && tok != "" {
 		c := link.New(link.Config{URL: url, Token: tok, Build: core.Revision(), Log: log})
@@ -145,6 +152,17 @@ func run(log *slog.Logger) error {
 			return m, nil
 		})
 		fleet = hub{c}
+		// ponytail: one call per refusal, which cygnet dedupes; a local
+		// window if a loop of refusals ever crowds the link.
+		refused = func(m perms.Missing) {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer cancel()
+				if err := c.Call(ctx, perms.MissingMethod, m, nil); err != nil {
+					log.Warn("telling cygnet about a refusal", "op", m.Op, "err", err)
+				}
+			}()
+		}
 		go func() { _ = c.Run(ctx); close(linked) }()
 	} else {
 		close(linked)
@@ -265,6 +283,13 @@ func run(log *slog.Logger) error {
 	// the link stale, which is no reason not to boot.
 	install := core.Install(running)
 	man := core.Manifest(running, identify)
+	// What every module asks for, granted or not: the difference is what
+	// cygnet's fleet card says waits on the portal.
+	var want gateway.Intents
+	for _, w := range wants {
+		want |= w.Required | w.Optional
+	}
+	man.Wants = uint64(want)
 	// Which app skua is, so cygnet can build her install link and find her
 	// in a server.
 	man.App = app.ID.String()
@@ -302,7 +327,10 @@ func run(log *slog.Logger) error {
 		bot.WithLogger(log),
 		// Every REST call's rate limit wait and round trip, for /perf, and a
 		// route's 429 waited out to the millisecond rather than the second.
-		bot.WithRestClientConfigOpts(rest.WithRateLimiter(obs.Limiter(ratelimit.Precise(rest.NewRateLimiter(rest.WithRateLimiterLogger(log)), userReset), obs.Default))),
+		bot.WithRestClientConfigOpts(
+			rest.WithRateLimiter(obs.Limiter(ratelimit.Precise(rest.NewRateLimiter(rest.WithRateLimiterLogger(log)), userReset), obs.Default)),
+			rest.WithHTTPClient(&http.Client{Timeout: 20 * time.Second, Transport: perms.Watch(nil, refused)}),
+		),
 		bot.WithGatewayConfigOpts(
 			gateway.WithIntents(identify),
 			gateway.WithPresenceOpts(gateway.WithCustomActivity(brand.StatusAt(0))),
