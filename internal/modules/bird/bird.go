@@ -6,7 +6,7 @@
 // /bird makes one API call and one download, and each replaced message costs
 // a webhook post and a delete, both spent through the guard. The post goes
 // up before the original comes down, so a failure leaves their message where
-// it was. Like whisper, every post carries a subtext marker saying what
+// it was, and only the newest bird stays up: each one takes down the last. Like whisper, every post carries a subtext marker saying what
 // happened, the species linking to the recording's xeno-canto entry, which
 // carries its credit and licence.
 package bird
@@ -62,6 +62,7 @@ type screen interface {
 // poster is the slice of webhook.Poster bird uses.
 type poster interface {
 	Send(ctx context.Context, r rest.Rest, guild, channel, app snowflake.ID, msg discord.WebhookMessageCreate) (*discord.Message, error)
+	Delete(ctx context.Context, r rest.Rest, guild, channel, app, webhookID, message snowflake.ID) error
 }
 
 type target struct{ guild, user snowflake.ID }
@@ -72,6 +73,9 @@ type prank struct {
 	until time.Time
 	rec   recording
 	audio []byte
+
+	mu   sync.Mutex
+	last *discord.Message // the newest bird posted, the only one kept up
 }
 
 // recording is the part of a xeno-canto API v3 recording bird reads.
@@ -270,8 +274,10 @@ func (m *Module) OnEvent(ev bot.Event) {
 	go m.replace(e.Client().Rest, e.Client().ApplicationID, e.GuildID, msg, p)
 }
 
-// replace posts the bird, then deletes the original. In a thread the
-// webhook lookup fails and the message stays, as it does on any failure.
+// replace posts the bird, then deletes the original and the bird before
+// it, so a member who spams leaves one bird behind, not a flock. In a
+// thread the webhook lookup fails and the message stays, as it does on any
+// failure.
 func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Message, p *prank) {
 	ctx, cancel := context.WithTimeout(context.Background(), replaceBy)
 	defer cancel()
@@ -290,13 +296,23 @@ func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Messa
 		Flags:           discord.MessageFlagSuppressEmbeds,
 		Files:           []*discord.File{discord.NewFile("xc"+p.rec.ID+".mp3", "", bytes.NewReader(p.audio))},
 	}
-	if _, err := m.post.Send(ctx, r, guild, msg.ChannelID, app, post); err != nil {
+	posted, err := m.post.Send(ctx, r, guild, msg.ChannelID, app, post)
+	if err != nil {
 		return
+	}
+	if posted != nil && posted.WebhookID != nil {
+		p.mu.Lock()
+		prev := p.last
+		p.last = posted
+		p.mu.Unlock()
+		if prev != nil {
+			_ = m.post.Delete(ctx, r, guild, prev.ChannelID, app, *prev.WebhookID, prev.ID)
+		}
 	}
 	if m.guard.Allow(guild, guard.MessageDelete) != nil {
 		return
 	}
-	err := r.DeleteMessage(msg.ChannelID, msg.ID, rest.WithCtx(ctx), rest.WithReason("bird: replaced with a recording, started by "+p.by.String()))
+	err = r.DeleteMessage(msg.ChannelID, msg.ID, rest.WithCtx(ctx), rest.WithReason("bird: replaced with a recording, started by "+p.by.String()))
 	m.guard.Report(guild, struggling(err))
 }
 
