@@ -17,58 +17,67 @@ type Switch struct {
 	Module string
 }
 
-// Toggles is which modules a guild's admins have turned off. Everything is
-// on until someone says otherwise, and a nil *Toggles is all on. On is one
-// map load, cheap enough for every event.
+// Toggles is which modules a guild's admins have flipped from where they
+// start. A module starts on unless it is opt-in, and a nil *Toggles is all
+// on. On is one map load, cheap enough for every event.
 type Toggles struct {
-	off sync.Map // Switch -> struct{}
-	// n is how many switches are off anywhere: while none are, Listen
-	// passes every event straight through.
+	flipped sync.Map // Switch -> struct{}
+	// optIn is the modules that start off, written while wiring, before
+	// anything reads it.
+	optIn map[string]bool
+	// n is how many switches are flipped anywhere: while none are, Listen
+	// passes every event of a module that starts on straight through.
 	n atomic.Int32
 	// ponytail: one lock for every guild, held across the save; fine at
 	// admin click rates, a lock per Switch if Set ever gets hot.
 	mu   sync.Mutex // one Set at a time, so the store and memory agree
-	save func(ctx context.Context, s Switch, on bool) error
+	save func(ctx context.Context, s Switch, flipped bool) error
 	// OnChange runs after a successful Set, so the guild's command list can
 	// follow it.
 	OnChange func(guild snowflake.ID)
 }
 
-// NewToggles starts from the switches that are off and persists every Set
-// through save. A nil save keeps them in memory only.
-func NewToggles(off []Switch, save func(context.Context, Switch, bool) error) *Toggles {
-	t := &Toggles{save: save}
-	for _, s := range off {
-		if _, dup := t.off.Swap(s, struct{}{}); !dup {
+// NewToggles starts from the switches that are flipped and persists every
+// Set through save, told whether the switch is now flipped. A nil save
+// keeps them in memory only.
+func NewToggles(flipped []Switch, save func(ctx context.Context, s Switch, flipped bool) error) *Toggles {
+	t := &Toggles{save: save, optIn: map[string]bool{}}
+	for _, s := range flipped {
+		if _, dup := t.flipped.Swap(s, struct{}{}); !dup {
 			t.n.Add(1)
 		}
 	}
 	return t
 }
 
+// OptIn makes module start off in every guild until its admins switch it
+// on. Call it before the gateway, the link or Listen can read it.
+func (t *Toggles) OptIn(module string) { t.optIn[module] = true }
+
 func (t *Toggles) On(guild snowflake.ID, module string) bool {
 	if t == nil {
 		return true
 	}
-	_, off := t.off.Load(Switch{guild, module})
-	return !off
+	_, flipped := t.flipped.Load(Switch{guild, module})
+	return flipped == t.optIn[module]
 }
 
 // Set saves first, so memory never claims a switch the store lost.
 func (t *Toggles) Set(ctx context.Context, guild snowflake.ID, module string, on bool) error {
 	s := Switch{guild, module}
+	flip := on == t.optIn[module]
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.save != nil {
-		if err := t.save(ctx, s, on); err != nil {
+		if err := t.save(ctx, s, flip); err != nil {
 			return err
 		}
 	}
-	if on {
-		if _, was := t.off.LoadAndDelete(s); was {
+	if !flip {
+		if _, was := t.flipped.LoadAndDelete(s); was {
 			t.n.Add(-1)
 		}
-	} else if _, was := t.off.Swap(s, struct{}{}); !was {
+	} else if _, was := t.flipped.Swap(s, struct{}{}); !was {
 		t.n.Add(1)
 	}
 	if t.OnChange != nil {
@@ -88,8 +97,9 @@ type Gated interface {
 // cannot slip past. Leaving a guild still gets through, so a module can
 // forget what it kept there.
 func (t *Toggles) Listen(module string, l bot.EventListener) bot.EventListener {
+	optIn := t.optIn[module]
 	return bot.NewListenerFunc(func(ev bot.Event) {
-		if t.n.Load() == 0 {
+		if t.n.Load() == 0 && !optIn {
 			l.OnEvent(ev)
 			return
 		}

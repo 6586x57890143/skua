@@ -38,13 +38,40 @@ func TestTogglesSetSavesThenSwitches(t *testing.T) {
 	if err := tg.Set(context.Background(), 3, "test", true); err != nil || !tg.On(3, "test") {
 		t.Fatalf("turning on: %v", err)
 	}
-	if len(saved) != 2 || saved[0] || !saved[1] || <-changed != 3 || <-changed != 3 {
+	// The store is told whether the switch is flipped from where it starts.
+	if len(saved) != 2 || !saved[0] || saved[1] || <-changed != 3 || <-changed != 3 {
 		t.Fatalf("saved %v", saved)
 	}
 
 	broken := NewToggles(nil, func(context.Context, Switch, bool) error { return errors.New("db down") })
 	if err := broken.Set(context.Background(), 3, "test", false); err == nil || !broken.On(3, "test") {
 		t.Fatal("a failed save still switched")
+	}
+}
+
+func TestOptInStartsOff(t *testing.T) {
+	var saved []bool
+	tg := NewToggles([]Switch{{3, "pace"}}, func(_ context.Context, _ Switch, flipped bool) error {
+		saved = append(saved, flipped)
+		return nil
+	})
+	tg.OptIn("pace")
+	if !tg.On(3, "pace") || tg.On(4, "pace") || !tg.On(4, "bird") {
+		t.Fatal("an opt-in module isn't on only where it was switched on")
+	}
+	ctx := context.Background()
+	_ = tg.Set(ctx, 4, "pace", true)
+	_ = tg.Set(ctx, 4, "pace", false)
+	if len(saved) != 2 || !saved[0] || saved[1] || tg.On(4, "pace") {
+		t.Fatalf("saved %v", saved)
+	}
+	// With nothing flipped anywhere, the fast path must not open it.
+	_ = tg.Set(ctx, 3, "pace", false)
+	got := 0
+	l := tg.Listen("pace", bot.NewListenerFunc(func(bot.Event) { got++ }))
+	l.OnEvent(&events.GuildMessageCreate{GenericGuildMessage: &events.GenericGuildMessage{GenericEvent: events.NewGenericEvent(nil, 0, 0), GuildID: 3}})
+	if tg.n.Load() != 0 || got != 0 {
+		t.Fatalf("%d flipped, %d events reached an opt-in module nobody switched on", tg.n.Load(), got)
 	}
 }
 

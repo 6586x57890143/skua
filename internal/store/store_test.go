@@ -93,19 +93,19 @@ func TestModuleSwitchesRoundTrip(t *testing.T) {
 	}
 	save := SaveModule(pool)
 	s := core.Switch{Guild: 1 << 60, Module: "preen"}
-	for _, on := range []bool{false, false} {
-		if err := save(ctx, s, on); err != nil {
+	for range 2 {
+		if err := save(ctx, s, true); err != nil {
 			t.Fatal(err)
 		}
 	}
-	off, err := ModulesOff(ctx, pool)
+	off, err := ModulesFlipped(ctx, pool)
 	if err != nil || !slices.Contains(off, s) {
 		t.Fatalf("off %v (%v), want %v in it", off, err, s)
 	}
-	if err := save(ctx, s, true); err != nil {
+	if err := save(ctx, s, false); err != nil {
 		t.Fatal(err)
 	}
-	if off, _ := ModulesOff(ctx, pool); slices.Contains(off, s) {
-		t.Fatal("turned on, still off")
+	if off, _ := ModulesFlipped(ctx, pool); slices.Contains(off, s) {
+		t.Fatal("flipped back, still flipped")
 	}
 }
