@@ -300,6 +300,8 @@ func run(log *slog.Logger) error {
 	// Which app skua is, so cygnet can build her install link and find her
 	// in a server.
 	man.App = app.ID.String()
+	// The verbs skua answers on the link besides manifest, as registered above.
+	man.Serves = []string{"ping", pace.Method}
 	manifest.Store(&man)
 	if wrote, err := core.SyncInstall(probeRest, app, install); err != nil {
 		log.Warn("updating the install settings", "err", err)
