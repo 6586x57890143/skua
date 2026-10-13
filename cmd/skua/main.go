@@ -38,6 +38,7 @@ import (
 	"github.com/6586x57890143/skua/internal/modules/bird"
 	"github.com/6586x57890143/skua/internal/modules/help"
 	"github.com/6586x57890143/skua/internal/modules/notify"
+	"github.com/6586x57890143/skua/internal/modules/pace"
 	"github.com/6586x57890143/skua/internal/modules/perf"
 	"github.com/6586x57890143/skua/internal/modules/preen"
 	"github.com/6586x57890143/skua/internal/modules/purge"
@@ -121,12 +122,16 @@ func run(log *slog.Logger) error {
 			return err
 		}
 		db, purgeDB = pool, pool
-		off, err := store.ModulesOff(ctx, pool)
+		flipped, err := store.ModulesFlipped(ctx, pool)
 		if err != nil {
 			return fmt.Errorf("reading module switches: %w", err)
 		}
-		toggles = core.NewToggles(off, store.SaveModule(pool))
+		toggles = core.NewToggles(flipped, store.SaveModule(pool))
 	}
+	// pace answers cygnet over the link, so it exists before the link does,
+	// and a server opts in to it.
+	toggles.OptIn(pace.Name)
+	pacer := pace.New(func(guild snowflake.ID) bool { return toggles.On(guild, pace.Name) })
 
 	// The link to cygnet, the fleet's hub, only where it is configured. It
 	// runs on ctx, so a shutdown says goaway before the gateway closes.
@@ -142,6 +147,7 @@ func run(log *slog.Logger) error {
 	if url, tok := os.Getenv("SKUA_CYGNET_URL"), os.Getenv("SKUA_CYGNET_TOKEN"); url != "" && tok != "" {
 		c := link.New(link.Config{URL: url, Token: tok, Build: core.Revision(), Log: log})
 		c.Handle("ping", func(context.Context, link.Call) (any, error) { return nil, nil })
+		c.Handle(pace.Method, pacer.Answer)
 		// What cygnet installs skua with. Read once the modules are resolved;
 		// a call before then is refused busy, as the hub would for a full link.
 		c.Handle(link.ManifestMethod, func(context.Context, link.Call) (any, error) {
@@ -202,6 +208,7 @@ func run(log *slog.Logger) error {
 		purge.New(g, purgeDB, log, bootstrap),
 		preener,
 		perf.New(obs.Default),
+		pacer,
 		help.New(func() []core.Module { return running }, func(i discord.Interaction) bool { return router.Admin(i) }, toggles),
 	}
 	// The Armada bridge runs only where it is configured. Its mappings share

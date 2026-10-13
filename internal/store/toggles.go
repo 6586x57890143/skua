@@ -10,8 +10,9 @@ import (
 	"github.com/6586x57890143/skua/internal/core"
 )
 
-// ModulesOff is every switch turned off, for core.NewToggles at boot.
-func ModulesOff(ctx context.Context, pool *pgxpool.Pool) ([]core.Switch, error) {
+// ModulesFlipped is every switch flipped from where its module starts, for
+// core.NewToggles at boot.
+func ModulesFlipped(ctx context.Context, pool *pgxpool.Pool) ([]core.Switch, error) {
 	rows, _ := pool.Query(ctx, "select guild_id, module from module_off")
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (core.Switch, error) {
 		var s core.Switch
@@ -22,11 +23,14 @@ func ModulesOff(ctx context.Context, pool *pgxpool.Pool) ([]core.Switch, error) 
 	})
 }
 
-// SaveModule is core.Toggles' save: a row while off, none while on.
+// SaveModule is core.Toggles' save: a row while flipped, none while not.
+// The table kept its name from when every module started on, so flipped
+// meant off; an opt-in module's row means on, and an older build that
+// never heard of it ignores it.
 func SaveModule(pool *pgxpool.Pool) func(context.Context, core.Switch, bool) error {
-	return func(ctx context.Context, s core.Switch, on bool) error {
+	return func(ctx context.Context, s core.Switch, flipped bool) error {
 		q := "insert into module_off (guild_id, module) values ($1, $2) on conflict do nothing"
-		if on {
+		if !flipped {
 			q = "delete from module_off where guild_id = $1 and module = $2"
 		}
 		_, err := pool.Exec(ctx, q, int64(s.Guild), s.Module)
