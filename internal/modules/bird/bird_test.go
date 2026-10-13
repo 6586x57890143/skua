@@ -135,14 +135,29 @@ func (f *fakeRest) DeleteMessage(_, id snowflake.ID, opts ...rest.RequestOpt) er
 	return f.deleteErr
 }
 
+// fakePoster numbers its posts 1, 2, ... from webhook 5 and records which
+// it was asked to take down.
 type fakePoster struct {
 	sent []discord.WebhookMessageCreate
+	gone []snowflake.ID
 	err  error
 }
 
-func (p *fakePoster) Send(_ context.Context, _ rest.Rest, _, _, _ snowflake.ID, msg discord.WebhookMessageCreate) (*discord.Message, error) {
+func (p *fakePoster) Send(_ context.Context, _ rest.Rest, _, channel, _ snowflake.ID, msg discord.WebhookMessageCreate) (*discord.Message, error) {
+	if p.err != nil {
+		return nil, p.err
+	}
 	p.sent = append(p.sent, msg)
-	return nil, p.err
+	hook := snowflake.ID(5)
+	return &discord.Message{ID: snowflake.ID(len(p.sent)), ChannelID: channel, WebhookID: &hook}, nil
+}
+
+func (p *fakePoster) Delete(_ context.Context, _ rest.Rest, _, channel, _, hook, message snowflake.ID) error {
+	if channel != 4 || hook != 5 {
+		return errors.New("wrong webhook")
+	}
+	p.gone = append(p.gone, message)
+	return nil
 }
 
 // run is /bird member:<user 7> minutes:<minutes> from an admin, through the
@@ -257,6 +272,17 @@ func TestOnEventReplacesThenDeletes(t *testing.T) {
 	}
 }
 
+func TestReplaceKeepsOnlyTheNewestBird(t *testing.T) {
+	m, p := pranked(time.Now())
+	r := &fakeRest{}
+	for range 3 {
+		m.replace(r, 2, 3, message(r, 7, nil).Message, mustPrank(t, m))
+	}
+	if len(p.sent) != 3 || len(p.gone) != 2 || p.gone[0] != 1 || p.gone[1] != 2 {
+		t.Fatalf("posted %d, took down %v; want 3 and [1 2]", len(p.sent), p.gone)
+	}
+}
+
 func TestReplaceKeepsTheMessageWhenThePostFails(t *testing.T) {
 	m, p := pranked(time.Now())
 	p.err = errors.New("no webhook in a thread")
@@ -301,6 +327,10 @@ func TestOnEventDispatches(t *testing.T) {
 }
 
 type sendFunc func()
+
+func (sendFunc) Delete(context.Context, rest.Rest, snowflake.ID, snowflake.ID, snowflake.ID, snowflake.ID, snowflake.ID) error {
+	return nil
+}
 
 func (f sendFunc) Send(context.Context, rest.Rest, snowflake.ID, snowflake.ID, snowflake.ID, discord.WebhookMessageCreate) (*discord.Message, error) {
 	f()
