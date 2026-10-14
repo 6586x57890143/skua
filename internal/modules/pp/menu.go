@@ -21,6 +21,8 @@ import (
 var (
 	errNotServer = core.Tell("/pp works in a server, where the points are")
 	errNotAClass = core.Tell("that isn't one of the classes; open /pp and pick again")
+	errBeta      = core.Tell("/pp is in closed beta here for now: admins and the beta testers only")
+	errNotAdmin  = core.Tell("only this server's admins pick who tests /pp")
 )
 
 // screenName is the status screen's file on its message.
@@ -34,6 +36,9 @@ func (m *Module) Commands() []core.Command {
 			guild := e.GuildID()
 			if guild == nil {
 				return errNotServer
+			}
+			if !m.plays(e) {
+				return errBeta
 			}
 			msg, err := m.status(*guild, e.Member(), true)
 			if err != nil {
@@ -50,10 +55,16 @@ func (m *Module) Components() []core.Component {
 
 // press is a button or select on a /pp reply: class opens the picker, pick
 // takes a class, show posts the screen for the channel.
-func (m *Module) press(_ context.Context, e *events.ComponentInteractionCreate) error {
+func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate) error {
 	guild := e.GuildID()
 	if guild == nil {
 		return errNotServer
+	}
+	if e.Data.CustomID() == "pp:beta" {
+		return m.setBeta(ctx, *guild, e)
+	}
+	if !m.plays(e) {
+		return errBeta
 	}
 	switch e.Data.CustomID() {
 	case "pp:class":

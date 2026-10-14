@@ -224,13 +224,18 @@ func (m *Module) page(name string, guild *snowflake.ID, admin bool) (discord.Mes
 		// What the module is doing in this server, for its admins: facts as
 		// a grid, anything longer below it.
 		if rep, ok := en.mod.(core.Reporter); ok && admin && guild != nil {
-			if r := rep.Report(*guild); len(r.Rows)+len(r.Notes) > 0 {
+			r := rep.Report(*guild)
+			if len(r.Rows)+len(r.Notes) > 0 {
 				text := "### status\n"
 				if len(r.Rows) > 0 {
 					text += core.Readout(r.Rows)
 				}
 				text += strings.Join(r.Notes, "\n")
 				body = append(body, discord.NewSmallSeparator(), discord.NewTextDisplay(strings.TrimSuffix(text, "\n")))
+			}
+			if len(r.Controls) > 0 {
+				body = append(body, discord.NewSmallSeparator())
+				body = append(body, r.Controls...)
 			}
 		}
 		if admin && m.toggles != nil && guild != nil && !fixed[name] {
