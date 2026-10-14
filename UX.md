@@ -121,4 +121,10 @@ taken from the environment, is said out loud before it is used.
   the icon's 24 unit viewBox, with the source icon named beside it. A module ships
   with its glyph; `internal/brand` fails any module whose `Name()` has no
   `mod_<name>.png`.
+- `/pp`'s item icons are 16 by 16 cell grids in `internal/pixel/icons.go`, in the style of
+  merlin's art: a dark outline and each material lit from the top left in three or four
+  tones. One grid is drawn on the game's screens at a pixel a cell and written as an
+  application emoji at eight, so a button and a screen match. An icon is centred on its
+  grid to the nearest cell (`pixel`'s tests hold it), and set beside text it starts two
+  pixels above the line so the two share a middle.
 - Edit `art/source` or `tools/sprites` and rerun the generator, never the output PNGs.
