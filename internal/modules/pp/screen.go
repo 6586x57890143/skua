@@ -93,7 +93,7 @@ func StatusScreen(s Sheet) ([]byte, error) {
 
 	c.Window(image.Rect(4, 4, 140, 152))
 	if s.Portrait != nil {
-		c.Portrait(s.Portrait, image.Pt(40, 30))
+		c.Portrait(s.Portrait, image.Pt(40, 30), 2)
 	} else {
 		c.Bird(image.Pt(8, 14))
 	}

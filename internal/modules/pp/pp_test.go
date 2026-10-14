@@ -50,8 +50,36 @@ func testModule(db DB) *Module {
 
 func js(v any) string { b, _ := json.Marshal(v); return string(b) }
 
+// Before a first pick /pp is the title screen with the button to pick;
+// the wanderer counts as a pick though it's the class they start as.
+func TestTitleUntilAPick(t *testing.T) {
+	m := testModule(&fakeDB{})
+	e, sent := coretest.Event(t, "pp", nil)
+	if err := m.Commands()[0].Run(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	got := js((*sent)[0])
+	for _, want := range []string{"melting pot", "pick a class", "pp:class", "beta", "attachment://pp.png"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the title lacks %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "pp:show") {
+		t.Error("the title offers to show the channel")
+	}
+	if err := m.press(context.Background(), firstOf(pick(t, "wanderer"))); err != nil {
+		t.Fatal(err)
+	}
+	if m.st.server(3).members[5].classSeason == -1 {
+		t.Error("picking the wanderer first didn't count")
+	}
+}
+
 func TestStatusCommand(t *testing.T) {
 	m := testModule(&fakeDB{})
+	if err := m.pick(3, 5, "thief"); err != nil {
+		t.Fatal(err)
+	}
 	e, sent := coretest.Event(t, "pp", nil)
 	if err := m.Commands()[0].Run(context.Background(), e); err != nil {
 		t.Fatal(err)

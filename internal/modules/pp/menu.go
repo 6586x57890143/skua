@@ -132,7 +132,9 @@ func (m *Module) pick(guild, user snowflake.ID, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	mem := m.st.member(s, guild, user, today)
-	if mem.class == key {
+	// Their class already, unless it's the wanderer they start as and
+	// haven't picked yet: that first pick still counts.
+	if mem.class == key && mem.classSeason != -1 {
 		return nil
 	}
 	cost := m.cost(mem, season)
@@ -180,7 +182,11 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	mem.life = now
 	seen(mem, &who.Member, who.User, guild)
 	sh := m.sheet(s, mem, guild, who.User.ID, today)
+	picked := mem.classSeason != -1
 	s.mu.Unlock()
+	if !picked {
+		return titleMessage(buttons)
+	}
 
 	sh.Name = who.EffectiveName()
 	if pixel.Plain(sh.Name) == "" {
@@ -203,6 +209,29 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	}
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", "-# "+dayLine(now), extra...)},
+		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
+		Flags:           discord.MessageFlagIsComponentsV2,
+		AllowedMentions: core.NoPings(),
+	}, nil
+}
+
+// titleMessage is the title screen as a message, for a member who hasn't
+// picked a class: their own copy carries the button to pick one.
+func titleMessage(buttons bool) (discord.MessageCreate, error) {
+	pic, err := TitleScreen()
+	if err != nil {
+		return discord.MessageCreate{}, err
+	}
+	const alt = "melting pot, a pot point journey: every class's bird in a row, and pick a class"
+	extra := []discord.ContainerSubComponent{discord.NewMediaGallery(discord.MediaGalleryItem{
+		Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt,
+	})}
+	if buttons {
+		extra = append(extra, discord.NewActionRow(discord.NewPrimaryButton("pick a class", "pp:class")))
+	}
+	return discord.MessageCreate{
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "melting pot",
+			"pick a class to begin\n-# /pp is in beta: the numbers may still move", extra...)},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),

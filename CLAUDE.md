@@ -42,6 +42,7 @@ lowercase, errors as `core.Tell`, facts on a grid, art on an exact pixel grid.
   the only warmth. Every PNG is written indexed at best compression, and
   `internal/brand` fails if an embedded icon reaches 10 KB or leaves its 2px grid. Edit
   the source or the generator and rerun it; don't edit the output PNGs.
+- `internal/modules/pp/title.png`: `/pp`'s title art, "melting pot" in a blackletter (UnifrakturMaguntia, OFL; only the picture ships) over a rust cauldron. Finished art, like the portraits.
 - `internal/modules/pp/portraits`: `/pp`'s class portraits, embedded and shown on the status screen, one per bird, 32x48, indexed at 16 colours on black in
   the style of Tactics Ogre. They are finished art, not generated: the head is
   rotoscoped from a photo and the owner paints the rest, so replace a file whole rather

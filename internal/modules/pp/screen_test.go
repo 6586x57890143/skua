@@ -80,3 +80,8 @@ func BenchmarkStatusScreen(b *testing.B) {
 		}
 	}
 }
+
+func TestTitleScreen(t *testing.T) {
+	data, err := TitleScreen()
+	decodes(t, data, err)
+}

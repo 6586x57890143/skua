@@ -161,7 +161,7 @@ func TestPortrait(t *testing.T) {
 	}
 	shared := len(Palette)
 	c := New(80, 110)
-	c.Portrait(img, image.Pt(8, 6))
+	c.Portrait(img, image.Pt(8, 6), 2)
 	if got := c.Palette[c.ColorIndexAt(8, 6)]; !same(got, odd) {
 		t.Errorf("the portrait's colour came out %v", got)
 	}
