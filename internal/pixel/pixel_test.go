@@ -13,7 +13,7 @@ func TestPalette(t *testing.T) {
 		t.Fatalf("%d colours don't fit an indexed PNG", len(Palette))
 	}
 	seen := map[uint8]bool{}
-	for _, i := range append([]uint8{Ink, Dim, Shadow, Bone, Gold, Green, Red, Ember, Line, Glove, Blue, Crimson, lit[Blue], lit[Crimson]}, Sky[:]...) {
+	for _, i := range append([]uint8{Ink, Dim, Shadow, Bone, Gold, Green, Red, Ember, Line, Glove, Yellow, Blue, Crimson, lit[Yellow], lit[Blue], lit[Crimson], shade[Yellow], shade[Blue], shade[Crimson]}, Sky[:]...) {
 		if seen[i] {
 			t.Errorf("ink %d is used twice", i)
 		}
@@ -95,10 +95,10 @@ func TestBar(t *testing.T) {
 	if c.ColorIndexAt(1, 1) != Line {
 		t.Error("a bar of nothing filled")
 	}
-	// A gauge lights its fill's top row.
+	// A gauge is lit along its top row and shaded along its foot.
 	c.Bar(image.Rect(0, 0, 12, 5), 10, 10, Blue)
-	if c.ColorIndexAt(3, 1) != lit[Blue] || c.ColorIndexAt(3, 2) != Blue {
-		t.Error("a gauge's top row isn't lit")
+	if c.ColorIndexAt(3, 1) != lit[Blue] || c.ColorIndexAt(3, 2) != Blue || c.ColorIndexAt(3, 3) != shade[Blue] {
+		t.Error("a gauge isn't lit and shaded")
 	}
 }
 
@@ -117,16 +117,13 @@ func TestBirdAndCursor(t *testing.T) {
 	}
 }
 
-func TestBadgeAndTab(t *testing.T) {
+func TestTab(t *testing.T) {
 	c := New(80, 40)
-	w := image.Rect(2, 12, 78, 38)
+	w := image.Rect(2, 2, 78, 38)
 	c.Window(w)
 	c.Tab(w, "buffs")
-	if c.ColorIndexAt(10, 7) != Shadow || c.ColorIndexAt(12, 9) != Line {
-		t.Error("the tab isn't drawn over the window's top")
-	}
-	if end := c.Badge(8, 20, "pp", Glove); end != 8+2*Advance+3 {
-		t.Errorf("a badge of 2 ends at %d", end)
+	if c.ColorIndexAt(6, 2) != Shadow || c.ColorIndexAt(8, 4) != Line {
+		t.Error("the tab isn't drawn inside the window's top")
 	}
 	var glove int
 	for _, p := range c.Pix {
@@ -135,7 +132,7 @@ func TestBadgeAndTab(t *testing.T) {
 		}
 	}
 	if glove == 0 {
-		t.Error("no letters on the badge or the tab")
+		t.Error("no letters on the tab")
 	}
 }
 

@@ -112,12 +112,13 @@ func StatusScreen(s Sheet) ([]byte, error) {
 	c.Text(x+20, 52, strconv.Itoa(s.Level), pixel.Ink, 0)
 	right(c, r, 52, grouped((s.Need-s.Into)/unit)+" to next", pixel.Dim)
 
-	end := c.Badge(x+2, 72, "pp", pixel.Glove)
-	c.Bar(image.Rect(end+4, 78, r, 83), s.Into, s.Need, pixel.Blue)
+	gauge := x + 6*pixel.Advance
+	c.Text(x, 72, "pp", pixel.Dim, 0)
+	c.Bar(image.Rect(gauge, 78, r, 83), s.Into, s.Need, pixel.Yellow)
 	right(c, r, 88, grouped(s.Into/unit)+" / "+grouped(s.Need/unit), pixel.Dim)
 
-	end = c.Badge(x+2, 106, "vigor", pixel.Glove)
-	c.Bar(image.Rect(end+4, 112, r-56, 117), s.Vigor, 100, pixel.Crimson)
+	c.Text(x, 106, "vigor", pixel.Dim, 0)
+	c.Bar(image.Rect(gauge, 112, r-56, 117), s.Vigor, 100, pixel.Crimson)
 	right(c, r, 106, s.Phase, pixel.Ink)
 
 	c.Cursor(x+10, 134)
@@ -126,33 +127,33 @@ func StatusScreen(s Sheet) ([]byte, error) {
 	right(c, r, 128, total, pixel.Gold)
 	c.Icon("pot", image.Pt(r-len(total)*pixel.Advance-pixel.IconCells-4, 128-iconLift))
 
-	buffs := image.Rect(4, 164, 252, 212)
+	buffs := image.Rect(4, 156, 252, 212)
 	c.Window(buffs)
 	c.Tab(buffs, "buffs")
-	bx := 16
+	bx, y := 16, buffs.Min.Y+pixel.TabDrop+14
 	if len(s.Buffs) == 0 {
-		c.Text(bx, 182, "none worn", pixel.Dim, 0)
+		c.Text(bx, y, "none worn", pixel.Dim, 0)
 	}
 	for _, b := range s.Buffs {
-		bx = iconText(c, b.Icon, bx, 182, b.Label, pixel.Gold) + pixel.Advance
+		bx = iconText(c, b.Icon, bx, y, b.Label, pixel.Gold) + pixel.Advance
 	}
 
-	season := image.Rect(256, 164, 380, 212)
+	season := image.Rect(256, 156, 380, 212)
 	c.Window(season)
 	c.Tab(season, "season")
-	x, r = 266, 370
+	x, r, y = 266, 370, season.Min.Y+pixel.TabDrop+6
 	if s.Season > 0 {
-		c.Text(x, 174, fmt.Sprintf("season %d", s.Season), pixel.Dim, 0)
-		right(c, r, 174, fmt.Sprintf("wk %d", s.Week), pixel.Dim)
+		c.Text(x, y, fmt.Sprintf("season %d", s.Season), pixel.Dim, 0)
+		right(c, r, y, fmt.Sprintf("wk %d", s.Week), pixel.Dim)
 	} else {
-		c.Text(x, 174, "preseason", pixel.Dim, 0)
+		c.Text(x, y, "preseason", pixel.Dim, 0)
 	}
 	place := "unplaced"
 	if s.Place > 0 {
 		place = ordinal(s.Place)
 	}
-	c.Text(x, 192, "place", pixel.Dim, 0)
-	right(c, r, 192, place, pixel.Ink)
+	c.Text(x, y+16, "place", pixel.Dim, 0)
+	right(c, r, y+16, place, pixel.Ink)
 
 	return c.PNG(screenScale)
 }
@@ -170,10 +171,10 @@ type QuestLine struct {
 // and what it pays.
 func QuestScreen(name string, quests []QuestLine, rerollReady bool) ([]byte, error) {
 	c := pixel.New(screenW, screenH)
-	list := image.Rect(4, 12, 380, 170)
+	list := image.Rect(4, 4, 380, 170)
 	c.Window(list)
 	c.Tab(list, "quests")
-	right(c, 368, 20, name, pixel.Dim)
+	right(c, 368, 10, name, pixel.Dim)
 
 	tier := [3]uint8{pixel.Ink, pixel.Green, pixel.Gold}
 	x, r := 34, 368

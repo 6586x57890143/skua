@@ -24,10 +24,11 @@ var (
 	// the windows and a tab's ground; Glove is the cursor's white and a
 	// tab's letters.
 	Line, Glove uint8
-	// Blue and Crimson are the gauges, each with a lit top row.
-	Blue, Crimson uint8
-	// lit is each gauge ink's lit row.
-	lit = map[uint8]uint8{}
+	// Yellow, Blue and Crimson are the gauges, after Tactics Ogre's, each
+	// lit along its top row and shaded along its foot.
+	Yellow, Blue, Crimson uint8
+	// lit and shade are each gauge ink's top and foot rows.
+	lit, shade = map[uint8]uint8{}, map[uint8]uint8{}
 	// Sky is a window's parchment, top band first: all but flat.
 	Sky [6]uint8
 )
@@ -63,10 +64,14 @@ func init() {
 	Ember = add(rgb(0xA8744E))  // brand.ColorEnded
 	Line = add(rgb(0x4D4B3C))
 	Glove = add(rgb(0xF2EEE2))
-	Blue = add(rgb(0x3A5AA8))
-	lit[Blue] = add(rgb(0x86A6E6))
-	Crimson = add(rgb(0xB0382E))
-	lit[Crimson] = add(rgb(0xE8846A))
+	gauge := func(top, mid, foot uint32) uint8 {
+		i := add(rgb(mid))
+		lit[i], shade[i] = add(rgb(top)), add(rgb(foot))
+		return i
+	}
+	Yellow = gauge(0xF2D26A, 0xD8A83E, 0xA0742A)
+	Blue = gauge(0x8E9DE5, 0x838ABE, 0x6C7496)
+	Crimson = gauge(0xE6684C, 0xC36147, 0x9E533A)
 	// Parchment, all but flat: Tactics Ogre's windows have no gradient.
 	top, foot := rgb(0xDAD2B2), rgb(0xD0C8A7)
 	for i := range Sky {
@@ -175,9 +180,9 @@ func Plain(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// Bar draws a gauge over r filled n of d in ink i: an outline, the fill
-// with its top row lit, and the dark behind what's left. Tactics Ogre's
-// gauges are thin; 5 rows tall is one.
+// Bar draws a gauge over r filled n of d in ink i: an outline, the fill,
+// and the dark behind what's left. A gauge ink's fill is lit along its top
+// row and shaded along its foot, as Tactics Ogre's are; 5 rows tall is one.
 func (c *Canvas) Bar(r image.Rectangle, n, d int64, i uint8) {
 	c.Fill(r, Shadow)
 	in := r.Inset(1)
@@ -190,33 +195,26 @@ func (c *Canvas) Bar(r image.Rectangle, n, d int64, i uint8) {
 	full.Max.X = in.Min.X + int(int64(in.Dx())*n/d)
 	c.Fill(full, i)
 	if l, ok := lit[i]; ok {
-		full.Max.Y = full.Min.Y + 1
-		c.Fill(full, l)
+		top, foot := full, full
+		top.Max.Y, foot.Min.Y = full.Min.Y+1, full.Max.Y-1
+		c.Fill(top, l)
+		c.Fill(foot, shade[i])
 	}
 }
 
-// Badge sets s as a label on a dark plate in ink i, like Tactics Ogre's HP
-// and MP, with its text's top left at x, y, and returns where it ends.
-func (c *Canvas) Badge(x, y int, s string, i uint8) int {
-	w := len(Plain(s))*Advance + 3
-	plate := image.Rect(x-2, y+1, x+w, y+LineHeight)
-	c.Fill(plate, Line)
-	for _, p := range []image.Point{plate.Min, {plate.Max.X - 1, plate.Min.Y}, {plate.Min.X, plate.Max.Y - 1}, plate.Max.Sub(image.Pt(1, 1))} {
-		c.SetColorIndex(p.X, p.Y, Sky[0])
-	}
-	c.text(x, y, s, i, i, 0)
-	return plate.Max.X
-}
-
-// Tab sets s on a dark tab across the top of the window over r, as
-// Tactics Ogre names its panels.
+// Tab sets s on a dark tab inside the top left of the window over r, its
+// frame running into the window's, as Tactics Ogre names its panels. What
+// the window holds starts TabDrop below its top.
 func (c *Canvas) Tab(r image.Rectangle, s string) {
 	w := len(Plain(s))*Advance + 5
-	tab := image.Rect(r.Min.X+8, r.Min.Y-5, r.Min.X+8+w, r.Min.Y+9)
+	tab := image.Rect(r.Min.X+4, r.Min.Y, r.Min.X+4+w, r.Min.Y+TabDrop)
 	c.Fill(tab, Shadow)
 	c.Fill(tab.Inset(1), Line)
-	c.text(tab.Min.X+3, tab.Min.Y-1, s, Glove, Glove, 0)
+	c.text(tab.Min.X+3, tab.Min.Y+1, s, Glove, Glove, 0)
 }
+
+// TabDrop is how far a tab reaches down into its window.
+const TabDrop = 15
 
 // Portrait draws img twice its size with its top left at p, in a frame
 // like a window's around it. Its colours join this canvas's palette, so a
