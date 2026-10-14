@@ -7,20 +7,26 @@ import (
 	"image/jpeg"
 )
 
-// Soft is the canvas scale times larger as an old console's video put it
-// on a television: scaled up smoothly rather than by whole pixels, the
-// picture softened a little more across than down, red drifting a pixel
-// right of the rest, and every third line a shade darker. It is a JPEG,
-// whose own faint artefacts belong to the look, and the screens use it
-// where crisp art would read too clean for the 90s.
+// Soft is the canvas scale times larger as the PlayStation put it on a
+// television: its colour cut to 15 bits under the console's 4 by 4
+// ordered dither, then scaled up smoothly rather than by whole pixels and
+// softened a little more across than down, as a composite signal smeared,
+// red drifting a pixel right of the rest. It is a JPEG, whose own faint
+// artefacts belong to the look, and the screens use it where crisp art
+// would read too clean for the 90s.
 func (c *Canvas) Soft(scale int) ([]byte, error) {
 	w, h := c.Rect.Dx(), c.Rect.Dy()
-	// The canvas's colours as floats, a cell each.
+	// The canvas's colours as floats, a cell each, cut to 5 bits a channel
+	// under the ordered dither: its grain is the console's.
 	src := make([][3]float32, w*h)
 	for y := range h {
 		for x := range w {
 			r, g, b, _ := c.Palette[c.Pix[c.PixOffset(x, y)]].RGBA()
-			src[y*w+x] = [3]float32{float32(r >> 8), float32(g >> 8), float32(b >> 8)}
+			nudge := (float32(bayer[y%4][x%4])/16 - 0.5) * 8
+			cut := func(v uint32) float32 {
+				return float32(min(max(int((float32(v>>8)+nudge)/8)*8+4, 0), 255))
+			}
+			src[y*w+x] = [3]float32{cut(r), cut(g), cut(b)}
 		}
 	}
 	at := func(x, y int) [3]float32 {
@@ -60,10 +66,6 @@ func (c *Canvas) Soft(scale int) ([]byte, error) {
 	}
 	out := image.NewRGBA(image.Rect(0, 0, W, H))
 	for Y := range H {
-		dim := float32(1)
-		if Y%scale == scale-1 {
-			dim = 0.92
-		}
 		for X := range W {
 			var v [3]uint8
 			for k := range 3 {
@@ -71,8 +73,10 @@ func (c *Canvas) Soft(scale int) ([]byte, error) {
 				if k == 0 {
 					x--
 				}
-				across := func(y int) float32 { return 0.21*pix(x-1, y, k) + 0.58*pix(x, y, k) + 0.21*pix(x+1, y, k) }
-				s := (across(Y-1) + 4*across(Y) + across(Y+1)) / 6 * dim
+				across := func(y int) float32 {
+					return 0.1*pix(x-2, y, k) + 0.22*pix(x-1, y, k) + 0.36*pix(x, y, k) + 0.22*pix(x+1, y, k) + 0.1*pix(x+2, y, k)
+				}
+				s := (across(Y-1) + 3*across(Y) + across(Y+1)) / 5
 				v[k] = uint8(min(max(s+0.5, 0), 255))
 			}
 			out.SetRGBA(X, Y, color.RGBA{v[0], v[1], v[2], 0xFF})
@@ -83,4 +87,12 @@ func (c *Canvas) Soft(scale int) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// bayer is the PlayStation's 4 by 4 ordered dither, thresholds of 16.
+var bayer = [4][4]uint8{
+	{0, 8, 2, 10},
+	{12, 4, 14, 6},
+	{3, 11, 1, 9},
+	{15, 7, 13, 5},
 }

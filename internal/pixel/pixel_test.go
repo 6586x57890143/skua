@@ -236,7 +236,7 @@ func TestSoft(t *testing.T) {
 	edge, _, _, _ := img.At(12, 4).RGBA()
 	dark, _, _, _ := img.At(1, 4).RGBA()
 	light, _, _, _ := img.At(22, 4).RGBA()
-	if !(dark < edge && edge < light) {
+	if dark >= edge || edge >= light {
 		t.Errorf("the edge isn't softened: %d %d %d", dark>>8, edge>>8, light>>8)
 	}
 }
