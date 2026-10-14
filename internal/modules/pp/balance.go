@@ -88,8 +88,8 @@ type Balance struct {
 	QuestHold int
 
 	// Seasons: SeasonWeeks long, the first starting on day SeasonStart (a
-	// Monday). Each week ends in a checkpoint paying the top places Prizes,
-	// which never count toward the season.
+	// Monday). Each week ends in a checkpoint paying the top places on each
+	// board (voice and chat) Prizes, which never count toward the season.
 	SeasonStart int64
 	SeasonWeeks int64
 	Prizes      [5]int64

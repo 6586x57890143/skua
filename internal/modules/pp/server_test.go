@@ -45,7 +45,7 @@ type member struct {
 	seen          int64 // day last played, -1 never
 	held          int
 	total, quests int64
-	week          int64 // activity this week, what checkpoints rank
+	week          [Boards]int64 // activity this week, what checkpoints rank
 	wears         Wearing
 }
 
@@ -72,7 +72,7 @@ func TestServerMonth(t *testing.T) {
 	var history []int64
 	var tiers [4]int
 	var minted, prizes int64
-	winners := map[string]int{}
+	winners := [Boards]map[string]int{{}, {}}
 	distinct := map[uint64]bool{}
 	hearth := 0
 	var turnedUp int64
@@ -99,7 +99,9 @@ func TestServerMonth(t *testing.T) {
 				m.held--
 			}
 			m.total += got
-			m.week += d.Activity()
+			for i, a := range d.Activity() {
+				m.week[i] += a
+			}
 			minted += got
 			raw += d.Voice + d.Chat
 			turnedUp++
@@ -112,21 +114,23 @@ func TestServerMonth(t *testing.T) {
 		history = append(history, raw)
 
 		if day%7 == 6 {
-			scores := make([]int64, len(members))
-			for i, m := range members {
-				scores[i] = m.week
-			}
-			for i, place := range Places(scores) {
-				if prize := b.Prize(place); prize > 0 {
-					m := members[i]
-					m.total += prize
-					prizes += prize
-					winners[m.kind.name]++
-					distinct[m.id] = true
+			for board := range Boards {
+				scores := make([]int64, len(members))
+				for i, m := range members {
+					scores[i] = m.week[board]
+				}
+				for i, place := range Places(scores) {
+					if prize := b.Prize(place); prize > 0 {
+						m := members[i]
+						m.total += prize
+						prizes += prize
+						winners[board][m.kind.name]++
+						distinct[m.id] = true
+					}
 				}
 			}
 			for _, m := range members {
-				m.week = 0
+				m.week = [Boards]int64{}
 			}
 		}
 	}
@@ -152,7 +156,7 @@ func TestServerMonth(t *testing.T) {
 		fmt.Fprintf(&report, "%-8s %5d %4d %4d %4d %5d%%\n", k.name, len(ls),
 			ls[len(ls)/2], ls[len(ls)*9/10], ls[len(ls)-1], q*100/max(all, 1))
 	}
-	fmt.Fprintf(&report, "%d turn up a day; hearth days by tier %v; checkpoint places %v, %d distinct\n", turnedUp/days, tiers, winners, len(distinct))
+	fmt.Fprintf(&report, "%d turn up a day; hearth days by tier %v; places voice %v chat %v, %d distinct\n", turnedUp/days, tiers, winners[BoardVoice], winners[BoardChat], len(distinct))
 	fmt.Fprintf(&report, "minted %d pp a day; prizes %.1f%%, quests %.1f%%\n",
 		minted/unit/days, float64(prizes)*100/float64(minted), float64(questPP)*100/float64(minted))
 	t.Log("\n" + report.String())
@@ -176,13 +180,16 @@ func TestServerMonth(t *testing.T) {
 	if tiers[0] == 0 || tiers[0] > int(days)*3/4 || tiers[3] > int(days)/4 {
 		t.Errorf("hearth tiers by day %v: it should light on good days only, brightest on few", tiers)
 	}
-	if winners["afk"] > 0 {
+	if winners[BoardVoice]["afk"]+winners[BoardChat]["afk"] > 0 {
 		t.Errorf("an afk placed at a checkpoint: %v", winners)
 	}
-	if len(distinct) < 10 {
-		t.Errorf("only %d members ever placed in four checkpoints; the same few win every week", len(distinct))
+	if winners[BoardChat]["chatter"] == 0 {
+		t.Errorf("the server's heaviest talkers never placed on the chat board: %v", winners[BoardChat])
 	}
-	if prizes*100 > minted*2 {
+	if len(distinct) < 16 {
+		t.Errorf("only %d members ever placed on two boards in four checkpoints; the same few win every week", len(distinct))
+	}
+	if prizes*100 > minted {
 		t.Errorf("prizes are %d%% of all pp; a checkpoint should be a sliver", prizes*100/minted)
 	}
 }

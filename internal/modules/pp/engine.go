@@ -9,15 +9,24 @@ func DayOf(t time.Time) int64 { return t.Unix() / 86400 }
 // part of it chat may fill, and the percent their idle graces run to.
 type Pools struct{ Pool, Chat, Pace int64 }
 
-// Day is what one member has counted against today's pools, and the rested
-// pp carried into it.
-type Day struct{ Voice, Chat, Rested int64 }
+// Day is what one member has counted against today's pools, the rested pp
+// carried into it, and Talk, every paying message's raw pp with no share
+// held back, which the chat checkpoint ranks.
+type Day struct{ Voice, Chat, Rested, Talk int64 }
 
-// Activity is how much a member did today, which weekly checkpoints rank:
-// what voice and chat counted against the pool, before its taper, so time
-// beyond the cap still counts, but voice gone idle has faded and chat past
-// its share never counts.
-func (d Day) Activity() int64 { return d.Voice + d.Chat }
+// The weekly checkpoints are two boards, so a server's talkers and its
+// voice regulars each have one to win. Voice ranks what voice counted
+// before the taper: real time past the cap still counts and voice gone idle
+// has already faded. Chat ranks Talk: the minute's cooldown paces it, and
+// the share that holds back its pay doesn't hold back its standing.
+const (
+	BoardVoice = iota
+	BoardChat
+	Boards
+)
+
+// Activity is what d adds to each board.
+func (d Day) Activity() [Boards]int64 { return [Boards]int64{d.Voice, d.Talk} }
 
 // mix is splitmix64's finaliser.
 // ponytail: not a keyed hash; it only has to keep a cap from being read off
@@ -54,6 +63,7 @@ func (b *Balance) Earn(d *Day, p Pools, chat bool, raw, buff int64) int64 {
 	tail, count := b.VoiceTail, &d.Voice
 	var got int64
 	if chat {
+		d.Talk += raw
 		tail, count = b.ChatTail, &d.Chat
 		if over := min(d.Chat+raw-p.Chat, raw); over > 0 {
 			got += over * b.ChatTail / 100

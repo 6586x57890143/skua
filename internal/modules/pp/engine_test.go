@@ -58,6 +58,9 @@ func TestChatPastItsShareSparesVoice(t *testing.T) {
 	if d.Chat != 400 {
 		t.Errorf("chat counted %d against the pool; want its share, 400", d.Chat)
 	}
+	if a := d.Activity(); a[BoardChat] != 500 || a[BoardVoice] != 0 {
+		t.Errorf("chat's standing is %v; want all 500 on the chat board", a)
+	}
 	if got := b.Earn(&d, p, false, 200, 0); got != 200 {
 		t.Errorf("voice after a chat flood paid %d; want 200 at full rate", got)
 	}
