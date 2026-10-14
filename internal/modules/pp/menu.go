@@ -76,7 +76,7 @@ func (m *Module) press(_ context.Context, e *events.ComponentInteractionCreate) 
 		if err != nil {
 			return err
 		}
-		return e.UpdateMessage(discord.NewMessageUpdateV2(msg.Components...).WithFiles(msg.Files...))
+		return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...))
 	case "pp:show":
 		msg, err := m.status(*guild, e.Member(), false)
 		if err != nil {

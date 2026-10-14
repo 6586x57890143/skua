@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -410,5 +411,21 @@ func TestRevision(t *testing.T) {
 	defer func() { revision = "" }()
 	if Revision() != "0123456" {
 		t.Fatalf("revision %q", Revision())
+	}
+}
+
+// An edit lists every file it brings, after what it already lists, so
+// Discord can find attachment://name; with none it lists nothing, which
+// drops the last version's files.
+func TestEdit(t *testing.T) {
+	keep := []discord.AttachmentUpdate{discord.AttachmentKeep{ID: 7}}
+	u := Edit(discord.MessageUpdate{Attachments: &keep},
+		discord.NewFile("a.png", "first", strings.NewReader("")), discord.NewFile("b.png", "second", strings.NewReader("")))
+	want := []discord.AttachmentUpdate{discord.AttachmentKeep{ID: 7}, discord.AttachmentCreate{ID: 0, Description: "first"}, discord.AttachmentCreate{ID: 1, Description: "second"}}
+	if u.Attachments == nil || !reflect.DeepEqual(*u.Attachments, want) || len(u.Files) != 2 {
+		t.Errorf("attachments %v, %d files", u.Attachments, len(u.Files))
+	}
+	if u := Edit(discord.MessageUpdate{}); u.Attachments == nil || len(*u.Attachments) != 0 {
+		t.Error("an edit with no files doesn't clear the old ones")
 	}
 }

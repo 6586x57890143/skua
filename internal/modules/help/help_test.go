@@ -278,8 +278,15 @@ func page(t *testing.T, res response) (discord.ContainerComponent, string) {
 	if u == nil {
 		t.Fatalf("got %+v, want an update", res)
 	}
-	if u.Attachments == nil || len(*u.Attachments) != 0 {
+	// The edit lists the new page's files and keeps none of the last's.
+	if u.Attachments == nil || len(*u.Attachments) != len(u.Files) {
 		t.Error("the last page's attachments are not cleared")
+	} else {
+		for _, a := range *u.Attachments {
+			if _, ok := a.(discord.AttachmentCreate); !ok {
+				t.Errorf("the edit keeps %#v", a)
+			}
+		}
 	}
 	checkFiles(t, *u.Components, u.Files)
 	return container(t, *u.Components, discord.MessageFlagIsComponentsV2), mustJSON(t, *u.Components)

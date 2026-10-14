@@ -438,6 +438,22 @@ func Revision() string {
 	return rev + dirty
 }
 
+// Edit is u carrying files as a reply's edit. A new file has to be listed
+// in the edit's attachments or Discord won't find attachment://name, and
+// disgo v0.19.6 lists them on a copy it then drops when the edit answers an
+// interaction, so they are listed here. Whatever u already lists stays.
+func Edit(u discord.MessageUpdate, files ...*discord.File) discord.MessageUpdate {
+	list := []discord.AttachmentUpdate{}
+	if u.Attachments != nil {
+		list = append(list, *u.Attachments...)
+	}
+	for i := range files {
+		list = append(list, discord.AttachmentCreate{ID: i, Description: files[i].Description})
+	}
+	u.Attachments, u.Files = &list, files
+	return u
+}
+
 // NoPings is what every message skua sends carries. It has to be an empty
 // slice, not the zero value: disgo marshals a nil Parse as null, and only
 // "parse":[] is an explicit "parse nothing" to Discord.
