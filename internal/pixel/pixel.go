@@ -143,6 +143,12 @@ func (c *Canvas) Text(x, y int, s string, i uint8, max int) int {
 	return c.text(x, y, s, i, Bone, max, Advance)
 }
 
+// Shaded sets s like Text, over a shadow in ink shadow: for text on a
+// dark ground, where the khaki shadow would glare.
+func (c *Canvas) Shaded(x, y int, s string, i, shadow uint8) int {
+	return c.text(x, y, s, i, shadow, 0, Advance)
+}
+
 // Fit sets s like Text within width: at full spacing if it fits, a cell
 // tighter if that fits, and cut with "..." at the tighter spacing only
 // past that.
@@ -227,29 +233,43 @@ func (c *Canvas) Tab(r image.Rectangle, s string) {
 // TabDrop is how far a tab reaches down into its window.
 const TabDrop = 15
 
-// Portrait draws img twice its size with its top left at p, in a frame
-// like a window's around it. Its colours join this canvas's palette, so a
-// portrait keeps its own sixteen.
-func (c *Canvas) Portrait(img image.Image, p image.Point) {
-	b := img.Bounds()
-	frame := image.Rectangle{p, p.Add(b.Size().Mul(2))}.Inset(-3)
+// Portrait draws img scale times its size with its top left at p, in a
+// frame like a window's around it. Its colours join this canvas's palette,
+// so a portrait keeps its own sixteen.
+func (c *Canvas) Portrait(img image.Image, p image.Point, scale int) {
+	frame := image.Rectangle{p, p.Add(img.Bounds().Size().Mul(scale))}.Inset(-3)
 	c.Fill(frame, Shadow)
 	c.Fill(frame.Inset(1), Bone)
 	c.Fill(frame.Inset(2), Line)
+	c.Picture(img, p, scale)
+}
+
+// Picture draws img scale times its size with its top left at p, keeping
+// its own colours: each joins this canvas's palette while there's room,
+// and past that takes the nearest ink there.
+func (c *Canvas) Picture(img image.Image, p image.Point, scale int) {
+	b := img.Bounds()
 	c.Palette = slices.Clip(c.Palette)
+	known := map[[4]uint32]uint8{}
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
 			col := img.At(x, y)
-			i := slices.IndexFunc(c.Palette, func(have color.Color) bool { return same(have, col) })
-			if i < 0 && len(c.Palette) < 256 {
-				c.Palette = append(c.Palette, col)
-				i = len(c.Palette) - 1
+			r, g, bl, a := col.RGBA()
+			i, ok := known[[4]uint32{r, g, bl, a}]
+			if !ok {
+				at := slices.IndexFunc(c.Palette, func(have color.Color) bool { return same(have, col) })
+				if at < 0 && len(c.Palette) < 256 {
+					c.Palette = append(c.Palette, col)
+					at = len(c.Palette) - 1
+				}
+				if at < 0 {
+					at = c.Palette.Index(col)
+				}
+				i = uint8(at)
+				known[[4]uint32{r, g, bl, a}] = i
 			}
-			if i < 0 {
-				i = c.Palette.Index(col)
-			}
-			q := p.Add(image.Pt(x-b.Min.X, y-b.Min.Y).Mul(2))
-			c.Fill(image.Rectangle{q, q.Add(image.Pt(2, 2))}, uint8(i))
+			q := p.Add(image.Pt(x-b.Min.X, y-b.Min.Y).Mul(scale))
+			c.Fill(image.Rectangle{q, q.Add(image.Pt(scale, scale))}, i)
 		}
 	}
 }

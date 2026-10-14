@@ -93,7 +93,7 @@ func StatusScreen(s Sheet) ([]byte, error) {
 
 	c.Window(image.Rect(4, 4, 140, 152))
 	if s.Portrait != nil {
-		c.Portrait(s.Portrait, image.Pt(40, 30))
+		c.Portrait(s.Portrait, image.Pt(40, 30), 2)
 	} else {
 		c.Bird(image.Pt(8, 14))
 	}
@@ -155,7 +155,7 @@ func StatusScreen(s Sheet) ([]byte, error) {
 		right(c, r, y+17, "none", pixel.Dim)
 	}
 
-	return c.PNG(screenScale)
+	return c.Soft(screenScale)
 }
 
 // drawBuffs sets the buffs worn in r: on one line while they fit, and in
@@ -232,5 +232,5 @@ func QuestScreen(name string, quests []QuestLine, rerollReady bool) ([]byte, err
 		c.Text(end, 190, "used", pixel.Dim, 0)
 	}
 	right(c, 368, 190, fmt.Sprintf("%d / %d held", len(quests), Default.QuestHold), pixel.Dim)
-	return c.PNG(screenScale)
+	return c.Soft(screenScale)
 }
