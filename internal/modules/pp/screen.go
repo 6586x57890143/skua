@@ -37,7 +37,7 @@ type Sheet struct {
 // Buff is one buff as a screen shows it: its icon and its word.
 type Buff struct{ Icon, Label string }
 
-// classIcons is each class's emblem until the classes have portraits.
+// classIcons is each class's emblem, beside its name and on its buttons.
 var classIcons = map[string]string{
 	"wanderer": "lantern", "fighter": "sword", "ranger": "bow", "sorcerer": "orb",
 	"thief": "pouch", "bard": "lute", "monk": "beads", "knight": "shield",
