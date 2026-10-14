@@ -32,9 +32,9 @@ func (b *Balance) Pools(seed, guild, user uint64, day int64) Pools {
 	h := mix(seed ^ mix(guild^mix(user^mix(uint64(day)))))
 	pool := b.Pool * (100 + jitter(h, b.Jitter)) / 100
 	return Pools{
-		Pool:  pool,
-		Chat:  pool * (b.ChatShare + jitter(mix(h), b.ChatJitter)) / 100,
-		Pace:  100 + jitter(mix(mix(h)), b.IdleJitter),
+		Pool: pool,
+		Chat: pool * (b.ChatShare + jitter(mix(h), b.ChatJitter)) / 100,
+		Pace: 100 + jitter(mix(mix(h)), b.IdleJitter),
 	}
 }
 
