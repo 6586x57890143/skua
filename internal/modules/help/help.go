@@ -138,12 +138,10 @@ func (m *Module) turn(ctx context.Context, e *events.ComponentInteractionCreate)
 	}
 	// An empty attachment list drops the last page's files; the new page
 	// brings exactly the ones it points at.
-	return e.UpdateMessage(discord.MessageUpdate{
+	return e.UpdateMessage(core.Edit(discord.MessageUpdate{
 		Components:      &msg.Components,
-		Attachments:     &[]discord.AttachmentUpdate{},
-		Files:           msg.Files,
 		AllowedMentions: msg.AllowedMentions,
-	})
+	}, msg.Files...))
 }
 
 type entry struct {

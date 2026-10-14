@@ -14,6 +14,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/gateway"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -93,6 +94,27 @@ func pick(t *testing.T, value string) (*events.ComponentInteractionCreate, *[]di
 	return coretest.Button(t, "pp:pick", func(p map[string]any) {
 		p["data"] = map[string]any{"custom_id": "pp:pick", "component_type": 3, "values": []any{value}}
 	})
+}
+
+// A pick turns the picker into the status screen, and the edit lists the
+// screen's PNG: without that Discord can't find attachment://pp.png.
+func TestPickListsTheScreen(t *testing.T) {
+	m := testModule(&fakeDB{})
+	e, _ := pick(t, "thief")
+	var got discord.MessageUpdate
+	e.Respond = func(_ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
+		got, _ = d.(discord.MessageUpdate)
+		return nil
+	}
+	if err := m.press(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Files) != 1 || got.Files[0].Name != screenName || got.Attachments == nil || len(*got.Attachments) != 1 {
+		t.Fatalf("the edit brings %d files and lists %v", len(got.Files), got.Attachments)
+	}
+	if a, ok := (*got.Attachments)[0].(discord.AttachmentCreate); !ok || a.ID != 0 {
+		t.Errorf("the screen is listed as %#v", (*got.Attachments)[0])
+	}
 }
 
 func TestClassChanges(t *testing.T) {
