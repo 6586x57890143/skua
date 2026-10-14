@@ -92,64 +92,67 @@ func StatusScreen(s Sheet) ([]byte, error) {
 
 	c.Window(image.Rect(4, 4, 140, 152))
 	if s.Portrait != nil {
-		c.Portrait(s.Portrait, image.Pt(40, 22))
+		c.Portrait(s.Portrait, image.Pt(40, 30))
 	} else {
-		c.Bird(image.Pt(8, 6))
-	}
-	// laurels sit under the portrait, as an emblem would
-	if s.Laurels > 0 {
-		n := fmt.Sprintf("x%d", s.Laurels)
-		lx := 72 - (pixel.IconCells+2+len(n)*pixel.Advance)/2
-		iconText(c, "laurel", lx, 134, n, pixel.Green)
+		c.Bird(image.Pt(8, 14))
 	}
 
+	// The lines sit 19 apart, a gauge centred on its label's x-height.
 	c.Window(image.Rect(144, 4, 380, 152))
 	x, r := 156, 368
 	c.Fit(x, 12, s.Name, pixel.Ink, r-x)
-	iconText(c, classIcons[s.Class.Key], x, 32, s.Class.Name(), pixel.Dim)
-	right(c, r, 32, s.Class.Title(s.Level), pixel.Ink)
+	iconText(c, classIcons[s.Class.Key], x, 31, s.Class.Name(), pixel.Dim)
+	right(c, r, 31, s.Class.Title(s.Level), pixel.Ink)
 
-	c.Text(x, 52, "lv", pixel.Dim, 0)
-	c.Text(x+20, 52, strconv.Itoa(s.Level), pixel.Ink, 0)
-	right(c, r, 52, grouped((s.Need-s.Into)/unit)+" to next", pixel.Dim)
+	c.Text(x, 50, "lv", pixel.Dim, 0)
+	c.Text(x+20, 50, strconv.Itoa(s.Level), pixel.Ink, 0)
+	right(c, r, 50, grouped((s.Need-s.Into)/unit)+" to next", pixel.Dim)
 
 	gauge := x + 6*pixel.Advance
-	c.Text(x, 72, "pp", pixel.Dim, 0)
-	c.Bar(image.Rect(gauge, 78, r, 83), s.Into, s.Need, pixel.Yellow)
-	right(c, r, 88, grouped(s.Into/unit)+" / "+grouped(s.Need/unit), pixel.Dim)
+	c.Text(x, 69, "pp", pixel.Dim, 0)
+	c.Bar(image.Rect(gauge, 74, r, 79), s.Into, s.Need, pixel.Yellow)
+	right(c, r, 85, grouped(s.Into/unit)+" / "+grouped(s.Need/unit), pixel.Dim)
 
-	c.Text(x, 106, "vigor", pixel.Dim, 0)
-	c.Bar(image.Rect(gauge, 112, r-56, 117), s.Vigor, 100, pixel.Crimson)
-	right(c, r, 106, s.Phase, pixel.Ink)
+	c.Text(x, 104, "vigor", pixel.Dim, 0)
+	c.Bar(image.Rect(gauge, 109, r-56, 114), s.Vigor, 100, pixel.Crimson)
+	right(c, r, 104, s.Phase, pixel.Ink)
 
-	c.Cursor(x+10, 134)
-	c.Text(x+14, 128, fmt.Sprintf("quests %d held", s.Held), pixel.Ink, 0)
+	c.Cursor(x+10, 129)
+	c.Text(x+14, 123, fmt.Sprintf("quests %d held", s.Held), pixel.Ink, 0)
 	total := grouped(s.Total / unit)
-	right(c, r, 128, total, pixel.Gold)
-	c.Icon("pot", image.Pt(r-len(total)*pixel.Advance-pixel.IconCells-4, 128-iconLift))
+	right(c, r, 123, total, pixel.Gold)
+	c.Icon("pot", image.Pt(r-len(total)*pixel.Advance-pixel.IconCells-4, 123-iconLift))
 
 	buffs := image.Rect(4, 156, 252, 212)
 	c.Window(buffs)
 	c.Tab(buffs, "buffs")
 	drawBuffs(c, s.Buffs, image.Rect(16, buffs.Min.Y+pixel.TabDrop, buffs.Max.X-12, buffs.Max.Y-4))
 
+	// The tab names the season and week; under it, label and value, the
+	// place on the board and the laurels won.
 	season := image.Rect(256, 156, 380, 212)
 	c.Window(season)
-	c.Tab(season, "season")
-	x, r = 266, 370
-	y := season.Min.Y + pixel.TabDrop + 6
+	tab := "preseason"
 	if s.Season > 0 {
-		c.Text(x, y, fmt.Sprintf("season %d", s.Season), pixel.Dim, 0)
-		right(c, r, y, fmt.Sprintf("wk %d", s.Week), pixel.Dim)
-	} else {
-		c.Text(x, y, "preseason", pixel.Dim, 0)
+		tab = fmt.Sprintf("season %d week %d", s.Season, s.Week)
 	}
+	c.Tab(season, tab)
+	x, r = 266, 368
+	y := season.Min.Y + pixel.TabDrop + 4
 	place := "unplaced"
 	if s.Place > 0 {
 		place = ordinal(s.Place)
 	}
-	c.Text(x, y+16, "place", pixel.Dim, 0)
-	right(c, r, y+16, place, pixel.Ink)
+	c.Text(x, y, "board", pixel.Dim, 0)
+	right(c, r, y, place, pixel.Ink)
+	c.Text(x, y+17, "laurels", pixel.Dim, 0)
+	if s.Laurels > 0 {
+		n := fmt.Sprintf("x%d", s.Laurels)
+		right(c, r, y+17, n, pixel.Green)
+		c.Icon("laurel", image.Pt(r-len(n)*pixel.Advance-pixel.IconCells-2, y+17-iconLift))
+	} else {
+		right(c, r, y+17, "none", pixel.Dim)
+	}
 
 	return c.PNG(screenScale)
 }
@@ -158,7 +161,7 @@ func StatusScreen(s Sheet) ([]byte, error) {
 // two columns over two lines past that.
 func drawBuffs(c *pixel.Canvas, buffs []Buff, r image.Rectangle) {
 	if len(buffs) == 0 {
-		c.Text(r.Min.X, r.Min.Y+13, "none worn", pixel.Dim, 0)
+		c.Text(r.Min.X, r.Min.Y+12, "none worn", pixel.Dim, 0)
 		return
 	}
 	width := 0
@@ -168,7 +171,7 @@ func drawBuffs(c *pixel.Canvas, buffs []Buff, r image.Rectangle) {
 	if width-pixel.Advance <= r.Dx() {
 		x := r.Min.X
 		for _, b := range buffs {
-			x = iconText(c, b.Icon, x, r.Min.Y+13, b.Label, pixel.Gold) + pixel.Advance
+			x = iconText(c, b.Icon, x, r.Min.Y+12, b.Label, pixel.Gold) + pixel.Advance
 		}
 		return
 	}
