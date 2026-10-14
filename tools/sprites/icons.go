@@ -5,6 +5,8 @@ import (
 	"image/color"
 	"log"
 	"path/filepath"
+
+	"github.com/6586x57890143/skua/internal/pixel"
 )
 
 // moduleGlyphs are each module's icon on a 24 cell grid, rasterised once
@@ -471,6 +473,17 @@ func writeEmoji(b *image.NRGBA) {
 	tiles(out, "mod_", moduleGlyphs, nil)
 	tiles(out, "pf_", platformGlyphs, platformInk)
 	bare(out, "btn_notify", moduleGlyphs["notify"])
+	gameIcons(out)
+}
+
+// gameIcons writes /pp's item icons as they are drawn on its screens, one
+// cell eight pixels, so a button and a screen show the same picture.
+func gameIcons(out string) {
+	for name, g := range pixel.Icons {
+		img := image.NewNRGBA(image.Rect(0, 0, emojiSize, emojiSize))
+		drawScaled(img, g, 0, 0, pixel.IconInks, emojiSize/pixel.IconCells)
+		mustWrite(filepath.Join(out, "pp_"+name+".png"), img)
+	}
 }
 
 // bare writes a glyph alone in bone on nothing, for a coloured button: on

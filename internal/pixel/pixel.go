@@ -62,6 +62,7 @@ func init() {
 		mix := func(a, b uint8) uint8 { return uint8((int(a)*(len(Sky)-1-i) + int(b)*i) / (len(Sky) - 1)) }
 		Sky[i] = add(color.NRGBA{mix(top.R, foot.R), mix(top.G, foot.G), mix(top.B, foot.B), 0xFF})
 	}
+	addIconInks()
 }
 
 // Canvas is a picture at native resolution, one pixel a cell.

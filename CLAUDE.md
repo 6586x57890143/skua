@@ -34,7 +34,9 @@ lowercase, errors as `core.Tell`, facts on a grid, art on an exact pixel grid.
   2px cells (256) with its badge. It also writes 128px application emoji into
   `internal/brand/emoji`: the moods (the bird at 1px cells with its badge), the avatar
   and a tile per module whose glyph comes from pixelarticons (MIT,
-  `art/LICENSE-pixelarticons`), kept as text grids in `tools/sprites/icons.go`. An
+  `art/LICENSE-pixelarticons`), kept as text grids in `tools/sprites/icons.go`, and
+  `/pp`'s item icons (`pp_<name>`, 8px a cell) from the 16 cell multi-ink grids in
+  `internal/pixel/icons.go` that `/pp`'s screens draw, so a button and a screen match. An
   emoji's name carries its PNG's hash, so only a redrawn one is uploaded again. The
   banner is computed from shapes, banded light and a fixed hash. Style: high resolution pixel art, flat fields, cool grey frame, the bird
   the only warmth. Every PNG is written indexed at best compression, and
