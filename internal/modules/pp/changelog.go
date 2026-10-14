@@ -13,10 +13,12 @@ type Entry struct {
 var Changelog = []Entry{{
 	Version: "0.1.0",
 	Date:    "2026-10-14",
-	Balance: "e86add",
+	Balance: "ad0f8b",
 	Lines: []string{
 		"pot points arrive: time in voice and chatting both earn pp, and a day of real talk earns as well as a day in voice",
-		"everyone starts a wanderer; pick a path in /pp, from shrike fighter to magpie thief, earn its titles as you level and change it once a season",
+		"everyone starts a wanderer; pick a path in /pp, from shrike fighter to magpie thief, and earn its titles as you level",
+		"the first pick of a season is free and every change after it costs pp, more the higher your level and more again each time",
+		"spending comes out of your purse: your level counts everything you've earned and never goes down",
 		"voice pays most with your mic open; muted or deafened still earns but slowly fades the longer you go quiet, and a message brings it back",
 		"every day has a pool of vigor; earning slows as it runs out and what you leave unspent partly carries to tomorrow",
 		"wear the server tag or put .gg/melted in your status for a little extra on everything but quests, and boosting the server adds a little more for as long as you boost",

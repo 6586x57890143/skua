@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -40,6 +42,7 @@ import (
 	"github.com/6586x57890143/skua/internal/modules/notify"
 	"github.com/6586x57890143/skua/internal/modules/pace"
 	"github.com/6586x57890143/skua/internal/modules/perf"
+	"github.com/6586x57890143/skua/internal/modules/pp"
 	"github.com/6586x57890143/skua/internal/modules/preen"
 	"github.com/6586x57890143/skua/internal/modules/purge"
 	"github.com/6586x57890143/skua/internal/modules/status"
@@ -229,6 +232,33 @@ func run(log *slog.Logger) error {
 	} else {
 		all = append(all, notifier)
 	}
+	// /pp keeps every member's standing in the database, so it runs only
+	// with one. Its daily pools are seeded from the token, a secret skua
+	// already holds, so a member can't work out their cap from the source.
+	var pot *pp.Module
+	if purgeDB != nil {
+		sum := sha256.Sum256([]byte("pp:" + token))
+		pot, err = pp.New(ctx, log, purgeDB, binary.BigEndian.Uint64(sum[:8]), func(g snowflake.ID) (snowflake.ID, string) {
+			guild, ok := client.Caches.Guild(g)
+			if !ok {
+				return 0, ""
+			}
+			var afk snowflake.ID
+			if guild.AfkChannelID != nil {
+				afk = *guild.AfkChannelID
+			}
+			var vanity string
+			if guild.VanityURLCode != nil {
+				vanity = *guild.VanityURLCode
+			}
+			return afk, vanity
+		})
+		if err != nil {
+			log.Error("pp is off: it couldn't load", "err", err)
+		} else {
+			all = append(all, pot)
+		}
+	}
 	// Pushes from twitch, kick and youtube, which reach skua through the
 	// tunnel; nothing listens unless notify took SKUA_HOOKS_URL.
 	if notifier != nil && notifier.Pushing() {
@@ -375,6 +405,9 @@ func run(log *slog.Logger) error {
 			client.Gateway.Close(context.Background())
 			if !preener.Drain(drainBy) {
 				log.Warn("shutting down with preen work still owed")
+			}
+			if pot != nil {
+				pot.Save()
 			}
 			return nil
 		case <-tick.C:

@@ -86,6 +86,11 @@ type Balance struct {
 	QuestOdds [3]uint64
 	QuestHold int
 
+	// Classes: the first pick of a season is free. Each change after it
+	// costs ClassBase plus ClassPerLevel a level, doubled for every change
+	// already paid for that season.
+	ClassBase, ClassPerLevel int64
+
 	// Seasons: SeasonWeeks long, the first starting on day SeasonStart (a
 	// Monday). Each week ends in a checkpoint paying the top places on each
 	// board (voice and chat) Prizes, which never count toward the season.
@@ -138,6 +143,9 @@ var Default = Balance{
 	QuestPP:   [3]int64{250 * unit, 400 * unit, 750 * unit},
 	QuestOdds: [3]uint64{16, 3, 1},
 	QuestHold: 3,
+
+	ClassBase:     200 * unit,
+	ClassPerLevel: 50 * unit,
 
 	SeasonStart: DayOf(time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)),
 	SeasonWeeks: 4,

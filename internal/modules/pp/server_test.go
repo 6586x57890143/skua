@@ -37,7 +37,7 @@ var population = []kind{
 // in percent, monday first: messages and voice minutes averaged.
 var busy = [7]int{110, 89, 82, 98, 123, 97, 104}
 
-type member struct {
+type resident struct {
 	kind          *kind
 	id            uint64
 	prev          Day
@@ -57,11 +57,11 @@ type member struct {
 func TestServerMonth(t *testing.T) {
 	b := &Default
 	rng := rand.New(rand.NewPCG(3, 4))
-	var members []*member
+	var members []*resident
 	for i := range population {
 		k := &population[i]
 		for range k.share * 2500 / 1000 {
-			members = append(members, &member{
+			members = append(members, &resident{
 				kind: k, id: uint64(len(members) + 1), seen: -1,
 				wears: Wearing{Crest: rng.IntN(4) == 0, Banner: rng.IntN(10) == 0, Plume: rng.IntN(33) == 0},
 			})
