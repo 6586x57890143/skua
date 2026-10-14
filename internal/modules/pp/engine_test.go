@@ -119,6 +119,12 @@ func TestChat(t *testing.T) {
 			t.Errorf("ChatPays(%v, %d, %v) = %v", c.since, c.runes, c.repeat, got)
 		}
 	}
+	if !b.ChatCounts(b.ActivityGap, 10, false) || b.ChatCounts(b.ActivityGap-1, 10, false) || b.ChatCounts(time.Hour, 10, true) {
+		t.Error("activity doesn't count every real message once per gap")
+	}
+	if b.ActivityGap >= b.ChatCooldown {
+		t.Error("activity counts no more often than pay")
+	}
 	for r := range uint64(1000) {
 		if x := b.ChatRaw(r); x < b.ChatMin || x > b.ChatMax {
 			t.Fatalf("ChatRaw(%d) = %d", r, x)
@@ -167,11 +173,12 @@ func TestBuffAndHearth(t *testing.T) {
 	if got := b.Buff(false, false, 0); got != 0 {
 		t.Errorf("no buff: %d", got)
 	}
-	if got := b.HearthTier(b.HearthFloor, nil); got != 2 {
-		t.Errorf("a usual day with no history is tier %d; want 2", got)
+	if got := b.HearthTier(b.HearthFloor, nil); got != 1 {
+		t.Errorf("a usual day with no history is tier %d; want 1", got)
 	}
+	// A usual day of 2000 lights at 2000, 2300 and 2600.
 	history := []int64{0, 1000, 3000}
-	for today, want := range map[int64]int{999: 0, 1000: 1, 2000: 2, 3000: 3} {
+	for today, want := range map[int64]int{1999: 0, 2000: 1, 2300: 2, 2599: 2, 2600: 3} {
 		if got := b.HearthTier(today, history); got != want {
 			t.Errorf("%d against a usual 2000: tier %d; want %d", today, got, want)
 		}
@@ -199,15 +206,22 @@ func TestLevel(t *testing.T) {
 	}
 }
 
-func TestQuestReward(t *testing.T) {
-	var rare int
-	for r := range uint64(400) {
-		if b.QuestReward(r) == b.QuestRare {
-			rare++
+func TestQuestRoll(t *testing.T) {
+	var n [3]uint64
+	for r := range uint64(2000) {
+		tier, pp := b.QuestRoll(r)
+		if pp != b.QuestPP[tier] {
+			t.Fatalf("tier %d paid %d", tier, pp)
 		}
+		n[tier]++
 	}
-	if rare != 100 {
-		t.Errorf("%d rare in 400; want 100", rare)
+	if n != [3]uint64{1600, 300, 100} {
+		t.Errorf("2000 rolls fell %v; want 1600, 300, 100", n)
+	}
+	for i := 1; i < len(b.QuestPP); i++ {
+		if b.QuestPP[i] <= b.QuestPP[i-1] || b.QuestOdds[i] >= b.QuestOdds[i-1] {
+			t.Errorf("tier %d isn't rarer and richer than tier %d", i, i-1)
+		}
 	}
 }
 

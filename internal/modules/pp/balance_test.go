@@ -41,8 +41,41 @@ type result struct {
 	level         [31]int // level at the end of each day
 }
 
-// simulate plays p for days, earning as the module would: minute by minute
-// in voice, message by message in chat, rested carried day to day. Every
+// playDay plays one day of p's habits, scaled by scale percent, earning as
+// the module would: minute by minute in voice, message by message in chat.
+// It returns what that paid, quests aside.
+func playDay(b *Balance, rng *rand.Rand, p persona, scale int64, pools Pools, d *Day, buff int64) int64 {
+	var got int64
+	me, other := Seat{}, Seat{Age: b.CompanionAge}
+	voice := func(n int64, muted, deaf bool) {
+		me.SelfMute, me.Deaf = muted, deaf
+		for m := range n * scale / 100 {
+			if p.engage > 0 {
+				m %= p.engage
+			}
+			me.Idle = time.Duration(m) * time.Minute
+			got += b.Earn(d, pools, false, b.VoiceRaw(me, []Seat{other}, pools.Pace), buff)
+		}
+	}
+	voice(p.unmuted, false, false)
+	voice(p.muted, true, false)
+	voice(p.deaf, true, true)
+	for range p.messages * scale / 100 {
+		got += b.Earn(d, pools, true, b.ChatRaw(rng.Uint64()), buff)
+	}
+	return got
+}
+
+// quest plays one quest the way members will: a plain one is rerolled.
+func quest(b *Balance, rng *rand.Rand) int64 {
+	tier, q := b.QuestRoll(rng.Uint64())
+	if tier == 0 {
+		_, q = b.QuestRoll(rng.Uint64())
+	}
+	return q
+}
+
+// simulate plays p every day for days, rested carried day to day. Every
 // persona is the same member so they all meet the same pools.
 func simulate(b *Balance, p persona, days int) result {
 	rng := rand.New(rand.NewPCG(1, 2))
@@ -50,29 +83,13 @@ func simulate(b *Balance, p persona, days int) result {
 	var prev Day
 	var prevPools Pools
 	buff := b.Buff(p.crest, p.banner, 0)
-	me, other := Seat{}, Seat{Age: b.CompanionAge}
 	for day := range int64(days) {
 		pools := b.Pools(42, 1, 2, day)
 		d := Day{Rested: b.Rested(prev, prevPools, min(day, 1))}
-		voice := func(n int64, muted, deaf bool) {
-			me.SelfMute, me.Deaf = muted, deaf
-			for m := range n {
-				if p.engage > 0 {
-					m %= p.engage
-				}
-				me.Idle = time.Duration(m) * time.Minute
-				r.total += b.Earn(&d, pools, false, b.VoiceRaw(me, []Seat{other}, pools.Pace), buff)
-			}
-		}
-		voice(p.unmuted, false, false)
-		voice(p.muted, true, false)
-		voice(p.deaf, true, true)
-		for range p.messages {
-			r.total += b.Earn(&d, pools, true, b.ChatRaw(rng.Uint64()), buff)
-		}
+		r.total += playDay(b, rng, p, 100, pools, &d, buff)
 		if p.every > 0 && day%p.every == 0 {
 			for range p.quests {
-				q := b.QuestReward(rng.Uint64())
+				q := quest(b, rng)
 				r.total += q
 				r.quests += q
 			}
@@ -132,7 +149,7 @@ func TestBalanceHolds(t *testing.T) {
 	if l := reg.level[24]; l < 9 || l > 11 {
 		t.Errorf("a regular is level %d after 24 days; want 9 to 11", l)
 	}
-	if s := reg.quests * 100 / reg.total; s < 20 || s > 40 {
-		t.Errorf("quests are %d%% of a regular's pp; want 20 to 40", s)
+	if s := reg.quests * 100 / reg.total; s < 30 || s > 50 {
+		t.Errorf("quests are %d%% of a regular's pp; want 30 to 50", s)
 	}
 }

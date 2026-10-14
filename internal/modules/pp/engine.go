@@ -112,6 +112,12 @@ func (b *Balance) ChatPays(since time.Duration, runes int, repeat bool) bool {
 	return since >= b.ChatCooldown && (runes < 0 || runes >= b.ChatMinRunes && !repeat)
 }
 
+// ChatCounts is whether a message counts as activity: the same checks as
+// pay, at ActivityGap's shorter pace.
+func (b *Balance) ChatCounts(since time.Duration, runes int, repeat bool) bool {
+	return since >= b.ActivityGap && (runes < 0 || runes >= b.ChatMinRunes && !repeat)
+}
+
 // ChatRaw is one earning message's raw pp, from a random r.
 func (b *Balance) ChatRaw(r uint64) int64 {
 	return b.ChatMin + int64(r%uint64(b.ChatMax-b.ChatMin+1))
@@ -263,12 +269,20 @@ func (b *Balance) Prize(place int) int64 {
 	return b.Prizes[place-1]
 }
 
-// QuestReward is a dealt quest's reward, from a random r.
-func (b *Balance) QuestReward(r uint64) int64 {
-	if r%b.RareOneIn == 0 {
-		return b.QuestRare
+// QuestTiers names the tiers, as members see them.
+var QuestTiers = [3]string{"good", "great", "golden"}
+
+// QuestRoll draws a dealt quest's tier and reward from a random r.
+func (b *Balance) QuestRoll(r uint64) (tier int, pp int64) {
+	var sum uint64
+	for _, o := range b.QuestOdds {
+		sum += o
 	}
-	return b.QuestCommon
+	r %= sum
+	for tier = 0; r >= b.QuestOdds[tier]; tier++ {
+		r -= b.QuestOdds[tier]
+	}
+	return tier, b.QuestPP[tier]
 }
 
 var ranks = []struct {
@@ -288,18 +302,19 @@ func Rank(l int) string {
 
 // Job is the title for how someone earns, from what they have earned it
 // by: voice minutes, earning messages and quests done, each weighed by
-// what it pays at base.
+// what it pays at base. Quests pay big for everyone, so ranger is only for
+// those who earn more by them than by voice and chat together.
 func (b *Balance) Job(voiceMin, chatN, questN int64) string {
 	v := voiceMin * b.VoiceBase
 	c := chatN * (b.ChatMin + b.ChatMax) / 2
-	q := questN * b.QuestCommon
+	q := questN * b.QuestPP[0]
 	switch {
 	case v == 0 && c == 0 && q == 0:
 		return "wanderer"
-	case v >= c && v >= q:
+	case q > v+c:
+		return "ranger"
+	case v >= c:
 		return "bard"
-	case c >= q:
-		return "scribe"
 	}
-	return "ranger"
+	return "scribe"
 }

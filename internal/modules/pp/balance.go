@@ -52,6 +52,9 @@ type Balance struct {
 	ChatMin, ChatMax int64
 	ChatCooldown     time.Duration
 	ChatMinRunes     int
+	// Activity (quests, stats) counts any such message once per ActivityGap,
+	// so a lively conversation shows for what it is while pay stays paced.
+	ActivityGap time.Duration
 
 	// The daily pool: Pool, give or take Jitter percent per member and day.
 	// Chat fills at most ChatShare percent of it (give or take ChatJitter),
@@ -76,10 +79,12 @@ type Balance struct {
 	// Levels: level L to L+1 costs CurveA*L² + CurveB*L + CurveC pp.
 	CurveA, CurveB, CurveC int64
 
-	// Quests: one dealt a day, QuestHold held, one in RareOneIn rare.
-	QuestCommon, QuestRare int64
-	RareOneIn              uint64
-	QuestHold              int
+	// Quests: one dealt a day, QuestHold held, one reroll a day. A dealt
+	// quest's tier is drawn by QuestOdds (out of their sum) and pays that
+	// tier's QuestPP: most a good chunk, a few great, now and then golden.
+	QuestPP   [3]int64
+	QuestOdds [3]uint64
+	QuestHold int
 
 	// Seasons: SeasonWeeks long, the first starting on day SeasonStart (a
 	// Monday). Each week ends in a checkpoint paying the top places Prizes,
@@ -109,6 +114,7 @@ var Default = Balance{
 	ChatMax:      7 * unit,
 	ChatCooldown: time.Minute,
 	ChatMinRunes: 3,
+	ActivityGap:  10 * time.Second,
 
 	Pool:        600 * unit,
 	Jitter:      15,
@@ -123,19 +129,18 @@ var Default = Balance{
 	Crest:       10,
 	Banner:      10,
 	Hearth:      [3]int64{5, 10, 15},
-	HearthAt:    [3]int64{50, 100, 150},
+	HearthAt:    [3]int64{100, 115, 130},
 	HearthFloor: 3000 * unit,
 
 	CurveA: 25,
 	CurveB: 150,
 	CurveC: 300,
 
-	QuestCommon: 150 * unit,
-	QuestRare:   250 * unit,
-	RareOneIn:   4,
-	QuestHold:   3,
+	QuestPP:   [3]int64{250 * unit, 400 * unit, 750 * unit},
+	QuestOdds: [3]uint64{16, 3, 1},
+	QuestHold: 3,
 
 	SeasonStart: DayOf(time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)),
 	SeasonWeeks: 4,
-	Prizes:      [5]int64{300 * unit, 200 * unit, 150 * unit, 100 * unit, 50 * unit},
+	Prizes:      [5]int64{1500 * unit, 1000 * unit, 750 * unit, 500 * unit, 250 * unit},
 }
