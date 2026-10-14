@@ -16,7 +16,7 @@ var Changelog = []Entry{{
 	Balance: "ca01af",
 	Lines: []string{
 		"pot points arrive: time in voice and chatting both earn pp",
-		"everyone starts a wanderer; pick a path in /pp, from shrike fighter to skua thief, earn its titles as you level and change it once a season",
+		"everyone starts a wanderer; pick a path in /pp, from shrike fighter to magpie thief, earn its titles as you level and change it once a season",
 		"voice pays most with your mic open; muted or deafened still earns but slowly fades the longer you go quiet, and a message brings it back",
 		"every day has a pool of vigor; earning slows as it runs out and what you leave unspent partly carries to tomorrow",
 		"wear the server tag or put .gg/melted in your status for a little extra on everything but quests, and boosting the server adds a little more for as long as you boost",
