@@ -5,6 +5,8 @@ import (
 	"image"
 	"image/png"
 	"testing"
+
+	"github.com/6586x57890143/skua/internal/pixel"
 )
 
 func decodes(t *testing.T, data []byte, err error) {
@@ -29,7 +31,7 @@ func TestStatusScreen(t *testing.T) {
 	for _, s := range []Sheet{
 		{Name: "tester", Class: ClassOf("wanderer"), Need: Default.Need(0), Vigor: 100, Phase: "fresh", Held: 1, RerollReady: true},
 		{Name: "heavywinds", Class: ClassOf("thief"), Level: l, Into: into, Need: need, Total: 9400 * unit, Vigor: 38, Phase: "tired",
-			Buffs: []string{"crest", "plume"}, Season: 1, Week: 2, Place: 14, Held: 2},
+			Buffs: []Buff{{"crest", "crest"}, {"plume", "plume"}}, Season: 1, Week: 2, Place: 14, Laurels: 2, Held: 2},
 	} {
 		data, err := StatusScreen(s)
 		decodes(t, data, err)
@@ -38,12 +40,21 @@ func TestStatusScreen(t *testing.T) {
 
 func TestQuestScreen(t *testing.T) {
 	data, err := QuestScreen("heavywinds", []QuestLine{
-		{What: "send 40 messages", Progress: 23, Goal: 40, Reward: Default.QuestPP[0]},
-		{What: "post a selfie", Progress: 0, Goal: 1, Tier: 2, Reward: Default.QuestPP[2]},
+		{Icon: "quill", What: "send 40 messages", Progress: 23, Goal: 40, Reward: Default.QuestPP[0]},
+		{Icon: "mirror", What: "post a selfie", Progress: 0, Goal: 1, Tier: 2, Reward: Default.QuestPP[2]},
 	}, true)
 	decodes(t, data, err)
 	data, err = QuestScreen("steve", nil, false)
 	decodes(t, data, err)
+}
+
+// Every class has an emblem drawn, until it has a portrait.
+func TestEveryClassHasAnEmblem(t *testing.T) {
+	for _, c := range Classes {
+		if _, ok := pixel.Icons[classIcons[c.Key]]; !ok {
+			t.Errorf("%s has no emblem", c.Name())
+		}
+	}
 }
 
 func TestNumbers(t *testing.T) {
@@ -61,7 +72,7 @@ func TestNumbers(t *testing.T) {
 
 func BenchmarkStatusScreen(b *testing.B) {
 	s := Sheet{Name: "heavywinds", Class: ClassOf("knight"), Level: 16, Into: 7200 * unit, Need: 9100 * unit, Vigor: 40, Phase: "warm",
-		Buffs: []string{"crest", "banner", "plume", "hearth iii"}, Season: 3, Week: 4, Place: 1, Held: 3, RerollReady: true}
+		Buffs: []Buff{{"crest", "crest"}, {"banner", "banner"}, {"plume", "plume"}, {"hearth", "hearth iii"}}, Season: 3, Week: 4, Place: 1, Laurels: 3, Held: 3, RerollReady: true}
 	for b.Loop() {
 		if _, err := StatusScreen(s); err != nil {
 			b.Fatal(err)
