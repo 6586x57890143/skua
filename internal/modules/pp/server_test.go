@@ -17,17 +17,25 @@ type kind struct {
 	finish int
 }
 
-// A 2500 member community server: most never or barely speak, a few carry
-// it, and a handful try to farm it.
+// A 2500 member community server, shaped on a real one: four weeks of the
+// melting pot as merlin's statistics counted it (aggregates only), where
+// about 220 members turn up on a day (150 to 350), a member-day holds a
+// median of 12 messages (p90 142, p99 540) and of 44 voice minutes (p90
+// 417, p99 962), and voice peaks on fridays. messages here are earning
+// ones, after the minute's cooldown; heavy chatters send about twice that.
 var population = []kind{
-	{persona{name: "ghost", messages: 2}, 550, 5, 0},
-	{persona{name: "lurker", muted: 30, messages: 5}, 200, 30, 1},
-	{persona{name: "casual", unmuted: 30, messages: 20}, 120, 50, 1},
-	{persona{name: "regular", unmuted: 120, messages: 40}, 80, 80, 1},
-	{persona{name: "heavy", unmuted: 300, messages: 80}, 30, 95, 2},
-	{persona{name: "spammer", messages: 944}, 10, 90, 1},
-	{persona{name: "idler", muted: 600}, 10, 90, 0},
+	{persona{name: "ghost"}, 560, 0, 0},
+	{persona{name: "drifter", muted: 20, messages: 6, engage: 10}, 240, 7, 1},
+	{persona{name: "casual", unmuted: 45, messages: 15, engage: 15}, 120, 25, 1},
+	{persona{name: "regular", unmuted: 150, messages: 50, engage: 10}, 48, 75, 1},
+	{persona{name: "voicer", unmuted: 420, messages: 40, engage: 20}, 20, 85, 2},
+	{persona{name: "chatter", messages: 200}, 8, 90, 2},
+	{persona{name: "afk", unmuted: 960}, 4, 90, 0},
 }
+
+// busy is how much more or less a weekday turns up than the week's mean,
+// in percent, monday first: messages and voice minutes averaged.
+var busy = [7]int{110, 89, 82, 98, 123, 97, 104}
 
 type member struct {
 	kind          *kind
@@ -37,7 +45,7 @@ type member struct {
 	seen          int64 // day last played, -1 never
 	held          int
 	total, quests int64
-	week          int64
+	week          [Boards]int64 // activity this week, what checkpoints rank
 	wears         Wearing
 }
 
@@ -64,21 +72,17 @@ func TestServerMonth(t *testing.T) {
 	var history []int64
 	var tiers [4]int
 	var minted, prizes int64
-	winners := map[string]int{}
+	winners := [Boards]map[string]int{{}, {}}
 	distinct := map[uint64]bool{}
 	hearth := 0
+	var turnedUp int64
 	for day := range days {
-		// Seasons start on a Monday: weekdays run quiet, Friday to Sunday busy.
-		busy := 90
-		if day%7 >= 4 {
-			busy = 125
-		}
 		var raw int64
 		for _, m := range members {
 			if m.held < b.QuestHold {
 				m.held++
 			}
-			if rng.IntN(100) >= m.kind.odds*busy/100 {
+			if rng.IntN(100) >= m.kind.odds*busy[day%7]/100 {
 				continue
 			}
 			pools := b.Pools(42, 1, m.id, day)
@@ -95,9 +99,12 @@ func TestServerMonth(t *testing.T) {
 				m.held--
 			}
 			m.total += got
-			m.week += got
+			for i, a := range d.Activity() {
+				m.week[i] += a
+			}
 			minted += got
 			raw += d.Voice + d.Chat
+			turnedUp++
 			m.prev, m.prevPools, m.seen = d, pools, day
 		}
 		// ponytail: the hearth lights here the day after it's reached; the
@@ -107,21 +114,23 @@ func TestServerMonth(t *testing.T) {
 		history = append(history, raw)
 
 		if day%7 == 6 {
-			scores := make([]int64, len(members))
-			for i, m := range members {
-				scores[i] = m.week
-			}
-			for i, place := range Places(scores) {
-				if prize := b.Prize(place); prize > 0 {
-					m := members[i]
-					m.total += prize
-					prizes += prize
-					winners[m.kind.name]++
-					distinct[m.id] = true
+			for board := range Boards {
+				scores := make([]int64, len(members))
+				for i, m := range members {
+					scores[i] = m.week[board]
+				}
+				for i, place := range Places(scores) {
+					if prize := b.Prize(place); prize > 0 {
+						m := members[i]
+						m.total += prize
+						prizes += prize
+						winners[board][m.kind.name]++
+						distinct[m.id] = true
+					}
 				}
 			}
 			for _, m := range members {
-				m.week = 0
+				m.week = [Boards]int64{}
 			}
 		}
 	}
@@ -147,31 +156,40 @@ func TestServerMonth(t *testing.T) {
 		fmt.Fprintf(&report, "%-8s %5d %4d %4d %4d %5d%%\n", k.name, len(ls),
 			ls[len(ls)/2], ls[len(ls)*9/10], ls[len(ls)-1], q*100/max(all, 1))
 	}
-	fmt.Fprintf(&report, "hearth days by tier %v; checkpoint places %v, %d distinct\n", tiers, winners, len(distinct))
+	fmt.Fprintf(&report, "%d turn up a day; hearth days by tier %v; places voice %v chat %v, %d distinct\n", turnedUp/days, tiers, winners[BoardVoice], winners[BoardChat], len(distinct))
 	fmt.Fprintf(&report, "minted %d pp a day; prizes %.1f%%, quests %.1f%%\n",
 		minted/unit/days, float64(prizes)*100/float64(minted), float64(questPP)*100/float64(minted))
 	t.Log("\n" + report.String())
 
 	p50 := func(k string) int { return levels[k][len(levels[k])/2] }
-	if p50("heavy") <= p50("regular") || p50("regular") <= p50("casual") || p50("casual") < p50("lurker") {
+	if perDay := turnedUp / days; perDay < 150 || perDay > 350 {
+		t.Errorf("%d members turn up a day; the melting pot sees 150 to 350", perDay)
+	}
+	if p50("voicer") <= p50("regular") || p50("regular") <= p50("casual") || p50("casual") < p50("drifter") {
 		t.Error("levels don't follow effort")
 	}
-	if top := levels["heavy"][len(levels["heavy"])-1]; top < 10 || top > 16 {
+	if top := levels["voicer"][len(levels["voicer"])-1]; top < 10 || top > 16 {
 		t.Errorf("the top member is level %d after a season; want 10 to 16", top)
 	}
-	if p50("idler") >= p50("regular") || p50("spammer") >= p50("heavy") {
-		t.Error("a farmer keeps pace with the people who show up")
+	if p50("afk") >= p50("regular") {
+		t.Error("sitting in voice all day afk keeps pace with a regular")
+	}
+	if p50("chatter")+2 < p50("regular") {
+		t.Errorf("a heavy chatter is level %d to a regular's %d; talking shouldn't fall that far behind voice", p50("chatter"), p50("regular"))
 	}
 	if tiers[0] == 0 || tiers[0] > int(days)*3/4 || tiers[3] > int(days)/4 {
 		t.Errorf("hearth tiers by day %v: it should light on good days only, brightest on few", tiers)
 	}
-	if winners["spammer"]+winners["idler"] > 0 {
-		t.Errorf("a farmer placed at a checkpoint: %v", winners)
+	if winners[BoardVoice]["afk"]+winners[BoardChat]["afk"] > 0 {
+		t.Errorf("an afk placed at a checkpoint: %v", winners)
 	}
-	if len(distinct) < 12 {
-		t.Errorf("only %d members ever placed in four checkpoints; the same few win every week", len(distinct))
+	if winners[BoardChat]["chatter"] == 0 {
+		t.Errorf("the server's heaviest talkers never placed on the chat board: %v", winners[BoardChat])
 	}
-	if prizes*100 > minted*2 {
+	if len(distinct) < 16 {
+		t.Errorf("only %d members ever placed on two boards in four checkpoints; the same few win every week", len(distinct))
+	}
+	if prizes*100 > minted {
 		t.Errorf("prizes are %d%% of all pp; a checkpoint should be a sliver", prizes*100/minted)
 	}
 }
