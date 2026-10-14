@@ -284,37 +284,3 @@ func (b *Balance) QuestRoll(r uint64) (tier int, pp int64) {
 	}
 	return tier, b.QuestPP[tier]
 }
-
-var ranks = []struct {
-	from int
-	name string
-}{{50, "great skua"}, {30, "raider"}, {20, "skimmer"}, {10, "glider"}, {5, "fledgling"}, {0, "hatchling"}}
-
-// Rank is the bird a level makes you.
-func Rank(l int) string {
-	for _, r := range ranks {
-		if l >= r.from {
-			return r.name
-		}
-	}
-	return ranks[len(ranks)-1].name
-}
-
-// Job is the title for how someone earns, from what they have earned it
-// by: voice minutes, earning messages and quests done, each weighed by
-// what it pays at base. Quests pay big for everyone, so ranger is only for
-// those who earn more by them than by voice and chat together.
-func (b *Balance) Job(voiceMin, chatN, questN int64) string {
-	v := voiceMin * b.VoiceBase
-	c := chatN * (b.ChatMin + b.ChatMax) / 2
-	q := questN * b.QuestPP[0]
-	switch {
-	case v == 0 && c == 0 && q == 0:
-		return "wanderer"
-	case q > v+c:
-		return "ranger"
-	case v >= c:
-		return "bard"
-	}
-	return "scribe"
-}
