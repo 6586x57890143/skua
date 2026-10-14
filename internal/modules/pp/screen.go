@@ -22,7 +22,8 @@ type Sheet struct {
 	Class        Class
 	Level        int
 	Into, Need   int64 // pp into this level and what it costs
-	Total        int64
+	Total        int64 // everything earned, which sets the level
+	Purse        int64 // what is left to spend
 	Vigor        int64 // percent of today's pool left
 	Phase        string
 	Buffs        []Buff
@@ -119,7 +120,7 @@ func StatusScreen(s Sheet) ([]byte, error) {
 
 	c.Cursor(x+10, 129)
 	c.Text(x+14, 123, fmt.Sprintf("quests %d held", s.Held), pixel.Ink, 0)
-	total := grouped(s.Total / unit)
+	total := grouped(s.Purse / unit)
 	right(c, r, 123, total, pixel.Gold)
 	c.Icon("pot", image.Pt(r-len(total)*pixel.Advance-pixel.IconCells-4, 123-iconLift))
 

@@ -36,7 +36,7 @@ func main() {
 	b := &pp.Default
 	sheet := func(name, class string, total, vigor int64, phase string, buffs []pp.Buff, season, week int64, place, held int, reroll bool) pp.Sheet {
 		l, into, need := b.Level(total)
-		return pp.Sheet{Portrait: face, Name: name, Class: pp.ClassOf(class), Level: l, Into: into, Need: need, Total: total,
+		return pp.Sheet{Portrait: face, Name: name, Class: pp.ClassOf(class), Level: l, Into: into, Need: need, Total: total, Purse: total,
 			Vigor: vigor, Phase: phase, Buffs: buffs, Season: season, Week: week, Place: place, Held: held, RerollReady: reroll}
 	}
 	buff := func(names ...string) []pp.Buff {

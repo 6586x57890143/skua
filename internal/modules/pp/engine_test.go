@@ -207,6 +207,18 @@ func TestLevel(t *testing.T) {
 	}
 }
 
+func TestClassCost(t *testing.T) {
+	if got := b.ClassCost(10, 0); got != 700*unit {
+		t.Errorf("a first paid change at 10 costs %d", got/unit)
+	}
+	if b.ClassCost(10, 2) != 4*b.ClassCost(10, 0) || b.ClassCost(20, 0) <= b.ClassCost(10, 0) {
+		t.Error("the cost doesn't climb with level and with changes")
+	}
+	if b.ClassCost(99, 1000) <= 0 {
+		t.Error("enough changes overflow the cost")
+	}
+}
+
 func TestQuestRoll(t *testing.T) {
 	var n [3]uint64
 	for r := range uint64(2000) {
