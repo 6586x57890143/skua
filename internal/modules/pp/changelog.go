@@ -23,7 +23,7 @@ var Changelog = []Entry{{
 		"a daily quest is dealt every day and you can hold three, so a missed day isn't lost; most pay a good chunk, some great and now and then one is golden, and you get one reroll a day",
 		"when the whole server beats its usual day the hearth lights up and everyone earns more for the rest of it and all of the next",
 		"seasons last four weeks: the board starts over but your level and pp stay yours",
-		"every monday the week's five most active get pp and a laurel; the prize never counts toward the season, so a good week can't run away with it",
+		"every monday the week's five most active get pp and a laurel: time in voice and talk count past the daily cap, idling doesn't, and the prize never counts toward the season",
 		"days turn at 00:00 utc and weeks on monday",
 	},
 }}

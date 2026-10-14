@@ -13,6 +13,12 @@ type Pools struct{ Pool, Chat, Pace int64 }
 // pp carried into it.
 type Day struct{ Voice, Chat, Rested int64 }
 
+// Activity is how much a member did today, which weekly checkpoints rank:
+// what voice and chat counted against the pool, before its taper, so time
+// beyond the cap still counts, but voice gone idle has faded and chat past
+// its share never counts.
+func (d Day) Activity() int64 { return d.Voice + d.Chat }
+
 // mix is splitmix64's finaliser.
 // ponytail: not a keyed hash; it only has to keep a cap from being read off
 // a few days of earning, never from someone holding the seed.
