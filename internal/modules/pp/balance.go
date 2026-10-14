@@ -32,12 +32,18 @@ type Balance struct {
 	Deafened     int64
 	CompanionAge time.Duration
 
-	// Idling: muted or deafened with no sign of life (a message, unmuting,
-	// camera or stream) for longer than IdleGrace, give or take IdleJitter
+	// Idling: muted or deafened with no sign of life (a message that could
+	// pay, a command or button, camera or stream; never a mute toggle, which
+	// a macro can do) for longer than IdleGrace, give or take IdleJitter
 	// percent per member and day, voice fades over IdleFade to IdleFloor
 	// percent, or DeafFloor deafened. Deafened, the grace is halved. The fade
 	// is a slope, not a step, so there is no minute to learn and dodge.
+	//
+	// skua can't hear voice, so an open mic is taken at its word for
+	// OpenGrace (jittered alike), then treated as muted: a hardware mute
+	// looks open to Discord, and it shouldn't farm the bonus all day.
 	IdleGrace, IdleFade  time.Duration
+	OpenGrace            time.Duration
 	IdleJitter           int64
 	IdleFloor, DeafFloor int64
 
@@ -87,6 +93,7 @@ var Default = Balance{
 
 	IdleGrace:  30 * time.Minute,
 	IdleFade:   90 * time.Minute,
+	OpenGrace:  3 * time.Hour,
 	IdleJitter: 25,
 	IdleFloor:  5,
 	DeafFloor:  0,

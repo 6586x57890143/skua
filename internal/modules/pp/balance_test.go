@@ -30,6 +30,8 @@ var personas = []persona{
 	{name: "idler", muted: 600},
 	{name: "deafidle", deaf: 600},
 	{name: "farmer", muted: 600, engage: 20, messages: 30},
+	{name: "talker", unmuted: 180},
+	{name: "hwmute", unmuted: 600},
 	{name: "wearer", unmuted: 120, messages: 40, quests: 1, every: 1, crest: true, banner: true},
 }
 
@@ -59,7 +61,7 @@ func simulate(b *Balance, p persona, days int) result {
 					m %= p.engage
 				}
 				me.Idle = time.Duration(m) * time.Minute
-				r.total += b.Earn(&d, pools, false, b.VoiceRaw(me, []Seat{other}, pools.Grace), buff)
+				r.total += b.Earn(&d, pools, false, b.VoiceRaw(me, []Seat{other}, pools.Pace), buff)
 			}
 		}
 		voice(p.unmuted, false, false)
@@ -110,6 +112,12 @@ func TestBalanceHolds(t *testing.T) {
 	}
 	if pp("farmer") >= pp("regular") {
 		t.Errorf("light farming (%d) out-earns a regular (%d)", pp("farmer"), pp("regular"))
+	}
+	if pp("hwmute") >= pp("regular") {
+		t.Errorf("a hardware-muted afk (%d) out-earns a regular (%d)", pp("hwmute"), pp("regular"))
+	}
+	if month["talker"].total*10 < month["hwmute"].total*8 {
+		t.Errorf("an evening of real talk (%d) earns well under a day hardware-muted (%d)", pp("talker"), pp("hwmute"))
 	}
 	if x := ratio("wearer", "regular"); x <= 1 || x > 1.2 {
 		t.Errorf("both buffs pay %.2fx; want more than 1x and at most 1.2x", x)

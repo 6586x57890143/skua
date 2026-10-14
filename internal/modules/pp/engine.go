@@ -6,12 +6,8 @@ import "time"
 func DayOf(t time.Time) int64 { return t.Unix() / 86400 }
 
 // Pools is one member's pools for one day: the jittered base pool, the
-// part of it chat may fill, and how long they may idle in voice before it
-// fades.
-type Pools struct {
-	Pool, Chat int64
-	Grace      time.Duration
-}
+// part of it chat may fill, and the percent their idle graces run to.
+type Pools struct{ Pool, Chat, Pace int64 }
 
 // Day is what one member has counted against today's pools, and the rested
 // pp carried into it.
@@ -38,7 +34,7 @@ func (b *Balance) Pools(seed, guild, user uint64, day int64) Pools {
 	return Pools{
 		Pool:  pool,
 		Chat:  pool * (b.ChatShare + jitter(mix(h), b.ChatJitter)) / 100,
-		Grace: b.IdleGrace * time.Duration(100+jitter(mix(mix(h)), b.IdleJitter)) / 100,
+		Pace:  100 + jitter(mix(mix(h)), b.IdleJitter),
 	}
 }
 
@@ -129,16 +125,22 @@ type Seat struct {
 	Age, Idle                              time.Duration
 }
 
-// VoiceRaw is one minute's raw pp for me in a channel with others, given
-// my grace for the day. Nothing unless someone real is there to hear, more
-// with the mic open, less deafened, and fading the longer me sits muted or
-// deafened without a sign of life.
-func (b *Balance) VoiceRaw(me Seat, others []Seat, grace time.Duration) int64 {
+// VoiceRaw is one minute's raw pp for me in a channel with others, at my
+// pace for the day. Nothing unless someone real is there to hear, more with
+// the mic open, less deafened, and fading the longer me goes without a sign
+// of life: muted or deafened after a short grace, an open mic after a long
+// one and then as if muted.
+func (b *Balance) VoiceRaw(me Seat, others []Seat, pace int64) int64 {
 	if me.Bot || me.Muted || me.Suppressed || !b.heard(others) {
 		return 0
 	}
+	grace := b.IdleGrace * time.Duration(pace) / 100
 	if !me.Deaf && !me.SelfMute {
-		return b.VoiceBase * b.Unmuted / 100
+		open := b.OpenGrace * time.Duration(pace) / 100
+		if me.Idle <= open {
+			return b.VoiceBase * b.Unmuted / 100
+		}
+		me.Idle -= open
 	}
 	if me.Deaf {
 		return b.VoiceBase * b.Deafened / 100 * fade(me.Idle, grace/2, b.IdleFade, b.DeafFloor) / 100

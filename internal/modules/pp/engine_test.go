@@ -20,8 +20,8 @@ func TestPoolsJitterStaysInBounds(t *testing.T) {
 		}
 		seen[p.Pool] = true
 	}
-	if g := b.Pools(7, 1, 2, 9).Grace; g < b.IdleGrace*3/4 || g > b.IdleGrace*5/4 {
-		t.Errorf("grace %v strays past the jitter", g)
+	if p := b.Pools(7, 1, 2, 9).Pace; p < 100-b.IdleJitter || p > 100+b.IdleJitter {
+		t.Errorf("pace %d strays past the jitter", p)
 	}
 	if len(seen) < 10 {
 		t.Errorf("only %d distinct pools in 200 days; the cap is guessable", len(seen))
@@ -128,7 +128,7 @@ func TestChat(t *testing.T) {
 
 func TestVoiceRaw(t *testing.T) {
 	friend := Seat{Age: b.CompanionAge}
-	grace := b.IdleGrace
+	grace, open := b.IdleGrace, b.OpenGrace
 	cases := []struct {
 		name   string
 		me     Seat
@@ -143,7 +143,9 @@ func TestVoiceRaw(t *testing.T) {
 		{"muted for hours", Seat{SelfMute: true, Idle: 10 * time.Hour}, []Seat{friend}, b.VoiceBase * b.IdleFloor / 100},
 		{"deaf", Seat{Deaf: true, SelfMute: true}, []Seat{friend}, b.VoiceBase * b.Deafened / 100},
 		{"deaf past half the grace", Seat{Deaf: true, Idle: grace/2 + b.IdleFade}, []Seat{friend}, b.VoiceBase * b.Deafened / 100 * b.DeafFloor / 100},
-		{"open mic never fades", Seat{Idle: 10 * time.Hour}, []Seat{friend}, b.VoiceBase * b.Unmuted / 100},
+		{"open mic through its long grace", Seat{Idle: open}, []Seat{friend}, b.VoiceBase * b.Unmuted / 100},
+		{"open mic past it is muted", Seat{Idle: open + time.Minute}, []Seat{friend}, b.VoiceBase},
+		{"silent open mic for hours", Seat{Idle: open + grace + b.IdleFade}, []Seat{friend}, b.VoiceBase * b.IdleFloor / 100},
 		{"server muted", Seat{Muted: true}, []Seat{friend}, 0},
 		{"stage audience", Seat{Suppressed: true}, []Seat{friend}, 0},
 		{"a bot", Seat{Bot: true}, []Seat{friend}, 0},
@@ -152,7 +154,7 @@ func TestVoiceRaw(t *testing.T) {
 		{"with someone deaf", Seat{}, []Seat{{Deaf: true, Age: b.CompanionAge}}, 0},
 	}
 	for _, c := range cases {
-		if got := b.VoiceRaw(c.me, c.others, grace); got != c.want {
+		if got := b.VoiceRaw(c.me, c.others, 100); got != c.want {
 			t.Errorf("%s: %d; want %d", c.name, got, c.want)
 		}
 	}
