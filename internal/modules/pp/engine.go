@@ -224,6 +224,45 @@ func (b *Balance) Level(total int64) (l int, into, need int64) {
 	return l, into, need
 }
 
+// Season is the season day falls in, counted from 1 (0 before the first),
+// and its week, from 1.
+func (b *Balance) Season(day int64) (season, week int64) {
+	if day < b.SeasonStart {
+		return 0, 0
+	}
+	since := day - b.SeasonStart
+	return since/(7*b.SeasonWeeks) + 1, since%(7*b.SeasonWeeks)/7 + 1
+}
+
+// Places ranks scores, highest first, as standard competition ranking:
+// a tie shares its place and the next place skips (1, 2, 2, 4). Nothing
+// earned is no place at all.
+// ponytail: quadratic; a weekly run over a server's earners is a few
+// million compares at 2000 of them. Sort first if a server outgrows that.
+func Places(scores []int64) []int {
+	places := make([]int, len(scores))
+	for i, s := range scores {
+		if s <= 0 {
+			continue
+		}
+		places[i] = 1
+		for _, o := range scores {
+			if o > s {
+				places[i]++
+			}
+		}
+	}
+	return places
+}
+
+// Prize is what a checkpoint pays a place, 0 past the paid ones.
+func (b *Balance) Prize(place int) int64 {
+	if place < 1 || place > len(b.Prizes) {
+		return 0
+	}
+	return b.Prizes[place-1]
+}
+
 // QuestReward is a dealt quest's reward, from a random r.
 func (b *Balance) QuestReward(r uint64) int64 {
 	if r%b.RareOneIn == 0 {

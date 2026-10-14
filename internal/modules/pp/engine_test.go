@@ -237,3 +237,42 @@ func TestDayTurnsAtUTCMidnight(t *testing.T) {
 		t.Error("the day depends on the clock's zone")
 	}
 }
+
+func TestSeason(t *testing.T) {
+	start := b.SeasonStart
+	if time.Unix(start*86400, 0).UTC().Weekday() != time.Monday {
+		t.Fatal("the first season doesn't start on a monday")
+	}
+	cases := []struct{ day, season, week int64 }{
+		{start - 1, 0, 0},
+		{start, 1, 1},
+		{start + 6, 1, 1},
+		{start + 7, 1, 2},
+		{start + 27, 1, 4},
+		{start + 28, 2, 1},
+		{start + 28*13, 14, 1},
+	}
+	for _, c := range cases {
+		if s, w := b.Season(c.day); s != c.season || w != c.week {
+			t.Errorf("day %d: season %d week %d; want %d, %d", c.day-start, s, w, c.season, c.week)
+		}
+	}
+}
+
+func TestPlacesAndPrizes(t *testing.T) {
+	got := Places([]int64{50, 90, 50, 0, 10, 90})
+	want := []int{3, 1, 3, 0, 5, 1}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Places = %v; want %v", got, want)
+		}
+	}
+	if b.Prize(1) != b.Prizes[0] || b.Prize(5) != b.Prizes[4] || b.Prize(6) != 0 || b.Prize(0) != 0 {
+		t.Error("prizes don't follow the places")
+	}
+	for i := 1; i < len(b.Prizes); i++ {
+		if b.Prizes[i] > b.Prizes[i-1] {
+			t.Errorf("place %d pays more than place %d", i+1, i)
+		}
+	}
+}

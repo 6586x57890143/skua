@@ -80,6 +80,13 @@ type Balance struct {
 	QuestCommon, QuestRare int64
 	RareOneIn              uint64
 	QuestHold              int
+
+	// Seasons: SeasonWeeks long, the first starting on day SeasonStart (a
+	// Monday). Each week ends in a checkpoint paying the top places Prizes,
+	// which never count toward the season.
+	SeasonStart int64
+	SeasonWeeks int64
+	Prizes      [5]int64
 }
 
 // Default is the live balance.
@@ -127,4 +134,8 @@ var Default = Balance{
 	QuestRare:   250 * unit,
 	RareOneIn:   4,
 	QuestHold:   3,
+
+	SeasonStart: DayOf(time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)),
+	SeasonWeeks: 4,
+	Prizes:      [5]int64{300 * unit, 200 * unit, 150 * unit, 100 * unit, 50 * unit},
 }
