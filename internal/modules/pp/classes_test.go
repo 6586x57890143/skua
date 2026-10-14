@@ -16,6 +16,11 @@ func TestClasses(t *testing.T) {
 			t.Errorf("%s: a class or bird is used twice", c.Name())
 		}
 		keys[c.Key], birds[c.Bird] = true, true
+		// The fleet's bots are birds already; a class never wears one.
+		switch c.Bird {
+		case "cygnet", "swan", "merlin", "peregrine", "skua":
+			t.Errorf("%s wears a bird the fleet already flies", c.Name())
+		}
 		for _, s := range append([]string{c.Key, c.Bird}, c.Titles[:]...) {
 			if s == "" || strings.IndexFunc(s, unicode.IsUpper) >= 0 {
 				t.Errorf("%s: %q should be lowercase and there", c.Name(), s)
@@ -30,7 +35,7 @@ func TestClasses(t *testing.T) {
 
 func TestClassTitles(t *testing.T) {
 	thief := ClassOf("thief")
-	if thief.Name() != "skua thief" {
+	if thief.Name() != "magpie thief" {
 		t.Errorf("the thief reads %q", thief.Name())
 	}
 	for l, want := range map[int]string{0: "footpad", 4: "footpad", 5: "cutpurse", 29: "sharper", 50: "master thief", 99: "master thief"} {
