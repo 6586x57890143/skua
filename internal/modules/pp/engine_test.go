@@ -167,10 +167,10 @@ func TestVoiceRaw(t *testing.T) {
 }
 
 func TestBuffAndHearth(t *testing.T) {
-	if got := b.Buff(true, true, 3); got != b.Crest+b.Banner+b.Hearth[2] {
+	if got := b.Buff(Wearing{true, true, true}, 3); got != b.Crest+b.Banner+b.Plume+b.Hearth[2] {
 		t.Errorf("every buff: %d", got)
 	}
-	if got := b.Buff(false, false, 0); got != 0 {
+	if got := b.Buff(Wearing{}, 0); got != 0 {
 		t.Errorf("no buff: %d", got)
 	}
 	if got := b.HearthTier(b.HearthFloor, nil); got != 1 {

@@ -69,8 +69,9 @@ type Balance struct {
 	RestedCarry           int64
 	RestedMax             int64
 
-	// Buffs, in percent on everything but quests.
-	Crest, Banner int64
+	// Buffs, in percent on everything but quests: the server tag worn,
+	// .gg/melted in the status, and boosting the server.
+	Crest, Banner, Plume int64
 	// Hearth tiers, reached at HearthAt percent of the server's usual day
 	// (HearthFloor until it has one).
 	Hearth, HearthAt [3]int64
@@ -128,6 +129,7 @@ var Default = Balance{
 
 	Crest:       10,
 	Banner:      10,
+	Plume:       5,
 	Hearth:      [3]int64{5, 10, 15},
 	HearthAt:    [3]int64{100, 115, 130},
 	HearthFloor: 3000 * unit,

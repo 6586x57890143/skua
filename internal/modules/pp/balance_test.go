@@ -18,8 +18,7 @@ type persona struct {
 	messages int64 // earning messages (the cooldown already applied)
 	quests   int64 // quests done every questEvery days
 	every    int64
-	crest    bool
-	banner   bool
+	wears    Wearing
 }
 
 var personas = []persona{
@@ -32,7 +31,7 @@ var personas = []persona{
 	{name: "farmer", muted: 600, engage: 20, messages: 30},
 	{name: "talker", unmuted: 180},
 	{name: "hwmute", unmuted: 600},
-	{name: "wearer", unmuted: 120, messages: 40, quests: 1, every: 1, crest: true, banner: true},
+	{name: "wearer", unmuted: 120, messages: 40, quests: 1, every: 1, wears: Wearing{true, true, true}},
 }
 
 // result is one persona's month.
@@ -82,7 +81,7 @@ func simulate(b *Balance, p persona, days int) result {
 	var r result
 	var prev Day
 	var prevPools Pools
-	buff := b.Buff(p.crest, p.banner, 0)
+	buff := b.Buff(p.wears, 0)
 	for day := range int64(days) {
 		pools := b.Pools(42, 1, 2, day)
 		d := Day{Rested: b.Rested(prev, prevPools, min(day, 1))}
@@ -137,7 +136,7 @@ func TestBalanceHolds(t *testing.T) {
 		t.Errorf("an evening of real talk (%d) earns well under a day hardware-muted (%d)", pp("talker"), pp("hwmute"))
 	}
 	if x := ratio("wearer", "regular"); x <= 1 || x > 1.2 {
-		t.Errorf("both buffs pay %.2fx; want more than 1x and at most 1.2x", x)
+		t.Errorf("every buff a member can wear pays %.2fx; want more than 1x and at most 1.2x", x)
 	}
 	if pp("lurker") >= pp("chatter") || month["lurker"].level[30] < 2 {
 		t.Errorf("a lurker reaches level %d; want them levelling, slower than a chatter", month["lurker"].level[30])
