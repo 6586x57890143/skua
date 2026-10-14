@@ -1,6 +1,6 @@
 module github.com/6586x57890143/skua
 
-go 1.27.0
+go 1.27.2
 
 require (
 	github.com/6586x57890143/cygnet/link v0.8.0
