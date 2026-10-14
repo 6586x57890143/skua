@@ -1,8 +1,9 @@
 // Package pixel draws skua's game screens the way a 90s RPG drew its menus:
 // at a small native resolution in one fixed palette, then scaled up by
-// whole pixels, so every cell is flat and the PNG stays small. The colours
-// are Tactics Ogre's: a window is dark leather in bands under a thin bronze
-// trim, and text is parchment in the 7 by 13 face with a drop shadow.
+// whole pixels, so every cell is flat and the PNG stays small. The look is
+// Tactics Ogre's: a window is flat parchment inside a khaki frame with a
+// dark rule, text is dark in a hand-drawn slab serif over a khaki shadow,
+// gauges are thin blue and red bars, and labels sit on dark tabs.
 package pixel
 
 import (
@@ -10,12 +11,8 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"slices"
 	"strings"
-	"sync"
-
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/basicfont"
-	"golang.org/x/image/math/fixed"
 
 	"github.com/6586x57890143/skua/internal/brand"
 )
@@ -23,7 +20,15 @@ import (
 // The UI's inks, as indexes into Palette.
 var (
 	Ink, Dim, Shadow, Bone, Gold, Green, Red, Ember uint8
-	// Sky is a window's leather gradient, top band first.
+	// Line is the dark rule inside a window's frame, the backdrop behind
+	// the windows and a tab's ground; Glove is the cursor's white and a
+	// tab's letters.
+	Line, Glove uint8
+	// Blue and Crimson are the gauges, each with a lit top row.
+	Blue, Crimson uint8
+	// lit is each gauge ink's lit row.
+	lit = map[uint8]uint8{}
+	// Sky is a window's parchment, top band first: all but flat.
 	Sky [6]uint8
 )
 
@@ -48,16 +53,22 @@ func init() {
 		Palette = append(Palette, c)
 		return uint8(len(Palette) - 1)
 	}
-	Ink = add(rgb(0xEADFC4))    // parchment, the text
-	Dim = add(rgb(0xA8946E))    // faded parchment, the quieter text
-	Shadow = add(rgb(0x140E09)) // the line ink, outlines and drop shadows
-	Bone = add(rgb(0xB08A52))   // bronze, the window's trim
-	Gold = add(rgb(0xE2A847))   // pp, brighter than the trim
-	Green = add(rgb(0x8A9A4E))  // olive
-	Red = add(rgb(0xB4503A))    // rust
+	Ink = add(rgb(0x333329))    // the text, dark on the parchment
+	Dim = add(rgb(0x7A735C))    // the quieter text
+	Shadow = add(rgb(0x1A1A12)) // the outline
+	Bone = add(rgb(0xACA68A))   // khaki: the trim and the text's shadow
+	Gold = add(rgb(0xA8701E))   // pp, amber dark enough for parchment
+	Green = add(rgb(0x5E6E2A))  // olive
+	Red = add(rgb(0x9A3A26))    // rust
 	Ember = add(rgb(0xA8744E))  // brand.ColorEnded
-	// Leather, lit at the top and darkening to its foot in even bands.
-	top, foot := rgb(0x5A4430), rgb(0x1E1610)
+	Line = add(rgb(0x4D4B3C))
+	Glove = add(rgb(0xF2EEE2))
+	Blue = add(rgb(0x3A5AA8))
+	lit[Blue] = add(rgb(0x86A6E6))
+	Crimson = add(rgb(0xB0382E))
+	lit[Crimson] = add(rgb(0xE8846A))
+	// Parchment, all but flat: Tactics Ogre's windows have no gradient.
+	top, foot := rgb(0xDAD2B2), rgb(0xD0C8A7)
 	for i := range Sky {
 		mix := func(a, b uint8) uint8 { return uint8((int(a)*(len(Sky)-1-i) + int(b)*i) / (len(Sky) - 1)) }
 		Sky[i] = add(color.NRGBA{mix(top.R, foot.R), mix(top.G, foot.G), mix(top.B, foot.B), 0xFF})
@@ -68,10 +79,10 @@ func init() {
 // Canvas is a picture at native resolution, one pixel a cell.
 type Canvas struct{ *image.Paletted }
 
-// New is a w by h canvas, filled with the darkest leather.
+// New is a w by h canvas over the dark backdrop.
 func New(w, h int) *Canvas {
 	c := &Canvas{image.NewPaletted(image.Rect(0, 0, w, h), Palette)}
-	c.Fill(c.Rect, Sky[len(Sky)-1])
+	c.Fill(c.Rect, Line)
 	return c
 }
 
@@ -86,12 +97,13 @@ func (c *Canvas) Fill(r image.Rectangle, i uint8) {
 	}
 }
 
-// Window draws a menu window over r: an outline, a bronze trim inside it,
-// the leather in bands, and its corners cut round.
+// Window draws a menu window over r: an outline, a khaki frame inside it
+// and a dark rule inside that, the parchment, and its corners cut round.
 func (c *Canvas) Window(r image.Rectangle) {
 	c.Fill(r, Shadow)
 	c.Fill(r.Inset(1), Bone)
-	in := r.Inset(2)
+	c.Fill(r.Inset(3), Line)
+	in := r.Inset(4)
 	for i := range Sky {
 		band := in
 		band.Min.Y = in.Min.Y + in.Dy()*i/len(Sky)
@@ -99,12 +111,9 @@ func (c *Canvas) Window(r image.Rectangle) {
 		c.Fill(band, Sky[i])
 	}
 	for _, p := range []image.Point{r.Min, {r.Max.X - 1, r.Min.Y}, {r.Min.X, r.Max.Y - 1}, r.Max.Sub(image.Pt(1, 1))} {
-		c.SetColorIndex(p.X, p.Y, Sky[len(Sky)-1])
+		c.SetColorIndex(p.X, p.Y, Line)
 	}
 }
-
-// face is the 7 by 13 pixel face.
-var face = basicfont.Face7x13
 
 // Advance is how wide one character of text is.
 const Advance = 7
@@ -112,38 +121,39 @@ const Advance = 7
 // LineHeight is how far apart lines of text sit.
 const LineHeight = 13
 
-// glyphs is printable ASCII in the face, one alpha mask a character.
-var glyphs = sync.OnceValue(func() map[rune]*image.Alpha {
-	m := map[rune]*image.Alpha{}
-	for r := rune(0x21); r <= 0x7E; r++ {
-		a := image.NewAlpha(image.Rect(0, 0, Advance, LineHeight))
-		(&font.Drawer{Dst: a, Src: image.Opaque, Face: face, Dot: fixed.P(0, face.Ascent)}).DrawString(string(r))
-		m[r] = a
+// ink reports whether the face's glyph for r has ink at gx, gy of its cell.
+func ink(r rune, gx, gy int) bool {
+	g, ok := face[r]
+	if !ok || gy < g.top || gy >= g.top+len(g.rows) {
+		return false
 	}
-	return m
-})
+	row := g.rows[gy-g.top]
+	return gx < len(row) && row[gx] == '#'
+}
 
 // Text sets s with its top left at x, y in ink i over a drop shadow, and
 // returns where it ends. Past max characters it is cut with "..."; max 0
 // means no limit.
 func (c *Canvas) Text(x, y int, s string, i uint8, max int) int {
+	return c.text(x, y, s, i, Bone, max)
+}
+
+// text sets s in ink i over a shadow in ink shadow, or none if shadow is
+// the same as i.
+func (c *Canvas) text(x, y int, s string, i, shadow uint8, max int) int {
 	s = Plain(s)
 	if max > 0 && len(s) > max {
 		s = strings.TrimSpace(s[:max-3]) + "..."
 	}
 	for n, r := range s {
-		g := glyphs()[r]
-		if g == nil {
-			continue
-		}
 		at := x + n*Advance
 		for gy := range LineHeight {
 			for gx := range Advance {
-				if g.AlphaAt(gx, gy).A < 0x80 {
+				if !ink(r, gx, gy) {
 					continue
 				}
-				if p := image.Pt(at+gx+1, y+gy+1); p.In(c.Rect) {
-					c.SetColorIndex(p.X, p.Y, Shadow)
+				if p := image.Pt(at+gx+1, y+gy+1); shadow != i && p.In(c.Rect) && !ink(r, gx+1, gy+1) {
+					c.SetColorIndex(p.X, p.Y, shadow)
 				}
 				if p := image.Pt(at+gx, y+gy); p.In(c.Rect) {
 					c.SetColorIndex(p.X, p.Y, i)
@@ -165,12 +175,13 @@ func Plain(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// Bar draws a gauge over r filled n of d in ink i: an outline, the fill,
-// and the dark of the sky behind what's left.
+// Bar draws a gauge over r filled n of d in ink i: an outline, the fill
+// with its top row lit, and the dark behind what's left. Tactics Ogre's
+// gauges are thin; 5 rows tall is one.
 func (c *Canvas) Bar(r image.Rectangle, n, d int64, i uint8) {
 	c.Fill(r, Shadow)
 	in := r.Inset(1)
-	c.Fill(in, Sky[len(Sky)-1])
+	c.Fill(in, Line)
 	if d <= 0 {
 		return
 	}
@@ -178,6 +189,67 @@ func (c *Canvas) Bar(r image.Rectangle, n, d int64, i uint8) {
 	full := in
 	full.Max.X = in.Min.X + int(int64(in.Dx())*n/d)
 	c.Fill(full, i)
+	if l, ok := lit[i]; ok {
+		full.Max.Y = full.Min.Y + 1
+		c.Fill(full, l)
+	}
+}
+
+// Badge sets s as a label on a dark plate in ink i, like Tactics Ogre's HP
+// and MP, with its text's top left at x, y, and returns where it ends.
+func (c *Canvas) Badge(x, y int, s string, i uint8) int {
+	w := len(Plain(s))*Advance + 3
+	plate := image.Rect(x-2, y+1, x+w, y+LineHeight)
+	c.Fill(plate, Line)
+	for _, p := range []image.Point{plate.Min, {plate.Max.X - 1, plate.Min.Y}, {plate.Min.X, plate.Max.Y - 1}, plate.Max.Sub(image.Pt(1, 1))} {
+		c.SetColorIndex(p.X, p.Y, Sky[0])
+	}
+	c.text(x, y, s, i, i, 0)
+	return plate.Max.X
+}
+
+// Tab sets s on a dark tab across the top of the window over r, as
+// Tactics Ogre names its panels.
+func (c *Canvas) Tab(r image.Rectangle, s string) {
+	w := len(Plain(s))*Advance + 5
+	tab := image.Rect(r.Min.X+8, r.Min.Y-5, r.Min.X+8+w, r.Min.Y+9)
+	c.Fill(tab, Shadow)
+	c.Fill(tab.Inset(1), Line)
+	c.text(tab.Min.X+3, tab.Min.Y-1, s, Glove, Glove, 0)
+}
+
+// Portrait draws img twice its size with its top left at p, in a frame
+// like a window's around it. Its colours join this canvas's palette, so a
+// portrait keeps its own sixteen.
+func (c *Canvas) Portrait(img image.Image, p image.Point) {
+	b := img.Bounds()
+	frame := image.Rectangle{p, p.Add(b.Size().Mul(2))}.Inset(-3)
+	c.Fill(frame, Shadow)
+	c.Fill(frame.Inset(1), Bone)
+	c.Fill(frame.Inset(2), Line)
+	c.Palette = slices.Clip(c.Palette)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			col := img.At(x, y)
+			i := slices.IndexFunc(c.Palette, func(have color.Color) bool { return same(have, col) })
+			if i < 0 && len(c.Palette) < 256 {
+				c.Palette = append(c.Palette, col)
+				i = len(c.Palette) - 1
+			}
+			if i < 0 {
+				i = c.Palette.Index(col)
+			}
+			q := p.Add(image.Pt(x-b.Min.X, y-b.Min.Y).Mul(2))
+			c.Fill(image.Rectangle{q, q.Add(image.Pt(2, 2))}, uint8(i))
+		}
+	}
+}
+
+// same reports whether two colours are the same colour.
+func same(a, b color.Color) bool {
+	ar, ag, ab, aa := a.RGBA()
+	br, bg, bb, ba := b.RGBA()
+	return ar == br && ag == bg && ab == bb && aa == ba
 }
 
 // Bird draws skua's avatar with its top left at p.
@@ -222,7 +294,7 @@ func (c *Canvas) Cursor(x, y int) {
 		for dx, ch := range row {
 			switch ch {
 			case 'w':
-				c.SetColorIndex(x+dx, y+dy, Ink)
+				c.SetColorIndex(x+dx, y+dy, Glove)
 			case '#':
 				c.SetColorIndex(x+dx, y+dy, Shadow)
 			}
@@ -235,7 +307,7 @@ func (c *Canvas) Cursor(x, y int) {
 // took 11 ms a screen to save 2 KB where default takes under 2.
 func (c *Canvas) PNG(scale int) ([]byte, error) {
 	w, h := c.Rect.Dx(), c.Rect.Dy()
-	big := image.NewPaletted(image.Rect(0, 0, w*scale, h*scale), Palette)
+	big := image.NewPaletted(image.Rect(0, 0, w*scale, h*scale), c.Palette)
 	for y := range h {
 		src := c.Pix[c.PixOffset(0, y):c.PixOffset(w, y)]
 		row := big.Pix[big.PixOffset(0, y*scale):big.PixOffset(w*scale, y*scale)]

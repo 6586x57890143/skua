@@ -3,6 +3,7 @@ package pixel
 import (
 	"bytes"
 	"image"
+	"image/color"
 	"image/png"
 	"testing"
 )
@@ -12,7 +13,7 @@ func TestPalette(t *testing.T) {
 		t.Fatalf("%d colours don't fit an indexed PNG", len(Palette))
 	}
 	seen := map[uint8]bool{}
-	for _, i := range append([]uint8{Ink, Dim, Shadow, Bone, Gold, Green, Red, Ember}, Sky[:]...) {
+	for _, i := range append([]uint8{Ink, Dim, Shadow, Bone, Gold, Green, Red, Ember, Line, Glove, Blue, Crimson, lit[Blue], lit[Crimson]}, Sky[:]...) {
 		if seen[i] {
 			t.Errorf("ink %d is used twice", i)
 		}
@@ -33,12 +34,14 @@ func TestWindow(t *testing.T) {
 		ink  uint8
 		what string
 	}{
-		{2, 2, Sky[5], "a cut corner"},
+		{2, 2, Line, "a cut corner"},
 		{3, 2, Shadow, "the outline"},
-		{3, 3, Bone, "the border"},
-		{5, 4, Sky[0], "the sky's top band"},
-		{5, 25, Sky[5], "the sky's foot band"},
-		{0, 0, Sky[5], "outside"},
+		{3, 3, Bone, "the frame"},
+		{4, 4, Bone, "the frame's second row"},
+		{5, 5, Line, "the rule inside the frame"},
+		{7, 6, Sky[0], "the parchment's top band"},
+		{7, 23, Sky[5], "the parchment's foot band"},
+		{0, 0, Line, "the backdrop"},
 	} {
 		if got := c.ColorIndexAt(want.x, want.y); got != want.ink {
 			t.Errorf("%s at %d,%d is ink %d; want %d", want.what, want.x, want.y, got, want.ink)
@@ -59,7 +62,7 @@ func TestText(t *testing.T) {
 		switch p {
 		case Ink:
 			ink++
-		case Shadow:
+		case Bone:
 			shadow++
 		}
 	}
@@ -76,7 +79,7 @@ func TestBar(t *testing.T) {
 	c.Bar(image.Rect(0, 0, 12, 3), 5, 10, Gold)
 	// The inside is 10 wide: half is 5 gold cells.
 	for x := 1; x < 11; x++ {
-		want := Sky[5]
+		want := Line
 		if x < 6 {
 			want = Gold
 		}
@@ -89,8 +92,13 @@ func TestBar(t *testing.T) {
 		t.Error("an overfull bar isn't full")
 	}
 	c.Bar(image.Rect(0, 0, 12, 3), 1, 0, Gold)
-	if c.ColorIndexAt(1, 1) != Sky[5] {
+	if c.ColorIndexAt(1, 1) != Line {
 		t.Error("a bar of nothing filled")
+	}
+	// A gauge lights its fill's top row.
+	c.Bar(image.Rect(0, 0, 12, 5), 10, 10, Blue)
+	if c.ColorIndexAt(3, 1) != lit[Blue] || c.ColorIndexAt(3, 2) != Blue {
+		t.Error("a gauge's top row isn't lit")
 	}
 }
 
@@ -100,12 +108,61 @@ func TestBirdAndCursor(t *testing.T) {
 	c.Cursor(20, 10)
 	var drawn int
 	for _, p := range c.Pix {
-		if p != Sky[5] {
+		if p != Line {
 			drawn++
 		}
 	}
 	if drawn < 2000 {
 		t.Errorf("only %d cells drawn", drawn)
+	}
+}
+
+func TestBadgeAndTab(t *testing.T) {
+	c := New(80, 40)
+	w := image.Rect(2, 12, 78, 38)
+	c.Window(w)
+	c.Tab(w, "buffs")
+	if c.ColorIndexAt(10, 7) != Shadow || c.ColorIndexAt(12, 9) != Line {
+		t.Error("the tab isn't drawn over the window's top")
+	}
+	if end := c.Badge(8, 20, "pp", Glove); end != 8+2*Advance+3 {
+		t.Errorf("a badge of 2 ends at %d", end)
+	}
+	var glove int
+	for _, p := range c.Pix {
+		if p == Glove {
+			glove++
+		}
+	}
+	if glove == 0 {
+		t.Error("no letters on the badge or the tab")
+	}
+}
+
+// A portrait keeps its own colours: they join the canvas's palette, and the
+// shared one is left alone.
+func TestPortrait(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 32, 48))
+	odd := color.NRGBA{0x12, 0x34, 0x56, 0xFF}
+	for y := range 48 {
+		for x := range 32 {
+			img.Set(x, y, odd)
+		}
+	}
+	shared := len(Palette)
+	c := New(80, 110)
+	c.Portrait(img, image.Pt(8, 6))
+	if got := c.Palette[c.ColorIndexAt(8, 6)]; !same(got, odd) {
+		t.Errorf("the portrait's colour came out %v", got)
+	}
+	if c.ColorIndexAt(5, 3) != Shadow || c.ColorIndexAt(6, 4) != Bone {
+		t.Error("the portrait has no frame")
+	}
+	if len(Palette) != shared {
+		t.Error("a portrait grew the shared palette")
+	}
+	if _, err := c.PNG(2); err != nil {
+		t.Fatal(err)
 	}
 }
 

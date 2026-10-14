@@ -30,6 +30,7 @@ func TestStatusScreen(t *testing.T) {
 	l, into, need := Default.Level(9400 * unit)
 	for _, s := range []Sheet{
 		{Name: "tester", Class: ClassOf("wanderer"), Need: Default.Need(0), Vigor: 100, Phase: "fresh", Held: 1, RerollReady: true},
+		{Portrait: image.NewNRGBA(image.Rect(0, 0, 32, 48)), Name: "steve", Class: ClassOf("knight"), Need: Default.Need(0), Phase: "spent"},
 		{Name: "heavywinds", Class: ClassOf("thief"), Level: l, Into: into, Need: need, Total: 9400 * unit, Vigor: 38, Phase: "tired",
 			Buffs: []Buff{{"crest", "crest"}, {"plume", "plume"}}, Season: 1, Week: 2, Place: 14, Laurels: 2, Held: 2},
 	} {

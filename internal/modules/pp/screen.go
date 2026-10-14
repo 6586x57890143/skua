@@ -17,6 +17,7 @@ const (
 
 // Sheet is what the status screen shows of one member.
 type Sheet struct {
+	Portrait     image.Image // the class's portrait, 32 by 48; nil shows skua
 	Name         string
 	Class        Class
 	Level        int
@@ -82,68 +83,76 @@ func ordinal(n int) string {
 	return strconv.Itoa(n) + suffix
 }
 
-// StatusScreen draws s as the classic status menu: the bird's portrait,
-// who they are and how far along, and a strip of what they wear and where
-// they stand. It returns the PNG.
+// StatusScreen draws s as Tactics Ogre's status screen: the portrait in
+// its frame, who they are and how far along with the gauges under it, and
+// two named panels, what they wear and where they stand. It returns the
+// PNG.
 func StatusScreen(s Sheet) ([]byte, error) {
 	c := pixel.New(screenW, screenH)
 
-	c.Window(image.Rect(4, 4, 140, 140))
-	c.Bird(image.Pt(8, 8))
+	c.Window(image.Rect(4, 4, 140, 152))
+	if s.Portrait != nil {
+		c.Portrait(s.Portrait, image.Pt(40, 30))
+	} else {
+		c.Bird(image.Pt(8, 14))
+	}
 
-	c.Window(image.Rect(144, 4, 380, 140))
+	c.Window(image.Rect(144, 4, 380, 152))
 	x, r := 156, 368
-	c.Text(x, 12, s.Name, pixel.Ink, 30)
+	c.Text(x, 12, s.Name, pixel.Ink, 24)
+	if s.Laurels > 0 {
+		lx := r - len(fmt.Sprintf("x%d", s.Laurels))*pixel.Advance
+		right(c, r, 12, fmt.Sprintf("x%d", s.Laurels), pixel.Green)
+		c.Icon("laurel", image.Pt(lx-pixel.IconCells-2, 12-iconLift))
+	}
 	iconText(c, classIcons[s.Class.Key], x, 32, s.Class.Name(), pixel.Dim)
 	right(c, r, 32, s.Class.Title(s.Level), pixel.Ink)
 
-	c.Text(x, 56, "lv", pixel.Dim, 0)
-	c.Text(x+20, 56, strconv.Itoa(s.Level), pixel.Ink, 0)
-	right(c, r, 56, grouped((s.Need-s.Into)/unit)+" to next", pixel.Dim)
+	c.Text(x, 52, "lv", pixel.Dim, 0)
+	c.Text(x+20, 52, strconv.Itoa(s.Level), pixel.Ink, 0)
+	right(c, r, 52, grouped((s.Need-s.Into)/unit)+" to next", pixel.Dim)
 
-	bar := x + pixel.IconCells + 4
-	c.Icon("pot", image.Pt(x, 80-iconLift))
-	c.Bar(image.Rect(bar, 82, r, 90), s.Into, s.Need, pixel.Gold)
-	right(c, r, 96, grouped(s.Into/unit)+" / "+grouped(s.Need/unit), pixel.Dim)
+	end := c.Badge(x+2, 72, "pp", pixel.Glove)
+	c.Bar(image.Rect(end+4, 78, r, 83), s.Into, s.Need, pixel.Blue)
+	right(c, r, 88, grouped(s.Into/unit)+" / "+grouped(s.Need/unit), pixel.Dim)
 
-	c.Icon("heart", image.Pt(x, 118-iconLift))
-	c.Bar(image.Rect(bar, 120, r-56, 128), s.Vigor, 100, pixel.Green)
-	right(c, r, 118, s.Phase, pixel.Ink)
+	end = c.Badge(x+2, 106, "vigor", pixel.Glove)
+	c.Bar(image.Rect(end+4, 112, r-56, 117), s.Vigor, 100, pixel.Crimson)
+	right(c, r, 106, s.Phase, pixel.Ink)
 
-	c.Window(image.Rect(4, 144, 380, 212))
-	x, r = 16, 368
-	c.Text(x, 152, "buffs", pixel.Dim, 0)
-	bx := x + 6*pixel.Advance
+	c.Cursor(x+10, 134)
+	c.Text(x+14, 128, fmt.Sprintf("quests %d held", s.Held), pixel.Ink, 0)
+	total := grouped(s.Total / unit)
+	right(c, r, 128, total, pixel.Gold)
+	c.Icon("pot", image.Pt(r-len(total)*pixel.Advance-pixel.IconCells-4, 128-iconLift))
+
+	buffs := image.Rect(4, 164, 252, 212)
+	c.Window(buffs)
+	c.Tab(buffs, "buffs")
+	bx := 16
 	if len(s.Buffs) == 0 {
-		c.Text(bx, 152, "none worn", pixel.Dim, 0)
+		c.Text(bx, 182, "none worn", pixel.Dim, 0)
 	}
 	for _, b := range s.Buffs {
-		bx = iconText(c, b.Icon, bx, 152, b.Label, pixel.Gold) + pixel.Advance
+		bx = iconText(c, b.Icon, bx, 182, b.Label, pixel.Gold) + pixel.Advance
 	}
 
+	season := image.Rect(256, 164, 380, 212)
+	c.Window(season)
+	c.Tab(season, "season")
+	x, r = 266, 370
 	if s.Season > 0 {
-		end := c.Text(x, 172, fmt.Sprintf("season %d", s.Season), pixel.Dim, 0)
-		end = c.Text(end+2*pixel.Advance, 172, fmt.Sprintf("week %d", s.Week), pixel.Dim, 0)
-		if s.Laurels > 0 {
-			iconText(c, "laurel", end+2*pixel.Advance, 172, fmt.Sprintf("x%d", s.Laurels), pixel.Green)
-		}
+		c.Text(x, 174, fmt.Sprintf("season %d", s.Season), pixel.Dim, 0)
+		right(c, r, 174, fmt.Sprintf("wk %d", s.Week), pixel.Dim)
 	} else {
-		c.Text(x, 172, "preseason", pixel.Dim, 0)
+		c.Text(x, 174, "preseason", pixel.Dim, 0)
 	}
 	place := "unplaced"
 	if s.Place > 0 {
 		place = ordinal(s.Place)
 	}
-	right(c, r, 172, place, pixel.Ink)
-
-	c.Cursor(x+12, 198)
-	end := c.Text(x+16, 192, fmt.Sprintf("quests %d held", s.Held), pixel.Ink, 0)
-	if s.RerollReady {
-		iconText(c, "reroll", end+2*pixel.Advance, 192, "ready", pixel.Green)
-	}
-	total := grouped(s.Total / unit)
-	right(c, r, 192, total, pixel.Gold)
-	c.Icon("pot", image.Pt(r-len(total)*pixel.Advance-pixel.IconCells-4, 192-iconLift))
+	c.Text(x, 192, "place", pixel.Dim, 0)
+	right(c, r, 192, place, pixel.Ink)
 
 	return c.PNG(screenScale)
 }
@@ -156,19 +165,20 @@ type QuestLine struct {
 	Reward         int64
 }
 
-// QuestScreen draws the quests held as an item list, the cursor on the
-// first, each with its icon, how far along it is and what it pays.
+// QuestScreen draws the quests held as an item list in a named panel, the
+// cursor on the first, each with its icon, a gauge of how far along it is
+// and what it pays.
 func QuestScreen(name string, quests []QuestLine, rerollReady bool) ([]byte, error) {
 	c := pixel.New(screenW, screenH)
-	c.Window(image.Rect(4, 4, 380, 36))
-	c.Text(16, 13, "quests", pixel.Ink, 0)
-	right(c, 368, 13, name, pixel.Dim)
+	list := image.Rect(4, 12, 380, 170)
+	c.Window(list)
+	c.Tab(list, "quests")
+	right(c, 368, 20, name, pixel.Dim)
 
-	c.Window(image.Rect(4, 40, 380, 176))
 	tier := [3]uint8{pixel.Ink, pixel.Green, pixel.Gold}
 	x, r := 34, 368
 	for i, q := range quests {
-		y := 52 + i*42
+		y := 40 + i*42
 		if i == 0 {
 			c.Cursor(x-2, y+6)
 		}
@@ -179,20 +189,21 @@ func QuestScreen(name string, quests []QuestLine, rerollReady bool) ([]byte, err
 			right(c, r-(len(reward)+1)*pixel.Advance, y, QuestTiers[q.Tier], tier[q.Tier])
 		}
 		bar := x + pixel.IconCells + 4
-		c.Bar(image.Rect(bar, y+20, 280, y+28), q.Progress, q.Goal, pixel.Green)
-		right(c, r, y+18, fmt.Sprintf("%d / %d", min(q.Progress, q.Goal), q.Goal), pixel.Dim)
+		c.Bar(image.Rect(bar, y+20, 280, y+25), q.Progress, q.Goal, pixel.Blue)
+		right(c, r, y+16, fmt.Sprintf("%d / %d", min(q.Progress, q.Goal), q.Goal), pixel.Dim)
 	}
 	if len(quests) == 0 {
-		c.Text(28, 100, "nothing held; a new one comes at 00:00 utc", pixel.Dim, 0)
+		c.Text(28, 90, "nothing held; a new one comes at 00:00 utc", pixel.Dim, 0)
 	}
 
-	c.Window(image.Rect(4, 180, 380, 212))
-	end := iconText(c, "reroll", 16, 191, "one reroll a day", pixel.Dim) + 2*pixel.Advance
+	foot := image.Rect(4, 180, 380, 212)
+	c.Window(foot)
+	end := iconText(c, "reroll", 16, 190, "one reroll a day", pixel.Dim) + 2*pixel.Advance
 	if rerollReady {
-		c.Text(end, 191, "ready", pixel.Green, 0)
+		c.Text(end, 190, "ready", pixel.Green, 0)
 	} else {
-		c.Text(end, 191, "used", pixel.Dim, 0)
+		c.Text(end, 190, "used", pixel.Dim, 0)
 	}
-	right(c, 368, 191, fmt.Sprintf("%d / %d held", len(quests), Default.QuestHold), pixel.Dim)
+	right(c, 368, 190, fmt.Sprintf("%d / %d held", len(quests), Default.QuestHold), pixel.Dim)
 	return c.PNG(screenScale)
 }
