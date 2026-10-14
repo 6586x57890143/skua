@@ -38,7 +38,7 @@ type member struct {
 	held          int
 	total, quests int64
 	week          int64
-	crest, banner bool
+	wears         Wearing
 }
 
 // TestServerMonth runs a 2500 member server for one season and holds the
@@ -55,7 +55,7 @@ func TestServerMonth(t *testing.T) {
 		for range k.share * 2500 / 1000 {
 			members = append(members, &member{
 				kind: k, id: uint64(len(members) + 1), seen: -1,
-				crest: rng.IntN(4) == 0, banner: rng.IntN(10) == 0,
+				wears: Wearing{Crest: rng.IntN(4) == 0, Banner: rng.IntN(10) == 0, Plume: rng.IntN(33) == 0},
 			})
 		}
 	}
@@ -87,7 +87,7 @@ func TestServerMonth(t *testing.T) {
 				gap = 2
 			}
 			d := Day{Rested: b.Rested(m.prev, m.prevPools, gap)}
-			got := playDay(b, rng, m.kind.persona, 50+rng.Int64N(101), pools, &d, b.Buff(m.crest, m.banner, hearth))
+			got := playDay(b, rng, m.kind.persona, 50+rng.Int64N(101), pools, &d, b.Buff(m.wears, hearth))
 			for range min(m.held, m.kind.finish) {
 				q := quest(b, rng)
 				got += q

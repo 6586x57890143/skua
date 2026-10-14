@@ -177,15 +177,22 @@ func fade(idle, grace, span time.Duration, floor int64) int64 {
 	return 100 - (100-floor)*int64(past)/int64(span)
 }
 
-// Buff is the percent added to everything but quests: the server tag worn,
-// .gg/melted in the status, and the hearth tier the server is at.
-func (b *Balance) Buff(crest, banner bool, hearth int) int64 {
+// Wearing is what a member shows that the server rewards: its tag (crest),
+// .gg/melted in their status (banner), and a boost (plume).
+type Wearing struct{ Crest, Banner, Plume bool }
+
+// Buff is the percent added to everything but quests for what w shows and
+// the hearth tier the server is at.
+func (b *Balance) Buff(w Wearing, hearth int) int64 {
 	var p int64
-	if crest {
+	if w.Crest {
 		p += b.Crest
 	}
-	if banner {
+	if w.Banner {
 		p += b.Banner
+	}
+	if w.Plume {
+		p += b.Plume
 	}
 	if hearth > 0 {
 		p += b.Hearth[hearth-1]
