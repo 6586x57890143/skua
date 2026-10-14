@@ -21,15 +21,15 @@ type kind struct {
 // melting pot as merlin's statistics counted it (aggregates only), where
 // about 220 members turn up on a day (150 to 350), a member-day holds a
 // median of 12 messages (p90 142, p99 540) and of 44 voice minutes (p90
-// 417, p99 962), and voice peaks on fridays. messages here are earning
-// ones, after the minute's cooldown; heavy chatters send about twice that.
+// 417, p99 962), and voice peaks on fridays. messages here are paying ones,
+// one per 20s at most, which real talk nearly all is.
 var population = []kind{
 	{persona{name: "ghost"}, 560, 0, 0},
-	{persona{name: "drifter", muted: 20, messages: 6, engage: 10}, 240, 7, 1},
-	{persona{name: "casual", unmuted: 45, messages: 15, engage: 15}, 120, 25, 1},
-	{persona{name: "regular", unmuted: 150, messages: 50, engage: 10}, 48, 75, 1},
-	{persona{name: "voicer", unmuted: 420, messages: 40, engage: 20}, 20, 85, 2},
-	{persona{name: "chatter", messages: 200}, 8, 90, 2},
+	{persona{name: "drifter", muted: 20, messages: 8, engage: 10}, 240, 7, 1},
+	{persona{name: "casual", unmuted: 45, messages: 25, engage: 15}, 120, 25, 1},
+	{persona{name: "regular", unmuted: 150, messages: 80, engage: 10}, 48, 75, 1},
+	{persona{name: "voicer", unmuted: 420, messages: 30, engage: 20}, 20, 85, 2},
+	{persona{name: "chatter", messages: 450}, 8, 90, 2},
 	{persona{name: "afk", unmuted: 960}, 4, 90, 0},
 }
 
@@ -174,8 +174,8 @@ func TestServerMonth(t *testing.T) {
 	if p50("afk") >= p50("regular") {
 		t.Error("sitting in voice all day afk keeps pace with a regular")
 	}
-	if p50("chatter")+2 < p50("regular") {
-		t.Errorf("a heavy chatter is level %d to a regular's %d; talking shouldn't fall that far behind voice", p50("chatter"), p50("regular"))
+	if d := p50("chatter") - p50("voicer"); d < -1 || d > 1 {
+		t.Errorf("the heaviest talkers are level %d, the heaviest voice regulars %d; want them level, within one", p50("chatter"), p50("voicer"))
 	}
 	if tiers[0] == 0 || tiers[0] > int(days)*3/4 || tiers[3] > int(days)/4 {
 		t.Errorf("hearth tiers by day %v: it should light on good days only, brightest on few", tiers)
