@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"image"
@@ -23,10 +24,9 @@ func main() {
 	flag.Parse()
 	var face image.Image
 	if *portrait != "" {
-		f, err := os.Open(*portrait)
+		data, err := os.ReadFile(*portrait)
 		if err == nil {
-			face, err = png.Decode(f)
-			f.Close()
+			face, err = png.Decode(bytes.NewReader(data))
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "✗ portrait:", err)
