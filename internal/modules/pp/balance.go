@@ -56,18 +56,17 @@ type Balance struct {
 	// so a lively conversation shows for what it is while pay stays paced.
 	ActivityGap time.Duration
 
-	// The daily pool: Pool, give or take Jitter percent per member and day.
-	// Chat fills at most ChatShare percent of it (give or take ChatJitter),
-	// past which chat pays ChatTail percent. VoiceTail is what voice pays
-	// past the last band's edge. Unused pool carries RestedCarry percent into
+	// The daily pool: Pool, give or take Jitter percent per member and day,
+	// one pool for voice and chat alike, so a server's best talker and its
+	// best voice regular top out level. Past the last band's edge voice pays
+	// VoiceTail percent and chat ChatTail. Unused pool carries RestedCarry percent into
 	// the next day, up to RestedMax percent of a pool.
-	Pool                  int64
-	Jitter                int64
-	ChatShare, ChatJitter int64
-	Taper                 [2]Band
-	VoiceTail, ChatTail   int64
-	RestedCarry           int64
-	RestedMax             int64
+	Pool                int64
+	Jitter              int64
+	Taper               [2]Band
+	VoiceTail, ChatTail int64
+	RestedCarry         int64
+	RestedMax           int64
 
 	// Buffs, in percent on everything but quests: the server tag worn,
 	// .gg/melted in the status, and boosting the server.
@@ -111,19 +110,17 @@ var Default = Balance{
 	IdleFloor:  5,
 	DeafFloor:  0,
 
-	ChatMin:      4 * unit,
-	ChatMax:      7 * unit,
-	ChatCooldown: time.Minute,
+	ChatMin:      2 * unit,
+	ChatMax:      4 * unit,
+	ChatCooldown: 20 * time.Second,
 	ChatMinRunes: 3,
 	ActivityGap:  10 * time.Second,
 
 	Pool:        600 * unit,
 	Jitter:      15,
-	ChatShare:   40,
-	ChatJitter:  10,
 	Taper:       [2]Band{{Upto: 60, Rate: 100}, {Upto: 100, Rate: 50}},
 	VoiceTail:   5,
-	ChatTail:    1,
+	ChatTail:    0,
 	RestedCarry: 50,
 	RestedMax:   50,
 

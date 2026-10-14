@@ -21,11 +21,15 @@ type persona struct {
 	wears    Wearing
 }
 
+// messages are paying ones, one per 20s at most, which real talk nearly all
+// is: the melting pot's p90 member-day is 142 messages, its p99 540.
 var personas = []persona{
-	{name: "lurker", muted: 30, messages: 5, quests: 1, every: 3},
-	{name: "chatter", messages: 80, quests: 1, every: 1},
-	{name: "regular", unmuted: 120, messages: 40, quests: 1, every: 1},
-	{name: "spammer", messages: 944, quests: 1, every: 1},
+	{name: "lurker", muted: 30, messages: 10, quests: 1, every: 3},
+	{name: "chatter", messages: 140, quests: 1, every: 1},
+	{name: "topchat", messages: 500, quests: 1, every: 1},
+	{name: "topvoice", unmuted: 420, engage: 20, messages: 20, quests: 1, every: 1},
+	{name: "regular", unmuted: 120, messages: 60, quests: 1, every: 1},
+	{name: "spammer", messages: 2880, quests: 1, every: 1},
 	{name: "idler", muted: 600},
 	{name: "deafidle", deaf: 600},
 	{name: "farmer", muted: 600, engage: 20, messages: 30},
@@ -114,8 +118,14 @@ func TestBalanceHolds(t *testing.T) {
 
 	pp := func(n string) int64 { return month[n].total }
 	ratio := func(a, b string) float64 { return float64(pp(a)) / float64(pp(b)) }
-	if x := ratio("spammer", "chatter"); x > 1.25 {
-		t.Errorf("spamming pays %.2fx steady chat; want at most 1.25x", x)
+	if x := ratio("spammer", "topchat"); x > 1.1 {
+		t.Errorf("a message every 20s for 16h pays %.2fx the server's best talker; want at most 1.1x", x)
+	}
+	if x := ratio("topchat", "topvoice"); x < 0.85 || x > 1.15 {
+		t.Errorf("the best talker earns %.2fx the best voice regular; want them level, within 15%%", x)
+	}
+	if pp("chatter") <= pp("lurker") || pp("topchat") <= pp("chatter") {
+		t.Error("more talk doesn't earn more")
 	}
 	if pp("idler") >= pp("regular") {
 		t.Errorf("idling muted all day (%d) out-earns a regular (%d)", pp("idler"), pp("regular"))

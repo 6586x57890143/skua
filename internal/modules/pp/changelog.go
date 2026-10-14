@@ -13,9 +13,9 @@ type Entry struct {
 var Changelog = []Entry{{
 	Version: "0.1.0",
 	Date:    "2026-10-14",
-	Balance: "ca01af",
+	Balance: "e86add",
 	Lines: []string{
-		"pot points arrive: time in voice and chatting both earn pp",
+		"pot points arrive: time in voice and chatting both earn pp, and a day of real talk earns as well as a day in voice",
 		"everyone starts a wanderer; pick a path in /pp, from shrike fighter to magpie thief, earn its titles as you level and change it once a season",
 		"voice pays most with your mic open; muted or deafened still earns but slowly fades the longer you go quiet, and a message brings it back",
 		"every day has a pool of vigor; earning slows as it runs out and what you leave unspent partly carries to tomorrow",

@@ -15,9 +15,6 @@ func TestPoolsJitterStaysInBounds(t *testing.T) {
 		if p.Pool < lo || p.Pool > hi {
 			t.Fatalf("day %d: pool %d outside %d..%d", day, p.Pool, lo, hi)
 		}
-		if share := p.Chat * 100 / p.Pool; share < b.ChatShare-b.ChatJitter-1 || share > b.ChatShare+b.ChatJitter {
-			t.Fatalf("day %d: chat share %d%%", day, share)
-		}
 		seen[p.Pool] = true
 	}
 	if p := b.Pools(7, 1, 2, 9).Pace; p < 100-b.IdleJitter || p > 100+b.IdleJitter {
@@ -32,7 +29,7 @@ func TestPoolsJitterStaysInBounds(t *testing.T) {
 }
 
 func TestEarnTapers(t *testing.T) {
-	p := Pools{Pool: 1000, Chat: 400}
+	p := Pools{Pool: 1000}
 	var d Day
 	if got := b.Earn(&d, p, false, 600, 0); got != 600 {
 		t.Errorf("first 60%% paid %d; want all 600", got)
@@ -49,20 +46,21 @@ func TestEarnTapers(t *testing.T) {
 	}
 }
 
-func TestChatPastItsShareSparesVoice(t *testing.T) {
-	p := Pools{Pool: 1000, Chat: 400}
+// Chat and voice fill one pool, so either can top a day out.
+func TestChatFillsThePoolLikeVoice(t *testing.T) {
+	p := Pools{Pool: 1000}
 	var d Day
-	if got := b.Earn(&d, p, true, 500, 0); got != 400+100*b.ChatTail/100 {
-		t.Errorf("chat over its share paid %d", got)
+	if got := b.Earn(&d, p, true, 600, 0); got != 600 {
+		t.Errorf("chat's first 60%% paid %d; want all 600", got)
 	}
-	if d.Chat != 400 {
-		t.Errorf("chat counted %d against the pool; want its share, 400", d.Chat)
+	if got := b.Earn(&d, p, true, 500, 0); got != 400*50/100+100*b.ChatTail/100 {
+		t.Errorf("chat across the edges paid %d", got)
 	}
-	if a := d.Activity(); a[BoardChat] != 500 || a[BoardVoice] != 0 {
-		t.Errorf("chat's standing is %v; want all 500 on the chat board", a)
+	if got := b.Earn(&d, p, false, 100, 0); got != 100*b.VoiceTail/100 {
+		t.Errorf("voice after a full day of chat paid %d; want the voice tail", got)
 	}
-	if got := b.Earn(&d, p, false, 200, 0); got != 200 {
-		t.Errorf("voice after a chat flood paid %d; want 200 at full rate", got)
+	if a := d.Activity(); a[BoardChat] != 1100 || a[BoardVoice] != 100 {
+		t.Errorf("standing %v; want 1100 chat and 100 voice", a)
 	}
 }
 
@@ -111,11 +109,11 @@ func TestChat(t *testing.T) {
 		repeat bool
 		want   bool
 	}{
-		{time.Minute, 10, false, true},
-		{59 * time.Second, 10, false, false},
-		{time.Minute, 2, false, false},
-		{time.Minute, 10, true, false},
-		{time.Minute, -1, true, true},
+		{b.ChatCooldown, 10, false, true},
+		{b.ChatCooldown - time.Second, 10, false, false},
+		{b.ChatCooldown, 2, false, false},
+		{b.ChatCooldown, 10, true, false},
+		{b.ChatCooldown, -1, true, true},
 	}
 	for _, c := range cases {
 		if got := b.ChatPays(c.since, c.runes, c.repeat); got != c.want {

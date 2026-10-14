@@ -5,9 +5,9 @@ import "time"
 // DayOf is the game day t falls in. Days turn at 00:00 UTC.
 func DayOf(t time.Time) int64 { return t.Unix() / 86400 }
 
-// Pools is one member's pools for one day: the jittered base pool, the
-// part of it chat may fill, and the percent their idle graces run to.
-type Pools struct{ Pool, Chat, Pace int64 }
+// Pools is one member's pools for one day: the jittered base pool and the
+// percent their idle graces run to.
+type Pools struct{ Pool, Pace int64 }
 
 // Day is what one member has counted against today's pools, the rested pp
 // carried into it, and Talk, every paying message's raw pp with no share
@@ -48,15 +48,14 @@ func (b *Balance) Pools(seed, guild, user uint64, day int64) Pools {
 	pool := b.Pool * (100 + jitter(h, b.Jitter)) / 100
 	return Pools{
 		Pool: pool,
-		Chat: pool * (b.ChatShare + jitter(mix(h), b.ChatJitter)) / 100,
 		Pace: 100 + jitter(mix(mix(h)), b.IdleJitter),
 	}
 }
 
 // Earn counts raw pp from voice or chat against d and returns what the member
-// gets: tapered by how full the day is, then buffed by buff percent. Chat past
-// its share pays ChatTail and counts against nothing, so chatting can never
-// spend the pool voice would earn from.
+// gets: tapered by how full the day is, then buffed by buff percent. Voice
+// and chat fill one pool; past it chat pays ChatTail, so a flood of messages
+// buys a day's pool and very little more.
 func (b *Balance) Earn(d *Day, p Pools, chat bool, raw, buff int64) int64 {
 	full := p.Pool + d.Rested
 	used := d.Voice + d.Chat
@@ -65,10 +64,6 @@ func (b *Balance) Earn(d *Day, p Pools, chat bool, raw, buff int64) int64 {
 	if chat {
 		d.Talk += raw
 		tail, count = b.ChatTail, &d.Chat
-		if over := min(d.Chat+raw-p.Chat, raw); over > 0 {
-			got += over * b.ChatTail / 100
-			raw -= over
-		}
 	}
 	for raw > 0 {
 		rate, step := tail, raw
