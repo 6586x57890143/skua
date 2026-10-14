@@ -11,7 +11,8 @@ import (
 // television: its colour cut to 15 bits under the console's 4 by 4
 // ordered dither, then scaled up smoothly rather than by whole pixels and
 // softened a little more across than down, as a composite signal smeared,
-// red drifting a pixel right of the rest. It is a JPEG, whose own faint
+// red drifting a pixel right of the rest, all of it mixed half and half
+// with the crisp picture so it stays a hint. It is a JPEG, whose own faint
 // artefacts belong to the look, and the screens use it where crisp art
 // would read too clean for the 90s.
 func (c *Canvas) Soft(scale int) ([]byte, error) {
@@ -19,6 +20,7 @@ func (c *Canvas) Soft(scale int) ([]byte, error) {
 	// The canvas's colours as floats, a cell each, cut to 5 bits a channel
 	// under the ordered dither: its grain is the console's.
 	src := make([][3]float32, w*h)
+	crisp := make([][3]float32, w*h)
 	for y := range h {
 		for x := range w {
 			r, g, b, _ := c.Palette[c.Pix[c.PixOffset(x, y)]].RGBA()
@@ -27,6 +29,7 @@ func (c *Canvas) Soft(scale int) ([]byte, error) {
 				return float32(min(max(int((float32(v>>8)+nudge)/8)*8+4, 0), 255))
 			}
 			src[y*w+x] = [3]float32{cut(r), cut(g), cut(b)}
+			crisp[y*w+x] = [3]float32{float32(r >> 8), float32(g >> 8), float32(b >> 8)}
 		}
 	}
 	at := func(x, y int) [3]float32 {
@@ -77,6 +80,8 @@ func (c *Canvas) Soft(scale int) ([]byte, error) {
 					return 0.1*pix(x-2, y, k) + 0.22*pix(x-1, y, k) + 0.36*pix(x, y, k) + 0.22*pix(x+1, y, k) + 0.1*pix(x+2, y, k)
 				}
 				s := (across(Y-1) + 3*across(Y) + across(Y+1)) / 5
+				// Half the effect: an even mix with the crisp cell.
+				s = (s + crisp[(Y/scale)*w+X/scale][k]) / 2
 				v[k] = uint8(min(max(s+0.5, 0), 255))
 			}
 			out.SetRGBA(X, Y, color.RGBA{v[0], v[1], v[2], 0xFF})
