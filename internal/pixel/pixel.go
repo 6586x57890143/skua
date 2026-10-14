@@ -1,8 +1,8 @@
 // Package pixel draws skua's game screens the way a 90s RPG drew its menus:
 // at a small native resolution in one fixed palette, then scaled up by
-// whole pixels, so every cell is flat and the PNG stays small. A window is
-// the classic one, an outline, a bone border and a sky gradient in bands,
-// and text is the 7 by 13 face with a drop shadow.
+// whole pixels, so every cell is flat and the PNG stays small. The colours
+// are Tactics Ogre's: a window is dark leather in bands under a thin bronze
+// trim, and text is parchment in the 7 by 13 face with a drop shadow.
 package pixel
 
 import (
@@ -23,7 +23,7 @@ import (
 // The UI's inks, as indexes into Palette.
 var (
 	Ink, Dim, Shadow, Bone, Gold, Green, Red, Ember uint8
-	// Sky is a window's gradient, top band first.
+	// Sky is a window's leather gradient, top band first.
 	Sky [6]uint8
 )
 
@@ -48,16 +48,16 @@ func init() {
 		Palette = append(Palette, c)
 		return uint8(len(Palette) - 1)
 	}
-	Ink = add(rgb(0xE6E2DA))    // bone, the text
-	Dim = add(rgb(0x8A9CB2))    // brand.ColorInfo, the quieter text
-	Shadow = add(rgb(0x1A1513)) // the line ink, outlines and drop shadows
-	Bone = add(rgb(0xB9B4AA))   // the window's border
-	Gold = add(rgb(0xD89B45))   // brand.ColorWarn: pp, the one warm ink
-	Green = add(rgb(0x6E9A6A))  // brand.ColorOK
-	Red = add(rgb(0xC04A3E))    // brand.ColorError
+	Ink = add(rgb(0xEADFC4))    // parchment, the text
+	Dim = add(rgb(0xA8946E))    // faded parchment, the quieter text
+	Shadow = add(rgb(0x140E09)) // the line ink, outlines and drop shadows
+	Bone = add(rgb(0xB08A52))   // bronze, the window's trim
+	Gold = add(rgb(0xE2A847))   // pp, brighter than the trim
+	Green = add(rgb(0x8A9A4E))  // olive
+	Red = add(rgb(0xB4503A))    // rust
 	Ember = add(rgb(0xA8744E))  // brand.ColorEnded
-	// brand.ColorNotice down to brand.ColorPrimary, in even bands.
-	top, foot := rgb(0x4F7C86), rgb(0x1E2228)
+	// Leather, lit at the top and darkening to its foot in even bands.
+	top, foot := rgb(0x5A4430), rgb(0x1E1610)
 	for i := range Sky {
 		mix := func(a, b uint8) uint8 { return uint8((int(a)*(len(Sky)-1-i) + int(b)*i) / (len(Sky) - 1)) }
 		Sky[i] = add(color.NRGBA{mix(top.R, foot.R), mix(top.G, foot.G), mix(top.B, foot.B), 0xFF})
@@ -68,7 +68,7 @@ func init() {
 // Canvas is a picture at native resolution, one pixel a cell.
 type Canvas struct{ *image.Paletted }
 
-// New is a w by h canvas, filled with the darkest sky.
+// New is a w by h canvas, filled with the darkest leather.
 func New(w, h int) *Canvas {
 	c := &Canvas{image.NewPaletted(image.Rect(0, 0, w, h), Palette)}
 	c.Fill(c.Rect, Sky[len(Sky)-1])
@@ -86,8 +86,8 @@ func (c *Canvas) Fill(r image.Rectangle, i uint8) {
 	}
 }
 
-// Window draws the classic menu window over r: an outline, a bone border
-// inside it, the sky in bands, and its corners cut round.
+// Window draws a menu window over r: an outline, a bronze trim inside it,
+// the leather in bands, and its corners cut round.
 func (c *Canvas) Window(r image.Rectangle) {
 	c.Fill(r, Shadow)
 	c.Fill(r.Inset(1), Bone)
