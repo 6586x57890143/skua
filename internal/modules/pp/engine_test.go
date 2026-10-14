@@ -20,6 +20,9 @@ func TestPoolsJitterStaysInBounds(t *testing.T) {
 		}
 		seen[p.Pool] = true
 	}
+	if g := b.Pools(7, 1, 2, 9).Grace; g < b.IdleGrace*3/4 || g > b.IdleGrace*5/4 {
+		t.Errorf("grace %v strays past the jitter", g)
+	}
 	if len(seen) < 10 {
 		t.Errorf("only %d distinct pools in 200 days; the cap is guessable", len(seen))
 	}
@@ -125,6 +128,7 @@ func TestChat(t *testing.T) {
 
 func TestVoiceRaw(t *testing.T) {
 	friend := Seat{Age: b.CompanionAge}
+	grace := b.IdleGrace
 	cases := []struct {
 		name   string
 		me     Seat
@@ -134,7 +138,12 @@ func TestVoiceRaw(t *testing.T) {
 		{"alone", Seat{}, nil, 0},
 		{"with a friend", Seat{}, []Seat{friend}, b.VoiceBase * b.Unmuted / 100},
 		{"muted self", Seat{SelfMute: true}, []Seat{friend}, b.VoiceBase},
-		{"deaf", Seat{Deaf: true}, []Seat{friend}, 0},
+		{"muted through the grace", Seat{SelfMute: true, Idle: grace}, []Seat{friend}, b.VoiceBase},
+		{"muted halfway down the fade", Seat{SelfMute: true, Idle: grace + b.IdleFade/2}, []Seat{friend}, b.VoiceBase * (100 - (100-b.IdleFloor)/2) / 100},
+		{"muted for hours", Seat{SelfMute: true, Idle: 10 * time.Hour}, []Seat{friend}, b.VoiceBase * b.IdleFloor / 100},
+		{"deaf", Seat{Deaf: true, SelfMute: true}, []Seat{friend}, b.VoiceBase * b.Deafened / 100},
+		{"deaf past half the grace", Seat{Deaf: true, Idle: grace/2 + b.IdleFade}, []Seat{friend}, b.VoiceBase * b.Deafened / 100 * b.DeafFloor / 100},
+		{"open mic never fades", Seat{Idle: 10 * time.Hour}, []Seat{friend}, b.VoiceBase * b.Unmuted / 100},
 		{"server muted", Seat{Muted: true}, []Seat{friend}, 0},
 		{"stage audience", Seat{Suppressed: true}, []Seat{friend}, 0},
 		{"a bot", Seat{Bot: true}, []Seat{friend}, 0},
@@ -143,7 +152,7 @@ func TestVoiceRaw(t *testing.T) {
 		{"with someone deaf", Seat{}, []Seat{{Deaf: true, Age: b.CompanionAge}}, 0},
 	}
 	for _, c := range cases {
-		if got := b.VoiceRaw(c.me, c.others); got != c.want {
+		if got := b.VoiceRaw(c.me, c.others, grace); got != c.want {
 			t.Errorf("%s: %d; want %d", c.name, got, c.want)
 		}
 	}

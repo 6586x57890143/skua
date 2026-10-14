@@ -24,11 +24,22 @@ type Balance struct {
 	Version string
 
 	// Voice: a whole eligible minute pays VoiceBase, times Unmuted percent
-	// when the member's own mic is open. Companions count toward the two
-	// humans a channel needs only once their account is CompanionAge old.
+	// when the member's own mic is open and Deafened percent when they can't
+	// hear. Companions count toward the two humans a channel needs only once
+	// their account is CompanionAge old.
 	VoiceBase    int64
 	Unmuted      int64
+	Deafened     int64
 	CompanionAge time.Duration
+
+	// Idling: muted or deafened with no sign of life (a message, unmuting,
+	// camera or stream) for longer than IdleGrace, give or take IdleJitter
+	// percent per member and day, voice fades over IdleFade to IdleFloor
+	// percent, or DeafFloor deafened. Deafened, the grace is halved. The fade
+	// is a slope, not a step, so there is no minute to learn and dodge.
+	IdleGrace, IdleFade  time.Duration
+	IdleJitter           int64
+	IdleFloor, DeafFloor int64
 
 	// Chat: one message per ChatCooldown pays ChatMin to ChatMax, and one
 	// shorter than ChatMinRunes or repeating the last pays nothing.
@@ -71,7 +82,14 @@ var Default = Balance{
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
+	Deafened:     50,
 	CompanionAge: 7 * 24 * time.Hour,
+
+	IdleGrace:  30 * time.Minute,
+	IdleFade:   90 * time.Minute,
+	IdleJitter: 25,
+	IdleFloor:  5,
+	DeafFloor:  0,
 
 	ChatMin:      4 * unit,
 	ChatMax:      7 * unit,

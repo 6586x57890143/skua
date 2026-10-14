@@ -5,9 +5,13 @@ import "time"
 // DayOf is the game day t falls in. Days turn at 00:00 UTC.
 func DayOf(t time.Time) int64 { return t.Unix() / 86400 }
 
-// Pools is one member's pools for one day: the jittered base pool and the
-// part of it chat may fill.
-type Pools struct{ Pool, Chat int64 }
+// Pools is one member's pools for one day: the jittered base pool, the
+// part of it chat may fill, and how long they may idle in voice before it
+// fades.
+type Pools struct {
+	Pool, Chat int64
+	Grace      time.Duration
+}
 
 // Day is what one member has counted against today's pools, and the rested
 // pp carried into it.
@@ -31,7 +35,11 @@ func jitter(h uint64, j int64) int64 { return int64(h%uint64(2*j+1)) - j }
 func (b *Balance) Pools(seed, guild, user uint64, day int64) Pools {
 	h := mix(seed ^ mix(guild^mix(user^mix(uint64(day)))))
 	pool := b.Pool * (100 + jitter(h, b.Jitter)) / 100
-	return Pools{Pool: pool, Chat: pool * (b.ChatShare + jitter(mix(h), b.ChatJitter)) / 100}
+	return Pools{
+		Pool:  pool,
+		Chat:  pool * (b.ChatShare + jitter(mix(h), b.ChatJitter)) / 100,
+		Grace: b.IdleGrace * time.Duration(100+jitter(mix(mix(h)), b.IdleJitter)) / 100,
+	}
 }
 
 // Earn counts raw pp from voice or chat against d and returns what the member
@@ -114,28 +122,51 @@ func (b *Balance) ChatRaw(r uint64) int64 {
 }
 
 // Seat is one member in a voice channel, as the engine needs to see them.
-// Deaf covers deafened by anyone, Muted only by a moderator.
+// Deaf covers deafened by anyone, Muted only by a moderator. Idle is how
+// long since they last showed signs of life.
 type Seat struct {
 	Bot, Deaf, Muted, Suppressed, SelfMute bool
-	Age                                    time.Duration
+	Age, Idle                              time.Duration
 }
 
-// VoiceRaw is one minute's raw pp for me in a channel with others: nothing
-// unless me can hear and talk and someone real is there to listen, and more
-// with the mic open.
-func (b *Balance) VoiceRaw(me Seat, others []Seat) int64 {
-	if me.Bot || me.Deaf || me.Muted || me.Suppressed {
+// VoiceRaw is one minute's raw pp for me in a channel with others, given
+// my grace for the day. Nothing unless someone real is there to hear, more
+// with the mic open, less deafened, and fading the longer me sits muted or
+// deafened without a sign of life.
+func (b *Balance) VoiceRaw(me Seat, others []Seat, grace time.Duration) int64 {
+	if me.Bot || me.Muted || me.Suppressed || !b.heard(others) {
 		return 0
 	}
+	if !me.Deaf && !me.SelfMute {
+		return b.VoiceBase * b.Unmuted / 100
+	}
+	if me.Deaf {
+		return b.VoiceBase * b.Deafened / 100 * fade(me.Idle, grace/2, b.IdleFade, b.DeafFloor) / 100
+	}
+	return b.VoiceBase * fade(me.Idle, grace, b.IdleFade, b.IdleFloor) / 100
+}
+
+// heard is whether anyone in others counts as company.
+func (b *Balance) heard(others []Seat) bool {
 	for _, o := range others {
 		if !o.Bot && !o.Deaf && o.Age >= b.CompanionAge {
-			if me.SelfMute {
-				return b.VoiceBase
-			}
-			return b.VoiceBase * b.Unmuted / 100
+			return true
 		}
 	}
-	return 0
+	return false
+}
+
+// fade is the percent an idle stretch pays: all of it through grace, then
+// a straight slope over span down to floor.
+func fade(idle, grace, span time.Duration, floor int64) int64 {
+	past := idle - grace
+	switch {
+	case past <= 0:
+		return 100
+	case past >= span:
+		return floor
+	}
+	return 100 - (100-floor)*int64(past)/int64(span)
 }
 
 // Buff is the percent added to everything but quests: the server tag worn,

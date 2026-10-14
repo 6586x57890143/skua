@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"strings"
 	"testing"
+	"time"
 )
 
 // persona is a kind of member, as one day of their habits.
@@ -12,6 +13,8 @@ type persona struct {
 	name     string
 	unmuted  int64 // minutes in voice with the mic open
 	muted    int64 // minutes in voice muted
+	deaf     int64 // minutes in voice deafened
+	engage   int64 // shows signs of life every so many minutes; 0 never
 	messages int64 // earning messages (the cooldown already applied)
 	quests   int64 // quests done every questEvery days
 	every    int64
@@ -25,6 +28,8 @@ var personas = []persona{
 	{name: "regular", unmuted: 120, messages: 40, quests: 1, every: 1},
 	{name: "spammer", messages: 944, quests: 1, every: 1},
 	{name: "idler", muted: 600},
+	{name: "deafidle", deaf: 600},
+	{name: "farmer", muted: 600, engage: 20, messages: 30},
 	{name: "wearer", unmuted: 120, messages: 40, quests: 1, every: 1, crest: true, banner: true},
 }
 
@@ -47,14 +52,19 @@ func simulate(b *Balance, p persona, days int) result {
 	for day := range int64(days) {
 		pools := b.Pools(42, 1, 2, day)
 		d := Day{Rested: b.Rested(prev, prevPools, min(day, 1))}
-		voice := func(n int64, muted bool) {
-			me.SelfMute = muted
-			for range n {
-				r.total += b.Earn(&d, pools, false, b.VoiceRaw(me, []Seat{other}), buff)
+		voice := func(n int64, muted, deaf bool) {
+			me.SelfMute, me.Deaf = muted, deaf
+			for m := range n {
+				if p.engage > 0 {
+					m %= p.engage
+				}
+				me.Idle = time.Duration(m) * time.Minute
+				r.total += b.Earn(&d, pools, false, b.VoiceRaw(me, []Seat{other}, pools.Grace), buff)
 			}
 		}
-		voice(p.unmuted, false)
-		voice(p.muted, true)
+		voice(p.unmuted, false, false)
+		voice(p.muted, true, false)
+		voice(p.deaf, true, true)
 		for range p.messages {
 			r.total += b.Earn(&d, pools, true, b.ChatRaw(rng.Uint64()), buff)
 		}
@@ -91,6 +101,15 @@ func TestBalanceHolds(t *testing.T) {
 	}
 	if pp("idler") >= pp("regular") {
 		t.Errorf("idling muted all day (%d) out-earns a regular (%d)", pp("idler"), pp("regular"))
+	}
+	if pp("deafidle") >= pp("idler") {
+		t.Errorf("idling deafened (%d) pays as much as idling muted (%d)", pp("deafidle"), pp("idler"))
+	}
+	if x := ratio("farmer", "idler"); x < 2 {
+		t.Errorf("a muted member who chats now and then earns %.2fx a silent idler; want at least 2x", x)
+	}
+	if pp("farmer") >= pp("regular") {
+		t.Errorf("light farming (%d) out-earns a regular (%d)", pp("farmer"), pp("regular"))
 	}
 	if x := ratio("wearer", "regular"); x <= 1 || x > 1.2 {
 		t.Errorf("both buffs pay %.2fx; want more than 1x and at most 1.2x", x)

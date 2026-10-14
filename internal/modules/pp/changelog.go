@@ -13,9 +13,10 @@ type Entry struct {
 var Changelog = []Entry{{
 	Version: "0.1.0",
 	Date:    "2026-10-14",
-	Balance: "75beb4",
+	Balance: "379a75",
 	Lines: []string{
 		"pot points arrive: time in voice and chatting both earn pp",
+		"voice pays most with your mic open; muted or deafened still earns but slowly fades the longer you go without a word, and any message or unmute brings it back",
 		"every day has a pool of vigor; earning slows as it runs out and what you leave unspent partly carries to tomorrow",
 		"wear the server tag or put .gg/melted in your status for a little extra on everything but quests",
 		"when the whole server has a big day the hearth lights up and everyone earns more for the rest of it and all of the next",
