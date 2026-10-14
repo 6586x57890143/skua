@@ -212,7 +212,8 @@ func (m *Module) sheet(s *server, mem *member, guild, user snowflake.ID, today i
 	vigor, phase := b.Vigor(mem.day, m.st.pools(guild, user, today))
 	season, week := b.Season(today)
 	sh := Sheet{
-		Class: ClassOf(mem.class), Level: l, Into: into, Need: need, Total: mem.total, Purse: mem.purse,
+		Portrait: Portrait(ClassOf(mem.class)),
+		Class:    ClassOf(mem.class), Level: l, Into: into, Need: need, Total: mem.total, Purse: mem.purse,
 		Vigor: vigor, Phase: phase, Season: season, Week: week,
 	}
 	for _, w := range []struct {
