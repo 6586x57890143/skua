@@ -17,6 +17,7 @@ const (
 
 // Sheet is what the status screen shows of one member.
 type Sheet struct {
+	Portrait     image.Image // the class's portrait, 32 by 48; nil shows skua
 	Name         string
 	Class        Class
 	Level        int
@@ -82,70 +83,104 @@ func ordinal(n int) string {
 	return strconv.Itoa(n) + suffix
 }
 
-// StatusScreen draws s as the classic status menu: the bird's portrait,
-// who they are and how far along, and a strip of what they wear and where
-// they stand. It returns the PNG.
+// StatusScreen draws s as Tactics Ogre's status screen: the portrait in
+// its frame, who they are and how far along with the gauges under it, and
+// two named panels, what they wear and where they stand. It returns the
+// PNG.
 func StatusScreen(s Sheet) ([]byte, error) {
 	c := pixel.New(screenW, screenH)
 
-	c.Window(image.Rect(4, 4, 140, 140))
-	c.Bird(image.Pt(8, 8))
-
-	c.Window(image.Rect(144, 4, 380, 140))
-	x, r := 156, 368
-	c.Text(x, 12, s.Name, pixel.Ink, 30)
-	iconText(c, classIcons[s.Class.Key], x, 32, s.Class.Name(), pixel.Dim)
-	right(c, r, 32, s.Class.Title(s.Level), pixel.Ink)
-
-	c.Text(x, 56, "lv", pixel.Dim, 0)
-	c.Text(x+20, 56, strconv.Itoa(s.Level), pixel.Ink, 0)
-	right(c, r, 56, grouped((s.Need-s.Into)/unit)+" to next", pixel.Dim)
-
-	bar := x + pixel.IconCells + 4
-	c.Icon("pot", image.Pt(x, 80-iconLift))
-	c.Bar(image.Rect(bar, 82, r, 90), s.Into, s.Need, pixel.Gold)
-	right(c, r, 96, grouped(s.Into/unit)+" / "+grouped(s.Need/unit), pixel.Dim)
-
-	c.Icon("heart", image.Pt(x, 118-iconLift))
-	c.Bar(image.Rect(bar, 120, r-56, 128), s.Vigor, 100, pixel.Green)
-	right(c, r, 118, s.Phase, pixel.Ink)
-
-	c.Window(image.Rect(4, 144, 380, 212))
-	x, r = 16, 368
-	c.Text(x, 152, "buffs", pixel.Dim, 0)
-	bx := x + 6*pixel.Advance
-	if len(s.Buffs) == 0 {
-		c.Text(bx, 152, "none worn", pixel.Dim, 0)
-	}
-	for _, b := range s.Buffs {
-		bx = iconText(c, b.Icon, bx, 152, b.Label, pixel.Gold) + pixel.Advance
-	}
-
-	if s.Season > 0 {
-		end := c.Text(x, 172, fmt.Sprintf("season %d", s.Season), pixel.Dim, 0)
-		end = c.Text(end+2*pixel.Advance, 172, fmt.Sprintf("week %d", s.Week), pixel.Dim, 0)
-		if s.Laurels > 0 {
-			iconText(c, "laurel", end+2*pixel.Advance, 172, fmt.Sprintf("x%d", s.Laurels), pixel.Green)
-		}
+	c.Window(image.Rect(4, 4, 140, 152))
+	if s.Portrait != nil {
+		c.Portrait(s.Portrait, image.Pt(40, 30))
 	} else {
-		c.Text(x, 172, "preseason", pixel.Dim, 0)
+		c.Bird(image.Pt(8, 14))
 	}
+
+	// The lines sit 19 apart, a gauge centred on its label's x-height.
+	c.Window(image.Rect(144, 4, 380, 152))
+	x, r := 156, 368
+	c.Fit(x, 12, s.Name, pixel.Ink, r-x)
+	iconText(c, classIcons[s.Class.Key], x, 31, s.Class.Name(), pixel.Dim)
+	right(c, r, 31, s.Class.Title(s.Level), pixel.Ink)
+
+	c.Text(x, 50, "lv", pixel.Dim, 0)
+	c.Text(x+20, 50, strconv.Itoa(s.Level), pixel.Ink, 0)
+	right(c, r, 50, grouped((s.Need-s.Into)/unit)+" to next", pixel.Dim)
+
+	gauge := x + 6*pixel.Advance
+	c.Text(x, 69, "pp", pixel.Dim, 0)
+	c.Bar(image.Rect(gauge, 74, r, 79), s.Into, s.Need, pixel.Yellow)
+	right(c, r, 85, grouped(s.Into/unit)+" / "+grouped(s.Need/unit), pixel.Dim)
+
+	c.Text(x, 104, "vigor", pixel.Dim, 0)
+	c.Bar(image.Rect(gauge, 109, r-56, 114), s.Vigor, 100, pixel.Crimson)
+	right(c, r, 104, s.Phase, pixel.Ink)
+
+	c.Cursor(x+10, 129)
+	c.Text(x+14, 123, fmt.Sprintf("quests %d held", s.Held), pixel.Ink, 0)
+	total := grouped(s.Total / unit)
+	right(c, r, 123, total, pixel.Gold)
+	c.Icon("pot", image.Pt(r-len(total)*pixel.Advance-pixel.IconCells-4, 123-iconLift))
+
+	buffs := image.Rect(4, 156, 252, 212)
+	c.Window(buffs)
+	c.Tab(buffs, "buffs")
+	drawBuffs(c, s.Buffs, image.Rect(16, buffs.Min.Y+pixel.TabDrop, buffs.Max.X-12, buffs.Max.Y-4))
+
+	// The tab names the season and week; under it, label and value, the
+	// place on the board and the laurels won.
+	season := image.Rect(256, 156, 380, 212)
+	c.Window(season)
+	tab := "preseason"
+	if s.Season > 0 {
+		tab = fmt.Sprintf("season %d week %d", s.Season, s.Week)
+	}
+	c.Tab(season, tab)
+	x, r = 266, 368
+	y := season.Min.Y + pixel.TabDrop + 4
 	place := "unplaced"
 	if s.Place > 0 {
 		place = ordinal(s.Place)
 	}
-	right(c, r, 172, place, pixel.Ink)
-
-	c.Cursor(x+12, 198)
-	end := c.Text(x+16, 192, fmt.Sprintf("quests %d held", s.Held), pixel.Ink, 0)
-	if s.RerollReady {
-		iconText(c, "reroll", end+2*pixel.Advance, 192, "ready", pixel.Green)
+	c.Text(x, y, "board", pixel.Dim, 0)
+	right(c, r, y, place, pixel.Ink)
+	c.Text(x, y+17, "laurels", pixel.Dim, 0)
+	if s.Laurels > 0 {
+		n := fmt.Sprintf("x%d", s.Laurels)
+		right(c, r, y+17, n, pixel.Green)
+		c.Icon("laurel", image.Pt(r-len(n)*pixel.Advance-pixel.IconCells-2, y+17-iconLift))
+	} else {
+		right(c, r, y+17, "none", pixel.Dim)
 	}
-	total := grouped(s.Total / unit)
-	right(c, r, 192, total, pixel.Gold)
-	c.Icon("pot", image.Pt(r-len(total)*pixel.Advance-pixel.IconCells-4, 192-iconLift))
 
 	return c.PNG(screenScale)
+}
+
+// drawBuffs sets the buffs worn in r: on one line while they fit, and in
+// two columns over two lines past that.
+func drawBuffs(c *pixel.Canvas, buffs []Buff, r image.Rectangle) {
+	if len(buffs) == 0 {
+		c.Text(r.Min.X, r.Min.Y+12, "none worn", pixel.Dim, 0)
+		return
+	}
+	width := 0
+	for _, b := range buffs {
+		width += pixel.IconCells + 4 + len(b.Label)*pixel.Advance + pixel.Advance
+	}
+	if width-pixel.Advance <= r.Dx() {
+		x := r.Min.X
+		for _, b := range buffs {
+			x = iconText(c, b.Icon, x, r.Min.Y+12, b.Label, pixel.Gold) + pixel.Advance
+		}
+		return
+	}
+	col := r.Dx() / 2
+	for i, b := range buffs {
+		x, y := r.Min.X+i%2*col, r.Min.Y+4+i/2*17
+		c.Icon(b.Icon, image.Pt(x, y-iconLift))
+		c.Fit(x+pixel.IconCells+4, y, b.Label, pixel.Gold, col-pixel.IconCells-8)
+	}
 }
 
 // QuestLine is one held quest as the quest screen shows it.
@@ -156,19 +191,20 @@ type QuestLine struct {
 	Reward         int64
 }
 
-// QuestScreen draws the quests held as an item list, the cursor on the
-// first, each with its icon, how far along it is and what it pays.
+// QuestScreen draws the quests held as an item list in a named panel, the
+// cursor on the first, each with its icon, a gauge of how far along it is
+// and what it pays.
 func QuestScreen(name string, quests []QuestLine, rerollReady bool) ([]byte, error) {
 	c := pixel.New(screenW, screenH)
-	c.Window(image.Rect(4, 4, 380, 36))
-	c.Text(16, 13, "quests", pixel.Ink, 0)
-	right(c, 368, 13, name, pixel.Dim)
+	list := image.Rect(4, 4, 380, 170)
+	c.Window(list)
+	c.Tab(list, "quests")
+	right(c, 368, 10, name, pixel.Dim)
 
-	c.Window(image.Rect(4, 40, 380, 176))
 	tier := [3]uint8{pixel.Ink, pixel.Green, pixel.Gold}
 	x, r := 34, 368
 	for i, q := range quests {
-		y := 52 + i*42
+		y := 40 + i*42
 		if i == 0 {
 			c.Cursor(x-2, y+6)
 		}
@@ -179,20 +215,21 @@ func QuestScreen(name string, quests []QuestLine, rerollReady bool) ([]byte, err
 			right(c, r-(len(reward)+1)*pixel.Advance, y, QuestTiers[q.Tier], tier[q.Tier])
 		}
 		bar := x + pixel.IconCells + 4
-		c.Bar(image.Rect(bar, y+20, 280, y+28), q.Progress, q.Goal, pixel.Green)
-		right(c, r, y+18, fmt.Sprintf("%d / %d", min(q.Progress, q.Goal), q.Goal), pixel.Dim)
+		c.Bar(image.Rect(bar, y+20, 280, y+25), q.Progress, q.Goal, pixel.Blue)
+		right(c, r, y+16, fmt.Sprintf("%d / %d", min(q.Progress, q.Goal), q.Goal), pixel.Dim)
 	}
 	if len(quests) == 0 {
-		c.Text(28, 100, "nothing held; a new one comes at 00:00 utc", pixel.Dim, 0)
+		c.Text(28, 90, "nothing held; a new one comes at 00:00 utc", pixel.Dim, 0)
 	}
 
-	c.Window(image.Rect(4, 180, 380, 212))
-	end := iconText(c, "reroll", 16, 191, "one reroll a day", pixel.Dim) + 2*pixel.Advance
+	foot := image.Rect(4, 180, 380, 212)
+	c.Window(foot)
+	end := iconText(c, "reroll", 16, 190, "one reroll a day", pixel.Dim) + 2*pixel.Advance
 	if rerollReady {
-		c.Text(end, 191, "ready", pixel.Green, 0)
+		c.Text(end, 190, "ready", pixel.Green, 0)
 	} else {
-		c.Text(end, 191, "used", pixel.Dim, 0)
+		c.Text(end, 190, "used", pixel.Dim, 0)
 	}
-	right(c, 368, 191, fmt.Sprintf("%d / %d held", len(quests), Default.QuestHold), pixel.Dim)
+	right(c, 368, 190, fmt.Sprintf("%d / %d held", len(quests), Default.QuestHold), pixel.Dim)
 	return c.PNG(screenScale)
 }
