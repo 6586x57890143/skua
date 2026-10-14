@@ -92,19 +92,20 @@ func StatusScreen(s Sheet) ([]byte, error) {
 
 	c.Window(image.Rect(4, 4, 140, 152))
 	if s.Portrait != nil {
-		c.Portrait(s.Portrait, image.Pt(40, 30))
+		c.Portrait(s.Portrait, image.Pt(40, 22))
 	} else {
-		c.Bird(image.Pt(8, 14))
+		c.Bird(image.Pt(8, 6))
+	}
+	// laurels sit under the portrait, as an emblem would
+	if s.Laurels > 0 {
+		n := fmt.Sprintf("x%d", s.Laurels)
+		lx := 72 - (pixel.IconCells+2+len(n)*pixel.Advance)/2
+		iconText(c, "laurel", lx, 134, n, pixel.Green)
 	}
 
 	c.Window(image.Rect(144, 4, 380, 152))
 	x, r := 156, 368
-	c.Text(x, 12, s.Name, pixel.Ink, 24)
-	if s.Laurels > 0 {
-		lx := r - len(fmt.Sprintf("x%d", s.Laurels))*pixel.Advance
-		right(c, r, 12, fmt.Sprintf("x%d", s.Laurels), pixel.Green)
-		c.Icon("laurel", image.Pt(lx-pixel.IconCells-2, 12-iconLift))
-	}
+	c.Fit(x, 12, s.Name, pixel.Ink, r-x)
 	iconText(c, classIcons[s.Class.Key], x, 32, s.Class.Name(), pixel.Dim)
 	right(c, r, 32, s.Class.Title(s.Level), pixel.Ink)
 
@@ -130,18 +131,13 @@ func StatusScreen(s Sheet) ([]byte, error) {
 	buffs := image.Rect(4, 156, 252, 212)
 	c.Window(buffs)
 	c.Tab(buffs, "buffs")
-	bx, y := 16, buffs.Min.Y+pixel.TabDrop+14
-	if len(s.Buffs) == 0 {
-		c.Text(bx, y, "none worn", pixel.Dim, 0)
-	}
-	for _, b := range s.Buffs {
-		bx = iconText(c, b.Icon, bx, y, b.Label, pixel.Gold) + pixel.Advance
-	}
+	drawBuffs(c, s.Buffs, image.Rect(16, buffs.Min.Y+pixel.TabDrop, buffs.Max.X-12, buffs.Max.Y-4))
 
 	season := image.Rect(256, 156, 380, 212)
 	c.Window(season)
 	c.Tab(season, "season")
-	x, r, y = 266, 370, season.Min.Y+pixel.TabDrop+6
+	x, r = 266, 370
+	y := season.Min.Y + pixel.TabDrop + 6
 	if s.Season > 0 {
 		c.Text(x, y, fmt.Sprintf("season %d", s.Season), pixel.Dim, 0)
 		right(c, r, y, fmt.Sprintf("wk %d", s.Week), pixel.Dim)
@@ -156,6 +152,32 @@ func StatusScreen(s Sheet) ([]byte, error) {
 	right(c, r, y+16, place, pixel.Ink)
 
 	return c.PNG(screenScale)
+}
+
+// drawBuffs sets the buffs worn in r: on one line while they fit, and in
+// two columns over two lines past that.
+func drawBuffs(c *pixel.Canvas, buffs []Buff, r image.Rectangle) {
+	if len(buffs) == 0 {
+		c.Text(r.Min.X, r.Min.Y+13, "none worn", pixel.Dim, 0)
+		return
+	}
+	width := 0
+	for _, b := range buffs {
+		width += pixel.IconCells + 4 + len(b.Label)*pixel.Advance + pixel.Advance
+	}
+	if width-pixel.Advance <= r.Dx() {
+		x := r.Min.X
+		for _, b := range buffs {
+			x = iconText(c, b.Icon, x, r.Min.Y+13, b.Label, pixel.Gold) + pixel.Advance
+		}
+		return
+	}
+	col := r.Dx() / 2
+	for i, b := range buffs {
+		x, y := r.Min.X+i%2*col, r.Min.Y+4+i/2*17
+		c.Icon(b.Icon, image.Pt(x, y-iconLift))
+		c.Fit(x+pixel.IconCells+4, y, b.Label, pixel.Gold, col-pixel.IconCells-8)
+	}
 }
 
 // QuestLine is one held quest as the quest screen shows it.

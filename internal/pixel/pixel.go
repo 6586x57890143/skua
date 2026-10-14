@@ -140,18 +140,29 @@ func ink(r rune, gx, gy int) bool {
 // returns where it ends. Past max characters it is cut with "..."; max 0
 // means no limit.
 func (c *Canvas) Text(x, y int, s string, i uint8, max int) int {
-	return c.text(x, y, s, i, Bone, max)
+	return c.text(x, y, s, i, Bone, max, Advance)
+}
+
+// Fit sets s like Text within width: at full spacing if it fits, a cell
+// tighter if that fits, and cut with "..." at the tighter spacing only
+// past that.
+func (c *Canvas) Fit(x, y int, s string, i uint8, width int) int {
+	n := len(Plain(s))
+	if n*Advance <= width {
+		return c.Text(x, y, s, i, 0)
+	}
+	return c.text(x, y, s, i, Bone, width/(Advance-1), Advance-1)
 }
 
 // text sets s in ink i over a shadow in ink shadow, or none if shadow is
-// the same as i.
-func (c *Canvas) text(x, y int, s string, i, shadow uint8, max int) int {
+// the same as i, adv cells a character.
+func (c *Canvas) text(x, y int, s string, i, shadow uint8, max, adv int) int {
 	s = Plain(s)
 	if max > 0 && len(s) > max {
 		s = strings.TrimSpace(s[:max-3]) + "..."
 	}
 	for n, r := range s {
-		at := x + n*Advance
+		at := x + n*adv
 		for gy := range LineHeight {
 			for gx := range Advance {
 				if !ink(r, gx, gy) {
@@ -166,7 +177,7 @@ func (c *Canvas) text(x, y int, s string, i, shadow uint8, max int) int {
 			}
 		}
 	}
-	return x + len(s)*Advance
+	return x + len(s)*adv
 }
 
 // Plain is s in what the face has, printable ASCII, on one line.
@@ -210,7 +221,7 @@ func (c *Canvas) Tab(r image.Rectangle, s string) {
 	tab := image.Rect(r.Min.X+4, r.Min.Y, r.Min.X+4+w, r.Min.Y+TabDrop)
 	c.Fill(tab, Shadow)
 	c.Fill(tab.Inset(1), Line)
-	c.text(tab.Min.X+3, tab.Min.Y+1, s, Glove, Glove, 0)
+	c.text(tab.Min.X+3, tab.Min.Y+1, s, Glove, Glove, 0, Advance)
 }
 
 // TabDrop is how far a tab reaches down into its window.

@@ -117,6 +117,19 @@ func TestBirdAndCursor(t *testing.T) {
 	}
 }
 
+func TestFit(t *testing.T) {
+	c := New(200, 20)
+	if end := c.Fit(0, 0, "short", Ink, 70); end != 5*Advance {
+		t.Errorf("a name that fits ends at %d", end)
+	}
+	if end := c.Fit(0, 0, "eleven char", Ink, 70); end != 11*(Advance-1) {
+		t.Errorf("a name a cell too wide ends at %d; want it tighter", end)
+	}
+	if end := c.Fit(0, 0, "a name far too long for its place", Ink, 70); end > 70 {
+		t.Errorf("a long name runs to %d past 70", end)
+	}
+}
+
 func TestTab(t *testing.T) {
 	c := New(80, 40)
 	w := image.Rect(2, 2, 78, 38)
