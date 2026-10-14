@@ -64,7 +64,11 @@ func main() {
 	for name, draw := range shots {
 		data, err := draw()
 		if err == nil {
-			err = os.WriteFile(filepath.Join(*out, name+".png"), data, 0o644)
+			ext := ".jpg" // the screens, softened as on a television
+			if name == "icons" {
+				ext = ".png"
+			}
+			err = os.WriteFile(filepath.Join(*out, name+ext), data, 0o644)
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "✗", name+":", err)

@@ -52,5 +52,5 @@ func TitleScreen() ([]byte, error) {
 	c.Cursor(menu.Min.X+18, menu.Min.Y+15)
 	c.Text(menu.Min.X+22, menu.Min.Y+9, "pick a class", pixel.Ink, 0)
 	right(c, menu.Max.X-12, menu.Min.Y+9, "beta", pixel.Crimson)
-	return c.PNG(screenScale)
+	return c.Soft(screenScale)
 }

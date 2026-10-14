@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"testing"
 )
@@ -216,5 +217,26 @@ func BenchmarkScreen(b *testing.B) {
 			b.Fatal(err)
 		}
 		b.ReportMetric(float64(len(data)), "bytes")
+	}
+}
+
+// Soft scales up smoothly: a hard edge between two inks comes out with a
+// step between them, not a jump.
+func TestSoft(t *testing.T) {
+	c := New(8, 4)
+	c.Fill(image.Rect(4, 0, 8, 4), Glove)
+	data, err := c.Soft(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := jpeg.Decode(bytes.NewReader(data))
+	if err != nil || img.Bounds().Dx() != 24 || img.Bounds().Dy() != 12 {
+		t.Fatalf("%v %v", err, img)
+	}
+	edge, _, _, _ := img.At(12, 4).RGBA()
+	dark, _, _, _ := img.At(1, 4).RGBA()
+	light, _, _, _ := img.At(22, 4).RGBA()
+	if !(dark < edge && edge < light) {
+		t.Errorf("the edge isn't softened: %d %d %d", dark>>8, edge>>8, light>>8)
 	}
 }

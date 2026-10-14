@@ -26,7 +26,7 @@ var (
 )
 
 // screenName is the status screen's file on its message.
-const screenName = "pp.png"
+const screenName = "pp.jpg"
 
 func (m *Module) Commands() []core.Command {
 	return []core.Command{{

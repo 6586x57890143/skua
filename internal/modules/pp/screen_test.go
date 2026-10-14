@@ -3,7 +3,7 @@ package pp
 import (
 	"bytes"
 	"image"
-	"image/png"
+	"image/jpeg"
 	"testing"
 
 	"github.com/6586x57890143/skua/internal/pixel"
@@ -14,14 +14,14 @@ func decodes(t *testing.T, data []byte, err error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	img, err := png.Decode(bytes.NewReader(data))
+	img, err := jpeg.Decode(bytes.NewReader(data))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := img.(*image.Paletted); !ok || img.Bounds().Dx() != screenW*screenScale || img.Bounds().Dy() != screenH*screenScale {
+	if img.Bounds().Dx() != screenW*screenScale || img.Bounds().Dy() != screenH*screenScale {
 		t.Fatalf("got a %T of %v", img, img.Bounds())
 	}
-	if len(data) > 32<<10 {
+	if len(data) > 256<<10 {
 		t.Errorf("a screen is %d KB; keep it small", len(data)>>10)
 	}
 }

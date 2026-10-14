@@ -59,7 +59,7 @@ func TestTitleUntilAPick(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := js((*sent)[0])
-	for _, want := range []string{"melting pot", "pick a class", "pp:class", "beta", "attachment://pp.png"} {
+	for _, want := range []string{"melting pot", "pick a class", "pp:class", "beta", "attachment://pp.jpg"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the title lacks %q: %s", want, got)
 		}
@@ -89,7 +89,7 @@ func TestStatusCommand(t *testing.T) {
 	}
 	msg := (*sent)[0]
 	got := js(msg)
-	for _, want := range []string{"attachment://pp.png", "pp:class", "pp:show", "the day turns in 12h", `"parse":[]`} {
+	for _, want := range []string{"attachment://pp.jpg", "pp:class", "pp:show", "the day turns in 12h", `"parse":[]`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the reply lacks %q: %s", want, got)
 		}
@@ -127,7 +127,7 @@ func pick(t *testing.T, value string) (*events.ComponentInteractionCreate, *[]di
 }
 
 // A pick turns the picker into the status screen, and the edit lists the
-// screen's PNG: without that Discord can't find attachment://pp.png.
+// screen's PNG: without that Discord can't find attachment://pp.jpg.
 func TestPickListsTheScreen(t *testing.T) {
 	m := testModule(&fakeDB{})
 	e, _ := pick(t, "thief")
