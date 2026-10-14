@@ -34,20 +34,21 @@ func (st *state) load(ctx context.Context, db DB) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	rows, err = db.Query(ctx, `select guild_id, day, raw, history, lit, lit_before from pp_guild`)
+	rows, err = db.Query(ctx, `select guild_id, day, raw, history, lit, lit_before, beta_role from pp_guild`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var guild int64
+		var guild, beta int64
 		var s server
-		if err := rows.Scan(&guild, &s.day, &s.raw, &s.history, &s.lit, &s.litBefore); err != nil {
+		if err := rows.Scan(&guild, &s.day, &s.raw, &s.history, &s.lit, &s.litBefore, &beta); err != nil {
 			return err
 		}
 		into := st.server(snowflake.ID(guild))
 		into.mu.Lock()
 		into.day, into.raw, into.history, into.lit, into.litBefore = s.day, s.raw, s.history, s.lit, s.litBefore
+		into.beta = snowflake.ID(beta)
 		into.mu.Unlock()
 	}
 	return rows.Err()

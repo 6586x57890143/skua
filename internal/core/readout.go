@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 )
 
@@ -23,6 +24,9 @@ type Reporter interface {
 type Report struct {
 	Rows  [][2]string
 	Notes []string
+	// Controls are the module's settings for this server, set by its
+	// admins: they show under the status, to admins only.
+	Controls []discord.ContainerSubComponent
 }
 
 // valueWidth holds the value column to 28, so a line stays within 40.

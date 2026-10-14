@@ -59,6 +59,9 @@ type server struct {
 	history        []int64
 	lit, litBefore int
 	dirty          bool
+	// beta is the role whose members may play while /pp is in closed
+	// beta, beside admins; 0 is none.
+	beta snowflake.ID
 }
 
 func newServer() *server {

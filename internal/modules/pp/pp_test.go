@@ -43,6 +43,8 @@ func testModule(db DB) *Module {
 		log: slog.New(slog.NewTextHandler(io.Discard, nil)), db: db, st: newState(&Default, 42),
 		info: func(snowflake.ID) (snowflake.ID, string) { return afkCh, "melted" },
 		now:  func() time.Time { return t0 },
+		// The tests play as an admin; TestBetaGate plays as everyone else.
+		Admin: func(discord.Interaction) bool { return true },
 	}
 }
 

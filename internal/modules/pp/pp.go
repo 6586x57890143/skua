@@ -40,6 +40,9 @@ type Module struct {
 	saved atomic.Int64 // unix nanos of the last flush that wrote
 	// earning is how many earned in voice in each guild the last minute.
 	earning sync.Map
+	// Admin reports whether an interaction comes from one of its server's
+	// admins or skua's break-glass admin. Unset, nobody is.
+	Admin func(discord.Interaction) bool
 }
 
 // New loads what /pp has kept. seed keeps each member's daily pool from
@@ -102,7 +105,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"hearth", hearthWord(hearth)},
 		{"members", strconv.Itoa(members)},
 		{"saved", saved},
-	}}
+	}, Controls: m.betaControls(guild)}
 }
 
 // hearthWord is a hearth tier as members read it.
