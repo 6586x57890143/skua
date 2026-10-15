@@ -12,7 +12,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/nbd-wtf/go-nostr v0.52.3
 	golang.org/x/image v0.47.0
-	golang.org/x/term v0.46.0
+	golang.org/x/term v0.47.0
 	golang.org/x/text v0.43.0
 )
 
