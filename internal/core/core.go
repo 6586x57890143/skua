@@ -439,16 +439,22 @@ func Revision() string {
 }
 
 // Edit is u carrying files as a reply's edit. A new file has to be listed
-// in the edit's attachments or Discord won't find attachment://name, and
-// disgo v0.19.6 lists them on a copy it then drops when the edit answers an
-// interaction, so they are listed here. Whatever u already lists stays.
+// in the edit's attachments or Discord won't find attachment://name.
+// disgo v0.19.6 lists each file with a description itself, onto the list
+// u.Attachments points at: with no list it makes one on a copy and drops
+// it, so Edit always gives it one. Files without a description disgo
+// skips, so Edit lists those. Listing a file twice makes Discord refuse
+// the whole edit (ATTACHMENT_NOT_FOUND) after the handler has already
+// acted. Whatever u already lists stays.
 func Edit(u discord.MessageUpdate, files ...*discord.File) discord.MessageUpdate {
 	list := []discord.AttachmentUpdate{}
 	if u.Attachments != nil {
 		list = append(list, *u.Attachments...)
 	}
-	for i := range files {
-		list = append(list, discord.AttachmentCreate{ID: i, Description: files[i].Description})
+	for i, f := range files {
+		if f.Description == "" {
+			list = append(list, discord.AttachmentCreate{ID: i})
+		}
 	}
 	u.Attachments, u.Files = &list, files
 	return u

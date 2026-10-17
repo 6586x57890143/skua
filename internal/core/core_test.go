@@ -420,10 +420,15 @@ func TestRevision(t *testing.T) {
 func TestEdit(t *testing.T) {
 	keep := []discord.AttachmentUpdate{discord.AttachmentKeep{ID: 7}}
 	u := Edit(discord.MessageUpdate{Attachments: &keep},
-		discord.NewFile("a.png", "first", strings.NewReader("")), discord.NewFile("b.png", "second", strings.NewReader("")))
-	want := []discord.AttachmentUpdate{discord.AttachmentKeep{ID: 7}, discord.AttachmentCreate{ID: 0, Description: "first"}, discord.AttachmentCreate{ID: 1, Description: "second"}}
+		discord.NewFile("a.png", "first", strings.NewReader("")), discord.NewFile("b.png", "", strings.NewReader("")))
+	// As disgo sends it in answer to an interaction: every file listed
+	// exactly once, the kept one still there.
+	if _, err := u.ToResponseBody(discord.InteractionResponse{Type: discord.InteractionResponseTypeUpdateMessage, Data: u}); err != nil {
+		t.Fatal(err)
+	}
+	want := []discord.AttachmentUpdate{discord.AttachmentKeep{ID: 7}, discord.AttachmentCreate{ID: 1}, discord.AttachmentCreate{ID: 0, Description: "first"}}
 	if u.Attachments == nil || !reflect.DeepEqual(*u.Attachments, want) || len(u.Files) != 2 {
-		t.Errorf("attachments %v, %d files", u.Attachments, len(u.Files))
+		t.Errorf("attachments %v, %d files", *u.Attachments, len(u.Files))
 	}
 	if u := Edit(discord.MessageUpdate{}); u.Attachments == nil || len(*u.Attachments) != 0 {
 		t.Error("an edit with no files doesn't clear the old ones")
