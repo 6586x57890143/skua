@@ -11,6 +11,16 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.5.0",
+	Date:    "2026-10-17",
+	Balance: "510ac3",
+	Lines: []string{
+		"quests arrive: one is dealt each day you're around, up to three held, and the quests button on /pp shows them with one reroll a day",
+		"a good quest asks about a day's talk or time in voice, a great one a little more and a golden one more again, though never as much more as it pays",
+		"some golden quests ask for something odd, like a picture in the selfie channel that stays up a day",
+		"quests come to accounts at least a week old, and what they pay counts toward your level like any earning",
+	},
+}, {
 	Version: "0.4.0",
 	Date:    "2026-10-17",
 	Balance: "b926de",

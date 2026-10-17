@@ -25,6 +25,7 @@ const (
 	reasonGrant  = "grant"  // a grant: out of the treasury, into a purse
 	reasonPrize  = "prize"  // a weekly checkpoint's prize, the same way
 	reasonShop   = "shop"   // something bought, burned
+	reasonQuest  = "quest"  // a finished quest, as labour
 )
 
 // entry is one ledger row.

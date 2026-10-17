@@ -19,34 +19,36 @@ type DB interface {
 func (st *state) load(ctx context.Context, db DB) error {
 	rows, err := db.Query(ctx, `select guild_id, user_id, total, purse, season, season_pp, week, week_voice, week_chat,
 		day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, voice_min, messages,
-		day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld from pp_member`)
+		day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld, quests, quest_day, reroll_day, quests_done from pp_member`)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
 		var guild, user int64
+		var quests string
 		m := &member{}
 		if err := rows.Scan(&guild, &user, &m.total, &m.purse, &m.season, &m.seasonPP, &m.week, &m.weekAct[BoardVoice], &m.weekAct[BoardChat],
 			&m.dayN, &m.day.Voice, &m.day.Chat, &m.day.Talk, &m.day.Rested, &m.class, &m.classSeason, &m.classChanges, &m.voiceMin, &m.messages,
-			&m.dayGot, &m.buffLo, &m.buffHi, &m.day.Minutes, &m.day.Paid, &m.dayLevy, &m.granted, &m.grantSeason, &m.rung, &m.dayWithheld); err != nil {
+			&m.dayGot, &m.buffLo, &m.buffHi, &m.day.Minutes, &m.day.Paid, &m.dayLevy, &m.granted, &m.grantSeason, &m.rung, &m.dayWithheld, &quests, &m.questDay, &m.rerollDay, &m.questsDone); err != nil {
 			rows.Close()
 			return err
 		}
+		m.quests = decodeQuests(st.b, quests)
 		st.server(snowflake.ID(guild)).members[snowflake.ID(user)] = m
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 	rows, err = db.Query(ctx, `select guild_id, day, raw, history, lit, lit_before, beta_role, log_channel,
-		treasury, levy_open, levy_full, levy_days, levy_since, grant_week, grant_week_sum, season_mint, season_burn, sink_last, heavy from pp_guild`)
+		treasury, levy_open, levy_full, levy_days, levy_since, grant_week, grant_week_sum, season_mint, season_burn, sink_last, heavy, selfie_channel from pp_guild`)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
-		var guild, beta, logCh int64
+		var guild, beta, logCh, selfies int64
 		var s server
 		if err := rows.Scan(&guild, &s.day, &s.raw, &s.history, &s.lit, &s.litBefore, &beta, &logCh,
-			&s.treasury, &s.levyOpen, &s.levyFull, &s.levyDays, &s.levySince, &s.grantWeek, &s.grantWeekSum, &s.seasonMint, &s.seasonBurn, &s.sinkLast, &s.heavy); err != nil {
+			&s.treasury, &s.levyOpen, &s.levyFull, &s.levyDays, &s.levySince, &s.grantWeek, &s.grantWeekSum, &s.seasonMint, &s.seasonBurn, &s.sinkLast, &s.heavy, &selfies); err != nil {
 			rows.Close()
 			return err
 		}
@@ -57,6 +59,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		into.treasury, into.levyOpen, into.levyFull, into.levyDays = s.treasury, s.levyOpen, s.levyFull, s.levyDays
 		into.levySince, into.grantWeek, into.grantWeekSum = s.levySince, s.grantWeek, s.grantWeekSum
 		into.seasonMint, into.seasonBurn, into.sinkLast, into.heavy = s.seasonMint, s.seasonBurn, s.sinkLast, s.heavy
+		into.selfies = snowflake.ID(selfies)
 		into.mu.Unlock()
 	}
 	rows.Close()
@@ -77,6 +80,8 @@ type memberRows struct {
 	voiceMin, messages                                           []int64
 	dayGot, buffLo, buffHi, dayMinutes, dayPaid, dayLevy         []int64
 	granted, grantSeason, rung, dayWithheld                      []int64
+	questDay, rerollDay, questsDone                              []int64
+	quests                                                       []string
 	class                                                        []string
 }
 
@@ -110,6 +115,10 @@ func (r *memberRows) add(guild, user snowflake.ID, m *member) {
 	r.grantSeason = append(r.grantSeason, m.grantSeason)
 	r.rung = append(r.rung, m.rung)
 	r.dayWithheld = append(r.dayWithheld, m.dayWithheld)
+	r.quests = append(r.quests, encodeQuests(m.quests))
+	r.questDay = append(r.questDay, m.questDay)
+	r.rerollDay = append(r.rerollDay, m.rerollDay)
+	r.questsDone = append(r.questsDone, m.questsDone)
 }
 
 // flush writes every member and server changed since the last flush, one
@@ -185,11 +194,11 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			)
 			insert into pp_member (guild_id, user_id, total, purse, season, season_pp, week, week_voice,
 				week_chat, day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, voice_min, messages,
-				day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld)
+				day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld, quests, quest_day, reroll_day, quests_done)
 			select * from unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[], $5::bigint[], $6::bigint[], $7::bigint[],
 				$8::bigint[], $9::bigint[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[], $15::text[],
 				$16::bigint[], $17::bigint[], $18::bigint[], $19::bigint[],
-				$30::bigint[], $31::bigint[], $32::bigint[], $33::bigint[], $34::bigint[], $35::bigint[], $36::bigint[], $37::bigint[], $38::bigint[], $39::bigint[])
+				$30::bigint[], $31::bigint[], $32::bigint[], $33::bigint[], $34::bigint[], $35::bigint[], $36::bigint[], $37::bigint[], $38::bigint[], $39::bigint[], $40::text[], $41::bigint[], $42::bigint[], $43::bigint[])
 			on conflict (guild_id, user_id) do update set total = excluded.total, purse = excluded.purse, season = excluded.season,
 				season_pp = excluded.season_pp, week = excluded.week, week_voice = excluded.week_voice,
 				week_chat = excluded.week_chat, day = excluded.day, day_voice = excluded.day_voice,
@@ -198,13 +207,14 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 				voice_min = excluded.voice_min, messages = excluded.messages,
 				day_got = excluded.day_got, buff_lo = excluded.buff_lo, buff_hi = excluded.buff_hi,
 				day_minutes = excluded.day_minutes, day_paid = excluded.day_paid, day_levy = excluded.day_levy,
-				granted = excluded.granted, grant_season = excluded.grant_season, rung = excluded.rung, day_withheld = excluded.day_withheld`,
+				granted = excluded.granted, grant_season = excluded.grant_season, rung = excluded.rung, day_withheld = excluded.day_withheld,
+				quests = excluded.quests, quest_day = excluded.quest_day, reroll_day = excluded.reroll_day, quests_done = excluded.quests_done`,
 			rows.guild, rows.user, rows.total, rows.purse, rows.season, rows.seasonPP, rows.week, rows.weekVoice,
 			rows.weekChat, rows.day, rows.dayVoice, rows.dayChat, rows.dayTalk, rows.rested, rows.class, rows.classSeason,
 			rows.classChanges, rows.voiceMin, rows.messages,
 			ledger.guild, ledger.seq, ledger.user, ledger.day, ledger.reason, ledger.delta, ledger.hash, ledger.inputs,
 			ledger.off, ledger.n,
-			rows.dayGot, rows.buffLo, rows.buffHi, rows.dayMinutes, rows.dayPaid, rows.dayLevy, rows.granted, rows.grantSeason, rows.rung, rows.dayWithheld)
+			rows.dayGot, rows.buffLo, rows.buffHi, rows.dayMinutes, rows.dayPaid, rows.dayLevy, rows.granted, rows.grantSeason, rows.rung, rows.dayWithheld, rows.quests, rows.questDay, rows.rerollDay, rows.questsDone)
 		if err != nil {
 			remark()
 			return 0, err

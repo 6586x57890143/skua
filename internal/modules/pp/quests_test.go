@@ -1,0 +1,247 @@
+package pp
+
+import (
+	"context"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/rest"
+	"github.com/disgoorg/snowflake/v2"
+
+	"github.com/6586x57890143/skua/internal/core/coretest"
+	"github.com/6586x57890143/skua/internal/guard"
+)
+
+// A rarer quest asks more, but less than it pays more: every kind of a
+// tier asks under its pay's multiple of the good tier's ask.
+func TestQuestsAskLessThanTheyPay(t *testing.T) {
+	ask := func(k QuestKind) (n int64) {
+		for _, t := range k.Tasks {
+			switch t.Metric {
+			case taskVoice, taskHearth:
+				n += t.Goal * Default.VoiceBase * Default.Unmuted / 100
+			case taskTalk:
+				n += t.Goal * (Default.ChatMin + Default.ChatMax) / 2
+			}
+		}
+		return n
+	}
+	base := ask(Default.QuestKinds[0][0])
+	for tier, kinds := range Default.QuestKinds {
+		for _, k := range kinds {
+			if k.Tasks[0].Metric == taskSelfie {
+				continue
+			}
+			pays := float64(Default.QuestPP[tier]) / float64(Default.QuestPP[0])
+			asks := float64(ask(k)) / float64(base)
+			if tier > 0 && (asks >= pays || asks <= 1) {
+				t.Errorf("a %s quest asks %.2f times a good one and pays %.2f times", QuestTiers[tier], asks, pays)
+			}
+		}
+	}
+}
+
+// Quests are dealt one a day to old enough accounts, up to three held, a
+// missed day kept; a young account gets none.
+func TestQuestDeal(t *testing.T) {
+	st := newState(&Default, 42)
+	s := st.server(guild)
+	a := old(1)
+	st.chat(s, guild, a, "here", t0)
+	if n := len(s.members[a].quests); n != 1 {
+		t.Fatalf("a first day dealt %d", n)
+	}
+	st.chat(s, guild, a, "here again", t0.Add(time.Hour))
+	if n := len(s.members[a].quests); n != 1 {
+		t.Errorf("a second visit the same day dealt more: %d", n)
+	}
+	st.chat(s, guild, a, "back after a while", t0.Add(5*24*time.Hour))
+	if n := len(s.members[a].quests); n != Default.QuestHold {
+		t.Errorf("days away dealt up to %d; want %d", n, Default.QuestHold)
+	}
+
+	young := snowflake.New(t0.Add(-time.Hour))
+	st.chat(s, guild, young, "new here", t0)
+	if n := len(s.members[young].quests); n != 0 {
+		t.Errorf("a day old account was dealt %d", n)
+	}
+
+	// Selfies come up only where there's a channel for them.
+	for slot := range uint64(400) {
+		if q := Default.draw(1, 2, 3, 4, slot, false); q.tasks(&Default)[0].Metric == taskSelfie {
+			t.Fatal("a selfie quest without a selfie channel")
+		}
+	}
+	saw := false
+	for slot := range uint64(4000) {
+		if q := Default.draw(1, 2, 3, 4, slot, true); q.tasks(&Default)[0].Metric == taskSelfie {
+			saw = true
+		}
+	}
+	if !saw {
+		t.Error("no selfie quest ever came up with a channel")
+	}
+}
+
+// A quest counts its tasks and, once they're all met, pays its tier as
+// labour: the levy's share to the treasury, the rest to the purse, all of
+// it to the level, a ledger row of its own.
+func TestQuestPays(t *testing.T) {
+	st := newState(&Default, 42)
+	s := st.server(guild)
+	a := old(1)
+	mem := st.member(s, guild, a, DayOf(t0))
+	mem.quests = []heldQuest{{tier: 0, kind: 1}, {tier: 1, kind: 0}} // 25 messages; 20 minutes and 17 messages
+	purse, total, treasury := mem.purse, mem.total, s.treasury
+	for i := range 25 {
+		st.chat(s, guild, a, "a thing worth saying "+string(rune('a'+i%26)), t0.Add(time.Duration(i)*30*time.Second))
+	}
+	if len(mem.quests) != 1 || mem.questsDone != 1 {
+		t.Fatalf("after 25 messages: %d held, %d done", len(mem.quests), mem.questsDone)
+	}
+	var row *entry
+	for i := range s.pending {
+		if s.pending[i].reason == reasonQuest {
+			row = &s.pending[i]
+		}
+	}
+	if row == nil || row.inputs[2] != Default.QuestPP[0] {
+		t.Fatalf("the quest's row: %+v", row)
+	}
+	levy := Rules.levy(Default.QuestPP[0])
+	if got := mem.total - total; got < Default.QuestPP[0] {
+		t.Errorf("the level counted %d of the quest", got)
+	}
+	if s.treasury-treasury < levy || row.delta != Default.QuestPP[0]-levy || mem.purse-purse < row.delta {
+		t.Errorf("treasury +%d, row %d, purse +%d", s.treasury-treasury, row.delta, mem.purse-purse)
+	}
+	if mem.quests[0].prog[1] != 17 {
+		t.Errorf("the great quest's talk stands at %d", mem.quests[0].prog[1])
+	}
+
+	// Round trip through the save format, dropping what the balance lost.
+	saved := encodeQuests(mem.quests) + ";9,9,0,0,0,0,0;junk"
+	if back := decodeQuests(&Default, saved); len(back) != 1 || back[0] != mem.quests[0] {
+		t.Errorf("came back as %+v", back)
+	}
+}
+
+// One reroll a day, of a quest held.
+func TestQuestReroll(t *testing.T) {
+	st := newState(&Default, 42)
+	s := st.server(guild)
+	a := old(1)
+	today := DayOf(t0)
+	mem := st.member(s, guild, a, today)
+	mem.quests = []heldQuest{{tier: 0, kind: 0}}
+	if err := st.reroll(s, mem, guild, a, 3, today); err == nil {
+		t.Error("rerolled a quest not held")
+	}
+	if err := st.reroll(s, mem, guild, a, 0, today); err != nil || mem.rerollDay != today {
+		t.Fatalf("reroll: %v", err)
+	}
+	if err := st.reroll(s, mem, guild, a, 0, today); err == nil {
+		t.Error("rerolled twice in a day")
+	}
+}
+
+// selfieRest answers GetMessage for the messages it still has.
+type selfieRest struct {
+	rest.Rest
+	there map[snowflake.ID]bool
+}
+
+func (f *selfieRest) GetMessage(_, msg snowflake.ID, _ ...rest.RequestOpt) (*discord.Message, error) {
+	if f.there[msg] {
+		return &discord.Message{ID: msg}, nil
+	}
+	return nil, &rest.Error{Response: &http.Response{StatusCode: http.StatusNotFound}}
+}
+
+// A selfie quest takes a picture in the selfie channel, and finishes once
+// the picture has stayed a day; one taken down frees the quest to try
+// again.
+func TestSelfieQuest(t *testing.T) {
+	m := testModule(&fakeDB{})
+	f := &selfieRest{there: map[snowflake.ID]bool{}}
+	m.rest, m.Guard = f, guard.New()
+	s := m.st.server(guild)
+	s.selfies = 77
+	a := old(1)
+	selfie := 0
+	for k, kind := range Default.QuestKinds[2] {
+		if kind.Tasks[0].Metric == taskSelfie {
+			selfie = k
+		}
+	}
+	mem := m.st.member(s, guild, a, DayOf(t0))
+	mem.quests = []heldQuest{{tier: 2, kind: selfie}}
+	png := "image/png"
+	post := func(id snowflake.ID, ch snowflake.ID, at time.Time) {
+		m.st.selfie(s, mem, discord.Message{ID: id, ChannelID: ch, Attachments: []discord.Attachment{{ContentType: &png}}}, at)
+	}
+	post(900, 4, t0) // the wrong channel
+	m.st.selfie(s, mem, discord.Message{ID: 901, ChannelID: 77}, t0)
+	if mem.quests[0].ref != 0 {
+		t.Fatal("a message off the channel, or without a picture, counted")
+	}
+	post(902, 77, t0)
+	if mem.quests[0].ref != 902 || !strings.Contains(mem.quests[0].text(&Default), "stayed a day") {
+		t.Fatalf("the selfie wasn't kept: %+v", mem.quests[0])
+	}
+
+	// Taken down before the day was out: the quest waits for another.
+	m.now = func() time.Time { return t0.Add(25 * time.Hour) }
+	m.checkSelfies(context.Background())
+	if len(mem.quests) != 1 || mem.quests[0].ref != 0 {
+		t.Fatalf("a deleted selfie: %+v", mem.quests)
+	}
+	post(903, 77, t0.Add(26*time.Hour))
+	f.there[903] = true
+	m.now = func() time.Time { return t0.Add(40 * time.Hour) }
+	m.checkSelfies(context.Background())
+	if len(mem.quests) != 1 {
+		t.Fatal("a selfie up only fourteen hours finished")
+	}
+	m.now = func() time.Time { return t0.Add(51 * time.Hour) }
+	m.checkSelfies(context.Background())
+	if len(mem.quests) != 0 || mem.questsDone != 1 {
+		t.Errorf("a selfie up a day didn't finish: %+v", mem.quests)
+	}
+}
+
+// The quests button shows the screen and every quest as text; a golden one
+// turns the card gold; the reroll select swaps one.
+func TestQuestsButton(t *testing.T) {
+	m := testModule(&fakeDB{})
+	s := m.st.server(3)
+	user := snowflake.ID(5)
+	mem := m.st.member(s, 3, user, DayOf(t0))
+	mem.quests = []heldQuest{{tier: 2, kind: 0}, {tier: 0, kind: 1}}
+	e, sent := coretest.Button(t, "pp:quests", nil)
+	if err := m.press(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	card := js((*sent)[0].Components)
+	if !strings.Contains(card, "a golden quest came up") || !strings.Contains(card, "while the hearth burns") || !strings.Contains(card, "pp:reroll") {
+		t.Errorf("the quests card: %s", card)
+	}
+
+	r, _ := coretest.Button(t, "pp:reroll", func(p map[string]any) {
+		p["data"] = map[string]any{"custom_id": "pp:reroll", "component_type": 3, "values": []any{"1"}}
+	})
+	r.Respond = func(discord.InteractionResponseType, discord.InteractionResponseData, ...rest.RequestOpt) error {
+		return nil
+	}
+	if err := m.press(context.Background(), r); err != nil || mem.rerollDay != DayOf(t0) {
+		t.Errorf("rerolling: %v", err)
+	}
+
+	// The selfie channel picker is on the help page, for admins.
+	if !strings.Contains(js(m.Report(3).Controls), "pp:selfies") {
+		t.Error("the help page has no selfie channel picker")
+	}
+}
