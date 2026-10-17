@@ -521,7 +521,6 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 	return o
 }
 
-
 // gini is the Gini coefficient of xs.
 func gini(xs []int64) float64 {
 	s := slices.Clone(xs)
@@ -592,6 +591,7 @@ func (o outcome) String() string {
 // The charter's economy on the melting pot, three years, with a slump and
 // a boom in the middle: A1 to A6 hold.
 func TestEconomyThreeYears(t *testing.T) {
+	skipRace(t)
 	a := loadActivity(t)
 	runs := []econ{charter}
 	slump, boom := charter, charter
@@ -665,6 +665,7 @@ func TestEconomyFair(t *testing.T) {
 // heavy purse line switches on after two seasons and holds savings well
 // under where they'd be without it (a purse past it still keeps a tenth).
 func TestEconomyBackstop(t *testing.T) {
+	skipRace(t)
 	a := loadActivity(t)
 	e := charter
 	e.spend, e.ladder = 0, false
