@@ -86,11 +86,12 @@ func TestServerMonth(t *testing.T) {
 				continue
 			}
 			pools := b.Pools(42, 1, m.id, day)
-			gap := day - m.seen
-			if m.seen < 0 {
-				gap = 2
+			// A newcomer starts with nothing rested, as live does: rested pp
+			// is pool left unused, and they haven't had a day yet.
+			var d Day
+			if m.seen >= 0 {
+				d.Rested = b.Rested(m.prev, m.prevPools, day-m.seen)
 			}
-			d := Day{Rested: b.Rested(m.prev, m.prevPools, gap)}
 			got := playDay(b, rng, m.kind.persona, 50+rng.Int64N(101), pools, &d, b.Buff(m.wears, hearth))
 			for range min(m.held, m.kind.finish) {
 				q := quest(b, rng)

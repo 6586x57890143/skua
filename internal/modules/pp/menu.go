@@ -22,7 +22,7 @@ var (
 	errNotServer = core.Tell("/pp works in a server, where the points are")
 	errNotAClass = core.Tell("that isn't one of the classes; open /pp and pick again")
 	errBeta      = core.Tell("/pp is in closed beta here for now: admins and the beta testers only")
-	errNotAdmin  = core.Tell("only this server's admins pick who tests /pp")
+	errNotAdmin  = core.Tell("only this server's admins change how /pp runs here")
 )
 
 // screenName is the status screen's file on its message.
@@ -60,8 +60,11 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 	if guild == nil {
 		return errNotServer
 	}
-	if e.Data.CustomID() == "pp:beta" {
+	switch e.Data.CustomID() {
+	case "pp:beta":
 		return m.setBeta(ctx, *guild, e)
+	case "pp:log":
+		return m.setLog(ctx, *guild, e)
 	}
 	if !m.plays(e) {
 		return errBeta
@@ -147,6 +150,7 @@ func (m *Module) pick(guild, user snowflake.ID, key string) error {
 	} else {
 		mem.purse -= cost
 		mem.classChanges++
+		s.append(user, today, reasonClass, -cost, nil)
 	}
 	mem.class, mem.dirty = key, true
 	return nil

@@ -14,10 +14,12 @@ type DB interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-// load reads every member and server /pp has kept into st.
+// load reads every member, server, ledger head and season seed /pp has
+// kept into st.
 func (st *state) load(ctx context.Context, db DB) error {
 	rows, err := db.Query(ctx, `select guild_id, user_id, total, purse, season, season_pp, week, week_voice, week_chat,
-		day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, voice_min, messages from pp_member`)
+		day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, voice_min, messages,
+		day_got, buff_lo, buff_hi, day_minutes, day_paid from pp_member`)
 	if err != nil {
 		return err
 	}
@@ -25,7 +27,8 @@ func (st *state) load(ctx context.Context, db DB) error {
 		var guild, user int64
 		m := &member{}
 		if err := rows.Scan(&guild, &user, &m.total, &m.purse, &m.season, &m.seasonPP, &m.week, &m.weekAct[BoardVoice], &m.weekAct[BoardChat],
-			&m.dayN, &m.day.Voice, &m.day.Chat, &m.day.Talk, &m.day.Rested, &m.class, &m.classSeason, &m.classChanges, &m.voiceMin, &m.messages); err != nil {
+			&m.dayN, &m.day.Voice, &m.day.Chat, &m.day.Talk, &m.day.Rested, &m.class, &m.classSeason, &m.classChanges, &m.voiceMin, &m.messages,
+			&m.dayGot, &m.buffLo, &m.buffHi, &m.day.Minutes, &m.day.Paid); err != nil {
 			rows.Close()
 			return err
 		}
@@ -34,24 +37,31 @@ func (st *state) load(ctx context.Context, db DB) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	rows, err = db.Query(ctx, `select guild_id, day, raw, history, lit, lit_before, beta_role from pp_guild`)
+	rows, err = db.Query(ctx, `select guild_id, day, raw, history, lit, lit_before, beta_role, log_channel from pp_guild`)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 	for rows.Next() {
-		var guild, beta int64
+		var guild, beta, logCh int64
 		var s server
-		if err := rows.Scan(&guild, &s.day, &s.raw, &s.history, &s.lit, &s.litBefore, &beta); err != nil {
+		if err := rows.Scan(&guild, &s.day, &s.raw, &s.history, &s.lit, &s.litBefore, &beta, &logCh); err != nil {
+			rows.Close()
 			return err
 		}
 		into := st.server(snowflake.ID(guild))
 		into.mu.Lock()
 		into.day, into.raw, into.history, into.lit, into.litBefore = s.day, s.raw, s.history, s.lit, s.litBefore
-		into.beta = snowflake.ID(beta)
+		into.beta, into.logChannel = snowflake.ID(beta), snowflake.ID(logCh)
 		into.mu.Unlock()
 	}
-	return rows.Err()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := st.loadLedger(ctx, db); err != nil {
+		return err
+	}
+	return st.loadSeeds(ctx, db)
 }
 
 // memberRows is a batch of members as columns, for one unnest.
@@ -60,6 +70,7 @@ type memberRows struct {
 	weekChat, day, dayVoice, dayChat, dayTalk, rested            []int64
 	classSeason, classChanges                                    []int64
 	voiceMin, messages                                           []int64
+	dayGot, buffLo, buffHi, dayMinutes, dayPaid                  []int64
 	class                                                        []string
 }
 
@@ -83,13 +94,21 @@ func (r *memberRows) add(guild, user snowflake.ID, m *member) {
 	r.classChanges = append(r.classChanges, m.classChanges)
 	r.voiceMin = append(r.voiceMin, m.voiceMin)
 	r.messages = append(r.messages, m.messages)
+	r.dayGot = append(r.dayGot, m.dayGot)
+	r.buffLo = append(r.buffLo, m.buffLo)
+	r.buffHi = append(r.buffHi, m.buffHi)
+	r.dayMinutes = append(r.dayMinutes, m.day.Minutes)
+	r.dayPaid = append(r.dayPaid, m.day.Paid)
 }
 
 // flush writes every member and server changed since the last flush, one
-// statement for each table however many changed. What fails to write
-// stays marked and goes with the next.
+// statement for each table however many changed, the ledger's new rows in
+// the same statement as the members, so a purse and its rows land together
+// or not at all. What fails to write stays marked and goes with the next.
 func (st *state) flush(ctx context.Context, db DB) (int, error) {
 	var rows memberRows
+	var ledger ledgerRows
+	took := map[*server][]entry{}
 	var guilds, days, raws, lits, before []int64
 	var histories [][]int64
 	type mark struct {
@@ -99,6 +118,12 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 	var marked []mark
 	for g, s := range st.servers() {
 		s.mu.Lock()
+		for _, e := range s.pending {
+			ledger.add(g, e)
+		}
+		if len(s.pending) > 0 {
+			took[s], s.pending = s.pending, nil
+		}
 		for u, m := range s.members {
 			if m.dirty {
 				rows.add(g, u, m)
@@ -126,23 +151,41 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 				k.s.dirty = true
 			}
 		}
+		// Rows taken go back ahead of any chained on since, keeping order.
+		for s, es := range took {
+			s.mu.Lock()
+			s.pending = append(es, s.pending...)
+			s.mu.Unlock()
+		}
 	}
-	if len(rows.user) > 0 {
-		_, err := db.Exec(ctx, `insert into pp_member (guild_id, user_id, total, purse, season, season_pp, week, week_voice,
-				week_chat, day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, voice_min, messages)
+	if len(rows.user) > 0 || len(ledger.seq) > 0 {
+		_, err := db.Exec(ctx, `with ledger as (
+				insert into pp_ledger (guild_id, seq, user_id, day, reason, delta, inputs, hash)
+				select l.g, l.s, l.u, l.d, l.r, l.dl, coalesce(($27::bigint[])[l.o + 1 : l.o + l.n], '{}'), l.h
+				from unnest($20::bigint[], $21::bigint[], $22::bigint[], $23::bigint[], $24::text[], $25::bigint[],
+					$28::bigint[], $29::bigint[], $26::bytea[]) as l(g, s, u, d, r, dl, o, n, h)
+			)
+			insert into pp_member (guild_id, user_id, total, purse, season, season_pp, week, week_voice,
+				week_chat, day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, voice_min, messages,
+				day_got, buff_lo, buff_hi, day_minutes, day_paid)
 			select * from unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[], $5::bigint[], $6::bigint[], $7::bigint[],
 				$8::bigint[], $9::bigint[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[], $15::text[],
-				$16::bigint[], $17::bigint[], $18::bigint[], $19::bigint[])
+				$16::bigint[], $17::bigint[], $18::bigint[], $19::bigint[],
+				$30::bigint[], $31::bigint[], $32::bigint[], $33::bigint[], $34::bigint[])
 			on conflict (guild_id, user_id) do update set total = excluded.total, purse = excluded.purse, season = excluded.season,
 				season_pp = excluded.season_pp, week = excluded.week, week_voice = excluded.week_voice,
 				week_chat = excluded.week_chat, day = excluded.day, day_voice = excluded.day_voice,
 				day_chat = excluded.day_chat, day_talk = excluded.day_talk, rested = excluded.rested,
 				class = excluded.class, class_season = excluded.class_season, class_changes = excluded.class_changes,
-				voice_min = excluded.voice_min,
-				messages = excluded.messages`,
+				voice_min = excluded.voice_min, messages = excluded.messages,
+				day_got = excluded.day_got, buff_lo = excluded.buff_lo, buff_hi = excluded.buff_hi,
+				day_minutes = excluded.day_minutes, day_paid = excluded.day_paid`,
 			rows.guild, rows.user, rows.total, rows.purse, rows.season, rows.seasonPP, rows.week, rows.weekVoice,
 			rows.weekChat, rows.day, rows.dayVoice, rows.dayChat, rows.dayTalk, rows.rested, rows.class, rows.classSeason,
-			rows.classChanges, rows.voiceMin, rows.messages)
+			rows.classChanges, rows.voiceMin, rows.messages,
+			ledger.guild, ledger.seq, ledger.user, ledger.day, ledger.reason, ledger.delta, ledger.hash, ledger.inputs,
+			ledger.off, ledger.n,
+			rows.dayGot, rows.buffLo, rows.buffHi, rows.dayMinutes, rows.dayPaid)
 		if err != nil {
 			remark()
 			return 0, err

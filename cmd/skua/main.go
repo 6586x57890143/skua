@@ -257,6 +257,7 @@ func run(log *slog.Logger) error {
 			log.Error("pp is off: it couldn't load", "err", err)
 		} else {
 			pot.Admin = func(i discord.Interaction) bool { return router.Admin(i) }
+			pot.Guard = g
 			all = append(all, pot)
 		}
 	}

@@ -2,6 +2,7 @@ package pp
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"sync"
@@ -12,10 +13,12 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/gateway"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
+	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
 )
 
@@ -43,13 +46,19 @@ type Module struct {
 	// Admin reports whether an interaction comes from one of its server's
 	// admins or skua's break-glass admin. Unset, nobody is.
 	Admin func(discord.Interaction) bool
+	// Guard spends the herald's posts.
+	Guard *guard.Guard
+	// rest posts for the herald, set once the gateway is ready, and beacon
+	// draws drand's randomness for the season seeds.
+	rest   rest.Rest
+	beacon Beacon
 }
 
 // New loads what /pp has kept. seed keeps each member's daily pool from
 // being worked out from the source: it comes from a secret skua already
 // holds, so there is nothing new to configure.
 func New(ctx context.Context, log *slog.Logger, db DB, seed uint64, info GuildInfo) (*Module, error) {
-	m := &Module{log: log, db: db, st: newState(&Default, seed), info: info, now: time.Now}
+	m := &Module{log: log, db: db, st: newState(&Default, seed), info: info, now: time.Now, beacon: drand}
 	if err := m.st.load(ctx, db); err != nil {
 		return nil, err
 	}
@@ -68,8 +77,10 @@ func (*Module) Want() intents.Want {
 	}
 }
 
-// Perms is none: /pp only answers interactions.
-func (*Module) Perms() discord.Permissions { return 0 }
+// Perms: the herald posts the ledger in a channel the server picks.
+func (*Module) Perms() discord.Permissions {
+	return discord.PermissionViewChannel | discord.PermissionSendMessages
+}
 
 // Gate is how the minute's work skips a server that switched /pp off.
 func (m *Module) Gate(on func(guild snowflake.ID) bool) { m.on = on }
@@ -91,7 +102,18 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 	s := m.st.server(guild)
 	s.mu.Lock()
 	members, hearth := len(s.members), s.hearth()
+	ledger := "empty"
+	if s.seq > 0 {
+		ledger = grouped(s.seq) + " rows · " + s.headHex()[:8]
+	}
 	s.mu.Unlock()
+	next := "none yet"
+	season, _ := m.st.b.Season(DayOf(m.now()))
+	m.st.mu.Lock()
+	if ss, ok := m.st.seeds[season+1]; ok {
+		next = fmt.Sprintf("s%d · %s", ss.season, ss.commitment()[:8])
+	}
+	m.st.mu.Unlock()
 	earning := 0
 	if v, ok := m.earning.Load(guild); ok {
 		earning = v.(int)
@@ -105,7 +127,9 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"hearth", hearthWord(hearth)},
 		{"members", strconv.Itoa(members)},
 		{"saved", saved},
-	}, Controls: m.betaControls(guild)}
+		{"ledger", ledger},
+		{"next seed", next},
+	}, Controls: append(m.betaControls(guild), m.logControls(guild)...)}
 }
 
 // hearthWord is a hearth tier as members read it.
@@ -118,7 +142,10 @@ func hearthWord(tier int) string {
 func (m *Module) OnEvent(ev bot.Event) {
 	switch e := ev.(type) {
 	case *events.Ready:
-		m.boot.Do(func() { go m.loop(context.Background()) })
+		m.boot.Do(func() {
+			m.rest = e.Client().Rest
+			go m.loop(context.Background())
+		})
 	case *events.GuildReady:
 		m.ready(e.GuildID, e.Guild)
 	case *events.GuildMessageCreate:
@@ -174,19 +201,39 @@ func (m *Module) ready(guild snowflake.ID, g discord.GatewayGuild) {
 	}
 }
 
-// loop pays voice once a minute and saves what changed.
+// loop pays voice once a minute and saves what changed. The first tick and
+// the first after each midnight audit the ledger and post its head, and
+// every tick moves the season seeds along.
 func (m *Module) loop(ctx context.Context) {
 	tick := time.NewTicker(time.Minute)
 	defer tick.Stop()
+	var last int64
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			m.minute()
-			m.Save()
+			m.tick(ctx, &last)
 		}
 	}
+}
+
+// tick is one minute of the loop; last is the day it last turned.
+func (m *Module) tick(ctx context.Context, last *int64) {
+	m.minute()
+	m.Save()
+	now := m.now()
+	if day := DayOf(now); day != *last {
+		// The audit may open members' ledgers, which the save writes; a
+		// boot only audits, so a restart doesn't post the head again.
+		m.audit(ctx)
+		m.Save()
+		if *last != 0 {
+			m.heads(day)
+		}
+		*last = day
+	}
+	m.seasonTick(ctx, now)
 }
 
 // minute is one minute of voice in every server /pp is on in.

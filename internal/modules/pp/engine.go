@@ -11,8 +11,9 @@ type Pools struct{ Pool, Pace int64 }
 
 // Day is what one member has counted against today's pools, the rested pp
 // carried into it, and Talk, every paying message's raw pp with no share
-// held back, which the chat checkpoint ranks.
-type Day struct{ Voice, Chat, Rested, Talk int64 }
+// held back, which the chat checkpoint ranks. Minutes and Paid count the
+// voice minutes and paying messages it came in.
+type Day struct{ Voice, Chat, Rested, Talk, Minutes, Paid int64 }
 
 // The weekly checkpoints are two boards, so a server's talkers and its
 // voice regulars each have one to win. Voice ranks what voice counted
@@ -63,7 +64,10 @@ func (b *Balance) Earn(d *Day, p Pools, chat bool, raw, buff int64) int64 {
 	var got int64
 	if chat {
 		d.Talk += raw
+		d.Paid++
 		tail, count = b.ChatTail, &d.Chat
+	} else {
+		d.Minutes++
 	}
 	for raw > 0 {
 		rate, step := tail, raw
@@ -79,6 +83,30 @@ func (b *Balance) Earn(d *Day, p Pools, chat bool, raw, buff int64) int64 {
 		raw -= step
 	}
 	return got * (100 + buff) / 100
+}
+
+// Bracket is the least and the most a day could have paid for voice and
+// chat raw pp against its pool and rested pp, however its calls (minutes
+// and messages) fell, at buffs between lo and hi. Only past the pool does
+// the order matter: voice there pays VoiceTail and chat ChatTail, so chat
+// first leaves the most voice past it and voice first the least. Each call
+// rounds down on its own, losing at most a couple of hundredths.
+func (b *Balance) Bracket(voice, chat, rested, pool, lo, hi, calls int64) (least, most int64) {
+	order := func(chatFirst bool) int64 {
+		d, p := Day{Rested: rested}, Pools{Pool: pool}
+		if chatFirst {
+			return b.Earn(&d, p, true, chat, 0) + b.Earn(&d, p, false, voice, 0)
+		}
+		return b.Earn(&d, p, false, voice, 0) + b.Earn(&d, p, true, chat, 0)
+	}
+	v, c := order(false), order(true)
+	return min(v, c)*(100+lo)/100 - 2*calls - 4, max(v, c) * (100 + hi) / 100
+}
+
+// Roll is the draw for slot on member user's day in guild, from a season's
+// seed, so anyone holding the seed once it is revealed can draw it again.
+func Roll(seed, guild, user uint64, day int64, slot uint64) uint64 {
+	return mix(seed ^ mix(guild^mix(user^mix(uint64(day)^mix(slot^0x636861)))))
 }
 
 // Rested is what carries into a day from prev, gap days after it: half of
