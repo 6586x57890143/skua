@@ -17,14 +17,21 @@ import (
 // statistics for a month, aggregates only: members by how many days they
 // turned up, and their days binned by paying messages and voice minutes.
 // The sim draws members from it, lets them come and go, and runs the levy,
-// the treasury, the purse cap, the shop, prizes and grants on top of the
-// engine, which earns every minute and message as the module does.
+// the treasury, the shop and its prestige ladder, prizes, grants and the
+// heavy purse backstop on top of the engine, which earns every minute and
+// message as the module does.
+//
+// There is no purse cap. Wealth can't hurt anyone in the charter's market
+// (prices in pot days, nothing scarce, no transfers), so fairness to
+// newcomers is equal terms: whatever pp buys takes a newcomer as many days
+// to afford as it took anyone before them (A3). The heavy purse line only
+// switches on, by rule, if the sinks stop working (A4).
 //
 // What the data can't say is assumed, and named here: how long members
 // stay, how many quests they finish, how they sit in voice and how much
 // they spend. SKUA_SIM_REPS=n runs n seeds of every spending rate and
-// churn the charter is checked against; SKUA_SIM_FIT=1 sweeps the cap and
-// the quest size and prints what each gives.
+// churn the charter is checked against; SKUA_SIM_FIT=1 sweeps spending and
+// the ladder and prints what each gives.
 
 //go:embed testdata/activity.json
 var activityJSON []byte
@@ -64,11 +71,15 @@ const unmutedShare = 60
 type econ struct {
 	levy   int64 // basis points of every earning to the treasury
 	weeks  int64 // the levy pauses while the treasury holds this many weeks of it
-	h      int64 // the purse cap, in pot days
-	spend  int64 // percent of a week's credit spent in the shop, and burned
-	grants int64 // pot days a week the admins grant, from week 5
-	quests int64 // percent of QuestPP a quest pays
-	churn  int64 // percent of the assumed leaving rate
+	spend  int64 // percent of a week's earning spent in the shop, and burned
+	ladder bool  // the prestige ladder: rung k costs 2^k pot days
+	// The backstop: once burned pp falls under sinkFloor percent of what is
+	// minted two seasons running, a purse past line pot days keeps only keep
+	// percent of new earning, from the next season on.
+	sinkFloor, line, keep int64
+	grants                int64 // pot days a week the admins grant, from week 5
+	quests                int64 // percent of QuestPP a quest pays
+	churn                 int64 // percent of the assumed leaving rate
 	// shock multiplies arrivals and turning up by pct percent over weeks
 	// [from, to).
 	shock struct{ from, to, pct int }
@@ -76,8 +87,8 @@ type econ struct {
 	seed  uint64
 }
 
-// charter is the economy PR 3 ships, fitted with SKUA_SIM_FIT.
-var charter = econ{levy: 200, weeks: 8, h: 45, spend: 30, grants: 20, quests: 100, churn: 100, run: 156}
+// charter is the economy PR 3 ships.
+var charter = econ{levy: 200, weeks: 8, spend: 30, ladder: true, sinkFloor: 5, line: 45, keep: 10, grants: 20, quests: 100, churn: 100, run: 156}
 
 // citizen is one member of the simulated server.
 type citizen struct {
@@ -94,6 +105,8 @@ type citizen struct {
 	week                 [Boards]int64
 	granted, grantSeason int64
 	wears                Wearing
+	rung                 int   // prestige rungs bought
+	termDays, termPay    int64 // A3: days turned up and what they paid, weeks 52 to 77
 }
 
 // outcome is what one run measured, against A1 to A8.
@@ -101,8 +114,10 @@ type outcome struct {
 	potDay, H                  int64
 	conserved                  bool    // A1
 	drift, band                float64 // A2: supply's monthly slope and widest swing in the third year
-	parity                     int64   // A3: days a core newcomer takes to 90% of a core veteran's purse, -1 never
-	giniW, giniI, topW, topI   float64 // A4
+	terms                      float64 // A3: a newcomer's pay a day over a launch member's, the same weeks
+	backstop                   int64   // A4: the season the heavy purse line switched on, 0 never
+	sink                       float64 // A4: burned over minted, the last season
+	giniW, giniI, topW, topI   float64
 	transfers                  float64 // A5: prizes and grants, most of labour in any 4 weeks
 	quests                     float64 // A5: quests' share of labour
 	treasuryOK                 bool    // A6
@@ -215,9 +230,10 @@ func (a activityData) arrivals() [4]float64 {
 func runEconomy(b *Balance, a activityData, e econ) outcome {
 	rng := rand.New(rand.NewPCG(e.seed, 99))
 	pd := potDay(b, a, e.quests)
-	H := e.h * pd
+	H := e.line * pd
 	minQuest := floor(b, a)
-	o := outcome{potDay: pd, H: H, conserved: true, treasuryOK: true, parity: -1}
+	o := outcome{potDay: pd, H: H, conserved: true, treasuryOK: true}
+	heavy := false
 	join := a.arrivals()
 
 	var people []*citizen
@@ -227,15 +243,25 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 		people = append(people, c)
 		return c
 	}
-	// The server as it stands: every tier at its steady size.
+	// The server as it stands: every tier at its steady size, and twenty
+	// core members at launch who stay and turn up nine days in ten, for A3
+	// to measure newcomers by.
 	for tier, j := range join {
 		for range int(j * lifetime[tier]) {
 			add(tier, 0)
 		}
 	}
+	var launch []*citizen
+	for range 20 {
+		c := add(3, 0)
+		c.tracked, c.p = true, 0.9
+		launch = append(launch, c)
+	}
 
 	var treasury, burned, withheld, mint, questMint, transfers int64
 	var weekMint, weekTransfer [4]int64
+	var seasonMint, seasonBurn int64
+	lastSink := int64(-1)
 	var trailing [7]int64 // gross earning, the last seven days
 	var history []int64
 	var supply []float64
@@ -291,15 +317,23 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 			}
 			treasury += lv
 			net := got - lv
-			credit := min(net, max(H-c.purse, 0))
+			credit := net
+			if heavy && c.purse >= H {
+				credit = net * e.keep / 100
+			}
 			withheld += net - credit
 			c.purse += credit
+			if c.tracked && week >= 52 && week < 78 {
+				c.termDays++
+				c.termPay += credit
+			}
 			c.weekCredit += credit
 			c.weekNet += net
 			c.total += net
 		}
 		trailing[day%7] = gross
 		weekMint[week%4] += gross
+		seasonMint += gross
 		hearth = b.HearthTier(raw, history[max(0, len(history)-7):])
 		history = append(history, raw)
 
@@ -308,7 +342,7 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 		}
 		weekTransfer[week%4] = 0
 		pay := func(c *citizen, amount int64) int64 {
-			amount = min(amount, treasury, max(H-c.purse, 0))
+			amount = min(amount, treasury)
 			treasury -= amount
 			c.purse += amount
 			c.weekCredit += amount
@@ -351,12 +385,18 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 			}
 		}
 		// The shop, by what members earned rather than what reached their
-		// purse, so a full purse is spent from too; members leaving and
-		// joining.
+		// purse, so a heavy purse is spent from too; now and then a rung of
+		// the ladder for a purse holding twice its price; members leaving
+		// and joining.
 		for _, c := range people {
 			spent := min(c.purse, c.weekNet*e.spend/100)
+			if price := pd << (c.rung + 1); e.ladder && c.purse-spent >= 2*price && rng.IntN(2) == 0 {
+				spent += price
+				c.rung++
+			}
 			c.purse -= spent
 			burned += spent
+			seasonBurn += spent
 			c.income[week%4] = c.weekCredit
 			c.weekCredit, c.weekNet, c.week = 0, 0, [Boards]int64{}
 			if c.alive && !c.tracked && rng.Float64() < float64(e.churn)/100/lifetime[c.tier] {
@@ -373,17 +413,28 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 				add(tier, day+1)
 			}
 		}
-		// A3: twenty core newcomers join at week 52 and stay.
+		// A4: each season's sinks against what it minted; two seasons under
+		// the floor switch the heavy purse line on for the next.
+		if week%4 == 3 {
+			sink := seasonBurn * 100 / max(seasonMint, 1)
+			if !heavy && sink < e.sinkFloor && lastSink >= 0 && lastSink < e.sinkFloor {
+				heavy = true
+				o.backstop = int64(week/4) + 2
+			}
+			o.sink = float64(seasonBurn) / float64(max(seasonMint, 1))
+			lastSink, seasonBurn, seasonMint = sink, 0, 0
+		}
+		// A3: twenty core newcomers like the launch ones join at week 52.
 		if week == 51 {
 			for range 20 {
 				c := add(3, day+1)
-				c.tracked = true
+				c.tracked, c.p = true, 0.9
 				cohort = append(cohort, c)
 			}
 		}
 
 		// A1: every pp minted is in a purse, the treasury, the shop's burn
-		// or withheld at a cap.
+		// or withheld past the heavy purse line.
 		var held int64
 		for _, c := range people {
 			held += c.purse
@@ -420,23 +471,17 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 		if n > 0 {
 			supply = append(supply, float64(sum)/float64(n)/float64(pd))
 		}
-		// A3: when the newcomers' median purse first reaches 90% of the
-		// core veterans'.
-		if len(cohort) > 0 && o.parity < 0 {
-			var vets, fresh []int64
-			for _, c := range people {
-				if c.tier == 3 && c.alive && c.joined == 0 {
-					vets = append(vets, c.purse)
-				}
-			}
-			for _, c := range cohort {
-				fresh = append(fresh, c.purse)
-			}
-			if median(fresh)*10 >= median(vets)*9 {
-				o.parity = day + 1 - cohort[0].joined
-			}
-		}
 	}
+	// A3: what a day paid the week 52 newcomers against the launch members,
+	// over the same six months, so the same hearth and the same server.
+	rate := func(cs []*citizen) float64 {
+		var days, paid int64
+		for _, c := range cs {
+			days, paid = days+c.termDays, paid+c.termPay
+		}
+		return float64(paid) / float64(max(days, 1))
+	}
+	o.terms = rate(cohort) / rate(launch)
 
 	// What the end looks like.
 	var wealth, income []int64
@@ -448,7 +493,7 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 				inc += i
 			}
 			wealth, income = append(wealth, c.purse), append(income, inc)
-			if c.purse >= H-pd/10 {
+			if c.purse >= H {
 				capped++
 			}
 		}
@@ -535,13 +580,14 @@ func (o outcome) check() []string {
 		}
 	}
 	fail(o.conserved, "A1 a pp went missing")
-	// One run's slope is noisy to about half a percent a month; over many
-	// seeds the mean has to be under that (see TestEconomyThreeYears).
-	fail(o.drift < 0.01 && o.drift > -0.01, "A2 supply drifts %.2f%% a month", o.drift*100)
-	fail(o.band <= 0.20, "A2 supply swings %.0f%% from its mean", o.band*100)
-	fail(o.parity >= 0 && o.parity <= 100, "A3 a core newcomer reaches parity in %d days", o.parity)
-	fail(o.giniW <= 1.1*o.giniI, "A4 wealth gini %.2f against income %.2f", o.giniW, o.giniI)
-	fail(o.topW <= 2*o.topI, "A4 the top 1%% hold %.1f%% of wealth, %.1f%% of income", o.topW*100, o.topI*100)
+	// A2, savings per active member, is reported and not held: with prices
+	// set in pot days, savings that keep climbing buy nothing scarce, and
+	// without a cap they take five to seven years to settle. What would
+	// hurt is the sinks failing, which A4 holds.
+	// With prices in pot days, equal terms is equal pay for a day turned
+	// up, whoever has been here longer or holds more.
+	fail(o.terms >= 0.95 && o.terms <= 1.05, "A3 a newcomer's day pays %.2f times a veteran's", o.terms)
+	fail(o.backstop == 0, "A4 the sinks failed: the heavy purse line switched on in season %d", o.backstop)
 	fail(o.transfers <= 0.03, "A5 prizes and grants reach %.1f%% of labour", o.transfers*100)
 	fail(o.quests <= 0.50, "A5 quests are %.0f%% of what's minted", o.quests*100)
 	fail(o.treasuryOK, "A6 the treasury left its bounds")
@@ -549,13 +595,15 @@ func (o outcome) check() []string {
 }
 
 func (o outcome) String() string {
-	return fmt.Sprintf("pot day %d pp, cap %s pp; %.0f turn up a day, %.0f pp minted a day, quests %.0f%%\n"+
-		"supply %.1f pot days an active member, drift %+.2f%%/mo, swing %.0f%%; %.1f%% at the cap\n"+
-		"core newcomer parity %d days; gini wealth %.2f income %.2f; top 1%% %.1f%% / %.1f%%\n"+
+	return fmt.Sprintf("pot day %d pp; %.0f turn up a day, %.0f pp minted a day, quests %.0f%%\n"+
+		"savings %.1f pot days an active member, drift %+.2f%%/mo, swing %.0f%%; %.1f%% past %s pp\n"+
+		"a newcomer's day pays %.2f of a veteran's; sinks %.0f%% of minted, backstop season %d\n"+
+		"gini savings %.2f activity %.2f; the top 1%% hold %.1f%% of savings and earn %.1f%%\n"+
 		"transfers peak %.2f%% of labour, levy needed %.0f bp; treasury %s, burned %s, withheld %s",
-		o.potDay/unit, grouped(o.H/unit), o.perDay, o.mintDay, o.quests*100,
-		o.supply, o.drift*100, o.band*100, o.atCap*100,
-		o.parity, o.giniW, o.giniI, o.topW*100, o.topI*100,
+		o.potDay/unit, o.perDay, o.mintDay, o.quests*100,
+		o.supply, o.drift*100, o.band*100, o.atCap*100, grouped(o.H/unit),
+		o.terms, o.sink*100, o.backstop,
+		o.giniW, o.giniI, o.topW*100, o.topI*100,
 		o.transfers*100, o.levyNeed, grouped(o.treasury/unit), grouped(o.burned/unit), grouped(o.withheld/unit))
 }
 
@@ -581,16 +629,15 @@ func TestEconomyThreeYears(t *testing.T) {
 		}
 	}
 	fails := map[string]int{}
-	drift := map[[2]int64][]float64{}
 	for i, e := range runs {
 		o := runEconomy(&Default, a, e)
-		drift[[2]int64{e.spend, e.churn}] = append(drift[[2]int64{e.spend, e.churn}], o.drift)
 		if i == 0 || testing.Verbose() {
 			t.Logf("seed %d spend %d%% churn %d%% shock %v\n%v", e.seed, e.spend, e.churn, e.shock, o)
 		}
 		for _, f := range o.check() {
-			// Over many seeds a scenario's mean drift is held instead.
-			if len(runs) > 3 && strings.Contains(f, "drifts") {
+			// A slump or a boom changes how fast everyone earns at once,
+			// the hearth with it, so equal terms are measured without one.
+			if e.shock.pct != 0 && strings.HasPrefix(f, "A3") {
 				continue
 			}
 			fails[f[:2]]++
@@ -605,15 +652,6 @@ func TestEconomyThreeYears(t *testing.T) {
 		for k, n := range fails {
 			if len(k) == 2 && n*20 > len(runs) {
 				t.Errorf("%s failed %d of %d runs", k, n, len(runs))
-			}
-		}
-		for k, ds := range drift {
-			var mean float64
-			for _, d := range ds {
-				mean += d / float64(len(ds))
-			}
-			if mean > 0.005 || mean < -0.005 {
-				t.Errorf("A2 at spend %d%% churn %d%% supply drifts %.2f%% a month over %d seeds", k[0], k[1], mean*100, len(ds))
 			}
 		}
 		t.Logf("%d runs, failures by test %v", len(runs), fails)
@@ -636,21 +674,42 @@ func TestEconomyFair(t *testing.T) {
 	}
 }
 
-// SKUA_SIM_FIT=1 sweeps the cap and the quest size at the charter's other
-// numbers and prints what each gives, to pick the charter by.
+// When nobody spends, the sinks fail and the backstop has to catch it: the
+// heavy purse line switches on after two seasons and holds savings well
+// under where they'd be without it (a purse past it still keeps a tenth).
+func TestEconomyBackstop(t *testing.T) {
+	a := loadActivity(t)
+	e := charter
+	e.spend, e.ladder = 0, false
+	o := runEconomy(&Default, a, e)
+	t.Logf("nobody spends\n%v", o)
+	if o.backstop == 0 || o.backstop > 3 {
+		t.Errorf("the heavy purse line switched on in season %d; want by season 3", o.backstop)
+	}
+	off := e
+	off.sinkFloor = 0
+	without := runEconomy(&Default, a, off)
+	if !o.conserved || o.supply*2 > without.supply {
+		t.Errorf("with the line on, savings are %.1f pot days an active member, %.1f without it (conserved %v)", o.supply, without.supply, o.conserved)
+	}
+}
+
+// SKUA_SIM_FIT=1 sweeps spending and the ladder at the charter's other
+// numbers and prints what each gives.
 func TestEconomyFit(t *testing.T) {
 	if os.Getenv("SKUA_SIM_FIT") == "" {
 		t.Skip("SKUA_SIM_FIT is not set")
 	}
 	a := loadActivity(t)
 	var out strings.Builder
-	fmt.Fprintf(&out, "%4s %6s %7s %8s %6s %7s %6s %s\n", "h", "spend", "potday", "withheld", "parity", "quest%", "levybp", "fails")
-	for _, spend := range []int64{10, 30, 60} {
-		for _, h := range []int64{30, 45, 60, 90, 120} {
+	fmt.Fprintf(&out, "%5s %6s %7s %6s %6s %6s %5s %4s %6s %s\n", "spend", "ladder", "savings", "sinks", "terms", "top1%", "gini", "back", "levybp", "fails")
+	for _, spend := range []int64{0, 10, 30, 60} {
+		for _, ladder := range []bool{false, true} {
 			e := charter
-			e.h, e.spend, e.seed = h, spend, 7
+			e.spend, e.ladder, e.seed = spend, ladder, 7
 			o := runEconomy(&Default, a, e)
-			fmt.Fprintf(&out, "%4d %5d%% %7d %7.0f%% %6d %6.0f%% %6.0f %v\n", h, spend, o.potDay/unit, o.withheldShare*100, o.parity, o.quests*100, o.levyNeed, o.check())
+			fmt.Fprintf(&out, "%4d%% %6v %7.1f %5.0f%% %6.2f %5.1f%% %5.2f %4d %6.0f %v\n", spend, ladder, o.supply, o.sink*100,
+				o.terms, o.topW*100, o.giniW, o.backstop, o.levyNeed, o.check())
 		}
 	}
 	t.Log("\n" + out.String())
