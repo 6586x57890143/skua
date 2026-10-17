@@ -30,9 +30,10 @@ type member struct {
 	classChanges int64
 	voiceMin     int64
 	messages     int64
-	// dayGot is what the open day has paid, not yet in the ledger, and
-	// buffLo and buffHi the lowest and highest buff it paid under.
-	dayGot, buffLo, buffHi int64
+	// dayGot is what the open day has paid into the purse, not yet in the
+	// ledger, dayLevy what it paid the treasury, and buffLo and buffHi the
+	// lowest and highest buff it paid under.
+	dayGot, dayLevy, buffLo, buffHi int64
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, a fingerprint of their last message, when they last showed a
@@ -73,6 +74,11 @@ type server struct {
 	seq     int64
 	head    []byte
 	pending []entry
+	// The treasury: what it holds, the levy it took today and hasn't put in
+	// the ledger yet, and the levy at the full rate today and on each of
+	// the days before (up to a week), which says when it's full.
+	treasury, levyOpen, levyFull int64
+	levyDays                     []int64
 }
 
 func newServer(id snowflake.ID) *server {
@@ -168,6 +174,17 @@ func (st *state) rollServer(s *server, today int64) {
 			st.close(s, u, m)
 		}
 	}
+	if s.levyOpen != 0 {
+		s.append(0, s.day, reasonLevy, s.levyOpen, nil)
+		s.levyOpen = 0
+	}
+	if s.day > 0 {
+		s.levyDays = append(s.levyDays, s.levyFull)
+		if len(s.levyDays) > 7 {
+			s.levyDays = s.levyDays[len(s.levyDays)-7:]
+		}
+	}
+	s.levyFull = 0
 	if s.day > 0 && s.raw > 0 {
 		s.history = append(s.history, s.raw)
 		if len(s.history) > 7 {
@@ -179,6 +196,17 @@ func (st *state) rollServer(s *server, today int64) {
 		s.litBefore = s.lit
 	}
 	s.day, s.raw, s.lit, s.dirty = today, 0, 0, true
+}
+
+// levying is whether the treasury takes its levy: until it holds
+// TreasuryWeeks of what a week's levy comes to at the full rate, and always
+// while there's no week to go by. s.mu held.
+func (s *server) levying() bool {
+	var week int64
+	for _, l := range s.levyDays {
+		week += l
+	}
+	return week == 0 || s.treasury < Rules.TreasuryWeeks*week
 }
 
 // hearth is the tier s's members earn under now. s.mu held.
@@ -194,9 +222,19 @@ func (st *state) earn(s *server, m *member, guild, user snowflake.ID, chat bool,
 		m.buffLo, m.buffHi = buff, buff
 	}
 	m.buffLo, m.buffHi = min(m.buffLo, buff), max(m.buffHi, buff)
-	m.dayGot += got
+	// The treasury's levy, unless it's full; the level counts it all.
+	full := Rules.levy(got)
+	s.levyFull += full
+	lv := int64(0)
+	if s.levying() {
+		lv = full
+	}
+	s.treasury += lv
+	s.levyOpen += lv
+	m.dayLevy += lv
+	m.dayGot += got - lv
 	m.total += got
-	m.purse += got
+	m.purse += got - lv
 	m.seasonPP += got
 	for i, a := range m.day.Activity() {
 		m.weekAct[i] += a - act[i]

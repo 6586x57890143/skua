@@ -88,7 +88,8 @@ type econ struct {
 }
 
 // charter is the economy PR 3 ships.
-var charter = econ{levy: 200, weeks: 8, spend: 30, ladder: true, sinkFloor: 5, line: 45, keep: 10, grants: 20, quests: 100, churn: 100, run: 156}
+var charter = econ{levy: Rules.Levy, weeks: Rules.TreasuryWeeks, sinkFloor: Rules.SinkFloor, line: Rules.Line, keep: Rules.Keep,
+	spend: 30, ladder: true, grants: 20, quests: 100, churn: 100, run: 156}
 
 // citizen is one member of the simulated server.
 type citizen struct {
@@ -149,7 +150,7 @@ func potDay(b *Balance, a activityData, quests int64) int64 {
 	for range a.Reference.Messages {
 		got += b.Earn(&d, p, true, (b.ChatMin+b.ChatMax)/2, 0)
 	}
-	return got + questEV(b)*quests/100
+	return got + b.QuestEV()*quests/100
 }
 
 // floor is the raw pp a day must reach before its quest pays: the
@@ -157,17 +158,6 @@ func potDay(b *Balance, a activityData, quests int64) int64 {
 // in a real member's day for it.
 func floor(b *Balance, a activityData) int64 {
 	return a.Reference.Voice*b.VoiceBase*b.Unmuted/100 + a.Reference.Messages*(b.ChatMin+b.ChatMax)/2
-}
-
-// questEV is what a quest pays on average when a plain one is rerolled.
-func questEV(b *Balance) int64 {
-	var sum, mean int64
-	for i, o := range b.QuestOdds {
-		sum += int64(o)
-		mean += int64(o) * b.QuestPP[i]
-	}
-	mean /= sum
-	return (int64(b.QuestOdds[0])*mean + int64(b.QuestOdds[1])*b.QuestPP[1] + int64(b.QuestOdds[2])*b.QuestPP[2]) / sum
 }
 
 // day draws a member-day for tier from the data: a cell by its count, then
@@ -659,9 +649,14 @@ func TestEconomyThreeYears(t *testing.T) {
 }
 
 // A7: the levy moves no member's pay by more than a tenth, and A8: an
-// account that only shows up, a message a day, never collects a quest.
+// account that only shows up, a message a day, never collects a quest. The
+// charter's pot day is the one the data's reference day gives.
 func TestEconomyFair(t *testing.T) {
 	a := loadActivity(t)
+	if Rules.RefVoice != a.Reference.Voice || Rules.RefMessages != a.Reference.Messages || Default.PotDay(Rules) != potDay(&Default, a, 100) {
+		t.Errorf("the charter's reference day (%d minutes, %d messages) isn't the data's (%d, %d)",
+			Rules.RefVoice, Rules.RefMessages, a.Reference.Voice, a.Reference.Messages)
+	}
 	if charter.levy > 1000 {
 		t.Errorf("a levy of %d bp moves pay by more than a tenth", charter.levy)
 	}

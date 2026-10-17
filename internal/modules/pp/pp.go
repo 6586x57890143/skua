@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -106,6 +107,13 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 	if s.seq > 0 {
 		ledger = grouped(s.seq) + " rows · " + s.headHex()[:8]
 	}
+	treasury := grouped(s.treasury/unit) + " pp · "
+	if s.levying() {
+		treasury += "taking its levy"
+	} else {
+		treasury += "full"
+	}
+	savings := m.savings(s, DayOf(m.now()))
 	s.mu.Unlock()
 	next := "none yet"
 	season, _ := m.st.b.Season(DayOf(m.now()))
@@ -129,7 +137,33 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"saved", saved},
 		{"ledger", ledger},
 		{"next seed", next},
+		{"treasury", treasury},
+		{"savings", savings},
 	}, Controls: append(m.betaControls(guild), m.logControls(guild)...)}
+}
+
+// savings is how much the server's active members (seen in the last 28
+// days) hold, in pot days: the median purse, and the share the top 1%
+// hold, which the charter watches without capping. s.mu held.
+func (m *Module) savings(s *server, today int64) string {
+	var purses []int64
+	var all int64
+	for _, mem := range s.members {
+		if mem.dayN > today-28 {
+			purses = append(purses, mem.purse)
+			all += mem.purse
+		}
+	}
+	if len(purses) == 0 || all <= 0 {
+		return "nobody active yet"
+	}
+	slices.Sort(purses)
+	var top int64
+	for _, p := range purses[len(purses)-max(len(purses)/100, 1):] {
+		top += p
+	}
+	pd := m.st.b.PotDay(Rules)
+	return fmt.Sprintf("median %.1f pot days · top 1%% %d%%", float64(purses[len(purses)/2])/float64(pd), top*100/all)
 }
 
 // hearthWord is a hearth tier as members read it.

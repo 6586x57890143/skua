@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"math/rand/v2"
+	"slices"
 	"testing"
 	"time"
 
@@ -133,16 +134,23 @@ func TestLedgerConserves(t *testing.T) {
 	if s.members[a].dayGot == 0 {
 		t.Fatal("the day paid nothing")
 	}
-	// The next day's first event closes the day before into one row.
+	// The next day's first event closes the day before into one row, and
+	// the treasury's levy into another.
 	next := t0.Add(24 * time.Hour)
 	st.chat(s, guild, a, "a new day", next)
 	check("the day after")
-	if len(s.pending) != 1 || s.pending[0].reason != reasonLabour || len(s.pending[0].inputs) != 9 {
+	if len(s.pending) != 2 || s.pending[0].reason != reasonLabour || len(s.pending[0].inputs) != 10 ||
+		s.pending[1].reason != reasonLevy || s.pending[1].user != 0 || s.pending[1].delta != s.pending[0].inputs[9] {
 		t.Fatalf("the closed day wrote %+v", s.pending)
 	}
+	if s.treasury-s.levyOpen != s.pending[1].delta || s.pending[1].delta == 0 {
+		t.Errorf("the treasury holds %d with %d of today's, its row says %d", s.treasury, s.levyOpen, s.pending[1].delta)
+	}
+	// The row's pay and levy together lie in the bracket of what the day
+	// was earned from.
 	in := s.pending[0].inputs
 	least, most := b.Bracket(in[0], in[1], in[3], in[4], in[5], in[6], in[7]+in[8])
-	if d := s.pending[0].delta; d < least || d > most {
+	if d := s.pending[0].delta + in[9]; d < least || d > most {
 		t.Errorf("the day's row says %d, outside its bracket %d..%d", d, least, most)
 	}
 
@@ -223,7 +231,7 @@ func TestLedgerRoundTrip(t *testing.T) {
 		shapes = append(shapes, len(in))
 	}
 	rows.Close()
-	if len(shapes) != 2 || shapes[0]+shapes[1] != 9 {
+	if len(shapes) < 3 || shapes[0] != 10 || slices.Max(shapes[1:]) != 0 {
 		t.Errorf("rows came back with %v inputs", shapes)
 	}
 	bs.members[a].purse += 100

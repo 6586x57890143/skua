@@ -21,6 +21,7 @@ const (
 	reasonOpen   = "open"   // a purse as it stood when the ledger began
 	reasonLabour = "labour" // a closed day of earning
 	reasonClass  = "class"  // a class change paid for
+	reasonLevy   = "levy"   // a day's levy, into the treasury (user 0)
 )
 
 // entry is one ledger row.
@@ -77,9 +78,9 @@ func (st *state) close(s *server, user snowflake.ID, m *member) {
 	}
 	d := m.day
 	s.append(user, m.dayN, reasonLabour, m.dayGot, []int64{
-		d.Voice, d.Chat, d.Talk, d.Rested, st.pools(s.id, user, m.dayN).Pool, m.buffLo, m.buffHi, d.Minutes, d.Paid,
+		d.Voice, d.Chat, d.Talk, d.Rested, st.pools(s.id, user, m.dayN).Pool, m.buffLo, m.buffHi, d.Minutes, d.Paid, m.dayLevy,
 	})
-	m.dayGot, m.dirty = 0, true
+	m.dayGot, m.dayLevy, m.dirty = 0, 0, true
 }
 
 // headHex is s's head as it is posted. s.mu held.
@@ -145,6 +146,11 @@ func (st *state) audit(ctx context.Context, db DB) (int, error) {
 			case ok && got != want:
 				bad++
 			}
+		}
+		// The treasury is user 0: its rows sum to what it holds less the
+		// levy not yet written.
+		if sums[key{g, 0}] != s.treasury-s.levyOpen {
+			bad++
 		}
 		s.mu.Unlock()
 	}

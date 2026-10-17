@@ -11,6 +11,17 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.2.0",
+	Date:    "2026-10-17",
+	Balance: "f580f8",
+	Lines: []string{
+		"2% of what you earn goes to the server's treasury, which pays the weekly prizes and contest grants, and it stops taking whenever the treasury already holds eight weeks of it",
+		"admins can't make pp: a contest prize comes out of the treasury and is posted where everyone can see it",
+		"every pp goes into a ledger chained by hash and its head is posted every day; the ledger button on /pp shows your own rows",
+		"every roll, from a day's pool to what a message pays, comes from a seed posted before the season starts and revealed when it ends",
+		"nothing you hold is ever taken and there's no cap on what you can save",
+	},
+}, {
 	Version: "0.1.0",
 	Date:    "2026-10-14",
 	Balance: "ad0f8b",
