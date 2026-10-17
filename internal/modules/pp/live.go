@@ -36,6 +36,9 @@ type member struct {
 	dayGot, dayLevy, buffLo, buffHi int64
 	// granted is what grants paid them in grantSeason.
 	granted, grantSeason int64
+	// rung is their prestige rung, and dayWithheld what the open day earned
+	// past the heavy purse line and so was never minted.
+	rung, dayWithheld int64
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, a fingerprint of their last message, when they last showed a
@@ -86,10 +89,15 @@ type server struct {
 	levySince, grantWeek, grantWeekSum int64
 	// checkpoints are the weekly checkpoints paid and not yet posted.
 	checkpoints []checkpointNews
+	// The season so far, for the backstop: what it minted and burned, the
+	// last season's burn in percent (-1 before one), and whether the heavy
+	// purse line is on.
+	seasonMint, seasonBurn, sinkLast int64
+	heavy                            bool
 }
 
 func newServer(id snowflake.ID) *server {
-	return &server{id: id, members: map[snowflake.ID]*member{}, seats: map[snowflake.ID]*seat{}}
+	return &server{id: id, members: map[snowflake.ID]*member{}, seats: map[snowflake.ID]*seat{}, sinkLast: -1}
 }
 
 // weekOf is the week day falls in, counted from a Monday (1970-01-05 is
@@ -99,15 +107,17 @@ func weekOf(day int64) int64 { return (day + 3) / 7 }
 // state is everything /pp holds, by guild. seed draws the rolls of any
 // season without a committed seed of its own in seeds.
 type state struct {
-	b     *Balance
-	seed  uint64
-	mu    sync.Mutex
-	srv   map[snowflake.ID]*server
-	seeds map[int64]*seasonSeed
+	b    *Balance
+	seed uint64
+	// potDay is b's pot day under the charter, worked out once.
+	potDay int64
+	mu     sync.Mutex
+	srv    map[snowflake.ID]*server
+	seeds  map[int64]*seasonSeed
 }
 
 func newState(b *Balance, seed uint64) *state {
-	return &state{b: b, seed: seed, srv: map[snowflake.ID]*server{}, seeds: map[int64]*seasonSeed{}}
+	return &state{b: b, seed: seed, potDay: b.PotDay(Rules), srv: map[snowflake.ID]*server{}, seeds: map[int64]*seasonSeed{}}
 }
 
 // server is guild's state, made on first sight.
@@ -184,6 +194,12 @@ func (st *state) rollServer(s *server, today int64) {
 	if s.day > 0 && weekOf(s.day) != weekOf(today) {
 		st.checkpoint(s, weekOf(s.day), today)
 	}
+	if s.day > 0 {
+		before, _ := st.b.Season(s.day)
+		if now, _ := st.b.Season(today); before != now {
+			st.seasonTurn(s)
+		}
+	}
 	if s.levyOpen != 0 {
 		s.append(0, s.day, reasonLevy, s.levyOpen, nil)
 		s.levyOpen = 0
@@ -245,10 +261,18 @@ func (st *state) earn(s *server, m *member, guild, user snowflake.ID, chat bool,
 		s.levySince = m.dayN
 	}
 	m.dayLevy += lv
-	m.dayGot += got - lv
+	// Past the heavy purse line, while it's on, a purse keeps a tenth.
+	net := got - lv
+	credit := net
+	if s.heavy && m.purse >= Rules.Line*st.potDay {
+		credit = net * Rules.Keep / 100
+	}
+	m.dayWithheld += net - credit
+	m.dayGot += credit
 	m.total += got
-	m.purse += got - lv
+	m.purse += credit
 	m.seasonPP += got
+	s.seasonMint += got
 	for i, a := range m.day.Activity() {
 		m.weekAct[i] += a - act[i]
 	}

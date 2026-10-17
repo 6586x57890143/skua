@@ -26,6 +26,7 @@ var reasonWords = map[string]string{
 	reasonLevy:   "levy",
 	reasonGrant:  "grant",
 	reasonPrize:  "prize",
+	reasonShop:   "shop",
 }
 
 // receipts is user's own ledger, newest first: their last rows, the day

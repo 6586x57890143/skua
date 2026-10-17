@@ -115,6 +115,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 	}
 	savings := m.savings(s, DayOf(m.now()))
 	grants := grantsRow(s, DayOf(m.now()))
+	sinks := sinksRow(s)
 	s.mu.Unlock()
 	next := "none yet"
 	season, _ := m.st.b.Season(DayOf(m.now()))
@@ -141,6 +142,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"treasury", treasury},
 		{"savings", savings},
 		{"grants", grants},
+		{"sinks", sinks},
 	}, Controls: slices.Concat(m.betaControls(guild), m.logControls(guild), m.grantControls())}
 }
 
