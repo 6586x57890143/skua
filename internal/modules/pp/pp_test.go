@@ -127,14 +127,16 @@ func pick(t *testing.T, value string) (*events.ComponentInteractionCreate, *[]di
 }
 
 // A pick turns the picker into the status screen, and the edit lists the
-// screen's PNG: without that Discord can't find attachment://pp.jpg.
+// screen's picture once, as disgo sends it: unlisted Discord can't find
+// attachment://pp.jpg, listed twice it refuses the edit.
 func TestPickListsTheScreen(t *testing.T) {
 	m := testModule(&fakeDB{})
 	e, _ := pick(t, "thief")
 	var got discord.MessageUpdate
-	e.Respond = func(_ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
+	e.Respond = func(typ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
 		got, _ = d.(discord.MessageUpdate)
-		return nil
+		_, err := got.ToResponseBody(discord.InteractionResponse{Type: typ, Data: got})
+		return err
 	}
 	if err := m.press(context.Background(), e); err != nil {
 		t.Fatal(err)
