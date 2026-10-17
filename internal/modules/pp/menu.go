@@ -107,6 +107,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 			return err
 		}
 		return e.CreateMessage(msg)
+	case "pp:board":
+		return e.CreateMessage(m.boardMessage(*guild, e.User().ID))
 	case "pp:quests":
 		msg, err := m.questsMessage(*guild, e.Member())
 		if err != nil {
@@ -240,7 +242,8 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 			class = class.WithEmoji(*e)
 		}
 		extra = append(extra, discord.NewActionRow(class, discord.NewSecondaryButton("quests", "pp:quests"), discord.NewSecondaryButton("shop", "pp:shop"), discord.NewSecondaryButton("ledger", "pp:ledger"),
-			discord.NewSecondaryButton("show the channel", "pp:show")))
+			discord.NewSecondaryButton("show the channel", "pp:show")),
+			discord.NewActionRow(discord.NewSecondaryButton("board", "pp:board")))
 	}
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", line, extra...)},
