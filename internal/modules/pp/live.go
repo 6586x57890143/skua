@@ -84,6 +84,8 @@ type server struct {
 	// levySince is the day the treasury first took its levy, 0 not yet,
 	// and grantWeekSum what it granted in grantWeek.
 	levySince, grantWeek, grantWeekSum int64
+	// checkpoints are the weekly checkpoints paid and not yet posted.
+	checkpoints []checkpointNews
 }
 
 func newServer(id snowflake.ID) *server {
@@ -178,6 +180,9 @@ func (st *state) rollServer(s *server, today int64) {
 		if m.dayN < today {
 			st.close(s, u, m)
 		}
+	}
+	if s.day > 0 && weekOf(s.day) != weekOf(today) {
+		st.checkpoint(s, weekOf(s.day), today)
 	}
 	if s.levyOpen != 0 {
 		s.append(0, s.day, reasonLevy, s.levyOpen, nil)

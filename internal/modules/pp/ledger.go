@@ -23,6 +23,7 @@ const (
 	reasonClass  = "class"  // a class change paid for
 	reasonLevy   = "levy"   // a day's levy, into the treasury (user 0)
 	reasonGrant  = "grant"  // a grant: out of the treasury, into a purse
+	reasonPrize  = "prize"  // a weekly checkpoint's prize, the same way
 )
 
 // entry is one ledger row.
