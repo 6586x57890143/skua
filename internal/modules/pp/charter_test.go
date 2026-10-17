@@ -11,6 +11,7 @@ import (
 // line saying what changed.
 var charterHashes = map[string]string{
 	"1": "4c203cc5694c",
+	"2": "ff8920b9861d",
 }
 
 func TestCharterPinned(t *testing.T) {

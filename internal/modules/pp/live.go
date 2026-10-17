@@ -34,6 +34,8 @@ type member struct {
 	// ledger, dayLevy what it paid the treasury, and buffLo and buffHi the
 	// lowest and highest buff it paid under.
 	dayGot, dayLevy, buffLo, buffHi int64
+	// granted is what grants paid them in grantSeason.
+	granted, grantSeason int64
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, a fingerprint of their last message, when they last showed a
@@ -79,6 +81,9 @@ type server struct {
 	// the days before (up to a week), which says when it's full.
 	treasury, levyOpen, levyFull int64
 	levyDays                     []int64
+	// levySince is the day the treasury first took its levy, 0 not yet,
+	// and grantWeekSum what it granted in grantWeek.
+	levySince, grantWeek, grantWeekSum int64
 }
 
 func newServer(id snowflake.ID) *server {
@@ -231,6 +236,9 @@ func (st *state) earn(s *server, m *member, guild, user snowflake.ID, chat bool,
 	}
 	s.treasury += lv
 	s.levyOpen += lv
+	if lv > 0 && s.levySince == 0 {
+		s.levySince = m.dayN
+	}
 	m.dayLevy += lv
 	m.dayGot += got - lv
 	m.total += got

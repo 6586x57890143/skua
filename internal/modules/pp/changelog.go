@@ -11,6 +11,15 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.3.0",
+	Date:    "2026-10-17",
+	Balance: "a51f0f",
+	Lines: []string{
+		"admins can reward contest winners with pp from the treasury, never pp made from nothing, and every grant is posted in the ledger channel",
+		"a grant is at most a quarter of the treasury a week and ten pot days a season to anyone; anything over a pot day needs a second admin, and admins can't grant to admins",
+		"grants open four weeks after the treasury first takes its levy",
+	},
+}, {
 	Version: "0.2.0",
 	Date:    "2026-10-17",
 	Balance: "f580f8",

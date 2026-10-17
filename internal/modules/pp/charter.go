@@ -14,7 +14,8 @@ package pp
 //     TreasuryWeeks of it; the treasury pays prizes and grants
 //   - grants: GrantShare of the treasury a week at most, GrantSeason pot
 //     days a season to anyone, never to an admin, a second admin above
-//     GrantSecond pot days, every one posted
+//     GrantSecond pot days, every one posted, none before the treasury has
+//     taken its levy for GrantsAfter days
 //   - spending is burned; members never trade pp; nothing pp buys is
 //     scarce; prices are set in pot days
 //   - nothing a member holds is ever taken
@@ -30,6 +31,7 @@ type Charter struct {
 	TreasuryWeeks int64
 
 	GrantShare, GrantSeason, GrantSecond int64
+	GrantsAfter                          int64 // days after the treasury's first levy
 
 	SinkFloor, Line, Keep int64
 
@@ -42,12 +44,13 @@ type Charter struct {
 
 // Rules is the charter in force.
 var Rules = Charter{
-	Version:       "1",
+	Version:       "2",
 	Levy:          200,
 	TreasuryWeeks: 8,
 	GrantShare:    25,
 	GrantSeason:   10,
 	GrantSecond:   1,
+	GrantsAfter:   28,
 	SinkFloor:     5,
 	Line:          45,
 	Keep:          10,
