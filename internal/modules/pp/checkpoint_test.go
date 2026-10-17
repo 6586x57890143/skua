@@ -61,7 +61,7 @@ func TestCheckpoint(t *testing.T) {
 		t.Errorf("%d prize rows; want two for each of three places", prizes)
 	}
 
-	var last int64 = DayOf(monday)
+	last := DayOf(monday)
 	m.now = func() time.Time { return monday.Add(time.Minute) }
 	m.tick(t.Context(), &last)
 	all := strings.Join(r.posts, " ")
