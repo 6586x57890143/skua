@@ -32,11 +32,11 @@ func TestBoard(t *testing.T) {
 	for u, mem := range s.members {
 		users, scores = append(users, u), append(scores, mem.total)
 	}
-	board := boardTop(rank(users, scores), me)
+	board := boardTop(rank(users, scores), me, boardRows)
 	if len(board) != boardRows || board[0].user != old(1) || board[boardRows-1].user != me || board[boardRows-1].place != 13 {
 		t.Errorf("the top of the levels board: %+v", board)
 	}
-	if got := boardTop(rank(users[:3], scores[:3]), me); len(got) != 3 {
+	if got := boardTop(rank(users[:3], scores[:3]), me, boardRows); len(got) != 3 {
 		t.Errorf("a short board is cut to %d", len(got))
 	}
 

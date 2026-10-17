@@ -51,6 +51,12 @@ func main() {
 			s.Laurels = 3
 			return pp.StatusScreen(s)
 		},
+		"status-raven": func() ([]byte, error) {
+			return pp.StatusScreen(sheet("BooCoconuts", "sorcerer", 1800*100, 70, "warm", buff("plume", "hearth iii"), 0, 0, 37, 1, true))
+		},
+		"status-albatross": func() ([]byte, error) {
+			return pp.StatusScreen(sheet("glow", "wanderer", 900000*100, 70, "warm", nil, 0, 0, 2, 0, true))
+		},
 		"quests": func() ([]byte, error) {
 			return pp.QuestScreen("heavywinds", []pp.QuestLine{
 				{Icon: "quill", What: "send 40 messages", Progress: 23, Goal: 40, Tier: 0, Reward: 250 * 100},

@@ -82,13 +82,34 @@ func init() {
 }
 
 // Canvas is a picture at native resolution, one pixel a cell.
-type Canvas struct{ *image.Paletted }
+type Canvas struct {
+	*image.Paletted
+	// Marks is the ink of everything set on the canvas, a box each: text,
+	// icons, gauges, the hand, pictures and tabs. Panes is the parchment of
+	// every window. They are what a layout is checked against: nothing
+	// overlaps and everything sits on parchment.
+	Marks []Mark
+	Panes []image.Rectangle
+}
+
+// Mark is one thing set on a canvas and the box its ink covers.
+type Mark struct {
+	What string
+	R    image.Rectangle
+}
 
 // New is a w by h canvas over the dark backdrop.
 func New(w, h int) *Canvas {
-	c := &Canvas{image.NewPaletted(image.Rect(0, 0, w, h), Palette)}
+	c := &Canvas{Paletted: image.NewPaletted(image.Rect(0, 0, w, h), Palette)}
 	c.Fill(c.Rect, Line)
 	return c
+}
+
+// mark notes what was set over r, when anything was.
+func (c *Canvas) mark(what string, r image.Rectangle) {
+	if !r.Empty() {
+		c.Marks = append(c.Marks, Mark{what, r})
+	}
 }
 
 // Fill paints r in ink i.
@@ -109,6 +130,7 @@ func (c *Canvas) Window(r image.Rectangle) {
 	c.Fill(r.Inset(1), Bone)
 	c.Fill(r.Inset(3), Line)
 	in := r.Inset(4)
+	c.Panes = append(c.Panes, in)
 	for i := range Sky {
 		band := in
 		band.Min.Y = in.Min.Y + in.Dy()*i/len(Sky)
@@ -167,6 +189,7 @@ func (c *Canvas) text(x, y int, s string, i, shadow uint8, max, adv int) int {
 	if max > 0 && len(s) > max {
 		s = strings.TrimSpace(s[:max-3]) + "..."
 	}
+	var box image.Rectangle
 	for n, r := range s {
 		at := x + n*adv
 		for gy := range LineHeight {
@@ -176,14 +199,45 @@ func (c *Canvas) text(x, y int, s string, i, shadow uint8, max, adv int) int {
 				}
 				if p := image.Pt(at+gx+1, y+gy+1); shadow != i && p.In(c.Rect) && !ink(r, gx+1, gy+1) {
 					c.SetColorIndex(p.X, p.Y, shadow)
+					box = box.Union(image.Rect(p.X, p.Y, p.X+1, p.Y+1))
 				}
 				if p := image.Pt(at+gx, y+gy); p.In(c.Rect) {
 					c.SetColorIndex(p.X, p.Y, i)
+					box = box.Union(image.Rect(p.X, p.Y, p.X+1, p.Y+1))
 				}
 			}
 		}
 	}
+	c.mark("text "+s, box)
 	return x + len(s)*adv
+}
+
+// Wrap breaks s into lines of at most width pixels at full spacing,
+// between words; a word longer than a line is cut.
+func Wrap(s string, width int) []string {
+	n := max(width/Advance, 1)
+	var lines []string
+	line := ""
+	for _, w := range strings.Fields(Plain(s)) {
+		switch {
+		case line == "":
+			line = w
+		case len(line)+1+len(w) <= n:
+			line += " " + w
+			continue
+		default:
+			lines = append(lines, line)
+			line = w
+		}
+		for len(line) > n {
+			lines = append(lines, line[:n])
+			line = line[n:]
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 // Plain is s in what the face has, printable ASCII, on one line.
@@ -202,6 +256,7 @@ func Plain(s string) string {
 // row and shaded along its foot, as Tactics Ogre's are; 5 rows tall is one.
 func (c *Canvas) Bar(r image.Rectangle, n, d int64, i uint8) {
 	c.Fill(r, Shadow)
+	c.mark("gauge", r)
 	in := r.Inset(1)
 	c.Fill(in, Line)
 	if d <= 0 {
@@ -219,25 +274,27 @@ func (c *Canvas) Bar(r image.Rectangle, n, d int64, i uint8) {
 	}
 }
 
-// Tab sets s on a dark tab inside the top left of the window over r, its
-// frame running into the window's, as Tactics Ogre names its panels. What
-// the window holds starts TabDrop below its top.
+// Tab sets s on a dark tab in the top left corner of the window over r's
+// parchment, the rule inside its frame thickening into it, as Tactics Ogre
+// names its panels. The frame stays whole. What the window holds starts
+// TabDrop below its top.
 func (c *Canvas) Tab(r image.Rectangle, s string) {
-	w := len(Plain(s))*Advance + 5
-	tab := image.Rect(r.Min.X+4, r.Min.Y, r.Min.X+4+w, r.Min.Y+TabDrop)
-	c.Fill(tab, Shadow)
-	c.Fill(tab.Inset(1), Line)
-	c.text(tab.Min.X+3, tab.Min.Y+1, s, Glove, Glove, 0, Advance)
+	tab := image.Rect(r.Min.X+4, r.Min.Y+4, r.Min.X+4+len(Plain(s))*Advance+4, r.Min.Y+TabDrop)
+	c.Fill(tab, Line)
+	n := len(c.Marks)
+	c.text(tab.Min.X+2, tab.Min.Y-1, s, Glove, Glove, 0, Advance)
+	c.Marks = append(c.Marks[:n], Mark{"tab " + s, tab})
 }
 
-// TabDrop is how far a tab reaches down into its window.
-const TabDrop = 15
+// TabDrop is how far a tab reaches down from its window's top.
+const TabDrop = 18
 
 // Portrait draws img scale times its size with its top left at p, in a
 // frame like a window's around it. Its colours join this canvas's palette,
 // so a portrait keeps its own sixteen.
 func (c *Canvas) Portrait(img image.Image, p image.Point, scale int) {
 	frame := image.Rectangle{p, p.Add(img.Bounds().Size().Mul(scale))}.Inset(-3)
+	c.mark("portrait", frame)
 	c.Fill(frame, Shadow)
 	c.Fill(frame.Inset(1), Bone)
 	c.Fill(frame.Inset(2), Line)
@@ -290,6 +347,7 @@ func (c *Canvas) Bird(p image.Point) {
 // nearest ink and leaving what's clear.
 func (c *Canvas) Sprite(img image.Image, p image.Point) {
 	b := img.Bounds()
+	var box image.Rectangle
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
 			col := img.At(x, y)
@@ -298,9 +356,11 @@ func (c *Canvas) Sprite(img image.Image, p image.Point) {
 			}
 			if q := image.Pt(p.X+x-b.Min.X, p.Y+y-b.Min.Y); q.In(c.Rect) {
 				c.SetColorIndex(q.X, q.Y, uint8(Palette.Index(col)))
+				box = box.Union(image.Rect(q.X, q.Y, q.X+1, q.Y+1))
 			}
 		}
 	}
+	c.mark("sprite", box)
 }
 
 // hand is the menu cursor, a gloved hand pointing right: w is the glove,
@@ -319,6 +379,7 @@ var hand = []string{
 func (c *Canvas) Cursor(x, y int) {
 	x -= len(hand[0])
 	y -= len(hand) / 2
+	c.mark("hand", image.Rect(x, y, x+len(hand[0]), y+len(hand)))
 	for dy, row := range hand {
 		for dx, ch := range row {
 			switch ch {

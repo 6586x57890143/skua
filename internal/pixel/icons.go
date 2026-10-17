@@ -39,6 +39,24 @@ var Icons = map[string][]string{
 		"...kk......kk...",
 		"................",
 	},
+	"scales": {
+		"................",
+		".......kk.......",
+		"......kDCk......",
+		".kkkkkkCBkkkkkk.",
+		"kDCCCCCCBBBBBBAk",
+		".kkkkkkCBkkkkkk.",
+		"..G...kCBk...G..",
+		".G.G..kCBk..G.G.",
+		"G...G.kCBk.G...G",
+		"kDCBk.kCBk.kDCBk",
+		".kBk..kCBk..kBk.",
+		"......kCBk......",
+		"......kCBk......",
+		"....kkCCBBkk....",
+		"...kDCCCCBBAk...",
+		"...kkkkkkkkkk...",
+	},
 	"heart": {
 		"................",
 		"..kkkk....kkkk..",
@@ -526,18 +544,24 @@ func addIconInks() {
 
 // Icon draws the named icon with its top left at p; an unknown name draws
 // nothing.
-func (c *Canvas) Icon(name string, p image.Point) {
+func (c *Canvas) Icon(name string, p image.Point) { c.BigIcon(name, p, 1) }
+
+// BigIcon draws the named icon scale times its size, scale pixels a cell,
+// with its top left at p.
+func (c *Canvas) BigIcon(name string, p image.Point, scale int) {
 	g, ok := Icons[name]
 	if !ok {
 		g = screenIcons[name]
 	}
+	var box image.Rectangle
 	for y, row := range g {
 		for x := range len(row) {
 			if i, ok := iconInk[row[x]]; ok {
-				if q := image.Pt(p.X+x, p.Y+y); q.In(c.Rect) {
-					c.SetColorIndex(q.X, q.Y, i)
-				}
+				cell := image.Rect(p.X+x*scale, p.Y+y*scale, p.X+(x+1)*scale, p.Y+(y+1)*scale)
+				c.Fill(cell, i)
+				box = box.Union(cell.Intersect(c.Rect))
 			}
 		}
 	}
+	c.mark("icon "+name, box)
 }

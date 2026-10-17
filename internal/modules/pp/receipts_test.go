@@ -52,7 +52,7 @@ func TestJournalAndTreasury(t *testing.T) {
 	}
 	for reason, want := range map[string]string{
 		reasonLabour: "a day's earning", reasonClass: "a new path", reasonPrize: "a weekly prize",
-		reasonGrant: "a grant", reasonOpen: "what you held",
+		reasonGrant: "a grant", reasonOpen: "purse carried over",
 	} {
 		if _, what := journalLine(reason, nil); what != want {
 			t.Errorf("%s reads %q", reason, what)
