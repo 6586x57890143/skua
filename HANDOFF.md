@@ -62,3 +62,50 @@ Decisions worth keeping:
 - No `default.pgo` yet (experiment 2 needs real load first).
 - The avatar is drawn and recoloured; the banner is still computed. A drawn banner can
   replace `art/skua_banner.png` as long as the file name stays.
+
+## /pp: the pot economy (2026-10-17)
+
+The economy runs on a charter (`internal/modules/pp/charter.go`, v2, its hash pinned
+in `charter_test`). Only time creates pp. A 2% levy fills a per-server treasury, which
+pauses at 8 weeks of levy. The treasury pays weekly checkpoint prizes and admin grants;
+grants open 28 days after the first levy and are capped and posted. Spending is burned.
+There are no transfers and nothing scarce, and prices are set in pot days (428 pp). There
+is no purse cap: a heavy purse line (keep a tenth past 45 pot days) switches on only if
+the shop burns under 5% of what's minted two seasons running.
+
+Merged, in order:
+
+| PR | What |
+|---|---|
+| #35 | Hash-chained ledger (`pp_ledger`), daily audit, commit-reveal season seeds with drand, ledger head posted daily |
+| #36 | Economy sim on a month of real activity (`testdata/activity.json`, aggregates only) |
+| #37 | Charter, treasury and levy, member receipts, sim without a cap |
+| #38 | Contest grants (a second admin above 1 pot day) |
+| #39 | Weekly checkpoints paid from the treasury |
+| #40 | Shop: the prestige ladder (the rookery stair) and the backstop trigger |
+| #41 | Quests: `Balance.QuestKinds`, selfie quests, one reroll a day |
+| #42 | Level board |
+| #43 | `core.Edit` lists a file once (it caused "something went wrong" on edits that had acted) |
+| #44 | Season 1 starts 2026-11-02 |
+| #45 | Picture cards for board, shop, journal (the member ledger) and the admin-only treasury |
+
+Things to know:
+
+- **Sims and the race detector.** The economy sims skip under `-race`; CI runs them in
+  a plain step (`go test -run Economy ./internal/modules/pp/`). `SKUA_SIM_REPS=10` runs
+  the 90-run matrix, and `SKUA_SIM_FIT=1` runs the sweep.
+- **Changing the rules.** A charter change needs a new version and pinned hash. A
+  balance change needs a changelog entry, which `changelog_test` enforces.
+- **Screen-only art.** Perch icons live in `pixel.screenIcons`, not `Icons`. The guard
+  caps a first-boot emoji sync at 50.
+
+Not done yet:
+
+- **The rest of the shop.** Dusts (timed colour roles), wicks (timed channel access,
+  admins pick the roles on `/help`, needs Manage Roles), molts, lacquers, carapace
+  frames, votive likenesses, spore halos and season relics. Each gets a pixel icon and a
+  lore name: a strange, low-fantasy bird world with VanderMeer and early-Souls flavour,
+  never on the nose.
+- **Lore first.** Each class's background lore is to be written before the shop art.
+- **Repricing.** Shop repricing by unique buyers lands with the first catalogue items.
+- **Laurels.** They're counted on the status sheet but no longer awarded.
