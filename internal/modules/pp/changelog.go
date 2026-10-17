@@ -11,6 +11,14 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.4.0",
+	Date:    "2026-10-17",
+	Balance: "b926de",
+	Lines: []string{
+		"the shop opens with the prestige ladder: each rung costs twice the last, starting at two pot days, and everything bought is burned",
+		"if the shop burns less than 5% of what everyone earns two seasons running, a purse past 45 pot days keeps a tenth of new earning until it picks up; your level still counts all of it",
+	},
+}, {
 	Version: "0.3.1",
 	Date:    "2026-10-17",
 	Balance: "0f75f3",

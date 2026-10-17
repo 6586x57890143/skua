@@ -24,6 +24,7 @@ const (
 	reasonLevy   = "levy"   // a day's levy, into the treasury (user 0)
 	reasonGrant  = "grant"  // a grant: out of the treasury, into a purse
 	reasonPrize  = "prize"  // a weekly checkpoint's prize, the same way
+	reasonShop   = "shop"   // something bought, burned
 )
 
 // entry is one ledger row.
@@ -80,9 +81,9 @@ func (st *state) close(s *server, user snowflake.ID, m *member) {
 	}
 	d := m.day
 	s.append(user, m.dayN, reasonLabour, m.dayGot, []int64{
-		d.Voice, d.Chat, d.Talk, d.Rested, st.pools(s.id, user, m.dayN).Pool, m.buffLo, m.buffHi, d.Minutes, d.Paid, m.dayLevy,
+		d.Voice, d.Chat, d.Talk, d.Rested, st.pools(s.id, user, m.dayN).Pool, m.buffLo, m.buffHi, d.Minutes, d.Paid, m.dayLevy, m.dayWithheld,
 	})
-	m.dayGot, m.dayLevy, m.dirty = 0, 0, true
+	m.dayGot, m.dayLevy, m.dayWithheld, m.dirty = 0, 0, 0, true
 }
 
 // headHex is s's head as it is posted. s.mu held.

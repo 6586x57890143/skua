@@ -105,6 +105,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 			return err
 		}
 		return e.CreateMessage(msg)
+	case "pp:shop", "pp:climb":
+		return m.shop(ctx, *guild, e, e.Data.CustomID() == "pp:climb")
 	case "pp:ledger":
 		msg, err := m.receipts(ctx, *guild, e.User().ID)
 		if err != nil {
@@ -164,7 +166,7 @@ func (m *Module) pick(guild, user snowflake.ID, key string) error {
 	} else {
 		mem.purse -= cost
 		mem.classChanges++
-		s.append(user, today, reasonClass, -cost, nil)
+		m.st.burn(s, user, today, reasonClass, cost, nil)
 	}
 	mem.class, mem.dirty = key, true
 	return nil
@@ -201,6 +203,10 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	seen(mem, &who.Member, who.User, guild)
 	sh := m.sheet(s, mem, guild, who.User.ID, today)
 	picked := mem.classSeason != -1
+	line := "-# " + dayLine(now)
+	if mem.rung > 0 {
+		line += fmt.Sprintf(" · prestige rung %d", mem.rung)
+	}
 	s.mu.Unlock()
 	if !picked {
 		return titleMessage(buttons)
@@ -223,11 +229,11 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 		if e := brand.ComponentEmoji("pp_" + classIcons[sh.Class.Key]); e != nil {
 			class = class.WithEmoji(*e)
 		}
-		extra = append(extra, discord.NewActionRow(class, discord.NewSecondaryButton("ledger", "pp:ledger"),
+		extra = append(extra, discord.NewActionRow(class, discord.NewSecondaryButton("shop", "pp:shop"), discord.NewSecondaryButton("ledger", "pp:ledger"),
 			discord.NewSecondaryButton("show the channel", "pp:show")))
 	}
 	return discord.MessageCreate{
-		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", "-# "+dayLine(now), extra...)},
+		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", line, extra...)},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),

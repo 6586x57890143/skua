@@ -139,7 +139,7 @@ func TestLedgerConserves(t *testing.T) {
 	next := t0.Add(24 * time.Hour)
 	st.chat(s, guild, a, "a new day", next)
 	check("the day after")
-	if len(s.pending) != 2 || s.pending[0].reason != reasonLabour || len(s.pending[0].inputs) != 10 ||
+	if len(s.pending) != 2 || s.pending[0].reason != reasonLabour || len(s.pending[0].inputs) != 11 ||
 		s.pending[1].reason != reasonLevy || s.pending[1].user != 0 || s.pending[1].delta != s.pending[0].inputs[9] {
 		t.Fatalf("the closed day wrote %+v", s.pending)
 	}
@@ -231,7 +231,7 @@ func TestLedgerRoundTrip(t *testing.T) {
 		shapes = append(shapes, len(in))
 	}
 	rows.Close()
-	if len(shapes) < 3 || shapes[0] != 10 || slices.Max(shapes[1:]) != 0 {
+	if len(shapes) < 3 || shapes[0] != 11 || slices.Max(shapes[1:]) != 0 {
 		t.Errorf("rows came back with %v inputs", shapes)
 	}
 	bs.members[a].purse += 100
