@@ -49,6 +49,10 @@ type Module struct {
 	Admin func(discord.Interaction) bool
 	// Guard spends the herald's posts.
 	Guard *guard.Guard
+	// Grant hands out the beta role when a member redeems a key; nil
+	// without a bird to ask, and then keys aren't issued.
+	Grant   Granter
+	redeems tries
 	// rest posts for the herald, set once the gateway is ready, and beacon
 	// draws drand's randomness for the season seeds.
 	rest   rest.Rest
@@ -143,12 +147,12 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"savings", savings},
 		{"grants", grants},
 		{"sinks", sinks},
-	}, Controls: slices.Concat(m.betaControls(guild), m.logControls(guild), m.selfieControls(guild), m.grantControls())}
+	}, Controls: slices.Concat(m.betaControls(guild), m.keyControls(), m.logControls(guild), m.selfieControls(guild), m.grantControls())}
 }
 
-// Modals is the grant form.
+// Modals are the grant, key and redeem forms.
 func (m *Module) Modals() []core.Modal {
-	return []core.Modal{{ID: grantForm, Run: m.submitGrant}}
+	return []core.Modal{{ID: grantForm, Run: m.submitGrant}, {ID: keyForm, Run: m.submitKeys}, {ID: redeemForm, Run: m.submitRedeem}}
 }
 
 // savings is how much the server's active members (seen in the last 28
