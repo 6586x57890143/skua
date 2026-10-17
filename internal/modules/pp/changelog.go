@@ -11,6 +11,14 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.3.1",
+	Date:    "2026-10-17",
+	Balance: "0f75f3",
+	Lines: []string{
+		"the weekly checkpoint prizes come out of the treasury, before any grant, and are posted in the ledger channel",
+		"a prize goes into your purse and doesn't count toward your level or the season, the same as a grant",
+	},
+}, {
 	Version: "0.3.0",
 	Date:    "2026-10-17",
 	Balance: "a51f0f",

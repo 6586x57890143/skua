@@ -274,6 +274,7 @@ func (m *Module) tick(ctx context.Context, last *int64) {
 		}
 		*last = day
 	}
+	m.postCheckpoints()
 	m.seasonTick(ctx, now)
 }
 
