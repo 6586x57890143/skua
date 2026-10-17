@@ -65,26 +65,44 @@ func (st *state) seasonTurn(s *server) {
 	s.sinkLast, s.seasonMint, s.seasonBurn = burned, 0, 0
 }
 
-// perchNames are the rookery stair's rungs, as members read them; past the
-// last, every rung is a perch nobody built.
-var perchNames = []string{"tallow perch", "shale perch", "chitin perch", "pale-glass perch", "drowned-bell perch", "a perch nobody built"}
-
-// perchLore is what each perch's card says of it: the stair's story, told
-// the way an old game's item text tells it. Past the last, every rung is
-// a perch nobody built and says the same.
-var perchLore = []string{
-	"poured from the fat of a winter that went on too long. it softens in the sun and keeps the print of every foot that waited on it",
-	"split from the cliff where the first rookery fell. its layers still hold the shapes of wings older than anyone's",
-	"the cast shell of something that climbed here before birds did. it hums in wet weather and nobody asks it why",
-	"blown in the mire kilns from ash and lamp smoke. look down through it and the ground seems further off than it is",
-	"bronze from a bell pulled out of the sunk chapel. sit very still at the hour the water came in and it rings",
-	"it was there when the stair reached this high, with no maker's mark and no nails. those who sit on it stop talking about it",
+// perchKind is one rung of the rookery stair: the perch, and the text its
+// card tells of it the way an old game's item screen does, a plain line on
+// what it is, its story and what it does.
+type perchKind struct {
+	name, icon          string
+	what, story, effect string
 }
+
+// perches are the rookery stair's rungs; past the last, every rung is a
+// perch nobody built.
+var perches = []perchKind{
+	{"tallow perch", pixel.Perches[0], "a perch poured from rendered fat",
+		"in the first winter of the rookery there was no timber and no stone, only what the flock could spare. they burned their lamps low for a month to pour this one. the birds who sat on it through that dark were the ones who stayed, and it still smells faintly of smoke",
+		"your name is set in bold on every board and on your status"},
+	{"shale perch", pixel.Perches[1], "a perch split from the sea cliff",
+		"when the first rookery slid into the sea, the ones left climbed the bare rock above it and cut their perches from the cliff itself. the layers still hold the prints of wings older than any bird alive. the masons say the stone keeps count of everyone who sits on it",
+		"your name is set in bold slate on every board and on your status"},
+	{"chitin perch", pixel.Perches[2], "a perch cut from a shed shell",
+		"something climbed the stair long before the birds did and left its skin behind on the way up. the shell is warm to the touch and hums in wet weather. the flock cut it into perches and stopped asking what it was, though those who sit on it say it still turns toward the top",
+		"your name turns chitin red, set in bold, with this perch beside it"},
+	{"pale-glass perch", pixel.Perches[3], "a perch of cloudy glass from the mire kilns",
+		"the kiln keepers blew it from ash and lamp smoke in the year the mire rose. look down through it and the ground seems further off than it is. a bird on glass can be seen from anywhere in the rookery, which was always the point, and the kiln keepers charged for it",
+		"a pale glass plate behind your line, under your red name and perch"},
+	{"drowned-bell perch", pixel.Perches[4], "a perch cast from a drowned bell",
+		"the chapel bell went under with the rest of the low town. divers brought it up in pieces over three summers, and the bronze was cast into perches for those who had climbed this far. at the hour the water came in it still rings, faintly, and the birds below look up",
+		"the plate turns bronze and your name is set in the book hand, beside your perch"},
+	{"a perch nobody built", pixel.Perches[5], "a perch that was already there",
+		"when the stair reached this height the climbers found it waiting, with no maker's mark, no nails and no seam. nobody remembers who sat on it first. those who sit on it now tend to stop talking about it, and the flock has learned not to ask them",
+		"your name in gilt on a dark plate in a gilt frame. rungs past this one are counted by your perch"},
+}
+
+// perchOf is rung n's perch, from 1.
+func perchOf(n int64) perchKind { return perches[min(max(n, 1), int64(len(perches)))-1] }
 
 // perch is rung n's name and icon, from 1.
 func perch(n int64) (name, icon string) {
-	i := min(int(n), len(perchNames)) - 1
-	return perchNames[i], pixel.Perches[i]
+	p := perchOf(n)
+	return p.name, p.icon
 }
 
 // shopRungs is how many rungs the shop's front shows, from the one under
@@ -145,32 +163,36 @@ func climbButton(label string, can bool) discord.ButtonComponent {
 	return b
 }
 
-// itemMessage is rung n's own card: its perch large with its name and
-// lore, what it costs against the purse, what it does in subtext, and the
+// itemMessage is rung n's own card: its perch large, its story and what
+// it does, what it costs and the member's name as it will look, and the
 // way back to the stair with, when it's the next rung, the button to
 // climb.
 func (st *state) itemMessage(m *member, n int64) (discord.MessageCreate, error) {
-	name, icon := perch(n)
-	it := Item{Icon: icon, Name: name, Lore: perchLore[min(int(n), len(perchLore))-1], Kind: fmt.Sprintf("rung %d", n),
-		Price: rungPrice(st.potDay, n-1), Purse: m.purse}
-	switch {
-	case n <= m.rung:
-		it.State = "climbed"
-	case n == m.rung+1:
-		it.State = "next"
-	}
+	p := perchOf(n)
+	look := lookOf(n)
+	price := rungPrice(st.potDay, n-1)
+	it := Item{Icon: p.icon, Kind: fmt.Sprintf("rung %d", n), Name: p.name, What: p.what, Story: p.story, Effect: p.effect,
+		Price: price, Short: n > m.rung && m.purse < price, You: or(m.name, "you"), Look: &look}
 	pic, err := ItemScreen(it)
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
-	alt := fmt.Sprintf("the %s, rung %d of the rookery stair: %s. it costs %s pp", name, n, it.Lore, grouped(it.Price/unit))
-	what := fmt.Sprintf("-# rung %d of the prestige ladder: /pp names the highest rung you've climbed. each rung costs twice the one before and what you pay is burned", n)
+	alt := fmt.Sprintf("the %s, rung %d of the rookery stair, %s pp: %s. %s. effect: %s", p.name, n, grouped(price/unit), p.what, p.story, p.effect)
+	where := fmt.Sprintf("-# you hold %s pp", grouped(m.purse/unit))
+	switch {
+	case n <= m.rung:
+		where = "-# you've climbed this one"
+	case n > m.rung+1:
+		prev, _ := perch(n - 1)
+		where += "; the " + prev + " comes first"
+	}
+	note := where + "\n-# rungs are climbed in order, each costs twice the one before and what you pay is burned"
 	row := discord.NewActionRow(discord.NewSecondaryButton("◂ shop", "pp:back"))
-	if it.State == "next" {
-		row = row.AddComponents(climbButton("climb · "+grouped(it.Price/unit)+" pp", m.purse >= it.Price))
+	if n == m.rung+1 {
+		row = row.AddComponents(climbButton("climb · "+grouped(price/unit)+" pp", m.purse >= price))
 	}
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", what,
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", note,
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
 			row)},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},

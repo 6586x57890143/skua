@@ -128,6 +128,12 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 			return err
 		}
 		return e.CreateMessage(msg)
+	case "pp:buffs":
+		msg, err := m.buffsMessage(*guild, e.Member())
+		if err != nil {
+			return err
+		}
+		return e.CreateMessage(msg)
 	case "pp:reroll":
 		return m.rerollPicked(*guild, e)
 	case "pp:shop", "pp:climb", "pp:look", "pp:back":
@@ -230,7 +236,8 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	picked := mem.classSeason != -1
 	line := "-# " + dayLine(now)
 	if mem.rung > 0 {
-		line += fmt.Sprintf(" · prestige rung %d", mem.rung)
+		name, _ := perch(mem.rung)
+		line += fmt.Sprintf(" · on the %s, rung %d", name, mem.rung)
 	}
 	s.mu.Unlock()
 	if !picked {
@@ -265,6 +272,7 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 // the icon of what it opens.
 func menuRows(class string, admin bool) []discord.ContainerSubComponent {
 	act := discord.NewActionRow(withIcon(discord.NewSecondaryButton("class", "pp:class"), classIcons[class]),
+		withIcon(discord.NewSecondaryButton("buffs", "pp:buffs"), "hearth"),
 		withIcon(discord.NewSecondaryButton("share", "pp:show"), "bell"))
 	if admin {
 		act = act.AddComponents(withIcon(discord.NewSecondaryButton("treasury", "pp:treasury"), "pot"))
@@ -324,8 +332,8 @@ func (m *Module) sheet(s *server, mem *member, guild, user snowflake.ID, today i
 	vigor, phase := b.Vigor(mem.day, m.st.pools(guild, user, today))
 	season, week := b.Season(today)
 	sh := Sheet{
-		Portrait: Portrait(ClassOf(mem.class)),
-		Class:    ClassOf(mem.class), Level: l, Into: into, Need: need, Total: mem.total, Purse: mem.purse,
+		Portrait: Portrait(ClassOf(mem.class)), Rung: mem.rung,
+		Class: ClassOf(mem.class), Level: l, Into: into, Need: need, Total: mem.total, Purse: mem.purse,
 		Vigor: vigor, Phase: phase, Season: season, Week: week, Held: len(mem.quests),
 	}
 	for _, w := range []struct {

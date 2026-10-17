@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/6586x57890143/skua/internal/pixel"
 )
@@ -54,12 +55,26 @@ func TestPanes(t *testing.T) {
 		high = append(high, Rung{N: n, Icon: icon, Name: name, Price: rungPrice(pd, n-1), Held: n < 20, Next: n == 20})
 	}
 	save("shop_high.jpg", shopCanvas(high, 9999999999*unit, rungPrice(pd, 19), "perch_nameless", "a perch nobody built"))
-	for n := int64(1); n <= int64(len(perchLore)); n++ {
-		name, icon := perch(n)
-		state := []string{"climbed", "next", ""}[min(n-1, 2)]
-		save(fmt.Sprintf("item_%d.jpg", n), itemCanvas(Item{Icon: icon, Name: name, Lore: perchLore[n-1], Kind: fmt.Sprintf("rung %d", n),
-			Price: rungPrice(pd, n-1), Purse: 2000 * unit, State: state}))
+	// Every rung's card, its name as it will look on the longest name a
+	// member can have, and the counted rungs past the last perch.
+	for n := int64(1); n <= int64(len(perches))+3; n++ {
+		p, look := perchOf(n), lookOf(n)
+		save(fmt.Sprintf("item_%d.jpg", n), itemCanvas(Item{Icon: p.icon, Kind: fmt.Sprintf("rung %d", n), Name: p.name,
+			What: p.what, Story: p.story, Effect: p.effect, Price: rungPrice(pd, n-1), Short: n > 3, You: names[n%3*3], Look: &look}))
 	}
+	var named []BoardRow
+	for n := range int64(10) {
+		named = append(named, BoardRow{Place: int(n) + 1, Icon: icons[n], Name: names[n], Rung: n, Class: Classes[n%8].Name(), Value: "lv 9", You: n == 4})
+	}
+	save("board_looks.jpg", boardCanvas(named[:preseasonRows], nil, "", "2 nov"))
+	save("board_looks_season.jpg", boardCanvas(named, named, "season 1", ""))
+
+	save("buffs.jpg", buffCanvas("heavywinds", []BuffInfo{
+		{Icon: "crest", Name: "crest", Effect: "+10%", How: "wear this server's tag as yours", On: true},
+		{Icon: "banner", Name: "banner", Effect: "+10%", How: "put .gg/melted in your custom status"},
+		{Icon: "plume", Name: "plume", Effect: "+5%", How: "boost the server; it lasts while you boost", On: true, Left: 50 * time.Hour},
+		{Icon: "hearth", Name: "hearth", Effect: "+5 to 15%", How: "lit for all when the server beats its usual day", Off: "unlit"},
+	}))
 
 	save("journal.jpg", journalCanvas("heavywinds", []JournalRow{
 		{"2026-10-16", "pot", "a day's earning", 612 * unit}, {"2026-10-16", "compass", "great quest", 392 * unit},
@@ -74,14 +89,14 @@ func TestPanes(t *testing.T) {
 		Supply: 1830400 * unit, Burned: 7, Rows: 12044, Head: "3fa9c1d2", Backstop: true}))
 }
 
-// Every rung's lore fits its card.
-func TestPerchLore(t *testing.T) {
-	if len(perchLore) != len(perchNames) {
-		t.Fatalf("%d lores for %d perches", len(perchLore), len(perchNames))
-	}
-	for i, l := range perchLore {
-		if n := len(pixel.Wrap(l, 368-156)); n > 6 {
-			t.Errorf("%s's lore runs to %d lines", perchNames[i], n)
+// Every rung has its words, and each says what it does.
+func TestPerches(t *testing.T) {
+	for _, p := range perches {
+		if p.what == "" || p.story == "" || p.effect == "" || p.icon == "" {
+			t.Errorf("%s is missing its words", p.name)
 		}
+	}
+	if perchOf(0) != perches[0] || perchOf(99) != perches[len(perches)-1] {
+		t.Error("rungs off the stair don't clamp to it")
 	}
 }

@@ -69,6 +69,7 @@ func (m *Module) boardMessage(guild, user snowflake.ID) (discord.MessageCreate, 
 	var users []snowflake.ID
 	var totals, seasons []int64
 	names, icons, classes := map[snowflake.ID]string{}, map[snowflake.ID]string{}, map[snowflake.ID]string{}
+	rungs := map[snowflake.ID]int64{}
 	for u, mem := range s.members {
 		users = append(users, u)
 		totals = append(totals, mem.total)
@@ -78,6 +79,7 @@ func (m *Module) boardMessage(guild, user snowflake.ID) (discord.MessageCreate, 
 		}
 		seasons = append(seasons, pp)
 		names[u], icons[u], classes[u] = or(mem.name, "someone"), classIcons[ClassOf(mem.class).Key], ClassOf(mem.class).Name()
+		rungs[u] = mem.rung
 	}
 	s.mu.Unlock()
 
@@ -85,7 +87,7 @@ func (m *Module) boardMessage(guild, user snowflake.ID) (discord.MessageCreate, 
 	rows := func(board []standing, n int, value func(standing) string, gold bool) []BoardRow {
 		var out []BoardRow
 		for _, st := range boardTop(board, user, n) {
-			out = append(out, BoardRow{Place: st.place, Icon: icons[st.user], Name: names[st.user], Class: classes[st.user],
+			out = append(out, BoardRow{Place: st.place, Icon: icons[st.user], Name: names[st.user], Rung: rungs[st.user], Class: classes[st.user],
 				Value: value(st), You: st.user == user, ValueIsGold: gold})
 		}
 		return out

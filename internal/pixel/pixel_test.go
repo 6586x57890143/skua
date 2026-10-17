@@ -15,7 +15,7 @@ func TestPalette(t *testing.T) {
 		t.Fatalf("%d colours don't fit an indexed PNG", len(Palette))
 	}
 	seen := map[uint8]bool{}
-	for _, i := range append([]uint8{Ink, Dim, Shadow, Bone, Gold, Green, Red, Ember, Line, Glove, Yellow, Blue, Crimson, lit[Yellow], lit[Blue], lit[Crimson], shade[Yellow], shade[Blue], shade[Crimson]}, Sky[:]...) {
+	for _, i := range append([]uint8{Ink, Dim, Shadow, Bone, Gold, Green, Red, Ember, Line, Glove, Slate, Glass, Bronze, Gilt, Yellow, Blue, Crimson, lit[Yellow], lit[Blue], lit[Crimson], shade[Yellow], shade[Blue], shade[Crimson]}, Sky[:]...) {
 		if seen[i] {
 			t.Errorf("ink %d is used twice", i)
 		}

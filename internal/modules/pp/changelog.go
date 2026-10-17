@@ -11,6 +11,15 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.6.0",
+	Date:    "2026-10-17",
+	Balance: "69bb55",
+	Lines: []string{
+		"each rung of the rookery stair now changes how your name looks on every board and on your status: bold, then slate, then chitin red with your perch, then a glass plate, a bronze one and gilt",
+		"the shop prices everything in pp, and each rung opens its own card with its story and what it does",
+		"the buffs button explains every buff, what it adds and how you come by it",
+	},
+}, {
 	Version: "0.5.1",
 	Date:    "2026-10-17",
 	Balance: "b9d09e",

@@ -142,6 +142,19 @@ taken from the environment, is said out loud before it is used.
   application emoji at eight, so a button and a screen match. An icon is centred on its
   grid to the nearest cell (`pixel`'s tests hold it), and set beside text it starts two
   pixels above the line so the two share a middle.
+- `/pp`'s screens are typeset in one family of four pixel faces (`internal/pixel/faces.go`),
+  each with one job:
+  - **bold:** tabs, headings and a word that leads a line.
+  - **regular:** values and plain text.
+  - **light:** a label and the quiet words beside a value.
+  - **serif:** the story an item tells.
+
+  Regular and bold are monospaced, so figures line up. Light and serif are set
+  proportionally. A member's name is set in the look their rung of the rookery stair
+  bought (`lookOf`), wherever others read it.
+- An item's card reads like an old game's item screen: a plain line on what it is, its
+  story with only a hint of poetry, and an `effect` line saying exactly what it does in
+  the game.
 - `/pp`'s screens are windows on a 384 by 216 canvas. A window's frame is never broken:
   its tab sits in the corner inside the frame, the dark rule thickening into it.
   Text on a screen is bounded by the room it has, measured and not assumed: a line

@@ -11,7 +11,8 @@ import (
 
 // layout is what's wrong with how c is laid out: anything set off a
 // window's parchment or touching its rule, and anything overlapping
-// anything else. A tab is the one mark that meets the rule, by design.
+// anything else but the ground it's set on. A tab is the one mark that
+// meets the rule, by design.
 func layout(c *pixel.Canvas) []string {
 	var bad []string
 	for i, m := range c.Marks {
@@ -27,6 +28,10 @@ func layout(c *pixel.Canvas) []string {
 			bad = append(bad, fmt.Sprintf("%q at %v isn't on parchment", m.What, m.R))
 		}
 		for _, o := range c.Marks[i+1:] {
+			// A ground is under what's set on it, but never under another.
+			if (m.What == "ground") != (o.What == "ground") {
+				continue
+			}
 			if m.R.Overlaps(o.R) {
 				bad = append(bad, fmt.Sprintf("%q at %v overlaps %q at %v", m.What, m.R, o.What, o.R))
 			}
@@ -73,11 +78,11 @@ func TestFitPair(t *testing.T) {
 	for _, c := range []struct{ l, r, wl, wr string }{
 		{"raven sorcerer", "hedge sorcerer", "raven sorc", "hedge sorc"},
 		{"raven sorcerer", "magus", "raven sorcerer", "magus"},
-		{"crane knight", "lord commander", "crane knight", "lord cmdr"},
+		{"crane knight", "lord commander", "crane knight", "lord commander"},
 		{"crane knight", "banneret", "crane knight", "banneret"},
 		{"albatross wanderer", "storm wanderer", "albatross wndr", "storm wndr"},
 	} {
-		if l, r := fitPair(c.l, c.r, width); l != c.wl || r != c.wr {
+		if l, r := fitPair(c.l, pixel.Regular, c.r, pixel.Serif, width); l != c.wl || r != c.wr {
 			t.Errorf("%s over %s fits as %s over %s", c.l, c.r, l, r)
 		}
 	}

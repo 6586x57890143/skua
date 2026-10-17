@@ -24,6 +24,9 @@ var (
 	// the windows and a tab's ground; Glove is the cursor's white and a
 	// tab's letters.
 	Line, Glove uint8
+	// Slate, Glass, Bronze and Gilt are the rookery stair's: a name's ink
+	// and the plates set behind a line.
+	Slate, Glass, Bronze, Gilt uint8
 	// Yellow, Blue and Crimson are the gauges, after Tactics Ogre's, each
 	// lit along its top row and shaded along its foot.
 	Yellow, Blue, Crimson uint8
@@ -64,6 +67,10 @@ func init() {
 	Ember = add(rgb(0xA8744E))  // brand.ColorEnded
 	Line = add(rgb(0x4D4B3C))
 	Glove = add(rgb(0xF2EEE2))
+	Slate = add(rgb(0x4A5666))
+	Glass = add(rgb(0xE4E8DE))
+	Bronze = add(rgb(0xC49A5C))
+	Gilt = add(rgb(0xF0C35A))
 	gauge := func(top, mid, foot uint32) uint8 {
 		i := add(rgb(mid))
 		lit[i], shade[i] = add(rgb(top)), add(rgb(foot))
@@ -103,6 +110,22 @@ func New(w, h int) *Canvas {
 	c := &Canvas{Paletted: image.NewPaletted(image.Rect(0, 0, w, h), Palette)}
 	c.Fill(c.Rect, Line)
 	return c
+}
+
+// Ground paints r in ink i as a ground for what is set on it: a plate
+// behind a line. Things may sit on a ground, but grounds don't overlap
+// each other.
+func (c *Canvas) Ground(r image.Rectangle, i uint8) {
+	c.Fill(r, i)
+	c.mark("ground", r)
+}
+
+// Outline draws a one pixel rule in ink i just inside r.
+func (c *Canvas) Outline(r image.Rectangle, i uint8) {
+	c.Fill(image.Rect(r.Min.X, r.Min.Y, r.Max.X, r.Min.Y+1), i)
+	c.Fill(image.Rect(r.Min.X, r.Max.Y-1, r.Max.X, r.Max.Y), i)
+	c.Fill(image.Rect(r.Min.X, r.Min.Y, r.Min.X+1, r.Max.Y), i)
+	c.Fill(image.Rect(r.Max.X-1, r.Min.Y, r.Max.X, r.Max.Y), i)
 }
 
 // mark notes what was set over r, when anything was.
@@ -148,56 +171,84 @@ const Advance = 7
 // LineHeight is how far apart lines of text sit.
 const LineHeight = 13
 
-// ink reports whether the face's glyph for r has ink at gx, gy of its cell.
-func ink(r rune, gx, gy int) bool {
-	g, ok := face[r]
-	if !ok || gy < g.top || gy >= g.top+len(g.rows) {
-		return false
-	}
-	row := g.rows[gy-g.top]
-	return gx < len(row) && row[gx] == '#'
-}
-
-// Text sets s with its top left at x, y in ink i over a drop shadow, and
-// returns where it ends. Past max characters it is cut with "..."; max 0
-// means no limit.
+// Text sets s in Regular with its top left at x, y in ink i over a drop
+// shadow, and returns where it ends. Past max characters it is cut with
+// "..."; max 0 means no limit.
 func (c *Canvas) Text(x, y int, s string, i uint8, max int) int {
-	return c.text(x, y, s, i, Bone, max, Advance)
+	return c.text(Regular, x, y, s, i, Bone, max, 0)
 }
 
 // Shaded sets s like Text, over a shadow in ink shadow: for text on a
 // dark ground, where the khaki shadow would glare.
 func (c *Canvas) Shaded(x, y int, s string, i, shadow uint8) int {
-	return c.text(x, y, s, i, shadow, 0, Advance)
+	return c.PrintOn(Regular, x, y, s, i, shadow)
 }
 
-// Fit sets s like Text within width: at full spacing if it fits, a cell
+// Fit sets s like Text within width.
+func (c *Canvas) Fit(x, y int, s string, i uint8, width int) int {
+	return c.FitIn(Regular, x, y, s, i, width)
+}
+
+// Print sets s in f with its top left at x, y in ink i, over the khaki
+// shadow when f casts one, and returns where it ends.
+func (c *Canvas) Print(f *Face, x, y int, s string, i uint8) int {
+	shadow := i
+	if f.shadow {
+		shadow = Bone
+	}
+	return c.text(f, x, y, s, i, shadow, 0, 0)
+}
+
+// PrintOn sets s in f over a shadow in ink shadow, for a ground the khaki
+// shadow would glare on.
+func (c *Canvas) PrintOn(f *Face, x, y int, s string, i, shadow uint8) int {
+	return c.text(f, x, y, s, i, shadow, 0, 0)
+}
+
+// FitIn sets s in f within width: at full spacing if it fits, a cell
 // tighter if that fits, and cut with "..." at the tighter spacing only
 // past that.
-func (c *Canvas) Fit(x, y int, s string, i uint8, width int) int {
-	n := len(Plain(s))
-	if n*Advance <= width {
-		return c.Text(x, y, s, i, 0)
+func (c *Canvas) FitIn(f *Face, x, y int, s string, i uint8, width int) int {
+	if f.Width(s) <= width {
+		return c.Print(f, x, y, s, i)
 	}
-	return c.text(x, y, s, i, Bone, width/(Advance-1), Advance-1)
+	shadow := i
+	if f.shadow {
+		shadow = Bone
+	}
+	s = Plain(s)
+	for k := len(s); k > 0; k-- {
+		cut := s
+		if k < len(s) {
+			cut = strings.TrimSpace(s[:k]) + "..."
+		}
+		if f.width(cut, 1) <= width {
+			return c.text(f, x, y, cut, i, shadow, 0, 1)
+		}
+	}
+	return x
 }
 
-// text sets s in ink i over a shadow in ink shadow, or none if shadow is
-// the same as i, adv cells a character.
-func (c *Canvas) text(x, y int, s string, i, shadow uint8, max, adv int) int {
+// text sets s in f in ink i over a shadow in ink shadow, or none if shadow
+// is the same as i, each character tight columns closer than f sets it.
+// Past max characters it is cut with "...".
+func (c *Canvas) text(f *Face, x, y int, s string, i, shadow uint8, max, tight int) int {
 	s = Plain(s)
 	if max > 0 && len(s) > max {
 		s = strings.TrimSpace(s[:max-3]) + "..."
 	}
 	var box image.Rectangle
-	for n, r := range s {
-		at := x + n*adv
-		for gy := range LineHeight {
-			for gx := range Advance {
-				if !ink(r, gx, gy) {
+	pen := x
+	for _, r := range s {
+		left, adv := f.span(r)
+		at := pen - left
+		pen += adv - tight
+		for gy := range f.Height {
+			for gx := range f.Advance {
+				if !f.ink(r, gx, gy) {
 					continue
 				}
-				if p := image.Pt(at+gx+1, y+gy+1); shadow != i && p.In(c.Rect) && !ink(r, gx+1, gy+1) {
+				if p := image.Pt(at+gx+1, y+gy+1); shadow != i && p.In(c.Rect) && !f.ink(r, gx+1, gy+1) {
 					c.SetColorIndex(p.X, p.Y, shadow)
 					box = box.Union(image.Rect(p.X, p.Y, p.X+1, p.Y+1))
 				}
@@ -209,36 +260,11 @@ func (c *Canvas) text(x, y int, s string, i, shadow uint8, max, adv int) int {
 		}
 	}
 	c.mark("text "+s, box)
-	return x + len(s)*adv
+	return pen
 }
 
-// Wrap breaks s into lines of at most width pixels at full spacing,
-// between words; a word longer than a line is cut.
-func Wrap(s string, width int) []string {
-	n := max(width/Advance, 1)
-	var lines []string
-	line := ""
-	for _, w := range strings.Fields(Plain(s)) {
-		switch {
-		case line == "":
-			line = w
-		case len(line)+1+len(w) <= n:
-			line += " " + w
-			continue
-		default:
-			lines = append(lines, line)
-			line = w
-		}
-		for len(line) > n {
-			lines = append(lines, line[:n])
-			line = line[n:]
-		}
-	}
-	if line != "" {
-		lines = append(lines, line)
-	}
-	return lines
-}
+// Wrap breaks s into lines at most width wide set in Regular.
+func Wrap(s string, width int) []string { return Regular.Wrap(s, width) }
 
 // Plain is s in what the face has, printable ASCII, on one line.
 func Plain(s string) string {
@@ -279,10 +305,10 @@ func (c *Canvas) Bar(r image.Rectangle, n, d int64, i uint8) {
 // names its panels. The frame stays whole. What the window holds starts
 // TabDrop below its top.
 func (c *Canvas) Tab(r image.Rectangle, s string) {
-	tab := image.Rect(r.Min.X+4, r.Min.Y+4, r.Min.X+4+len(Plain(s))*Advance+4, r.Min.Y+TabDrop)
+	tab := image.Rect(r.Min.X+4, r.Min.Y+4, r.Min.X+4+Bold.Width(s)+3, r.Min.Y+TabDrop)
 	c.Fill(tab, Line)
 	n := len(c.Marks)
-	c.text(tab.Min.X+2, tab.Min.Y-1, s, Glove, Glove, 0, Advance)
+	c.PrintOn(Bold, tab.Min.X+2, tab.Min.Y-1, s, Glove, Glove)
 	c.Marks = append(c.Marks[:n], Mark{"tab " + s, tab})
 }
 

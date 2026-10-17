@@ -9,6 +9,7 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
+	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/core/coretest"
 	"github.com/6586x57890143/skua/internal/pixel"
@@ -147,7 +148,7 @@ func TestShopCards(t *testing.T) {
 		return got, err
 	}
 	got, err := press("pp:look", "3")
-	if err != nil || !strings.Contains(got, "rung 3 of the prestige ladder") || !strings.Contains(got, "pp:climb") || !strings.Contains(got, "pp:back") {
+	if err != nil || !strings.Contains(got, "rungs are climbed in order") || !strings.Contains(got, "pp:climb") || !strings.Contains(got, "pp:back") {
 		t.Errorf("the next rung's card: %v %s", err, got)
 	}
 	if got, err := press("pp:look", "1"); err != nil || strings.Contains(got, "pp:climb") {
@@ -176,9 +177,33 @@ func TestMenuRows(t *testing.T) {
 			}
 		}
 	}
-	for _, icon := range []string{"compass", "laurel", "scales", "quill", "bell", "pot", "lantern", "envelope"} {
+	for _, icon := range []string{"compass", "laurel", "scales", "quill", "hearth", "bell", "pot", "lantern", "envelope"} {
 		if _, ok := pixel.Icons[icon]; !ok {
 			t.Errorf("a button wears %s, which isn't drawn", icon)
 		}
+	}
+}
+
+// The buffs button explains every buff, lighting the ones worn, and the
+// hearth names its tier while it's lit.
+func TestBuffsCard(t *testing.T) {
+	m := testModule(&fakeDB{})
+	m.info = func(snowflake.ID) (snowflake.ID, string) { return 0, "Melted" }
+	s := m.st.server(guild)
+	mem := m.st.member(s, guild, old(1), DayOf(t0))
+	mem.wear.Crest = true
+	s.lit = 2
+	buffs := m.st.buffList(s, mem, "Melted")
+	if len(buffs) != 4 || !buffs[0].On || buffs[1].On || buffs[1].How != "put .gg/melted in your custom status" || buffs[3].Name != "hearth ii" || !buffs[3].On {
+		t.Errorf("buffs: %+v", buffs)
+	}
+	e, sent := coretest.Button(t, "pp:buffs", func(p map[string]any) {
+		p["member"].(map[string]any)["user"] = map[string]any{"id": old(1).String(), "username": "member"}
+	})
+	if err := m.press(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	if got := js((*sent)[0]); !strings.Contains(got, "never to quests") || !strings.Contains(got, "crest, hearth ii worn") {
+		t.Errorf("the buffs card: %s", got)
 	}
 }
