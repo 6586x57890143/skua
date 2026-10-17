@@ -2,6 +2,7 @@ package pixel
 
 import (
 	"image"
+	"maps"
 	"testing"
 )
 
@@ -11,7 +12,9 @@ func TestIconsSitOnTheirGrid(t *testing.T) {
 	if len(Icons) == 0 {
 		t.Fatal("no icons")
 	}
-	for name, g := range Icons {
+	all := maps.Clone(Icons)
+	maps.Copy(all, screenIcons)
+	for name, g := range all {
 		if len(g) != IconCells {
 			t.Errorf("%s: %d rows", name, len(g))
 			continue

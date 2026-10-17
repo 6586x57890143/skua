@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"slices"
+	"strings"
 )
 
 // Icons are 16 by 16 cell pictures in the style of an old RPG's item
@@ -436,6 +437,59 @@ var Icons = map[string][]string{
 	},
 }
 
+// perchGrid is the perch every rung of the rookery stair is drawn from, in
+// wood.
+var perchGrid = []string{
+	"................",
+	"................",
+	"................",
+	".kkkkkkkkkkkkkk.",
+	"kllKKKKKKKKKJJIk",
+	"kKJJJJJJJJJJJIIk",
+	".kkkkkkKJkkkkkk.",
+	"......kKJk......",
+	"......kKJk......",
+	"......kKJk......",
+	"......kKJk......",
+	"....kkKKJIkk....",
+	"...kKKKJJJIIk...",
+	"...kkkkkkkkkk...",
+	"................",
+	"................",
+}
+
+// screenIcons are drawn on screens like Icons but kept apart from them:
+// screen art only, never application emoji, which have an upload budget.
+var screenIcons = map[string][]string{}
+
+// Perches are the rookery stair's rungs in order, the perch in each one's
+// material: tallow, shale, chitin, pale glass, a drowned bell's bronze,
+// and past them one nobody made.
+var Perches = []string{"perch_tallow", "perch_shale", "perch_chitin", "perch_glass", "perch_bell", "perch_nameless"}
+
+// perchInks is the wood each perch's material takes the place of.
+var perchInks = map[string]string{
+	"perch_tallow": "pqrw", "perch_shale": "EFGH", "perch_chitin": "LMNO",
+	"perch_glass": "TUVW", "perch_bell": "PQRS", "perch_nameless": "ABCD",
+}
+
+func init() {
+	for name, inks := range perchInks {
+		g := make([]string, len(perchGrid))
+		for y, row := range perchGrid {
+			b := []byte(row)
+			for x, r := range b {
+				if i := strings.IndexByte("IJKl", r); i >= 0 {
+					b[x] = inks[i]
+				}
+			}
+			g[y] = string(b)
+		}
+		screenIcons[name] = g
+	}
+	screenIcons["perch"] = perchGrid
+}
+
 // IconCells is an icon's side.
 const IconCells = 16
 
@@ -473,7 +527,11 @@ func addIconInks() {
 // Icon draws the named icon with its top left at p; an unknown name draws
 // nothing.
 func (c *Canvas) Icon(name string, p image.Point) {
-	for y, row := range Icons[name] {
+	g, ok := Icons[name]
+	if !ok {
+		g = screenIcons[name]
+	}
+	for y, row := range g {
 		for x := range len(row) {
 			if i, ok := iconInk[row[x]]; ok {
 				if q := image.Pt(p.X+x, p.Y+y); q.In(c.Rect) {

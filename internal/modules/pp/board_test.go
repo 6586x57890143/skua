@@ -11,9 +11,10 @@ import (
 	"github.com/6586x57890143/skua/internal/core/coretest"
 )
 
-// Before the first season the board is levels alone; once a season runs
-// its race shows beside them. Each shows its top ten and, below, where the
-// member stands if they aren't among them.
+// Before the first season the board is levels alone, with where the member
+// stands; once a season runs its race shows beside them. Each shows its top
+// ten, the member's own line taking the last place when they're further
+// down.
 func TestBoard(t *testing.T) {
 	m := testModule(&fakeDB{})
 	s := m.st.server(3)
@@ -22,8 +23,22 @@ func TestBoard(t *testing.T) {
 		mem := m.st.member(s, 3, old(i+1), DayOf(t0))
 		mem.total = int64(100-i) * 1000 * unit
 		mem.season, mem.seasonPP = 1, int64(i+1)*unit
+		mem.name = "bird" + string(rune('a'+i))
 	}
 	m.st.member(s, 3, me, DayOf(t0)).total = 1 * unit
+
+	var users []snowflake.ID
+	var scores []int64
+	for u, mem := range s.members {
+		users, scores = append(users, u), append(scores, mem.total)
+	}
+	board := boardTop(rank(users, scores), me)
+	if len(board) != boardRows || board[0].user != old(1) || board[boardRows-1].user != me || board[boardRows-1].place != 13 {
+		t.Errorf("the top of the levels board: %+v", board)
+	}
+	if got := boardTop(rank(users[:3], scores[:3]), me); len(got) != 3 {
+		t.Errorf("a short board is cut to %d", len(got))
+	}
 
 	pre := time.Unix(Default.SeasonStart*86400, 0).Add(-48 * time.Hour)
 	m.now = func() time.Time { return pre }
@@ -31,20 +46,13 @@ func TestBoard(t *testing.T) {
 	if err := m.press(context.Background(), e); err != nil {
 		t.Fatal(err)
 	}
-	text := coretest.Text("", (*sent)[0].Components)
-	if !strings.Contains(text, "### levels") || strings.Contains(text, "### season") || !strings.Contains(text, "first season starts") {
-		t.Errorf("the pre-season board: %s", text)
-	}
-	if !strings.Contains(text, "1 · <@"+old(1).String()+">") || !strings.Contains(text, "further down\n13 · <@5> · level 0 ← you") || strings.Contains(text, "11 · ") {
-		t.Errorf("the levels board's rows: %s", text)
+	if card := js((*sent)[0].Components); !strings.Contains(card, "led by birda") || strings.Contains(card, "season 1") || len((*sent)[0].Files) != 1 {
+		t.Errorf("the preseason board: %s", card)
 	}
 
 	m.now = func() time.Time { return t0 }
-	text = coretest.Text("", m.boardMessage(3, me).Components)
-	if !strings.Contains(text, "### season 1") || !strings.Contains(text, "1 · <@"+old(12).String()+"> · 12 pp") {
-		t.Errorf("the season board: %s", text)
-	}
-	if got := boardLines(nil, me, nil); !strings.Contains(got, "nobody yet") {
-		t.Errorf("an empty board reads %q", got)
+	msg, err := m.boardMessage(3, me)
+	if err != nil || !strings.Contains(js(msg.Components), "season 1 board") {
+		t.Errorf("the season board: %s, %v", js(msg.Components), err)
 	}
 }

@@ -6,15 +6,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/core/coretest"
 )
 
-// A member's ledger button shows their own rows, newest first, the day
-// still open, what went to the treasury and the head they're chained
-// under; the help page shows the treasury and savings.
-func TestReceipts(t *testing.T) {
+// who is a resolved member, as an interaction carries one.
+func who(user snowflake.ID, name string) *discord.ResolvedMember {
+	return &discord.ResolvedMember{Member: discord.Member{User: discord.User{ID: user, Username: name}}}
+}
+
+// A member's journal is their own ledger lines as a screen, newest first,
+// with the day still open and what went to the treasury today; admins get
+// the treasury's card, which nobody else can open.
+func TestJournalAndTreasury(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
 	m := testModule(db)
@@ -22,9 +28,9 @@ func TestReceipts(t *testing.T) {
 	s := m.st.server(g)
 	a := old(1)
 
-	empty, err := m.receipts(ctx, g, a)
-	if err != nil || !strings.Contains(js(empty.Components), "nothing yet") {
-		t.Fatalf("a member with no rows saw %s, %v", js(empty.Components), err)
+	empty, err := m.journal(ctx, g, who(a, "steve"))
+	if err != nil || len(empty.Files) != 1 || strings.Contains(js(empty.Components), "went to the treasury") {
+		t.Fatalf("a member with no lines: %s, %v", js(empty.Components), err)
 	}
 
 	s.mu.Lock()
@@ -37,21 +43,41 @@ func TestReceipts(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.mu.Lock()
-	s.append(a, DayOf(t0)+1, reasonClass, -2000, nil) // chained, not yet written
+	s.append(a, DayOf(t0)+1, reasonShop, -2000, []int64{1}) // chained, not yet written
 	s.mu.Unlock()
 
-	msg, err := m.receipts(ctx, g, a)
-	if err != nil {
-		t.Fatal(err)
+	msg, err := m.journal(ctx, g, who(a, "steve"))
+	if err != nil || len(msg.Files) != 1 || !strings.Contains(js(msg.Components), "went to the treasury") {
+		t.Fatalf("the journal: %s, %v", js(msg.Components), err)
 	}
-	card := js(msg.Components)
-	for _, want := range []string{"today", "open", "class", "-20", "a day", dayDate(DayOf(t0)), "to the treasury", s.headHex()[:16]} {
-		if !strings.Contains(card, want) {
-			t.Errorf("the ledger card is missing %q: %s", want, card)
+	for reason, want := range map[string]string{
+		reasonLabour: "a day's earning", reasonClass: "a new path", reasonPrize: "a weekly prize",
+		reasonGrant: "a grant", reasonOpen: "what you held",
+	} {
+		if _, what := journalLine(reason, nil); what != want {
+			t.Errorf("%s reads %q", reason, what)
 		}
 	}
-	if strings.Index(card, "class") > strings.Index(card, "a day") {
-		t.Error("the ledger isn't newest first")
+	if _, what := journalLine(reasonQuest, []int64{2}); what != "golden quest" {
+		t.Errorf("a golden quest reads %q", what)
+	}
+	if _, what := journalLine(reasonShop, []int64{1}); what != "tallow perch" {
+		t.Errorf("the first rung reads %q", what)
+	}
+
+	// The treasury card, for admins.
+	tr, err := m.treasuryMessage(ctx, g)
+	if err != nil || len(tr.Files) != 1 || !strings.Contains(js(tr.Components), "the treasury holds") {
+		t.Fatalf("the treasury: %s, %v", js(tr.Components), err)
+	}
+	admin := false
+	m.Admin = func(discord.Interaction) bool { return admin }
+	if err := m.press(ctx, firstOf(coretest.Button(t, "pp:treasury", nil))); err == nil {
+		t.Error("a member opened the treasury")
+	}
+	admin = true
+	if err := m.press(ctx, firstOf(coretest.Button(t, "pp:treasury", nil))); err != nil {
+		t.Errorf("an admin couldn't open the treasury: %v", err)
 	}
 
 	r := js(m.Report(g).Rows)
@@ -62,9 +88,9 @@ func TestReceipts(t *testing.T) {
 		t.Errorf("an empty server's savings read %q", got)
 	}
 
-	// The button routes to it.
+	// The journal button routes to it.
 	e, sent := coretest.Button(t, "pp:ledger", nil)
 	if err := m.press(ctx, e); err != nil || len(*sent) != 1 {
-		t.Errorf("the ledger button: %v, %d replies", err, len(*sent))
+		t.Errorf("the journal button: %v, %d replies", err, len(*sent))
 	}
 }
