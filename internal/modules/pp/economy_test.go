@@ -521,14 +521,6 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 	return o
 }
 
-func median(xs []int64) int64 {
-	if len(xs) == 0 {
-		return 0
-	}
-	s := slices.Clone(xs)
-	slices.Sort(s)
-	return s[len(s)/2]
-}
 
 // gini is the Gini coefficient of xs.
 func gini(xs []int64) float64 {
