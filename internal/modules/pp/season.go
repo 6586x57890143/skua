@@ -110,7 +110,7 @@ func drand(ctx context.Context, round int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("drand: round %d: %s", round, res.Status)
 	}

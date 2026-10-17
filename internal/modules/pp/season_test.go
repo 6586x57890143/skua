@@ -124,11 +124,11 @@ func TestDrand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/1000":
-			fmt.Fprint(w, `{"round":1000,"randomness":"fe29","signature":"b4"}`)
+			_, _ = fmt.Fprint(w, `{"round":1000,"randomness":"fe29","signature":"b4"}`)
 		case "/7":
-			fmt.Fprint(w, `{"round":8,"randomness":"00"}`)
+			_, _ = fmt.Fprint(w, `{"round":8,"randomness":"00"}`)
 		case "/9":
-			fmt.Fprint(w, `not json`)
+			_, _ = fmt.Fprint(w, `not json`)
 		default:
 			http.NotFound(w, r)
 		}
