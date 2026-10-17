@@ -19,7 +19,7 @@ type DB interface {
 func (st *state) load(ctx context.Context, db DB) error {
 	rows, err := db.Query(ctx, `select guild_id, user_id, total, purse, season, season_pp, week, week_voice, week_chat,
 		day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, voice_min, messages,
-		day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy from pp_member`)
+		day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season from pp_member`)
 	if err != nil {
 		return err
 	}
@@ -28,7 +28,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		m := &member{}
 		if err := rows.Scan(&guild, &user, &m.total, &m.purse, &m.season, &m.seasonPP, &m.week, &m.weekAct[BoardVoice], &m.weekAct[BoardChat],
 			&m.dayN, &m.day.Voice, &m.day.Chat, &m.day.Talk, &m.day.Rested, &m.class, &m.classSeason, &m.classChanges, &m.voiceMin, &m.messages,
-			&m.dayGot, &m.buffLo, &m.buffHi, &m.day.Minutes, &m.day.Paid, &m.dayLevy); err != nil {
+			&m.dayGot, &m.buffLo, &m.buffHi, &m.day.Minutes, &m.day.Paid, &m.dayLevy, &m.granted, &m.grantSeason); err != nil {
 			rows.Close()
 			return err
 		}
@@ -38,7 +38,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		return err
 	}
 	rows, err = db.Query(ctx, `select guild_id, day, raw, history, lit, lit_before, beta_role, log_channel,
-		treasury, levy_open, levy_full, levy_days from pp_guild`)
+		treasury, levy_open, levy_full, levy_days, levy_since, grant_week, grant_week_sum from pp_guild`)
 	if err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		var guild, beta, logCh int64
 		var s server
 		if err := rows.Scan(&guild, &s.day, &s.raw, &s.history, &s.lit, &s.litBefore, &beta, &logCh,
-			&s.treasury, &s.levyOpen, &s.levyFull, &s.levyDays); err != nil {
+			&s.treasury, &s.levyOpen, &s.levyFull, &s.levyDays, &s.levySince, &s.grantWeek, &s.grantWeekSum); err != nil {
 			rows.Close()
 			return err
 		}
@@ -55,6 +55,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		into.day, into.raw, into.history, into.lit, into.litBefore = s.day, s.raw, s.history, s.lit, s.litBefore
 		into.beta, into.logChannel = snowflake.ID(beta), snowflake.ID(logCh)
 		into.treasury, into.levyOpen, into.levyFull, into.levyDays = s.treasury, s.levyOpen, s.levyFull, s.levyDays
+		into.levySince, into.grantWeek, into.grantWeekSum = s.levySince, s.grantWeek, s.grantWeekSum
 		into.mu.Unlock()
 	}
 	rows.Close()
@@ -74,6 +75,7 @@ type memberRows struct {
 	classSeason, classChanges                                    []int64
 	voiceMin, messages                                           []int64
 	dayGot, buffLo, buffHi, dayMinutes, dayPaid, dayLevy         []int64
+	granted, grantSeason                                         []int64
 	class                                                        []string
 }
 
@@ -103,6 +105,8 @@ func (r *memberRows) add(guild, user snowflake.ID, m *member) {
 	r.dayMinutes = append(r.dayMinutes, m.day.Minutes)
 	r.dayPaid = append(r.dayPaid, m.day.Paid)
 	r.dayLevy = append(r.dayLevy, m.dayLevy)
+	r.granted = append(r.granted, m.granted)
+	r.grantSeason = append(r.grantSeason, m.grantSeason)
 }
 
 // flush writes every member and server changed since the last flush, one
@@ -114,7 +118,7 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 	var ledger ledgerRows
 	took := map[*server][]entry{}
 	var guilds, days, raws, lits, before []int64
-	var treasuries, open, full []int64
+	var treasuries, open, full, since, gweek, gsum []int64
 	var levyDays [][]int64
 	var histories [][]int64
 	type mark struct {
@@ -145,6 +149,7 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			lits = append(lits, int64(s.lit))
 			before = append(before, int64(s.litBefore))
 			treasuries, open, full = append(treasuries, s.treasury), append(open, s.levyOpen), append(full, s.levyFull)
+			since, gweek, gsum = append(since, s.levySince), append(gweek, s.grantWeek), append(gsum, s.grantWeekSum)
 			levyDays = append(levyDays, append([]int64{}, s.levyDays...))
 			s.dirty = false
 			marked = append(marked, mark{s: s})
@@ -175,11 +180,11 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			)
 			insert into pp_member (guild_id, user_id, total, purse, season, season_pp, week, week_voice,
 				week_chat, day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, voice_min, messages,
-				day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy)
+				day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season)
 			select * from unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[], $5::bigint[], $6::bigint[], $7::bigint[],
 				$8::bigint[], $9::bigint[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[], $15::text[],
 				$16::bigint[], $17::bigint[], $18::bigint[], $19::bigint[],
-				$30::bigint[], $31::bigint[], $32::bigint[], $33::bigint[], $34::bigint[], $35::bigint[])
+				$30::bigint[], $31::bigint[], $32::bigint[], $33::bigint[], $34::bigint[], $35::bigint[], $36::bigint[], $37::bigint[])
 			on conflict (guild_id, user_id) do update set total = excluded.total, purse = excluded.purse, season = excluded.season,
 				season_pp = excluded.season_pp, week = excluded.week, week_voice = excluded.week_voice,
 				week_chat = excluded.week_chat, day = excluded.day, day_voice = excluded.day_voice,
@@ -187,13 +192,14 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 				class = excluded.class, class_season = excluded.class_season, class_changes = excluded.class_changes,
 				voice_min = excluded.voice_min, messages = excluded.messages,
 				day_got = excluded.day_got, buff_lo = excluded.buff_lo, buff_hi = excluded.buff_hi,
-				day_minutes = excluded.day_minutes, day_paid = excluded.day_paid, day_levy = excluded.day_levy`,
+				day_minutes = excluded.day_minutes, day_paid = excluded.day_paid, day_levy = excluded.day_levy,
+				granted = excluded.granted, grant_season = excluded.grant_season`,
 			rows.guild, rows.user, rows.total, rows.purse, rows.season, rows.seasonPP, rows.week, rows.weekVoice,
 			rows.weekChat, rows.day, rows.dayVoice, rows.dayChat, rows.dayTalk, rows.rested, rows.class, rows.classSeason,
 			rows.classChanges, rows.voiceMin, rows.messages,
 			ledger.guild, ledger.seq, ledger.user, ledger.day, ledger.reason, ledger.delta, ledger.hash, ledger.inputs,
 			ledger.off, ledger.n,
-			rows.dayGot, rows.buffLo, rows.buffHi, rows.dayMinutes, rows.dayPaid, rows.dayLevy)
+			rows.dayGot, rows.buffLo, rows.buffHi, rows.dayMinutes, rows.dayPaid, rows.dayLevy, rows.granted, rows.grantSeason)
 		if err != nil {
 			remark()
 			return 0, err
@@ -202,12 +208,14 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 	// A server's history is an array, which unnest would flatten, so
 	// servers go one statement each; there are few, and few change.
 	for i, g := range guilds {
-		_, err := db.Exec(ctx, `insert into pp_guild (guild_id, day, raw, history, lit, lit_before, treasury, levy_open, levy_full, levy_days)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		_, err := db.Exec(ctx, `insert into pp_guild (guild_id, day, raw, history, lit, lit_before, treasury, levy_open, levy_full, levy_days,
+				levy_since, grant_week, grant_week_sum)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 			on conflict (guild_id) do update set day = excluded.day, raw = excluded.raw, history = excluded.history,
 				lit = excluded.lit, lit_before = excluded.lit_before, treasury = excluded.treasury,
-				levy_open = excluded.levy_open, levy_full = excluded.levy_full, levy_days = excluded.levy_days`,
-			g, days[i], raws[i], histories[i], lits[i], before[i], treasuries[i], open[i], full[i], levyDays[i])
+				levy_open = excluded.levy_open, levy_full = excluded.levy_full, levy_days = excluded.levy_days,
+				levy_since = excluded.levy_since, grant_week = excluded.grant_week, grant_week_sum = excluded.grant_week_sum`,
+			g, days[i], raws[i], histories[i], lits[i], before[i], treasuries[i], open[i], full[i], levyDays[i], since[i], gweek[i], gsum[i])
 		if err != nil {
 			remark()
 			return 0, err

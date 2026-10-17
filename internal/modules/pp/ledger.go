@@ -22,6 +22,7 @@ const (
 	reasonLabour = "labour" // a closed day of earning
 	reasonClass  = "class"  // a class change paid for
 	reasonLevy   = "levy"   // a day's levy, into the treasury (user 0)
+	reasonGrant  = "grant"  // a grant: out of the treasury, into a purse
 )
 
 // entry is one ledger row.

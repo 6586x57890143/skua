@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -60,11 +61,18 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 	if guild == nil {
 		return errNotServer
 	}
-	switch e.Data.CustomID() {
-	case "pp:beta":
+	switch id := e.Data.CustomID(); {
+	case id == "pp:beta":
 		return m.setBeta(ctx, *guild, e)
-	case "pp:log":
+	case id == "pp:log":
 		return m.setLog(ctx, *guild, e)
+	case id == "pp:grant":
+		if m.Admin == nil || !m.Admin(e) {
+			return errNotAdmin
+		}
+		return e.Modal(grantModal())
+	case strings.HasPrefix(id, "pp:approve:"), strings.HasPrefix(id, "pp:refuse:"):
+		return m.settle(ctx, *guild, e, strings.HasPrefix(id, "pp:approve:"))
 	}
 	if !m.plays(e) {
 		return errBeta

@@ -114,6 +114,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		treasury += "full"
 	}
 	savings := m.savings(s, DayOf(m.now()))
+	grants := grantsRow(s, DayOf(m.now()))
 	s.mu.Unlock()
 	next := "none yet"
 	season, _ := m.st.b.Season(DayOf(m.now()))
@@ -139,7 +140,13 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"next seed", next},
 		{"treasury", treasury},
 		{"savings", savings},
-	}, Controls: append(m.betaControls(guild), m.logControls(guild)...)}
+		{"grants", grants},
+	}, Controls: slices.Concat(m.betaControls(guild), m.logControls(guild), m.grantControls())}
+}
+
+// Modals is the grant form.
+func (m *Module) Modals() []core.Modal {
+	return []core.Modal{{ID: grantForm, Run: m.submitGrant}}
 }
 
 // savings is how much the server's active members (seen in the last 28
