@@ -52,7 +52,7 @@ func TestLadder(t *testing.T) {
 		t.Fatal(err)
 	}
 	opened = *sent
-	if len(opened) != 1 || !strings.Contains(js(opened[0].Components), "climb to rung 3") {
+	if len(opened) != 1 || !strings.Contains(js(opened[0].Components), "climb to the chitin perch") {
 		t.Fatalf("the shop showed %v", js(opened))
 	}
 	c, _ := coretest.Button(t, "pp:climb", func(p map[string]any) {

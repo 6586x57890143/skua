@@ -39,6 +39,8 @@ type member struct {
 	// rung is their prestige rung, and dayWithheld what the open day earned
 	// past the heavy purse line and so was never minted.
 	rung, dayWithheld int64
+	// name is how they were last seen called, for the board.
+	name string
 	// quests are those held, questDay the day they were last dealt,
 	// rerollDay the day the reroll was last used, questsDone how many ever
 	// finished.
@@ -313,8 +315,15 @@ func crestOf(u discord.User, guild snowflake.ID) bool {
 // event. s.mu held.
 func seen(m *member, mem *discord.Member, u discord.User, guild snowflake.ID) {
 	m.wear.Crest = crestOf(u, guild)
+	name := u.EffectiveName()
 	if mem != nil {
 		m.wear.Plume = mem.PremiumSince != nil
+		if mem.Nick != nil && *mem.Nick != "" {
+			name = *mem.Nick
+		}
+	}
+	if name != "" && name != m.name {
+		m.name, m.dirty = name, true
 	}
 }
 

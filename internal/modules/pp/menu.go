@@ -41,7 +41,7 @@ func (m *Module) Commands() []core.Command {
 			if !m.plays(e) {
 				return errBeta
 			}
-			msg, err := m.status(*guild, e.Member(), true)
+			msg, err := m.status(*guild, e.Member(), true, m.Admin != nil && m.Admin(e))
 			if err != nil {
 				return err
 			}
@@ -96,19 +96,32 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		if err := m.pick(*guild, e.User().ID, data.Values[0]); err != nil {
 			return err
 		}
-		msg, err := m.status(*guild, e.Member(), true)
+		msg, err := m.status(*guild, e.Member(), true, m.Admin != nil && m.Admin(e))
 		if err != nil {
 			return err
 		}
 		return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...))
 	case "pp:show":
-		msg, err := m.status(*guild, e.Member(), false)
+		msg, err := m.status(*guild, e.Member(), false, false)
 		if err != nil {
 			return err
 		}
 		return e.CreateMessage(msg)
 	case "pp:board":
-		return e.CreateMessage(m.boardMessage(*guild, e.User().ID))
+		msg, err := m.boardMessage(*guild, e.User().ID)
+		if err != nil {
+			return err
+		}
+		return e.CreateMessage(msg)
+	case "pp:treasury":
+		if m.Admin == nil || !m.Admin(e) {
+			return errNotAdmin
+		}
+		msg, err := m.treasuryMessage(ctx, *guild)
+		if err != nil {
+			return err
+		}
+		return e.CreateMessage(msg)
 	case "pp:quests":
 		msg, err := m.questsMessage(*guild, e.Member())
 		if err != nil {
@@ -120,7 +133,7 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 	case "pp:shop", "pp:climb":
 		return m.shop(ctx, *guild, e, e.Data.CustomID() == "pp:climb")
 	case "pp:ledger":
-		msg, err := m.receipts(ctx, *guild, e.User().ID)
+		msg, err := m.journal(ctx, *guild, e.Member())
 		if err != nil {
 			return err
 		}
@@ -205,7 +218,7 @@ func classCard(cost, purse int64) discord.ContainerComponent {
 // status is who's screen as a message: the card, the picture and, on their
 // own copy, the buttons. It counts as a sign of life and refreshes what
 // they wear.
-func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons bool) (discord.MessageCreate, error) {
+func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons, admin bool) (discord.MessageCreate, error) {
 	now := m.now()
 	today := DayOf(now)
 	s := m.st.server(guild)
@@ -241,9 +254,9 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 		if e := brand.ComponentEmoji("pp_" + classIcons[sh.Class.Key]); e != nil {
 			class = class.WithEmoji(*e)
 		}
-		extra = append(extra, discord.NewActionRow(class, discord.NewSecondaryButton("quests", "pp:quests"), discord.NewSecondaryButton("shop", "pp:shop"), discord.NewSecondaryButton("ledger", "pp:ledger"),
+		extra = append(extra, discord.NewActionRow(class, discord.NewSecondaryButton("quests", "pp:quests"), discord.NewSecondaryButton("shop", "pp:shop"), discord.NewSecondaryButton("journal", "pp:ledger"),
 			discord.NewSecondaryButton("show the channel", "pp:show")),
-			discord.NewActionRow(discord.NewSecondaryButton("board", "pp:board")))
+			boardRow(admin))
 	}
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", line, extra...)},
