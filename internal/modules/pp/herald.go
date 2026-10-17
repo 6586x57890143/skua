@@ -122,7 +122,7 @@ func (m *Module) heads(day int64) {
 		if !ready || seq == 0 || !m.enabled(g) {
 			continue
 		}
-		closed := time.Unix((day-1)*86400, 0).UTC().Format("2006-01-02")
+		closed := dayDate(day - 1)
 		m.post(g, "ledger", fmt.Sprintf("%s is closed\n```\nrows  %s\nhead  %s\n```", closed, grouped(seq), head))
 	}
 }

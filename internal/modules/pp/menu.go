@@ -97,6 +97,12 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 			return err
 		}
 		return e.CreateMessage(msg)
+	case "pp:ledger":
+		msg, err := m.receipts(ctx, *guild, e.User().ID)
+		if err != nil {
+			return err
+		}
+		return e.CreateMessage(msg)
 	}
 	return errNotAClass
 }
@@ -209,7 +215,8 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 		if e := brand.ComponentEmoji("pp_" + classIcons[sh.Class.Key]); e != nil {
 			class = class.WithEmoji(*e)
 		}
-		extra = append(extra, discord.NewActionRow(class, discord.NewSecondaryButton("show the channel", "pp:show")))
+		extra = append(extra, discord.NewActionRow(class, discord.NewSecondaryButton("ledger", "pp:ledger"),
+			discord.NewSecondaryButton("show the channel", "pp:show")))
 	}
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", "-# "+dayLine(now), extra...)},

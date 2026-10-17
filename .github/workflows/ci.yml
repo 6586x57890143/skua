@@ -42,6 +42,8 @@ jobs:
         with:
           version: v2.14.0
       - run: scripts/coverage.sh
+      # The economy simulations, which the race tests skip.
+      - run: go test -run Economy ./internal/modules/pp/
       - uses: golang/govulncheck-action@v1
         with:
           go-version-file: go.mod
