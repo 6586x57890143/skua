@@ -143,7 +143,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"savings", savings},
 		{"grants", grants},
 		{"sinks", sinks},
-	}, Controls: slices.Concat(m.betaControls(guild), m.logControls(guild), m.grantControls())}
+	}, Controls: slices.Concat(m.betaControls(guild), m.logControls(guild), m.selfieControls(guild), m.grantControls())}
 }
 
 // Modals is the grant form.
@@ -200,8 +200,10 @@ func (m *Module) OnEvent(ev bot.Event) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		now := m.now()
-		seen(m.st.member(s, e.GuildID, msg.Author.ID, DayOf(now)), msg.Member, msg.Author, e.GuildID)
+		mem := m.st.member(s, e.GuildID, msg.Author.ID, DayOf(now))
+		seen(mem, msg.Member, msg.Author, e.GuildID)
 		m.st.chat(s, e.GuildID, msg.Author.ID, msg.Content, now)
+		m.st.selfie(s, mem, msg, now)
 	case *events.GuildVoiceStateUpdate:
 		s := m.st.server(e.VoiceState.GuildID)
 		s.mu.Lock()
@@ -277,6 +279,7 @@ func (m *Module) tick(ctx context.Context, last *int64) {
 		*last = day
 	}
 	m.postCheckpoints()
+	m.checkSelfies(ctx)
 	m.seasonTick(ctx, now)
 }
 

@@ -85,6 +85,12 @@ type Balance struct {
 	QuestPP   [3]int64
 	QuestOdds [3]uint64
 	QuestHold int
+	// QuestKinds are what each tier can deal, drawn evenly: a task or a
+	// few, each counted from when the quest was dealt. A good quest asks
+	// about a core member's day; a rarer one asks more, but less than it
+	// pays more, so drawing one is luck. Some golden ones ask for
+	// something odd instead.
+	QuestKinds [3][]QuestKind
 
 	// Classes: the first pick of a season is free. Each change after it
 	// costs ClassBase plus ClassPerLevel a level, doubled for every change
@@ -101,7 +107,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.4.0",
+	Version: "0.5.0",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -143,6 +149,22 @@ var Default = Balance{
 	QuestPP:   [3]int64{250 * unit, 400 * unit, 750 * unit},
 	QuestOdds: [3]uint64{16, 3, 1},
 	QuestHold: 3,
+	QuestKinds: [3][]QuestKind{
+		{
+			{Icon: "campfire", Tasks: []Task{{taskVoice, 30}}},
+			{Icon: "quill", Tasks: []Task{{taskTalk, 25}}},
+		},
+		{
+			{Icon: "compass", Tasks: []Task{{taskVoice, 20}, {taskTalk, 17}}},
+			{Icon: "campfire", Tasks: []Task{{taskVoice, 40}}},
+			{Icon: "quill", Tasks: []Task{{taskTalk, 33}}},
+		},
+		{
+			{Icon: "lantern", Tasks: []Task{{taskVoice, 18}, {taskTalk, 15}, {taskHearth, 10}}},
+			{Icon: "quill", Tasks: []Task{{taskTalk, 45}}},
+			{Icon: "mirror", Tasks: []Task{{taskSelfie, 1}}},
+		},
+	},
 
 	ClassBase:     200 * unit,
 	ClassPerLevel: 50 * unit,

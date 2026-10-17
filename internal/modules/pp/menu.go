@@ -66,6 +66,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.setBeta(ctx, *guild, e)
 	case id == "pp:log":
 		return m.setLog(ctx, *guild, e)
+	case id == "pp:selfies":
+		return m.setSelfies(ctx, *guild, e)
 	case id == "pp:grant":
 		if m.Admin == nil || !m.Admin(e) {
 			return errNotAdmin
@@ -105,6 +107,14 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 			return err
 		}
 		return e.CreateMessage(msg)
+	case "pp:quests":
+		msg, err := m.questsMessage(*guild, e.Member())
+		if err != nil {
+			return err
+		}
+		return e.CreateMessage(msg)
+	case "pp:reroll":
+		return m.rerollPicked(*guild, e)
 	case "pp:shop", "pp:climb":
 		return m.shop(ctx, *guild, e, e.Data.CustomID() == "pp:climb")
 	case "pp:ledger":
@@ -229,7 +239,7 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 		if e := brand.ComponentEmoji("pp_" + classIcons[sh.Class.Key]); e != nil {
 			class = class.WithEmoji(*e)
 		}
-		extra = append(extra, discord.NewActionRow(class, discord.NewSecondaryButton("shop", "pp:shop"), discord.NewSecondaryButton("ledger", "pp:ledger"),
+		extra = append(extra, discord.NewActionRow(class, discord.NewSecondaryButton("quests", "pp:quests"), discord.NewSecondaryButton("shop", "pp:shop"), discord.NewSecondaryButton("ledger", "pp:ledger"),
 			discord.NewSecondaryButton("show the channel", "pp:show")))
 	}
 	return discord.MessageCreate{
@@ -279,7 +289,7 @@ func (m *Module) sheet(s *server, mem *member, guild, user snowflake.ID, today i
 	sh := Sheet{
 		Portrait: Portrait(ClassOf(mem.class)),
 		Class:    ClassOf(mem.class), Level: l, Into: into, Need: need, Total: mem.total, Purse: mem.purse,
-		Vigor: vigor, Phase: phase, Season: season, Week: week,
+		Vigor: vigor, Phase: phase, Season: season, Week: week, Held: len(mem.quests),
 	}
 	for _, w := range []struct {
 		on   bool

@@ -39,6 +39,11 @@ type member struct {
 	// rung is their prestige rung, and dayWithheld what the open day earned
 	// past the heavy purse line and so was never minted.
 	rung, dayWithheld int64
+	// quests are those held, questDay the day they were last dealt,
+	// rerollDay the day the reroll was last used, questsDone how many ever
+	// finished.
+	quests                          []heldQuest
+	questDay, rerollDay, questsDone int64
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, a fingerprint of their last message, when they last showed a
@@ -94,6 +99,8 @@ type server struct {
 	// purse line is on.
 	seasonMint, seasonBurn, sinkLast int64
 	heavy                            bool
+	// selfies is the channel selfie quests count pictures in, 0 none.
+	selfies snowflake.ID
 }
 
 func newServer(id snowflake.ID) *server {
@@ -176,6 +183,7 @@ func (st *state) roll(s *server, m *member, guild, user snowflake.ID, today int6
 	if season, _ := st.b.Season(today); m.season != season {
 		m.season, m.seasonPP, m.dirty = season, 0, true
 	}
+	st.deal(s, m, guild, user, today)
 }
 
 // rollServer moves s into today: every member's day before goes into the
@@ -275,6 +283,15 @@ func (st *state) earn(s *server, m *member, guild, user snowflake.ID, chat bool,
 	s.seasonMint += got
 	for i, a := range m.day.Activity() {
 		m.weekAct[i] += a - act[i]
+	}
+	switch {
+	case chat:
+		st.progress(s, m, user, taskTalk)
+	case s.hearth() > 0:
+		st.progress(s, m, user, taskVoice)
+		st.progress(s, m, user, taskHearth)
+	default:
+		st.progress(s, m, user, taskVoice)
 	}
 	s.raw += m.day.Voice + m.day.Chat - before
 	if tier := st.b.HearthTier(s.raw, s.history); tier > s.lit {
