@@ -148,8 +148,9 @@ func statusCanvas(s Sheet) *pixel.Canvas {
 	who := image.Rect(4, 4, 140, 148)
 	c.Window(who)
 	if s.Portrait != nil {
-		// The portrait's own rule is 3px round it, the frame outside that.
-		at := image.Pt(40, 28)
+		// The portrait's own rule is 3px round it, the frame outside that,
+		// set low enough in the window for the tallest crown over it.
+		at := image.Pt(40, 33)
 		drawFrame(c, frameOf(s.Level), image.Rectangle{at, at.Add(s.Portrait.Bounds().Size().Mul(2))}.Inset(-3))
 		c.Portrait(s.Portrait, at, 2)
 	} else {

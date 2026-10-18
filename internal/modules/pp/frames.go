@@ -11,10 +11,11 @@ import (
 // A portrait's frame on the status screen rises with the member's title:
 // plain wood, then iron, bronze, silver, gilt and diamond.
 // A frame is built in layers so more can be hung on it later: a base, the
-// band of a material all round the portrait, and trims, each drawn in one
-// of a fixed set of slots. The band and the slots are the same size and in
-// the same place at every tier, so a later trim (a season's laurel, a shop
-// piece) drops into a slot on any frame without redrawing it.
+// thin band of a material all round the portrait, and trims, each hung in
+// one of a fixed set of slots. A slot is a place against the portrait's
+// edge, outside the band, the same at every tier, so a trim can be larger
+// than the band, and a later one (a season's laurel, a shop piece) hangs on
+// any frame without redrawing it.
 
 // Metal is a material as four IconInks letters, darkest first.
 type Metal string
@@ -55,20 +56,26 @@ type Trim struct {
 	Metal Metal
 }
 
-// Frame is a portrait's frame: the band's material, whether it shows a
-// grain, and the trims hung on it, drawn in order.
+// Frame is a portrait's frame: the band's material, its surface, and the
+// trims hung on it, drawn in order. Surface is a row of IconInks letters
+// for each of the band's metal rows, outer first, repeated along the band:
+// a grain or the facets of a cut stone. Without one, the band is lit on its
+// top and left and shaded on its foot and right.
 type Frame struct {
-	Name  string
-	Band  Metal
-	Grain bool
-	Trims []Trim
+	Name    string
+	Band    Metal
+	Surface [frameBand - 1]string
+	Trims   []Trim
 }
 
-// frameBand is how wide the band is, outside the portrait's own rule.
-const frameBand = 6
+// frameBand is how wide the band is: a dark rule, then the metal.
+const frameBand = 3
 
 // corners are the four corner slots, for a trim on each.
 var corners = []Slot{CornerTL, CornerTR, CornerBL, CornerBR}
+
+// sides are the two side slots.
+var sides = []Slot{SideL, SideR}
 
 // each is shape in metal on every one of in.
 func each(in []Slot, shape string, metal Metal) []Trim {
@@ -81,14 +88,17 @@ func each(in []Slot, shape string, metal Metal) []Trim {
 
 // Frames are the frame each title tier wears, by titleFrom's index.
 var Frames = [len(titleFrom)]Frame{
-	{Name: "a wooden frame", Band: Wood, Grain: true},
+	{Name: "a wooden frame", Band: Wood, Surface: [2]string{"lKKKKlKKKKKKlKK", "JJJIJJJJJIIJJJJJJ"}},
 	{Name: "an iron frame", Band: Iron, Trims: each(corners, "rivet", Iron)},
-	{Name: "a bronze frame", Band: Bronze, Trims: append(each(corners, "rivet", Bronze), each([]Slot{SideL, SideR}, "stud", Bronze)...)},
-	{Name: "a silver frame", Band: Silver, Trims: append(each(corners, "boss", Silver), each([]Slot{SideL, SideR}, "stud", Silver)...)},
-	{Name: "a gilt frame", Band: Gilt, Trims: append(append(each(corners, "boss", Gilt), each([]Slot{SideL, SideR}, "stud", Gilt)...),
-		Trim{Crest, "crown", Gilt})},
-	{Name: "a diamond frame", Band: Diamond, Trims: append(append(each(corners, "gem", Diamond), each([]Slot{SideL, SideR}, "gem", Diamond)...),
-		Trim{Crest, "crown", Diamond}, Trim{Crest, "jewel", Sapphire}, Trim{Plaque, "plaque", Diamond})},
+	{Name: "a bronze frame", Band: Bronze, Trims: append(append(each(corners, "rivet", Bronze), each(sides, "stud", Bronze)...),
+		Trim{Crest, "finial", Bronze})},
+	{Name: "a silver frame", Band: Silver, Trims: append(append(each(corners, "boss", Silver), each(sides, "stud", Silver)...),
+		Trim{Crest, "fleuron", Silver})},
+	{Name: "a gilt frame", Band: Gilt, Trims: append(append(append(each(corners, "boss", Gilt), each(corners, "gem", Ruby)...),
+		each(sides, "gem", Ruby)...), Trim{Crest, "crown", Gilt}, Trim{Crest, "jewel", Ruby}, Trim{Plaque, "plaque", Gilt})},
+	{Name: "a diamond frame", Band: Diamond, Surface: [2]string{"wWWVwWVW", "VWGVWVGW"},
+		Trims: append(append(each(corners, "brilliant", Diamond), each(sides, "gem", Diamond)...),
+			Trim{Crest, "great crown", Diamond}, Trim{Crest, "jewel", Sapphire}, Trim{Plaque, "plaque", Diamond})},
 }
 
 // frameOf is the frame level l's title wears.
@@ -120,32 +130,34 @@ var Shapes = map[string][]string{
 		".k1k.",
 		"..k..",
 	},
-	"boss": bevel(6, 6),
-	"gem": {
-		"..k..",
-		".k4k.",
-		"k432k",
-		".k21k",
-		"..k..",
+	"boss":      bevel(7, 7),
+	"gem":       stone(3),
+	"brilliant": stone(5),
+	"jewel":     stone(3),
+	"finial": {
+		"...kkk...",
+		"..k443k..",
+		"..k432k..",
+		"...k2k...",
+		".kk434kk.",
+		"k4433322k",
+		"kkkkkkkkk",
 	},
-	"crown": {
-		"..k.....k.....k..",
-		".k4k...k4k...k4k.",
-		".k3k..k443k..k3k.",
-		"k432kk43332kk432k",
-		"k433343333334332k",
-		"k444444444444443k",
-		"k433333333333332k",
-		"k322222222222221k",
-		"kkkkkkkkkkkkkkkkk",
+	"fleuron": {
+		"......kkk......",
+		".....k443k.....",
+		"..kk.k432k.kk..",
+		".k43kk432kk43k.",
+		".k432k432k432k.",
+		"..k3kk432kk3k..",
+		"...kk43332kk...",
+		".kk444444433kk.",
+		"k4433333333322k",
+		"kkkkkkkkkkkkkkk",
 	},
-	"jewel": {
-		".k.",
-		"k4k",
-		"k2k",
-		".k.",
-	},
-	"plaque": bevel(23, 6),
+	"crown":       crown(33, 15),
+	"great crown": crown(41, 20),
+	"plaque":      bevel(25, 6),
 }
 
 // bevel is a plate w by h: lit along its top and left, shaded along its
@@ -171,6 +183,96 @@ func bevel(w, h int) []string {
 	return rows
 }
 
+// stone is a cut stone r cells from its centre to each point: a dark rule
+// round a rhombus, its facets lit from the top left, a glint by the top.
+func stone(r int) []string {
+	rows := make([]string, 2*r+1)
+	for y := range 2*r + 1 {
+		var b strings.Builder
+		for x := range 2*r + 1 {
+			dx, dy := x-r, y-r
+			d := abs(dx) + abs(dy)
+			light := -dx - dy // from the top left
+			switch {
+			case d > r:
+				b.WriteByte('.')
+			case d == r:
+				b.WriteByte('k')
+			case dx == -1 && dy == -r/2 && r > 2:
+				b.WriteByte('w')
+			case dy == 0 || dx == 0:
+				// The table's edges, a step down from what's either side.
+				b.WriteByte("2233"[min(max(light+2, 0), 3)])
+			case light > r/2:
+				b.WriteByte('4')
+			case light > 0:
+				b.WriteByte('3')
+			case light > -r/2:
+				b.WriteByte('2')
+			default:
+				b.WriteByte('1')
+			}
+		}
+		rows[y] = b.String()
+	}
+	return rows
+}
+
+// crown is a crown w by h: five points rising off a jewelled band, the
+// middle point tallest, each tipped with a glint.
+func crown(w, h int) []string {
+	base := h - 6 // the band's top row
+	points := []int{2, w / 4, w / 2, w - 1 - w/4, w - 3}
+	top := func(x int) int {
+		t := base
+		for i, cx := range points {
+			peak := 2
+			if i == 2 {
+				peak = 0
+			}
+			t = min(t, peak+2*abs(x-cx))
+		}
+		return t
+	}
+	in := func(x, y int) bool { return x >= 0 && x < w && y < h && y >= top(x) }
+	rows := make([]string, h)
+	for y := range h {
+		var b strings.Builder
+		for x := range w {
+			nearest := points[0]
+			for _, cx := range points {
+				if abs(x-cx) < abs(x-nearest) {
+					nearest = cx
+				}
+			}
+			switch {
+			case !in(x, y):
+				b.WriteByte('.')
+			case !in(x-1, y) || !in(x+1, y) || !in(x, y-1) || y == h-1:
+				b.WriteByte('k')
+			case y < base && x == nearest && y == top(x)+1:
+				b.WriteByte('w')
+			case y < base && x <= nearest:
+				b.WriteByte('4')
+			case y < base:
+				b.WriteByte('3')
+			case y == base:
+				b.WriteByte('k')
+			case y == base+1:
+				b.WriteByte('4')
+			case y == h-2:
+				b.WriteByte('2')
+			default:
+				b.WriteByte('3')
+			}
+		}
+		rows[y] = b.String()
+	}
+	return rows
+}
+
+func abs(n int) int { return max(n, -n) }
+
 // cast is shape's rows with its metal put in for 1 to 4 and its dots
 // cleared to nothing the grid draws.
 func cast(shape []string, m Metal) []string {
@@ -181,66 +283,72 @@ func cast(shape []string, m Metal) []string {
 	return out
 }
 
-// slotAt is where slot s's centre falls on a frame whose band's outer
-// edge is o.
-func slotAt(o image.Rectangle, s Slot) image.Point {
-	mid := o.Min.Add(o.Max).Div(2)
-	half := frameBand / 2
+// hang is where a trim w by h goes in slot s, against p, the portrait's
+// own rule: outside it, the corners hugging its corners, the sides
+// centred on its sides, the crest standing on its top and the plaque
+// hanging under its foot. Larger trims reach further out, never in.
+func hang(p image.Rectangle, s Slot, w, h int) image.Point {
+	mid := p.Min.Add(p.Max).Div(2)
 	switch s {
 	case CornerTL:
-		return image.Pt(o.Min.X+half, o.Min.Y+half)
+		return image.Pt(p.Min.X-w, p.Min.Y-h)
 	case CornerTR:
-		return image.Pt(o.Max.X-half, o.Min.Y+half)
+		return image.Pt(p.Max.X, p.Min.Y-h)
 	case CornerBL:
-		return image.Pt(o.Min.X+half, o.Max.Y-half)
+		return image.Pt(p.Min.X-w, p.Max.Y)
 	case CornerBR:
-		return image.Pt(o.Max.X-half, o.Max.Y-half)
+		return p.Max
 	case SideL:
-		return image.Pt(o.Min.X+half, mid.Y)
+		return image.Pt(p.Min.X-w, mid.Y-h/2)
 	case SideR:
-		return image.Pt(o.Max.X-half, mid.Y)
+		return image.Pt(p.Max.X, mid.Y-h/2)
 	case Crest:
-		return image.Pt(mid.X, o.Min.Y+1)
+		return image.Pt(mid.X-w/2, p.Min.Y-h)
 	}
-	return image.Pt(mid.X, o.Max.Y-half)
+	return image.Pt(mid.X-w/2, p.Max.Y)
 }
 
-// drawFrame draws f round a portrait whose own rule is r: the band, lit on
-// its top and left and shaded on its foot and right, any grain, then every
-// trim centred on its slot.
-func drawFrame(c *pixel.Canvas, f Frame, r image.Rectangle) {
-	o := r.Inset(-frameBand)
+// drawFrame draws f round a portrait whose own rule is p: the band, then
+// every trim in its slot.
+func drawFrame(c *pixel.Canvas, f Frame, p image.Rectangle) {
+	o := p.Inset(-frameBand)
 	c.Ground(o, pixel.IconInk('k'))
-	// Across the band from its outer edge in: the rule, the metal rising to
-	// its light and back down, and the rule against the portrait's.
-	lit := "k" + string(f.Band[2]) + string(f.Band[3]) + string(f.Band[2]) + string(f.Band[1]) + "k"
-	shade := "k" + string(f.Band[1]) + string(f.Band[2]) + string(f.Band[1]) + string(f.Band[0]) + "k"
-	for k := range frameBand {
+	lit := string(f.Band[3]) + string(f.Band[2])
+	shade := string(f.Band[1]) + string(f.Band[0])
+	for k := 1; k < frameBand; k++ {
 		ring := o.Inset(k)
-		top, foot := pixel.IconInk(lit[k]), pixel.IconInk(shade[k])
-		c.Fill(image.Rect(ring.Min.X, ring.Min.Y, ring.Max.X, ring.Min.Y+1), top)
-		c.Fill(image.Rect(ring.Min.X, ring.Min.Y, ring.Min.X+1, ring.Max.Y), top)
-		c.Fill(image.Rect(ring.Min.X+1, ring.Max.Y-1, ring.Max.X, ring.Max.Y), foot)
-		c.Fill(image.Rect(ring.Max.X-1, ring.Min.Y+1, ring.Max.X, ring.Max.Y), foot)
-	}
-	if f.Grain {
-		// Wood's grain: short dark runs along the middle of the band, at
-		// steps that don't repeat evenly.
-		dark := pixel.IconInk(f.Band[0])
-		for x := o.Min.X + 6; x < o.Max.X-8; x += 9 + x%4 {
-			c.Fill(image.Rect(x, o.Min.Y+3, x+4, o.Min.Y+4), dark)
-			c.Fill(image.Rect(x+2, o.Max.Y-4, x+6, o.Max.Y-3), dark)
+		at := func(along int, side string) uint8 {
+			if s := f.Surface[k-1]; s != "" {
+				return pixel.IconInk(s[along%len(s)])
+			}
+			return pixel.IconInk(side[k-1])
 		}
-		for y := o.Min.Y + 7; y < o.Max.Y-8; y += 10 + y%3 {
-			c.Fill(image.Rect(o.Min.X+3, y, o.Min.X+4, y+4), dark)
-			c.Fill(image.Rect(o.Max.X-4, y+3, o.Max.X-3, y+7), dark)
+		for x := ring.Min.X; x < ring.Max.X; x++ {
+			c.SetColorIndex(x, ring.Min.Y, at(x, lit))
+			c.SetColorIndex(x, ring.Max.Y-1, at(x+3, shade))
+		}
+		for y := ring.Min.Y + 1; y < ring.Max.Y-1; y++ {
+			c.SetColorIndex(ring.Min.X, y, at(y, lit))
+			c.SetColorIndex(ring.Max.X-1, y, at(y+3, shade))
 		}
 	}
-	// Trims in one slot stack, a gem set on a boss, so a slot is one mark.
+	// Trims in one slot stack, a stone set on a crown, centred on the
+	// largest, so a slot is one mark.
 	var hung [slots]image.Rectangle
+	var size [slots]image.Point
+	for _, t := range f.Trims {
+		g := Shapes[t.Shape]
+		size[t.Slot] = image.Pt(max(size[t.Slot].X, len(g[0])), max(size[t.Slot].Y, len(g)))
+	}
 	for _, t := range f.Trims {
 		g := cast(Shapes[t.Shape], t.Metal)
-		at := slotAt(o, t.Slot).Sub(image.Pt(len(g[0])/2, len(g)/2))
+		box := image.Rectangle{hang(p, t.Slot, size[t.Slot].X, size[t.Slot].Y), image.Point{}}
+		box.Max = box.Min.Add(size[t.Slot])
+		at := box.Min.Add(box.Size().Sub(image.Pt(len(g[0]), len(g))).Div(2))
+		if t.Slot == Crest {
+			// A stone on a crown sits in its band, not its middle.
+			at.Y = box.Max.Y - len(g) - 1
+		}
 		hung[t.Slot] = hung[t.Slot].Union(c.Grid(g, at))
 	}
 	for s, r := range hung {

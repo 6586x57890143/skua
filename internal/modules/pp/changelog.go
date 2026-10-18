@@ -15,7 +15,7 @@ var Changelog = []Entry{{
 	Date:    "2026-10-18",
 	Balance: "154a76",
 	Lines: []string{
-		"the portrait frames are slimmer, and the last one is diamond",
+		"the portrait frames are slimmer, wear a crest from bronze up, a crown in gilt, and the last is cut diamond under a great crown",
 	},
 }, {
 	Version: "0.7.1",
