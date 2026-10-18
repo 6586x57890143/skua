@@ -151,8 +151,10 @@ func statusCanvas(s Sheet) *pixel.Canvas {
 		// The portrait's own rule is 3px round it, the frame outside that,
 		// set low enough in the window for the tallest crown over it.
 		at := image.Pt(40, 33)
-		drawFrame(c, frameOf(s.Level), image.Rectangle{at, at.Add(s.Portrait.Bounds().Size().Mul(2))}.Inset(-3))
+		f, rule := frameOf(s.Level), image.Rectangle{at, at.Add(s.Portrait.Bounds().Size().Mul(2))}.Inset(-3)
+		drawBand(c, f, rule)
 		c.Portrait(s.Portrait, at, 2)
+		drawTrims(c, f, rule)
 	} else {
 		c.Bird(image.Pt(8, 12))
 	}

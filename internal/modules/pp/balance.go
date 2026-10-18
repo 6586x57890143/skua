@@ -107,7 +107,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.7.2",
+	Version: "0.7.3",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
