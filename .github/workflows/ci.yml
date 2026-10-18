@@ -98,6 +98,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
@@ -107,6 +109,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v7
+        id: build
         with:
           context: .
           push: true
@@ -137,6 +140,27 @@ jobs:
       VPS_DIR: ${{ vars.VPS_DIR || '/home/deploy/skua' }}
     steps:
       - uses: actions/checkout@v7
+      # skua proves this build to cygnet: the release key, a secret only
+      # this job on main sees, signs the bird, the commit and the image's
+      # digest (cygnet's link/cmd/attest). A fork never has the key, so it
+      # can't link as skua once cygnet pins it. Without the key the deploy
+      # goes ahead unsigned, as before.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Sign the build for cygnet
+        id: attest
+        env:
+          BIRD_RELEASE_KEY: ${{ secrets.BIRD_RELEASE_KEY }}
+          DIGEST: ${{ needs.push-image.outputs.digest }}
+        run: |
+          if [ -z "$BIRD_RELEASE_KEY" ]; then
+            echo "::notice::Not signed: the BIRD_RELEASE_KEY secret is not set."
+            exit 0
+          fi
+          att=$(go run github.com/6586x57890143/cygnet/link/cmd/attest@v0.9.0 -bird skua -commit "$GITHUB_SHA" -image "$DIGEST")
+          echo "attest=$att" >> "$GITHUB_OUTPUT"
       # Skips (green, with a notice) rather than failing when the host is not
       # configured, so an unconfigured deploy never reads as a broken build.
       # DEPLOY_ENABLED is the deliberate switch: set the repository variable
@@ -174,12 +198,12 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ env.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: GHCR_TOKEN,GHCR_USER,IMAGE_TAG,VPS_DIR
+          envs: GHCR_TOKEN,GHCR_USER,IMAGE_TAG,VPS_DIR,ATTEST
           script: |
             set -e
             cd "$VPS_DIR"
             test -f .env || { echo "$VPS_DIR/.env is missing; run tools/setup against this host"; exit 1; }
-            export SKUA_IMAGE_TAG="$IMAGE_TAG"
+            export SKUA_IMAGE_TAG="$IMAGE_TAG" SKUA_ATTEST="$ATTEST"
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             docker compose -f docker-compose.prod.yml pull bot
             docker network inspect fleet >/dev/null 2>&1 || docker network create fleet
@@ -204,7 +228,9 @@ jobs:
             # read at the moment somebody needs to roll back, so it must
             # name a version that exists on the host.
             [ -f deployed-tag.env ] && cp deployed-tag.env previous-tag.env
-            echo "SKUA_IMAGE_TAG=$IMAGE_TAG" > deployed-tag.env
+            # The attestation goes with its tag: a rollback runs the older
+            # image under the older image's own signature.
+            printf 'SKUA_IMAGE_TAG=%s\nSKUA_ATTEST=%s\n' "$IMAGE_TAG" "$ATTEST" > deployed-tag.env
             # Dangling skua layers older than a week only: the previous
             # release survives for a rollback, and the label keeps this from
             # racing another repo's pull on the same daemon, which fails with
@@ -216,3 +242,4 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
           IMAGE_TAG: ${{ github.sha }}
+          ATTEST: ${{ steps.attest.outputs.attest }}
