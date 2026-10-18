@@ -67,8 +67,8 @@ func TestQuestLayout(t *testing.T) {
 		{Icon: "quill", What: "send 400 messages", Progress: 23, Goal: 400, Reward: Default.QuestPP[0]},
 		{Icon: "compass", What: "3 tasks", Progress: 2000, Goal: 4000, Tier: 1, Reward: Default.QuestPP[1]},
 		{Icon: "mirror", What: "post a selfie", Progress: 0, Goal: 1, Tier: 2, Reward: Default.QuestPP[2]},
-	}, true))
-	checkLayout(t, "no quests", questCanvas("steve", nil, false))
+	}, 2))
+	checkLayout(t, "no quests", questCanvas("steve", nil, 0))
 }
 
 // A class and its title give up words only when they run out of room, the

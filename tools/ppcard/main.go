@@ -62,9 +62,9 @@ func main() {
 				{Icon: "quill", What: "send 40 messages", Progress: 23, Goal: 40, Tier: 0, Reward: 250 * 100},
 				{Icon: "drum", What: "spend 45 minutes in voice", Progress: 10, Goal: 45, Tier: 1, Reward: 400 * 100},
 				{Icon: "mirror", What: "post a selfie in #selfies", Progress: 0, Goal: 1, Tier: 2, Reward: 750 * 100},
-			}, true)
+			}, 2)
 		},
-		"quests-empty": func() ([]byte, error) { return pp.QuestScreen("steve", nil, false) },
+		"quests-empty": func() ([]byte, error) { return pp.QuestScreen("steve", nil, 0) },
 		"icons":        iconSheet,
 		"type":         typeSheet,
 	}

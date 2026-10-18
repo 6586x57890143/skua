@@ -110,14 +110,15 @@ func Modal(t testing.TB, customID string, values map[string]string, edit func(p 
 }
 
 // Button is a member in guild 3 pressing the button customID on an
-// ephemeral reply, as Discord sends it. It records replies as Event does,
-// a deferral as an empty one.
+// ephemeral reply, as Discord sends it, after the channel has moved past
+// it (its last message is newer). It records replies as Event does, a
+// deferral as an empty one.
 func Button(t testing.TB, customID string, edit func(p map[string]any)) (*events.ComponentInteractionCreate, *[]discord.MessageCreate) {
 	t.Helper()
 	p := map[string]any{
 		"id": snowflake.New(time.Now()).String(), "application_id": "2", "type": 3, "token": "t", "version": 1,
 		"guild_id": "3",
-		"channel":  map[string]any{"id": "4", "type": 0},
+		"channel":  map[string]any{"id": "4", "type": 0, "last_message_id": "10"},
 		"member": map[string]any{
 			"user":        map[string]any{"id": "5", "username": "member"},
 			"permissions": "0",

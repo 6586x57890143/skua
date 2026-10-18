@@ -25,7 +25,7 @@ func (st *state) buffList(s *server, mem *member, vanity string) []BuffInfo {
 		status = "put .gg/" + strings.ToLower(vanity) + " in your custom status"
 	}
 	hearth := BuffInfo{Icon: "hearth", Name: "hearth", Effect: fmt.Sprintf("+%d to %d%%", b.Hearth[0], b.Hearth[2]),
-		How: "lit for all when the server beats its usual day", Off: "unlit"}
+		How: "lit for all when the server's voice and chat beat its usual day", Off: "unlit"}
 	if tier := s.hearth(); tier > 0 {
 		hearth.Name, hearth.Effect, hearth.On = hearthWord(tier), fmt.Sprintf("+%d%%", b.Hearth[tier-1]), true
 	}
@@ -35,6 +35,26 @@ func (st *state) buffList(s *server, mem *member, vanity string) []BuffInfo {
 		{Icon: "plume", Name: "plume", Effect: fmt.Sprintf("+%d%%", b.Plume), How: "boost the server; it lasts while you boost", On: mem.wear.Plume},
 		hearth,
 	}
+}
+
+// hearthHint is how close the server is to lighting the hearth, or to its
+// next tier, and what feeds it: the buffs card's strong hint, since the
+// hearth is the one buff nobody wears alone. s.mu held.
+func (st *state) hearthHint(s *server) string {
+	b := st.b
+	at := s.raw * 100 / max(b.Usual(s.history), 1)
+	lit := s.hearth()
+	if s.lit >= len(b.HearthAt) {
+		return fmt.Sprintf("-# **the hearth:** %s, its brightest, burns today: +%d%% for everyone through tomorrow", hearthWord(len(b.Hearth)), b.Hearth[len(b.Hearth)-1])
+	}
+	next := s.lit // the tier today's earning reaches next, from 0
+	line := fmt.Sprintf("-# **the hearth:** the server has earned %d%% of its usual day so far. at %d%% it lights %s, +%d%% for everyone for the rest of today and all of tomorrow",
+		at, b.HearthAt[next], hearthWord(next+1), b.Hearth[next])
+	if lit > 0 {
+		line = fmt.Sprintf("-# **the hearth:** %s burns now. the server has earned %d%% of its usual day; at %d%% it rises to %s, +%d%%",
+			hearthWord(lit), at, b.HearthAt[next], hearthWord(next+1), b.Hearth[next])
+	}
+	return line + "\n-# every minute in voice with company and every paying message feeds it, so bring people into voice: a full channel lights it fastest"
 }
 
 // buffsMessage is the buffs card for who: the screen and, under it, the
@@ -48,6 +68,7 @@ func (m *Module) buffsMessage(guild snowflake.ID, who *discord.ResolvedMember) (
 	s := m.st.server(guild)
 	s.mu.Lock()
 	buffs := m.st.buffList(s, m.st.member(s, guild, who.User.ID, today), vanity)
+	hint := m.st.hearthHint(s)
 	s.mu.Unlock()
 
 	pic, err := BuffScreen(pixelName(who), buffs)
@@ -64,7 +85,7 @@ func (m *Module) buffsMessage(guild snowflake.ID, who *discord.ResolvedMember) (
 	if len(worn) > 0 {
 		alt = "your buffs: " + strings.Join(worn, ", ") + " worn"
 	}
-	const note = "-# buffs add to what voice and chat pay you, never to quests, and they stack. the hearth lights for the rest of the day and the whole next one"
+	note := "-# buffs add to what voice and chat pay you, never to quests, and they stack\n" + hint
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorInfo, "pp", "buffs", note,
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}))},
