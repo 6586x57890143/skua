@@ -49,11 +49,15 @@ const (
 	slots
 )
 
-// Trim is one piece hung on a frame: a shape in a metal, in a slot.
+// Trim is one piece hung on a frame: a shape in a metal, in a slot. A
+// trim hangs outside the band, against the portrait, unless it's Set into
+// the frame: then it sits on the band, centred on it, and may reach a
+// little over the portrait the way a stone set in a frame's corner does.
 type Trim struct {
 	Slot  Slot
 	Shape string
 	Metal Metal
+	Set   bool
 }
 
 // Frame is a portrait's frame: the band's material, its surface, and the
@@ -81,7 +85,19 @@ var sides = []Slot{SideL, SideR}
 func each(in []Slot, shape string, metal Metal) []Trim {
 	out := make([]Trim, len(in))
 	for i, s := range in {
-		out[i] = Trim{s, shape, metal}
+		out[i] = Trim{s, shape, metal, false}
+	}
+	return out
+}
+
+// set is trims set into the frame.
+func set(trims ...[]Trim) []Trim {
+	var out []Trim
+	for _, ts := range trims {
+		for _, t := range ts {
+			t.Set = true
+			out = append(out, t)
+		}
 	}
 	return out
 }
@@ -91,14 +107,14 @@ var Frames = [len(titleFrom)]Frame{
 	{Name: "a wooden frame", Band: Wood, Surface: [2]string{"lKKKKlKKKKKKlKK", "JJJIJJJJJIIJJJJJJ"}},
 	{Name: "an iron frame", Band: Iron, Trims: each(corners, "rivet", Iron)},
 	{Name: "a bronze frame", Band: Bronze, Trims: append(append(each(corners, "rivet", Bronze), each(sides, "stud", Bronze)...),
-		Trim{Crest, "finial", Bronze})},
-	{Name: "a silver frame", Band: Silver, Trims: append(append(each(corners, "boss", Silver), each(sides, "stud", Silver)...),
-		Trim{Crest, "fleuron", Silver})},
-	{Name: "a gilt frame", Band: Gilt, Trims: append(append(append(each(corners, "boss", Gilt), each(corners, "gem", Ruby)...),
-		each(sides, "gem", Ruby)...), Trim{Crest, "crown", Gilt}, Trim{Crest, "jewel", Ruby}, Trim{Plaque, "plaque", Gilt})},
+		Trim{Crest, "finial", Bronze, false})},
+	{Name: "a silver frame", Band: Silver, Trims: set(each(corners, "boss", Silver), each(sides, "stud", Silver),
+		[]Trim{{Crest, "fleuron", Silver, false}})},
+	{Name: "a gilt frame", Band: Gilt, Trims: set(each(corners, "boss", Gilt), each(corners, "gem", Ruby), each(sides, "gem", Ruby),
+		[]Trim{{Crest, "crown", Gilt, false}, {Crest, "jewel", Ruby, false}, {Plaque, "plaque", Gilt, false}})},
 	{Name: "a diamond frame", Band: Diamond, Surface: [2]string{"wWWVwWVW", "VWGVWVGW"},
-		Trims: append(append(each(corners, "brilliant", Diamond), each(sides, "gem", Diamond)...),
-			Trim{Crest, "great crown", Diamond}, Trim{Crest, "jewel", Sapphire}, Trim{Plaque, "plaque", Diamond})},
+		Trims: set(each(corners, "brilliant", Diamond), each(sides, "cut", Diamond),
+			[]Trim{{Crest, "great crown", Diamond, false}, {Crest, "jewel", Sapphire, false}, {Plaque, "plaque", Diamond, false}})},
 }
 
 // frameOf is the frame level l's title wears.
@@ -130,10 +146,37 @@ var Shapes = map[string][]string{
 		".k1k.",
 		"..k..",
 	},
-	"boss":      bevel(7, 7),
-	"gem":       stone(3),
-	"brilliant": stone(5),
-	"jewel":     stone(3),
+	"boss": bevel(7, 7),
+	"gem":  stone(3),
+	// The diamond's stones are drawn cut, a table ringed by its girdle and
+	// facets catching the light from the top left, in their own inks.
+	"brilliant": {
+		"....kkkkk....",
+		"..kkwWVUTkk..",
+		".kwwWGVUTUTk.",
+		".kwWGGGGGTUk.",
+		"kWWGwwWWVGUTk",
+		"kwWGwWWVVGTUk",
+		"kVwGWWVVUGUWk",
+		"kUVGWVVUUGWwk",
+		"kTUGVVUUTGwWk",
+		".kTUGGGGGwWk.",
+		".kUTUVGWwwWk.",
+		"..kkTUVWwkk..",
+		"....kkkkk....",
+	},
+	"cut": {
+		"...kkk...",
+		".kkwVTkk.",
+		".kwGGGUk.",
+		"kWGwWVGTk",
+		"kwGWVUGUk",
+		"kUGVUTGwk",
+		".kTGGGwk.",
+		".kkUWwkk.",
+		"...kkk...",
+	},
+	"jewel": stone(3),
 	"finial": {
 		"...kkk...",
 		"..k443k..",
@@ -286,9 +329,32 @@ func cast(shape []string, m Metal) []string {
 // hang is where a trim w by h goes in slot s, against p, the portrait's
 // own rule: outside it, the corners hugging its corners, the sides
 // centred on its sides, the crest standing on its top and the plaque
-// hanging under its foot. Larger trims reach further out, never in.
-func hang(p image.Rectangle, s Slot, w, h int) image.Point {
+// hanging under its foot. Larger trims reach further out, never in. A set
+// trim is centred on the band instead, and a set crest or plaque stands
+// on the band, its foot a little over the portrait's rule.
+func hang(p image.Rectangle, s Slot, w, h int, set bool) image.Point {
 	mid := p.Min.Add(p.Max).Div(2)
+	if set {
+		band := p.Inset(-frameBand / 2).Inset(-1) // the band's middle line
+		far := band.Max.Sub(image.Pt(1, 1))
+		switch s {
+		case CornerTL:
+			return band.Min.Sub(image.Pt(w/2, h/2))
+		case CornerTR:
+			return image.Pt(far.X-w/2, band.Min.Y-h/2)
+		case CornerBL:
+			return image.Pt(band.Min.X-w/2, far.Y-h/2)
+		case CornerBR:
+			return far.Sub(image.Pt(w/2, h/2))
+		case SideL:
+			return image.Pt(band.Min.X-w/2, mid.Y-h/2)
+		case SideR:
+			return image.Pt(far.X-w/2, mid.Y-h/2)
+		case Crest:
+			return image.Pt(mid.X-w/2, p.Min.Y+2-h)
+		}
+		return image.Pt(mid.X-w/2, p.Max.Y-2)
+	}
 	switch s {
 	case CornerTL:
 		return image.Pt(p.Min.X-w, p.Min.Y-h)
@@ -308,9 +374,9 @@ func hang(p image.Rectangle, s Slot, w, h int) image.Point {
 	return image.Pt(mid.X-w/2, p.Max.Y)
 }
 
-// drawFrame draws f round a portrait whose own rule is p: the band, then
-// every trim in its slot.
-func drawFrame(c *pixel.Canvas, f Frame, p image.Rectangle) {
+// drawBand draws f's band round a portrait whose own rule is p, before the
+// portrait.
+func drawBand(c *pixel.Canvas, f Frame, p image.Rectangle) {
 	o := p.Inset(-frameBand)
 	c.Ground(o, pixel.IconInk('k'))
 	lit := string(f.Band[3]) + string(f.Band[2])
@@ -332,17 +398,24 @@ func drawFrame(c *pixel.Canvas, f Frame, p image.Rectangle) {
 			c.SetColorIndex(ring.Max.X-1, y, at(y+3, shade))
 		}
 	}
+}
+
+// drawTrims hangs f's trims round a portrait whose own rule is p, after
+// the portrait, so a trim set into the frame lies over its edge.
+func drawTrims(c *pixel.Canvas, f Frame, p image.Rectangle) {
 	// Trims in one slot stack, a stone set on a crown, centred on the
 	// largest, so a slot is one mark.
 	var hung [slots]image.Rectangle
 	var size [slots]image.Point
+	var setIn [slots]bool
 	for _, t := range f.Trims {
+		setIn[t.Slot] = setIn[t.Slot] || t.Set
 		g := Shapes[t.Shape]
 		size[t.Slot] = image.Pt(max(size[t.Slot].X, len(g[0])), max(size[t.Slot].Y, len(g)))
 	}
 	for _, t := range f.Trims {
 		g := cast(Shapes[t.Shape], t.Metal)
-		box := image.Rectangle{hang(p, t.Slot, size[t.Slot].X, size[t.Slot].Y), image.Point{}}
+		box := image.Rectangle{hang(p, t.Slot, size[t.Slot].X, size[t.Slot].Y, setIn[t.Slot]), image.Point{}}
 		box.Max = box.Min.Add(size[t.Slot])
 		at := box.Min.Add(box.Size().Sub(image.Pt(len(g[0]), len(g))).Div(2))
 		if t.Slot == Crest {

@@ -28,8 +28,9 @@ func layout(c *pixel.Canvas) []string {
 			bad = append(bad, fmt.Sprintf("%q at %v isn't on parchment", m.What, m.R))
 		}
 		for _, o := range c.Marks[i+1:] {
-			// A ground is under what's set on it, but never under another.
-			if (m.What == "ground") != (o.What == "ground") {
+			// A ground is under what's set on it, but never under another,
+			// and a frame's trims may lie over its portrait's edge.
+			if (m.What == "ground") != (o.What == "ground") || frameOver(m, o) || frameOver(o, m) {
 				continue
 			}
 			if m.R.Overlaps(o.R) {
@@ -104,4 +105,10 @@ func TestPreseasonPlace(t *testing.T) {
 			t.Errorf("member %d is placed %d; want %d", i+1, got, want)
 		}
 	}
+}
+
+// frameOver is whether a is a frame's trim lying over b, a portrait, by no
+// more than its rule and a few cells of the picture.
+func frameOver(a, b pixel.Mark) bool {
+	return strings.HasPrefix(a.What, "trim ") && b.What == "portrait" && !a.R.Overlaps(b.R.Inset(10))
 }
