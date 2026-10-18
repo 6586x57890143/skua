@@ -107,6 +107,16 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 	s := m.st.server(guild)
 	s.mu.Lock()
 	members, hearth := len(s.members), s.hearth()
+	banners := len(s.banners)
+	for _, mem := range s.members {
+		if mem.wear.Banner {
+			banners++
+		}
+	}
+	presence := "none seen"
+	if s.presences > 0 {
+		presence = fmt.Sprintf("%s seen · last %s ago", grouped(s.presences), core.Duration(m.now().Sub(s.presenceAt)))
+	}
 	ledger := "empty"
 	if s.seq > 0 {
 		ledger = grouped(s.seq) + " rows · " + s.headHex()[:8]
@@ -147,6 +157,8 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"savings", savings},
 		{"grants", grants},
 		{"sinks", sinks},
+		{"banners", strconv.Itoa(banners)},
+		{"presences", presence},
 	}, Controls: slices.Concat(m.betaControls(guild), m.keyControls(), m.logControls(guild), m.selfieControls(guild), m.grantControls())}
 }
 
@@ -217,11 +229,13 @@ func (m *Module) OnEvent(ev bot.Event) {
 		}
 	case *events.PresenceUpdate:
 		_, vanity := m.info(e.GuildID)
+		on := bannerOf(e.Activities, vanity)
 		s := m.st.server(e.GuildID)
 		s.mu.Lock()
-		defer s.mu.Unlock()
-		if mem, ok := s.members[e.PresenceUser.ID]; ok {
-			mem.wear.Banner = bannerOf(e.Activities, vanity)
+		changed := s.wearBanner(e.PresenceUser.ID, on, m.now())
+		s.mu.Unlock()
+		if changed {
+			m.log.Info("pp: banner", "guild", e.GuildID, "user", e.PresenceUser.ID, "on", on)
 		}
 	}
 }
@@ -242,11 +256,15 @@ func (m *Module) ready(guild snowflake.ID, g discord.GatewayGuild) {
 	for _, vs := range g.VoiceStates {
 		m.st.sit(s, guild, vs.UserID, vs, bots[vs.UserID], now)
 	}
+	worn := 0
 	for _, p := range g.Presences {
-		if mem, ok := s.members[p.PresenceUser.ID]; ok {
-			mem.wear.Banner = bannerOf(p.Activities, vanity)
+		on := bannerOf(p.Activities, vanity)
+		s.wearBanner(p.PresenceUser.ID, on, now)
+		if on {
+			worn++
 		}
 	}
+	m.log.Info("pp: ready", "guild", guild, "presences", len(g.Presences), "banners", worn)
 }
 
 // loop pays voice once a minute and saves what changed. The first tick and

@@ -260,6 +260,19 @@ func TestEvents(t *testing.T) {
 	if !s.members[a].wear.Banner {
 		t.Error("the banner isn't worn")
 	}
+	// A status put up before someone's first earning waits for them, and
+	// the help page counts it and the presence that brought it.
+	newcomer := old(42)
+	m.OnEvent(&events.PresenceUpdate{GenericEvent: generic(), EventPresenceUpdate: gateway.EventPresenceUpdate{Presence: discord.Presence{
+		PresenceUser: discord.PresenceUser{ID: newcomer}, GuildID: guild,
+		Activities: []discord.Activity{{Type: discord.ActivityTypeCustom, State: &state}},
+	}}})
+	if js(m.Report(guild).Rows) == "" || !strings.Contains(js(m.Report(guild).Rows), `["banners","2"]`) {
+		t.Errorf("the help page's banners: %s", js(m.Report(guild).Rows))
+	}
+	if !m.st.member(s, guild, newcomer, DayOf(t0)).wear.Banner || len(s.banners) != 0 {
+		t.Error("a banner put up before the first earning was lost")
+	}
 	m.now = func() time.Time { return t0.Add(time.Minute) }
 	m.minute()
 	if v, _ := m.earning.Load(guild); v != 2 {
