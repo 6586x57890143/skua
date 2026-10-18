@@ -11,6 +11,14 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.7.0",
+	Date:    "2026-10-18",
+	Balance: "1a7bb6",
+	Lines: []string{
+		"every class is a character now, with a story set in the rookery: the lore button opens them, any time, and walking a new path starts there",
+		"a reroll never gives back the quest it replaces",
+	},
+}, {
 	Version: "0.6.1",
 	Date:    "2026-10-18",
 	Balance: "570115",

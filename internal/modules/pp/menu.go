@@ -97,47 +97,45 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 	}
 	var msg discord.MessageCreate
 	var err error
-	switch id {
-	case "pp:status":
-		msg, err = m.status(*guild, e.Member(), true)
-	case "pp:class":
-		msg = discord.MessageCreate{
-			Components:      []discord.LayoutComponent{classCard(m.price(*guild, e.User().ID))},
-			Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
-			AllowedMentions: core.NoPings(),
-		}
-	case "pp:pick":
-		// The custom ID comes from the client, so the data may not be a
-		// select's at all.
-		data, ok := e.Data.(discord.StringSelectMenuInteractionData)
-		if !ok || len(data.Values) != 1 {
+	switch {
+	case strings.HasPrefix(id, "pp:lore:"):
+		// The custom ID comes from the client, so it may name no class.
+		i, page, ok := parseLore(id)
+		if !ok {
 			return errNotAClass
 		}
-		if err := m.pick(*guild, e.User().ID, data.Values[0]); err != nil {
+		id = "pp:class"
+		msg, err = m.lore(*guild, e.User().ID, i, page)
+	case strings.HasPrefix(id, "pp:pick:"):
+		if err := m.pick(*guild, e.User().ID, strings.TrimPrefix(id, "pp:pick:")); err != nil {
 			return err
 		}
 		id = "pp:status"
 		msg, err = m.status(*guild, e.Member(), true)
-	case "pp:show":
+	case id == "pp:status":
+		msg, err = m.status(*guild, e.Member(), true)
+	case id == "pp:class":
+		msg, err = m.lore(*guild, e.User().ID, -1, 0)
+	case id == "pp:show":
 		msg, err := m.status(*guild, e.Member(), false)
 		if err != nil {
 			return err
 		}
 		return e.CreateMessage(msg)
-	case "pp:board":
+	case id == "pp:board":
 		msg, err = m.boardMessage(*guild, e.User().ID)
-	case "pp:treasury":
+	case id == "pp:treasury":
 		if m.Admin == nil || !m.Admin(e) {
 			return errNotAdmin
 		}
 		msg, err = m.treasuryMessage(ctx, *guild)
-	case "pp:quests":
+	case id == "pp:quests":
 		msg, err = m.questsMessage(*guild, e.Member())
-	case "pp:buffs":
+	case id == "pp:buffs":
 		msg, err = m.buffsMessage(*guild, e.Member())
-	case "pp:shop", "pp:climb", "pp:look", "pp:back":
+	case id == "pp:shop", id == "pp:climb", id == "pp:look", id == "pp:back":
 		return m.shop(ctx, *guild, e)
-	case "pp:ledger":
+	case id == "pp:ledger":
 		msg, err = m.journal(ctx, *guild, e.Member())
 	default:
 		return errNotAClass
@@ -202,17 +200,6 @@ func (m *Module) cost(mem *member, season int64) int64 {
 	return m.st.b.ClassCost(l, mem.classChanges)
 }
 
-// price is what changing class costs user now, and what they hold.
-func (m *Module) price(guild, user snowflake.ID) (cost, purse int64) {
-	today := DayOf(m.now())
-	season, _ := m.st.b.Season(today)
-	s := m.st.server(guild)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	mem := m.st.member(s, guild, user, today)
-	return m.cost(mem, season), mem.purse
-}
-
 // pick makes user a key: the season's first pick free, every change after
 // it paid for from their purse.
 func (m *Module) pick(guild, user snowflake.ID, key string) error {
@@ -246,22 +233,24 @@ func (m *Module) pick(guild, user snowflake.ID, key string) error {
 	return nil
 }
 
-// classCard is the picker: every class, its emblem and the title it starts
-// with, under what a change costs right now.
-func classCard(cost, purse int64) discord.ContainerComponent {
-	opts := make([]discord.StringSelectMenuOption, 0, len(Classes))
-	for _, c := range Classes {
-		o := discord.NewStringSelectMenuOption(c.Name(), c.Key)
-		o.Description = "starts as a " + c.Titles[0]
-		o.Emoji = brand.ComponentEmoji("pp_" + classIcons[c.Key])
-		opts = append(opts, o)
+// lore is user's class browser at class i and page, or at their own class
+// for i -1: the wanderer's until they've picked one.
+func (m *Module) lore(guild, user snowflake.ID, i, page int) (discord.MessageCreate, error) {
+	today := DayOf(m.now())
+	season, _ := m.st.b.Season(today)
+	s := m.st.server(guild)
+	s.mu.Lock()
+	mem := m.st.member(s, guild, user, today)
+	cost, purse := m.cost(mem, season), mem.purse
+	mine := ""
+	if mem.classSeason != -1 {
+		mine = mem.class
 	}
-	price := "your first pick this season is free. after it a change costs pp, more the higher your level and more again each time"
-	if cost > 0 {
-		price = fmt.Sprintf("changing class now costs %s pp and you have %s. the first pick of a new season is free again", grouped(cost/unit), grouped(purse/unit))
+	s.mu.Unlock()
+	if i < 0 {
+		i = classIndex(mine)
 	}
-	return brand.Card(brand.ColorNotice, "pp", "class", "pick the path you walk\n-# "+price,
-		discord.NewActionRow(discord.NewStringSelectMenu("pp:pick", "pick a class", opts...)))
+	return loreMessage(i, page, mine, cost, purse)
 }
 
 // status is who's screen as a message: the card, the picture and, on their
@@ -321,7 +310,7 @@ func menuRows(class string, admin bool, current string) []discord.ContainerSubCo
 	if current == "pp:status" {
 		home = btn("share", "pp:show", "bell")
 	}
-	act := discord.NewActionRow(home, btn("class", "pp:class", classIcons[class]), btn("buffs", "pp:buffs", "hearth"))
+	act := discord.NewActionRow(home, btn("lore", "pp:class", classIcons[class]), btn("buffs", "pp:buffs", "hearth"))
 	if admin {
 		act = act.AddComponents(btn("treasury", "pp:treasury", "pot"))
 	}
