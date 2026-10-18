@@ -553,6 +553,17 @@ func (c *Canvas) BigIcon(name string, p image.Point, scale int) {
 	if !ok {
 		g = screenIcons[name]
 	}
+	c.mark("icon "+name, c.grid(g, p, scale))
+}
+
+// Grid draws g, rows of IconInks letters, one pixel a cell with its top
+// left at p, and returns the box its ink covers, for the caller to mark: a
+// thing drawn from several grids is one mark. A cell that isn't an ink is
+// left as it was.
+func (c *Canvas) Grid(g []string, p image.Point) image.Rectangle { return c.grid(g, p, 1) }
+
+// grid draws g scale pixels a cell and returns the box its ink covers.
+func (c *Canvas) grid(g []string, p image.Point, scale int) image.Rectangle {
 	var box image.Rectangle
 	for y, row := range g {
 		for x := range len(row) {
@@ -563,5 +574,8 @@ func (c *Canvas) BigIcon(name string, p image.Point, scale int) {
 			}
 		}
 	}
-	c.mark("icon "+name, box)
+	return box
 }
+
+// IconInk is the palette index of the IconInks letter b.
+func IconInk(b byte) uint8 { return iconInk[b] }
