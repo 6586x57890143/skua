@@ -68,6 +68,13 @@ type server struct {
 	mu      sync.Mutex
 	members map[snowflake.ID]*member
 	seats   map[snowflake.ID]*seat
+	// banners are those wearing the server's invite in their custom
+	// status who aren't members yet, so the buff is on from their first
+	// earning; presences counts the presence updates seen and presenceAt
+	// the last, for the help page.
+	banners    map[snowflake.ID]bool
+	presences  int64
+	presenceAt time.Time
 	// The server's day, for the hearth.
 	day, raw       int64
 	history        []int64
@@ -105,7 +112,7 @@ type server struct {
 }
 
 func newServer(id snowflake.ID) *server {
-	return &server{id: id, members: map[snowflake.ID]*member{}, seats: map[snowflake.ID]*seat{}, sinkLast: -1}
+	return &server{id: id, members: map[snowflake.ID]*member{}, seats: map[snowflake.ID]*seat{}, banners: map[snowflake.ID]bool{}, sinkLast: -1}
 }
 
 // weekOf is the week day falls in, counted from a Monday (1970-01-05 is
@@ -162,6 +169,8 @@ func (st *state) member(s *server, guild, user snowflake.ID, today int64) *membe
 	m, ok := s.members[user]
 	if !ok {
 		m = &member{class: Classes[0].Key, classSeason: -1, dayN: today}
+		m.wear.Banner = s.banners[user]
+		delete(s.banners, user)
 		s.members[user] = m
 	}
 	st.roll(s, m, guild, user, today)
@@ -324,6 +333,26 @@ func seen(m *member, mem *discord.Member, u discord.User, guild snowflake.ID) {
 	if name != "" && name != m.name {
 		m.name, m.dirty = name, true
 	}
+}
+
+// wearBanner is user's custom status, as a presence brought it: their
+// banner on or off now, kept for later when they aren't a member yet. It
+// reports whether a member's banner changed. s.mu held.
+func (s *server) wearBanner(user snowflake.ID, on bool, now time.Time) bool {
+	s.presences++
+	s.presenceAt = now
+	m, ok := s.members[user]
+	if !ok {
+		if on {
+			s.banners[user] = true
+		} else {
+			delete(s.banners, user)
+		}
+		return false
+	}
+	changed := m.wear.Banner != on
+	m.wear.Banner = on
+	return changed
 }
 
 // bannerOf is whether a member's custom status carries the server's own
