@@ -41,8 +41,8 @@ func TestStatusScreen(t *testing.T) {
 
 func TestQuestScreen(t *testing.T) {
 	data, err := QuestScreen("heavywinds", []QuestLine{
-		{Icon: "quill", What: "send 40 messages", Progress: 23, Goal: 40, Reward: Default.QuestPP[0]},
-		{Icon: "mirror", What: "post a selfie", Progress: 0, Goal: 1, Tier: 2, Reward: Default.QuestPP[2]},
+		{Icon: "quill", Reward: Default.QuestPP[0], Tasks: []TaskLine{{What: "messages", Progress: 23, Goal: 40}}},
+		{Icon: "mirror", Tier: 2, Reward: Default.QuestPP[2], Tasks: []TaskLine{{What: "a selfie that stays a day", Goal: 1}}},
 	}, 2)
 	decodes(t, data, err)
 	data, err = QuestScreen("steve", nil, 0)

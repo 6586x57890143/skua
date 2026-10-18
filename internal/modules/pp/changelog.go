@@ -11,6 +11,14 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.7.4",
+	Date:    "2026-10-18",
+	Balance: "ffe472",
+	Lines: []string{
+		"every quest shows each thing it asks on its own line with its own gauge",
+		"the screens speak for themselves: the notes over them are gone, the hearth's progress is on the buffs screen and a path's price is on its button",
+	},
+}, {
 	Version: "0.7.3",
 	Date:    "2026-10-18",
 	Balance: "165648",

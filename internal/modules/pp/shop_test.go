@@ -148,7 +148,7 @@ func TestShopCards(t *testing.T) {
 		return got, err
 	}
 	got, err := press("pp:look", "3")
-	if err != nil || !strings.Contains(got, "rungs are climbed in order") || !strings.Contains(got, "pp:climb") || !strings.Contains(got, "pp:back") {
+	if err != nil || strings.Contains(got, "-# ") || !strings.Contains(got, "pp:climb") || !strings.Contains(got, "pp:back") {
 		t.Errorf("the next rung's card: %v %s", err, got)
 	}
 	if got, err := press("pp:look", "1"); err != nil || strings.Contains(got, "pp:climb") {
@@ -194,7 +194,7 @@ func TestBuffsCard(t *testing.T) {
 	mem.wear.Crest = true
 	s.lit = 2
 	buffs := m.st.buffList(s, mem, "Melted")
-	if len(buffs) != 4 || !buffs[0].On || buffs[1].On || buffs[1].How != "put .gg/melted in your custom status" || buffs[3].Name != "hearth ii" || !buffs[3].On {
+	if len(buffs) != 4 || !buffs[0].On || buffs[1].On || buffs[1].How != "put .gg/melted in your custom status" || buffs[3].Name != "hearth ii" || !buffs[3].On || !strings.Contains(buffs[3].How, "of its day, rises at") {
 		t.Errorf("buffs: %+v", buffs)
 	}
 	e, sent := coretest.Button(t, "pp:buffs", func(p map[string]any) {
@@ -203,7 +203,7 @@ func TestBuffsCard(t *testing.T) {
 	if err := m.press(context.Background(), e); err != nil {
 		t.Fatal(err)
 	}
-	if got := js((*sent)[0]); !strings.Contains(got, "never to quests") || !strings.Contains(got, "crest, hearth ii worn") {
+	if got := js((*sent)[0]); strings.Contains(got, "-# ") || !strings.Contains(got, "crest, hearth ii worn") {
 		t.Errorf("the buffs card: %s", got)
 	}
 }

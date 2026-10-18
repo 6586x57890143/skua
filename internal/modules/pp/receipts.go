@@ -3,7 +3,6 @@ package pp
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"slices"
 	"time"
 
@@ -84,11 +83,10 @@ func (m *Module) journal(ctx context.Context, guild snowflake.ID, who *discord.R
 			lines = append([]line{{e.day, e.delta, e.reason, e.inputs}}, lines...)
 		}
 	}
-	var open, levy int64
+	var open int64
 	if mem, ok := s.members[user]; ok {
-		open, levy = mem.dayGot, mem.dayLevy
+		open = mem.dayGot
 	}
-	seq := s.seq
 	s.mu.Unlock()
 	lines = lines[:min(len(lines), journalRows)]
 
@@ -101,13 +99,9 @@ func (m *Module) journal(ctx context.Context, guild snowflake.ID, who *discord.R
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
-	note := fmt.Sprintf("-# each line is written into the server's ledger for good; it's %s lines long", grouped(seq))
-	if levy != 0 {
-		note = fmt.Sprintf("-# today %s pp of yours went to the treasury, which pays the weekly prizes\n", grouped(levy/unit)) + note
-	}
 	const alt = "your journal: what came in and went out, newest first"
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorInfo, "pp", "journal", note,
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorInfo, "pp", "journal", "",
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}))},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,

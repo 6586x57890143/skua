@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -266,11 +265,6 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	seen(mem, &who.Member, who.User, guild)
 	sh := m.sheet(s, mem, guild, who.User.ID, today)
 	picked := mem.classSeason != -1
-	line := "-# " + dayLine(now)
-	if mem.rung > 0 {
-		name, _ := perch(mem.rung)
-		line += fmt.Sprintf(" · on the %s, rung %d", name, mem.rung)
-	}
 	s.mu.Unlock()
 	if !picked {
 		return titleMessage(buttons)
@@ -286,7 +280,7 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	}
 	alt := fmt.Sprintf("%s, %s, level %d, %s pp to spend", pixel.Plain(sh.Name), sh.Class.Name(), sh.Level, grouped(sh.Purse/unit))
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", line,
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", "",
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}))},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagIsComponentsV2,
@@ -344,19 +338,11 @@ func titleMessage(buttons bool) (discord.MessageCreate, error) {
 		extra = append(extra, discord.NewActionRow(withIcon(discord.NewPrimaryButton("pick a class", "pp:class"), "lantern")))
 	}
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "melting pot",
-			"pick a class to begin\n-# /pp is in beta: the numbers may still move", extra...)},
+		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "melting pot", "", extra...)},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
-}
-
-// dayLine is how long until the day turns, which is when the pool fills
-// again.
-func dayLine(now time.Time) string {
-	next := time.Unix((DayOf(now)+1)*86400, 0)
-	return "the day turns in " + core.Duration(next.Sub(now)) + ", at 00:00 utc"
 }
 
 // sheet is mem's status screen. s.mu held.
