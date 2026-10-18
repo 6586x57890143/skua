@@ -71,13 +71,13 @@ func TestQuestDeal(t *testing.T) {
 
 	// Selfies come up only where there's a channel for them.
 	for slot := range uint64(400) {
-		if q := Default.draw(1, 2, 3, 4, slot, false); q.tasks(&Default)[0].Metric == taskSelfie {
+		if q := Default.draw(1, 2, 3, 4, slot, false, nil); q.tasks(&Default)[0].Metric == taskSelfie {
 			t.Fatal("a selfie quest without a selfie channel")
 		}
 	}
 	saw := false
 	for slot := range uint64(4000) {
-		if q := Default.draw(1, 2, 3, 4, slot, true); q.tasks(&Default)[0].Metric == taskSelfie {
+		if q := Default.draw(1, 2, 3, 4, slot, true, nil); q.tasks(&Default)[0].Metric == taskSelfie {
 			saw = true
 		}
 	}
@@ -156,6 +156,31 @@ func TestQuestReroll(t *testing.T) {
 	}
 	if err := st.reroll(s, mem, guild, a, 0, today+1); err != nil {
 		t.Errorf("a new day's reroll: %v", err)
+	}
+}
+
+// A reroll never lands on the quest it replaces, whatever the day, the
+// tier or the selfie channel.
+func TestRerollNeverRepeats(t *testing.T) {
+	st := newState(&Default, 42)
+	s := st.server(guild)
+	a := old(1)
+	for day := DayOf(t0); day < DayOf(t0)+300; day++ {
+		for tier, kinds := range Default.QuestKinds {
+			for kind := range kinds {
+				for _, selfies := range []snowflake.ID{0, 77} {
+					s.selfies = selfies
+					mem := st.member(s, guild, a, day)
+					mem.quests = []heldQuest{{tier: tier, kind: kind}}
+					if err := st.reroll(s, mem, guild, a, 0, day); err != nil {
+						t.Fatal(err)
+					}
+					if q := mem.quests[0]; q.tier == tier && q.kind == kind {
+						t.Fatalf("day %d rerolled %d/%d into itself", day, tier, kind)
+					}
+				}
+			}
+		}
 	}
 }
 
