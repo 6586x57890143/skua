@@ -9,7 +9,7 @@ import (
 )
 
 // A portrait's frame on the status screen rises with the member's title:
-// plain wood, then iron, bronze, silver, gilt and gilt set with rubies.
+// plain wood, then iron, bronze, silver, gilt and diamond.
 // A frame is built in layers so more can be hung on it later: a base, the
 // band of a material all round the portrait, and trims, each drawn in one
 // of a fixed set of slots. The band and the slots are the same size and in
@@ -28,6 +28,7 @@ const (
 	Gilt     Metal = "ABCD"
 	Ruby     Metal = "LMNO"
 	Sapphire Metal = "TUVW"
+	Diamond  Metal = "GVWw"
 )
 
 // Slot is a place on a frame a trim hangs.
@@ -64,7 +65,7 @@ type Frame struct {
 }
 
 // frameBand is how wide the band is, outside the portrait's own rule.
-const frameBand = 8
+const frameBand = 6
 
 // corners are the four corner slots, for a trim on each.
 var corners = []Slot{CornerTL, CornerTR, CornerBL, CornerBR}
@@ -86,8 +87,8 @@ var Frames = [len(titleFrom)]Frame{
 	{Name: "a silver frame", Band: Silver, Trims: append(each(corners, "boss", Silver), each([]Slot{SideL, SideR}, "stud", Silver)...)},
 	{Name: "a gilt frame", Band: Gilt, Trims: append(append(each(corners, "boss", Gilt), each([]Slot{SideL, SideR}, "stud", Gilt)...),
 		Trim{Crest, "crown", Gilt})},
-	{Name: "a jewelled frame", Band: Gilt, Trims: append(append(append(append(each(corners, "boss", Gilt), each(corners, "gem", Ruby)...),
-		each([]Slot{SideL, SideR}, "gem", Sapphire)...), Trim{Crest, "crown", Gilt}, Trim{Crest, "jewel", Ruby}), Trim{Plaque, "plaque", Gilt})},
+	{Name: "a diamond frame", Band: Diamond, Trims: append(append(each(corners, "gem", Diamond), each([]Slot{SideL, SideR}, "gem", Diamond)...),
+		Trim{Crest, "crown", Diamond}, Trim{Crest, "jewel", Sapphire}, Trim{Plaque, "plaque", Diamond})},
 }
 
 // frameOf is the frame level l's title wears.
@@ -119,15 +120,13 @@ var Shapes = map[string][]string{
 		".k1k.",
 		"..k..",
 	},
-	"boss": bevel(8, 8),
+	"boss": bevel(6, 6),
 	"gem": {
-		"...k...",
-		"..k4k..",
-		".k432k.",
-		"k43321k",
-		".k321k.",
-		"..k1k..",
-		"...k...",
+		"..k..",
+		".k4k.",
+		"k432k",
+		".k21k",
+		"..k..",
 	},
 	"crown": {
 		"..k.....k.....k..",
@@ -146,7 +145,7 @@ var Shapes = map[string][]string{
 		"k2k",
 		".k.",
 	},
-	"plaque": bevel(23, 7),
+	"plaque": bevel(23, 6),
 }
 
 // bevel is a plate w by h: lit along its top and left, shaded along its
@@ -214,8 +213,8 @@ func drawFrame(c *pixel.Canvas, f Frame, r image.Rectangle) {
 	c.Ground(o, pixel.IconInk('k'))
 	// Across the band from its outer edge in: the rule, the metal rising to
 	// its light and back down, and the rule against the portrait's.
-	lit := "k" + string(f.Band[1]) + string(f.Band[2]) + string(f.Band[3]) + string(f.Band[2]) + string(f.Band[1]) + string(f.Band[0]) + "k"
-	shade := "k" + string(f.Band[0]) + string(f.Band[1]) + string(f.Band[2]) + string(f.Band[1]) + string(f.Band[0]) + string(f.Band[0]) + "k"
+	lit := "k" + string(f.Band[2]) + string(f.Band[3]) + string(f.Band[2]) + string(f.Band[1]) + "k"
+	shade := "k" + string(f.Band[1]) + string(f.Band[2]) + string(f.Band[1]) + string(f.Band[0]) + "k"
 	for k := range frameBand {
 		ring := o.Inset(k)
 		top, foot := pixel.IconInk(lit[k]), pixel.IconInk(shade[k])
