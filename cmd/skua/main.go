@@ -147,8 +147,10 @@ func run(log *slog.Logger) error {
 		log.Warn("discord refused skua for want of a permission", "op", m.Op, "guild", m.Guild, "channel", m.Channel)
 	}
 	linked := make(chan struct{})
+	var fleetLink *link.Client
 	if url, tok := os.Getenv("SKUA_CYGNET_URL"), os.Getenv("SKUA_CYGNET_TOKEN"); url != "" && tok != "" {
 		c := link.New(link.Config{URL: url, Token: tok, Build: core.Revision(), Log: log})
+		fleetLink = c
 		c.Handle("ping", func(context.Context, link.Call) (any, error) { return nil, nil })
 		c.Handle(pace.Method, pacer.Answer)
 		// What cygnet installs skua with. Read once the modules are resolved;
@@ -258,6 +260,13 @@ func run(log *slog.Logger) error {
 		} else {
 			pot.Admin = func(i discord.Interaction) bool { return router.Admin(i) }
 			pot.Guard = g
+			// A redeemed beta key asks merlin for the beta role over the link;
+			// merlin decides whether skua may ask for it.
+			if fleetLink != nil {
+				pot.Grant = func(ctx context.Context, guild, user, role snowflake.ID) error {
+					return fleetLink.Call(ctx, pp.GrantMethod, pp.GrantRequest{Guild: guild.String(), User: user.String(), Role: role.String()}, nil)
+				}
+			}
 			all = append(all, pot)
 		}
 	}

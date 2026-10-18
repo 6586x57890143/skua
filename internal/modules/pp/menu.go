@@ -39,7 +39,11 @@ func (m *Module) Commands() []core.Command {
 				return errNotServer
 			}
 			if !m.plays(e) {
-				return errBeta
+				msg, err := m.closedMessage(*guild)
+				if err != nil {
+					return err
+				}
+				return e.CreateMessage(msg)
 			}
 			msg, err := m.status(*guild, e.Member(), true, m.Admin != nil && m.Admin(e))
 			if err != nil {
@@ -68,6 +72,13 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.setLog(ctx, *guild, e)
 	case id == "pp:selfies":
 		return m.setSelfies(ctx, *guild, e)
+	case id == "pp:keys":
+		return m.openKeys(e)
+	case id == "pp:redeem":
+		if m.Grant == nil {
+			return errBeta
+		}
+		return e.Modal(redeemModal())
 	case id == "pp:grant":
 		if m.Admin == nil || !m.Admin(e) {
 			return errNotAdmin
