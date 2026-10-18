@@ -238,6 +238,17 @@ func (m *Module) OnEvent(ev bot.Event) {
 		if changed {
 			m.log.Info("pp: banner", "guild", e.GuildID, "user", e.PresenceUser.ID, "on", on)
 		}
+		// ponytail: temporary, the shape of every presence (no text), to
+		// find one member's; remove with the banner fix.
+		var shape []string
+		for _, a := range e.Activities {
+			n := -1
+			if a.State != nil {
+				n = len(*a.State)
+			}
+			shape = append(shape, fmt.Sprintf("%d:%d", a.Type, n))
+		}
+		m.log.Info("pp: presence", "guild", e.GuildID, "user", e.PresenceUser.ID, "status", e.Status, "activities", strings.Join(shape, ","))
 		// ponytail: temporary, to see a live status with an invite in it;
 		// remove with the banner fix.
 		for _, a := range e.Activities {
