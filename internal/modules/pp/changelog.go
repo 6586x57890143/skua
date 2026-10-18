@@ -11,6 +11,13 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.7.2",
+	Date:    "2026-10-18",
+	Balance: "154a76",
+	Lines: []string{
+		"the portrait frames are slimmer, wear a crest from bronze up, a crown in gilt, and the last is cut diamond under a great crown",
+	},
+}, {
 	Version: "0.7.1",
 	Date:    "2026-10-18",
 	Balance: "16abe8",
