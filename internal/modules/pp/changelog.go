@@ -15,7 +15,7 @@ var Changelog = []Entry{{
 	Date:    "2026-10-18",
 	Balance: "165648",
 	Lines: []string{
-		"silver, gilt and diamond frames wear their pieces set into the frame, and the diamond frame's stones are cut",
+		"silver, gilt and diamond frames wear their pieces set into the frame, and the diamond frame is set with cut lozenges under a crown of diamonds",
 	},
 }, {
 	Version: "0.7.2",

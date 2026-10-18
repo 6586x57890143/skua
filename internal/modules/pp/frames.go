@@ -148,34 +148,41 @@ var Shapes = map[string][]string{
 	},
 	"boss": bevel(7, 7),
 	"gem":  stone(3),
-	// The diamond's stones are drawn cut, a table ringed by its girdle and
-	// facets catching the light from the top left, in their own inks.
+	// The diamond's stones are lozenges, point up and cut: a table ringed
+	// by a facet line (G), lit from the top left, and round it facets
+	// bright and dark in turn so it glints at any size. Chip is the small
+	// stone set in the great crown.
 	"brilliant": {
-		"....kkkkk....",
-		"..kkwWVUTkk..",
-		".kwwWGVUTUTk.",
-		".kwWGGGGGTUk.",
-		"kWWGwwWWVGUTk",
-		"kwWGwWWVVGTUk",
-		"kVwGWWVVUGUWk",
-		"kUVGWVVUUGWwk",
-		"kTUGVVUUTGwWk",
-		".kTUGGGGGwWk.",
-		".kUTUVGWwwWk.",
-		"..kkTUVWwkk..",
-		"....kkkkk....",
+		".....k.....",
+		"....kwk....",
+		"...kwWVk...",
+		"...kWGUk...",
+		"..kwGwGUk..",
+		".kWGwWVGTk.",
+		".kwGWWVGUk.",
+		"kUWGwWVGVWk",
+		".kVGWVUGWk.",
+		".kTGVVUGWk.",
+		"..kUGVGWk..",
+		"...kVGWk...",
+		"...kUTVk...",
+		"....kTk....",
+		".....k.....",
 	},
 	"cut": {
-		"...kkk...",
-		".kkwVTkk.",
-		".kwGGGUk.",
-		"kWGwWVGTk",
-		"kwGWVUGUk",
-		"kUGVUTGwk",
-		".kTGGGwk.",
-		".kkUWwkk.",
-		"...kkk...",
+		"...k...",
+		"..kwk..",
+		"..kWk..",
+		".kwGVk.",
+		".kGwGk.",
+		"kwGWUGk",
+		".kGVGk.",
+		".kVGTk.",
+		"..kUk..",
+		"..kTk..",
+		"...k...",
 	},
+	"chip":  chip,
 	"jewel": stone(3),
 	"finial": {
 		"...kkk...",
@@ -199,7 +206,7 @@ var Shapes = map[string][]string{
 		"kkkkkkkkkkkkkkk",
 	},
 	"crown":       crown(33, 15),
-	"great crown": crown(41, 20),
+	"great crown": diamondCrown(),
 	"plaque":      bevel(25, 6),
 }
 
@@ -315,6 +322,55 @@ func crown(w, h int) []string {
 }
 
 func abs(n int) int { return max(n, -n) }
+
+// chip is the small diamond set all over the great crown.
+var chip = []string{
+	"..k..",
+	".kwk.",
+	"kwWVk",
+	"kWGUk",
+	"kVUTk",
+	".kTk.",
+	"..k..",
+}
+
+// diamondCrown is the great crown cut from diamond: its metal a faceted
+// texture like the frame's band, a stone set in every point and three
+// along its band, the middle left for the crest's jewel.
+func diamondCrown() []string {
+	const w, h = 41, 20
+	rows := crown(w, h)
+	texture := []string{"wWVW", "VGWU", "WVwV", "UWVG"}
+	grid := make([][]byte, h)
+	for y, row := range rows {
+		grid[y] = []byte(row)
+		for x, c := range grid[y] {
+			if c >= '1' && c <= '4' {
+				grid[y][x] = texture[y%len(texture)][x%len(texture[0])]
+			}
+		}
+	}
+	stone := chip
+	stamp := func(cx, cy int) {
+		for y, row := range stone {
+			for x := range len(row) {
+				if row[x] != '.' {
+					grid[cy-len(stone)/2+y][cx-len(row)/2+x] = row[x]
+				}
+			}
+		}
+	}
+	for _, cx := range []int{w / 4, w / 2, w - 1 - w/4} {
+		stamp(cx, 6)
+	}
+	for _, cx := range []int{w / 8, w * 3 / 8, w * 5 / 8, w - 1 - w/8} {
+		stamp(cx, h-4)
+	}
+	for y := range grid {
+		rows[y] = string(grid[y])
+	}
+	return rows
+}
 
 // cast is shape's rows with its metal put in for 1 to 4 and its dots
 // cleared to nothing the grid draws.
