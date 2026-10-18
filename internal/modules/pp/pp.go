@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -256,15 +257,25 @@ func (m *Module) ready(guild snowflake.ID, g discord.GatewayGuild) {
 	for _, vs := range g.VoiceStates {
 		m.st.sit(s, guild, vs.UserID, vs, bots[vs.UserID], now)
 	}
-	worn := 0
+	worn, custom, invites := 0, 0, 0
 	for _, p := range g.Presences {
 		on := bannerOf(p.Activities, vanity)
 		s.wearBanner(p.PresenceUser.ID, on, now)
 		if on {
 			worn++
 		}
+		for _, a := range p.Activities {
+			if a.Type == discord.ActivityTypeCustom && a.State != nil {
+				custom++
+				if strings.Contains(strings.ToLower(*a.State), ".gg/") {
+					invites++
+				}
+			}
+		}
 	}
-	m.log.Info("pp: ready", "guild", guild, "presences", len(g.Presences), "banners", worn)
+	// Counts only: how many custom statuses arrived and how many carry an
+	// invite, against the vanity the banner looks for.
+	m.log.Info("pp: ready", "guild", guild, "presences", len(g.Presences), "custom", custom, "invites", invites, "vanity", vanity, "banners", worn)
 }
 
 // loop pays voice once a minute and saves what changed. The first tick and
