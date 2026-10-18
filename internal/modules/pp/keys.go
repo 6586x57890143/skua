@@ -112,7 +112,7 @@ func (t *tries) take(user snowflake.ID, now time.Time) bool {
 func (m *Module) keyControls() []discord.ContainerSubComponent {
 	return []discord.ContainerSubComponent{
 		discord.NewTextDisplay("### beta keys\n-# each key lets one member into the beta: they redeem it on /pp and get the beta testers' role. a key works once, and skua keeps only its hash, so copy them when they're shown"),
-		discord.NewActionRow(discord.NewSecondaryButton("issue keys", "pp:keys")),
+		discord.NewActionRow(withIcon(discord.NewSecondaryButton("issue keys", "pp:keys"), "envelope")),
 	}
 }
 
@@ -189,7 +189,7 @@ func (m *Module) closedMessage(guild snowflake.ID) (discord.MessageCreate, error
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "closed beta",
 			"/pp is in closed beta here for now\n-# have a key? redeem it and you're in",
-			discord.NewActionRow(discord.NewPrimaryButton("redeem a key", "pp:redeem")))},
+			discord.NewActionRow(withIcon(discord.NewPrimaryButton("redeem a key", "pp:redeem"), "envelope")))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
