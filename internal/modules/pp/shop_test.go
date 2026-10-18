@@ -197,6 +197,18 @@ func TestBuffsCard(t *testing.T) {
 	if len(buffs) != 4 || !buffs[0].On || buffs[1].On || buffs[1].How != "put .gg/melted in your custom status" || buffs[3].Name != "hearth ii" || !buffs[3].On || !strings.Contains(buffs[3].How, "of its day, rises at") {
 		t.Errorf("buffs: %+v", buffs)
 	}
+	// A fire left from yesterday, nothing earned yet today: the next
+	// threshold keeps it for tomorrow; a fresh day lights; past it, rises.
+	for _, c := range []struct {
+		lit, before int
+		want        string
+	}{{0, 0, "lights at 100%"}, {0, 1, "burns on tomorrow at 100%"}, {1, 0, "rises at 115%"}, {1, 2, "burns on tomorrow at 115%"}} {
+		s.lit, s.litBefore = c.lit, c.before
+		if got := m.st.hearthHow(s); !strings.HasSuffix(got, c.want) {
+			t.Errorf("lit %d, yesterday %d: %q", c.lit, c.before, got)
+		}
+	}
+	s.lit, s.litBefore = 2, 0
 	e, sent := coretest.Button(t, "pp:buffs", func(p map[string]any) {
 		p["member"].(map[string]any)["user"] = map[string]any{"id": old(1).String(), "username": "member"}
 	})

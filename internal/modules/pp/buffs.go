@@ -46,8 +46,14 @@ func (st *state) hearthHow(s *server) string {
 		return "at its brightest, through tomorrow"
 	}
 	at := s.raw * 100 / max(b.Usual(s.history), 1)
+	// Today's next tier lights at HearthAt[s.lit]. Under a fire still
+	// burning from yesterday, reaching it keeps a fire for tomorrow; over
+	// it, the hearth rises.
 	verb := "lights"
-	if s.hearth() > 0 {
+	switch next := s.lit + 1; {
+	case s.hearth() >= next:
+		verb = "burns on tomorrow"
+	case s.hearth() > 0:
 		verb = "rises"
 	}
 	return fmt.Sprintf("the server is at %d%% of its day, %s at %d%%", at, verb, b.HearthAt[s.lit])
