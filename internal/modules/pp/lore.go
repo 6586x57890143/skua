@@ -153,11 +153,6 @@ func loreMessage(i, page int, mine string, cost, purse int64) (discord.MessageCr
 	}
 	l := ClassLore[cl.Key]
 	alt := clip(cl.Name()+", "+l.Epithet+": "+strings.Join(l.Story, " ")+" \""+l.Quote+"\"", altLimit)
-	price := "your first pick this season is free. after it a change costs pp, more the higher your level and more again each time"
-	if cost > 0 {
-		price = fmt.Sprintf("changing class now costs %s pp and you have %s. the first pick of a new season is free again", grouped(cost/unit), grouped(purse/unit))
-	}
-	note := "-# " + strings.Join(cl.Titles[:], " · ") + "\n-# " + price
 
 	pages := len(lorePages(l))
 	n := len(Classes)
@@ -165,7 +160,14 @@ func loreMessage(i, page int, mine string, cost, purse int64) (discord.MessageCr
 	if page+1 >= pages {
 		turn = "from the top"
 	}
-	walk := withIcon(discord.NewPrimaryButton("walk this path", "pp:pick:"+cl.Key), classIcons[cl.Key])
+	label := "walk this path"
+	if cost > 0 {
+		label += " · " + grouped(cost/unit) + " pp"
+	}
+	walk := withIcon(discord.NewPrimaryButton(label, "pp:pick:"+cl.Key), classIcons[cl.Key])
+	if cost > purse {
+		walk = walk.AsDisabled()
+	}
 	if cl.Key == mine {
 		walk = withIcon(discord.NewSuccessButton("your path", "pp:pick:"+cl.Key), classIcons[cl.Key]).AsDisabled()
 	}
@@ -175,7 +177,7 @@ func loreMessage(i, page int, mine string, cost, purse int64) (discord.MessageCr
 		discord.NewSecondaryButton("▸", loreID((i+1)%n, 0)),
 		walk)
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "lore", note,
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "lore", "",
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
 			row)},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},

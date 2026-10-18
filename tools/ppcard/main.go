@@ -59,9 +59,9 @@ func main() {
 		},
 		"quests": func() ([]byte, error) {
 			return pp.QuestScreen("heavywinds", []pp.QuestLine{
-				{Icon: "quill", What: "send 40 messages", Progress: 23, Goal: 40, Tier: 0, Reward: 250 * 100},
-				{Icon: "drum", What: "spend 45 minutes in voice", Progress: 10, Goal: 45, Tier: 1, Reward: 400 * 100},
-				{Icon: "mirror", What: "post a selfie in #selfies", Progress: 0, Goal: 1, Tier: 2, Reward: 750 * 100},
+				{Icon: "quill", Tier: 0, Reward: 250 * 100, Tasks: []pp.TaskLine{{What: "messages", Progress: 23, Goal: 40}}},
+				{Icon: "compass", Tier: 1, Reward: 400 * 100, Tasks: []pp.TaskLine{{What: "minutes in voice", Progress: 20, Goal: 20}, {What: "messages", Progress: 3, Goal: 17}}},
+				{Icon: "lantern", Tier: 2, Reward: 750 * 100, Tasks: []pp.TaskLine{{What: "minutes in voice", Progress: 9, Goal: 18}, {What: "messages", Progress: 15, Goal: 15}, {What: "minutes by the hearth", Goal: 10}}},
 			}, 2)
 		},
 		"quests-empty": func() ([]byte, error) { return pp.QuestScreen("steve", nil, 0) },

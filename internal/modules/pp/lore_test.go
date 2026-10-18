@@ -43,7 +43,7 @@ func TestLorePress(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := js((*sent)[0])
-	for _, want := range []string{"raven sorcerer", "from the top", loreID(3, 0), loreID(2, 0), loreID(4, 0), "pp:pick:sorcerer", "archmagus"} {
+	for _, want := range []string{"raven sorcerer", "from the top", loreID(3, 0), loreID(2, 0), loreID(4, 0), "pp:pick:sorcerer"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the sorcerer's second page has no %q: %s", want, got)
 		}

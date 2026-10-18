@@ -64,10 +64,13 @@ func TestStatusLayout(t *testing.T) {
 }
 
 func TestQuestLayout(t *testing.T) {
+	// The most a panel holds: a golden quest asking three things and two
+	// great ones asking two.
+	task := func(what string, n, of int64) TaskLine { return TaskLine{What: what, Progress: n, Goal: of} }
 	checkLayout(t, "quests", questCanvas("a very long display name indeed, longer", []QuestLine{
-		{Icon: "quill", What: "send 400 messages", Progress: 23, Goal: 400, Reward: Default.QuestPP[0]},
-		{Icon: "compass", What: "3 tasks", Progress: 2000, Goal: 4000, Tier: 1, Reward: Default.QuestPP[1]},
-		{Icon: "mirror", What: "post a selfie", Progress: 0, Goal: 1, Tier: 2, Reward: Default.QuestPP[2]},
+		{Icon: "lantern", Tier: 2, Reward: Default.QuestPP[2], Tasks: []TaskLine{task("minutes in voice", 9, 18), task("messages", 15, 15), task("minutes by the hearth", 0, 10)}},
+		{Icon: "compass", Tier: 1, Reward: Default.QuestPP[1], Tasks: []TaskLine{task("minutes in voice", 20, 20), task("messages", 1, 17)}},
+		{Icon: "compass", Tier: 1, Reward: Default.QuestPP[1], Tasks: []TaskLine{task("minutes in voice", 999, 999), task("a selfie that stays a day", 0, 1)}},
 	}, 2))
 	checkLayout(t, "no quests", questCanvas("steve", nil, 0))
 }

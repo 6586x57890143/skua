@@ -138,12 +138,8 @@ func (st *state) shopMessage(s *server, m *member) (discord.MessageCreate, error
 	}
 	next, _ := perch(m.rung + 1)
 	alt := fmt.Sprintf("the rookery stair: you sit on %s, the %s costs %s pp and you hold %s pp", or(heldName, "the ground"), next, grouped(price/unit), grouped(m.purse/unit))
-	note := "-# each rung costs twice the one before; everything bought is burned"
-	if s.heavy {
-		note += fmt.Sprintf("\n-# the shop has been quiet for two seasons, so a purse past %s pp keeps a tenth of new earning until it picks up", grouped(Rules.Line*st.potDay/unit))
-	}
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", note,
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
 			discord.NewActionRow(discord.NewStringSelectMenu("pp:look", "look closer at a rung", look...)),
 			discord.NewActionRow(climbButton("climb to the "+next, m.purse >= price)))},
@@ -172,27 +168,18 @@ func (st *state) itemMessage(m *member, n int64) (discord.MessageCreate, error) 
 	look := lookOf(n)
 	price := rungPrice(st.potDay, n-1)
 	it := Item{Icon: p.icon, Kind: fmt.Sprintf("rung %d", n), Name: p.name, What: p.what, Story: p.story, Effect: p.effect,
-		Price: price, Short: n > m.rung && m.purse < price, You: or(m.name, "you"), Look: &look}
+		Price: price, Short: n > m.rung && m.purse < price, Climbed: n <= m.rung, You: or(m.name, "you"), Look: &look}
 	pic, err := ItemScreen(it)
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
 	alt := fmt.Sprintf("the %s, rung %d of the rookery stair, %s pp: %s. %s. effect: %s", p.name, n, grouped(price/unit), p.what, p.story, p.effect)
-	where := fmt.Sprintf("-# you hold %s pp", grouped(m.purse/unit))
-	switch {
-	case n <= m.rung:
-		where = "-# you've climbed this one"
-	case n > m.rung+1:
-		prev, _ := perch(n - 1)
-		where += "; the " + prev + " comes first"
-	}
-	note := where + "\n-# rungs are climbed in order, each costs twice the one before and what you pay is burned"
 	row := discord.NewActionRow(discord.NewSecondaryButton("◂ shop", "pp:back"))
 	if n == m.rung+1 {
 		row = row.AddComponents(climbButton("climb · "+grouped(price/unit)+" pp", m.purse >= price))
 	}
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", note,
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
 			row)},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
@@ -259,12 +246,6 @@ func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.Component
 	}
 	if drawn != nil {
 		return drawn
-	}
-	if climbed {
-		name, _ := perch(look)
-		card := msg.Components[0].(discord.ContainerComponent)
-		card.Components = append([]discord.ContainerSubComponent{discord.NewTextDisplay("you sit on the " + name + " now")}, card.Components...)
-		msg.Components[0] = card
 	}
 	return m.answer(guild, e, msg, "pp:shop")
 }

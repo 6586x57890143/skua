@@ -249,18 +249,30 @@ func drawBuffs(c *pixel.Canvas, buffs []Buff, r image.Rectangle) {
 
 // QuestLine is one open quest as the quest screen shows it.
 type QuestLine struct {
-	Icon, What     string
+	Icon   string
+	Tier   int
+	Reward int64
+	Tasks  []TaskLine
+}
+
+// TaskLine is one thing a quest asks, as the screen shows it: what, and
+// how far along.
+type TaskLine struct {
+	What           string
 	Progress, Goal int64
-	Tier           int
-	Reward         int64
 }
 
 // QuestScreen draws the open quests as an item list in a named panel, the
-// cursor on the first, each with its icon, a gauge of how far along it is
-// and what it pays, over how many of their rerolls are left today.
+// cursor on the first: each quest's icon, tier and what it pays, and under
+// it every thing it asks with a gauge of how far along, over how many of
+// their rerolls are left today.
 func QuestScreen(name string, quests []QuestLine, rerolls int) ([]byte, error) {
 	return questCanvas(name, quests, rerolls).Soft(screenScale)
 }
+
+// questHead, questTask and questGap are a quest's line, each of its
+// tasks' lines and the space after it.
+const questHead, questTask, questGap = 15, 12, 2
 
 func questCanvas(name string, quests []QuestLine, rerolls int) *pixel.Canvas {
 	c := pixel.New(screenW, screenH)
@@ -271,20 +283,27 @@ func questCanvas(name string, quests []QuestLine, rerolls int) *pixel.Canvas {
 	tabName(c, list, name)
 
 	tier := [3]uint8{pixel.Ink, pixel.Green, pixel.Gold}
+	// A quest is a line of its own, then a line for each thing it asks:
+	// what, a gauge and the count, all three quests in the panel even when
+	// two of them ask three things.
+	y := 28
 	for i, q := range quests {
-		y := 32 + i*44
 		if i == 0 {
 			c.Cursor(x-4, y+6)
 		}
-		at := right(c, r, y, grouped(q.Reward/unit)+" pp", tier[q.Tier])
-		if q.Tier > 0 {
-			at = rightIn(c, pixel.Bold, at-pixel.Advance, y, QuestTiers[q.Tier], tier[q.Tier])
-		}
 		c.Icon(q.Icon, image.Pt(x, y-iconLift))
-		c.Fit(x+pixel.IconCells+4, y, q.What, pixel.Ink, at-pixel.Advance-x-pixel.IconCells-4)
-		bar := x + pixel.IconCells + 4
-		c.Bar(image.Rect(bar, y+22, 280, y+27), q.Progress, q.Goal, pixel.Blue)
-		right(c, r, y+18, fmt.Sprintf("%d / %d", min(q.Progress, q.Goal), q.Goal), pixel.Dim)
+		c.Print(pixel.Bold, x+pixel.IconCells+4, y, QuestTiers[q.Tier]+" quest", tier[q.Tier])
+		right(c, r, y, grouped(q.Reward/unit)+" pp", tier[q.Tier])
+		y += questHead
+		for _, t := range q.Tasks {
+			what := x + pixel.IconCells + 4
+			bar := 220
+			c.FitIn(pixel.Light, what, y, t.What, pixel.Ink, bar-pixel.Advance-what)
+			c.Bar(image.Rect(bar, y+4, 300, y+9), t.Progress, t.Goal, pixel.Blue)
+			right(c, r, y, fmt.Sprintf("%d / %d", min(t.Progress, t.Goal), t.Goal), pixel.Dim)
+			y += questTask
+		}
+		y += questGap
 	}
 	if len(quests) == 0 {
 		label(c, x, 32, "no quests open; a new one comes at 00:00 utc")
@@ -292,7 +311,7 @@ func questCanvas(name string, quests []QuestLine, rerolls int) *pixel.Canvas {
 
 	foot := image.Rect(4, 176, 380, 212)
 	c.Window(foot)
-	y := midLine(foot)
+	y = midLine(foot)
 	c.Icon("reroll", image.Pt(16, y-iconLift))
 	end := label(c, 16+pixel.IconCells+4, y, "a reroll a day each") + pixel.Advance
 	if rerolls > 0 {

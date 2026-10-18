@@ -208,6 +208,7 @@ type Item struct {
 	What, Story, Effect string
 	Price               int64
 	Short               bool // the member can't pay for it yet
+	Climbed             bool // the member has it already
 	You                 string
 	Look                *Look // how the member's name looks with it, or nil
 }
@@ -243,7 +244,11 @@ func itemCanvas(it Item) *pixel.Canvas {
 		ink = pixel.Red
 	}
 	c.Icon("pot", image.Pt(14, y-iconLift))
-	c.Text(14+pixel.IconCells+4, y, grouped(it.Price/unit)+" pp", ink, 0)
+	if it.Climbed {
+		c.Text(14+pixel.IconCells+4, y, "climbed", pixel.Green, 0)
+	} else {
+		c.Text(14+pixel.IconCells+4, y, grouped(it.Price/unit)+" pp", ink, 0)
+	}
 
 	text := image.Rect(116, 4, 380, 212)
 	c.Window(text)

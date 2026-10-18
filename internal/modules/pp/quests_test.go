@@ -249,8 +249,9 @@ func TestSelfieQuest(t *testing.T) {
 	}
 }
 
-// The quests button shows the screen and every quest as text; a golden one
-// turns the card gold; each quest's reroll button swaps it, under the menu.
+// The quests button shows the screen, every quest as its description and
+// no text over it; a golden one turns the card gold; each quest's reroll
+// button swaps it, under the menu.
 func TestQuestsButton(t *testing.T) {
 	m := testModule(&fakeDB{})
 	s := m.st.server(3)
@@ -263,7 +264,7 @@ func TestQuestsButton(t *testing.T) {
 		t.Fatal(err)
 	}
 	card := js((*sent)[0].Components)
-	if !strings.Contains(card, "a golden quest came up") || !strings.Contains(card, "while the hearth burns") || !strings.Contains(card, "pp:reroll:0") || !strings.Contains(card, "pp:reroll:1") || !strings.Contains(card, "pp:status") {
+	if strings.Contains(card, "-# ") || !strings.Contains(card, "your quests: golden") || !strings.Contains(card, "while the hearth burns") || !strings.Contains(card, "pp:reroll:0") || !strings.Contains(card, "pp:reroll:1") || !strings.Contains(card, "pp:status") {
 		t.Errorf("the quests card: %s", card)
 	}
 

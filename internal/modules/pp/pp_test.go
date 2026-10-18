@@ -59,7 +59,7 @@ func TestTitleUntilAPick(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := js((*sent)[0])
-	for _, want := range []string{"melting pot", "pick a class", "pp:class", "beta", "attachment://pp.jpg"} {
+	for _, want := range []string{"melting pot", "pick a class", "pp:class", "attachment://pp.jpg"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the title lacks %q: %s", want, got)
 		}
@@ -89,7 +89,7 @@ func TestStatusCommand(t *testing.T) {
 	}
 	msg := (*sent)[0]
 	got := js(msg)
-	for _, want := range []string{"attachment://pp.jpg", "pp:class", "pp:show", "the day turns in 12h", `"parse":[]`} {
+	for _, want := range []string{"attachment://pp.jpg", "pp:class", "pp:show", `"parse":[]`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the reply lacks %q: %s", want, got)
 		}
@@ -160,7 +160,7 @@ func TestClassChanges(t *testing.T) {
 		return js((*sent)[len(*sent)-1]), err
 	}
 	got, err := press(coretest.Button(t, "pp:class", nil))
-	if err != nil || !strings.Contains(got, "pp:pick:wanderer") || !strings.Contains(got, "albatross wanderer") || !strings.Contains(got, "is free") {
+	if err != nil || !strings.Contains(got, "pp:pick:wanderer") || !strings.Contains(got, "albatross wanderer") || !strings.Contains(got, `"label":"walk this path"`) {
 		t.Fatalf("the picker: %v %s", err, got)
 	}
 	if _, err := press(pick(t, "thief")); err != nil {
@@ -178,7 +178,7 @@ func TestClassChanges(t *testing.T) {
 	mem.purse, mem.total = 5000*unit, 2000*unit
 	l, _, _ := Default.Level(mem.total)
 	first := Default.ClassCost(l, 0)
-	if got, _ := press(coretest.Button(t, "pp:class", nil)); !strings.Contains(got, "costs "+grouped(first/unit)+" pp") {
+	if got, _ := press(coretest.Button(t, loreID(classIndex("bard"), 0), nil)); !strings.Contains(got, "walk this path · "+grouped(first/unit)+" pp") {
 		t.Errorf("the picker doesn't say the price: %s", got)
 	}
 	if _, err := press(pick(t, "bard")); err != nil || mem.class != "bard" || mem.purse != 5000*unit-first || mem.classChanges != 1 {

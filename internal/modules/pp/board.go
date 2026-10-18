@@ -94,12 +94,6 @@ func (m *Module) boardMessage(guild, user snowflake.ID) (discord.MessageCreate, 
 	}
 	level := func(st standing) string { l, _, _ := b.Level(st.score); return fmt.Sprintf("lv %d", l) }
 	levelBoard := rank(users, totals)
-	you := "-# you haven't earned yet"
-	for _, st := range levelBoard {
-		if st.user == user {
-			you = fmt.Sprintf("-# you're %s on the levels board, at %s", ordinal(st.place), strings.Replace(level(st), "lv", "level", 1))
-		}
-	}
 
 	var levels, seasonRows []BoardRow
 	tab, starts := "", ""
@@ -123,7 +117,7 @@ func (m *Module) boardMessage(guild, user snowflake.ID) (discord.MessageCreate, 
 		alt += ", and the " + tab + " board"
 	}
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "board", you,
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "board", "",
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}))},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,

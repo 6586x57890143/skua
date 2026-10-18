@@ -329,12 +329,10 @@ func (m *Module) questsMessage(guild snowflake.ID, who *discord.ResolvedMember) 
 		if q.rerolled != today {
 			ready++
 		}
-		goal, prog := int64(0), int64(0)
+		lines[i] = QuestLine{Icon: b.QuestKinds[q.tier][q.kind].Icon, Tier: q.tier, Reward: b.QuestPP[q.tier]}
 		for j, t := range q.tasks(b) {
-			goal, prog = goal+t.Goal, prog+min(q.prog[j], t.Goal)
+			lines[i].Tasks = append(lines[i].Tasks, TaskLine{What: shortTask(t, q.ref != 0), Progress: min(q.prog[j], t.Goal), Goal: t.Goal})
 		}
-		kind := b.QuestKinds[q.tier][q.kind]
-		lines[i] = QuestLine{Icon: kind.Icon, What: shortQuest(kind), Progress: prog, Goal: goal, Tier: q.tier, Reward: b.QuestPP[q.tier]}
 		text = append(text, fmt.Sprintf("%s · %s · %s pp", QuestTiers[q.tier], q.text(b), grouped(b.QuestPP[q.tier]/unit)))
 		golden = golden || q.tier == 2
 	}
@@ -345,17 +343,14 @@ func (m *Module) questsMessage(guild snowflake.ID, who *discord.ResolvedMember) 
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
-	body := "nothing held; a new one comes at 00:00 utc"
+	// Everything is on the screen; the quests as text are its description,
+	// for a reader that can't see it.
+	alt := "your quests: none held, a new one comes at 00:00 utc"
 	if len(text) > 0 {
-		body = strings.Join(text, "\n")
+		alt = "your quests: " + strings.Join(text, ". ")
 	}
-	if golden {
-		body = "a golden quest came up\n" + body
-	}
-	const alt = "your quests"
 	extra := []discord.ContainerSubComponent{
-		discord.NewTextDisplay("-# " + strings.ReplaceAll(body, "\n", "\n-# ")),
-		discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
+		discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: clip(alt, altLimit)}),
 	}
 	if len(qs) > 0 {
 		// A reroll button per quest, in the screen's order, each greyed
@@ -378,21 +373,23 @@ func (m *Module) questsMessage(guild snowflake.ID, who *discord.ResolvedMember) 
 	}, nil
 }
 
-// shortQuest is a quest kind in a few words, for the screen.
-func shortQuest(k QuestKind) string {
-	if len(k.Tasks) > 1 {
-		return fmt.Sprintf("%d tasks", len(k.Tasks))
-	}
-	t := k.Tasks[0]
+// shortTask is a task in a few words, for the screen; up is whether a
+// selfie for it is waiting out its day.
+func shortTask(t Task, up bool) string {
 	switch t.Metric {
 	case taskVoice:
-		return fmt.Sprintf("%d min in voice", t.Goal)
+		return "minutes in voice"
 	case taskTalk:
-		return fmt.Sprintf("send %d messages", t.Goal)
+		return "messages"
 	case taskHearth:
-		return fmt.Sprintf("%d min by the hearth", t.Goal)
+		return "minutes by the hearth"
+	case taskSelfie:
+		if up {
+			return "selfie up, a day to stay"
+		}
+		return "a selfie that stays a day"
 	}
-	return "post a selfie"
+	return t.Metric
 }
 
 // pixelName is who as the screen can draw it.
