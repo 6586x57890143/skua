@@ -121,9 +121,7 @@ func TestStatusOutsideAServer(t *testing.T) {
 
 // pick is the class select, as Discord sends it.
 func pick(t *testing.T, value string) (*events.ComponentInteractionCreate, *[]discord.MessageCreate) {
-	return coretest.Button(t, "pp:pick", func(p map[string]any) {
-		p["data"] = map[string]any{"custom_id": "pp:pick", "component_type": 3, "values": []any{value}}
-	})
+	return coretest.Button(t, "pp:pick:"+value, nil)
 }
 
 // A pick turns the picker into the status screen, and the edit lists the
@@ -132,8 +130,7 @@ func pick(t *testing.T, value string) (*events.ComponentInteractionCreate, *[]di
 func TestPickListsTheScreen(t *testing.T) {
 	m := testModule(&fakeDB{})
 	// The chat hasn't moved past the picker, so it's edited in place.
-	e, _ := coretest.Button(t, "pp:pick", func(p map[string]any) {
-		p["data"] = map[string]any{"custom_id": "pp:pick", "component_type": 3, "values": []any{"thief"}}
+	e, _ := coretest.Button(t, "pp:pick:thief", func(p map[string]any) {
 		p["channel"] = map[string]any{"id": "4", "type": 0, "last_message_id": "9"}
 	})
 	var got discord.MessageUpdate
@@ -163,7 +160,7 @@ func TestClassChanges(t *testing.T) {
 		return js((*sent)[len(*sent)-1]), err
 	}
 	got, err := press(coretest.Button(t, "pp:class", nil))
-	if err != nil || !strings.Contains(got, "pp:pick") || !strings.Contains(got, "magpie thief") || !strings.Contains(got, "is free") {
+	if err != nil || !strings.Contains(got, "pp:pick:wanderer") || !strings.Contains(got, "albatross wanderer") || !strings.Contains(got, "is free") {
 		t.Fatalf("the picker: %v %s", err, got)
 	}
 	if _, err := press(pick(t, "thief")); err != nil {
