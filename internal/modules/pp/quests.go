@@ -111,12 +111,14 @@ const (
 )
 
 // draw rolls a quest from seed's slot: a tier, then a kind from it, a
-// selfie only where there's a channel for one.
-func (b *Balance) draw(seed, guild, user uint64, day int64, slot uint64, selfies bool) heldQuest {
+// selfie only where there's a channel for one and never not, the quest a
+// reroll replaces. The tier's odds are the same either way: every tier has
+// another kind to give.
+func (b *Balance) draw(seed, guild, user uint64, day int64, slot uint64, selfies bool, not *heldQuest) heldQuest {
 	tier, _ := b.QuestRoll(Roll(seed, guild, user, day, slot))
 	var kinds []int
 	for k, kind := range b.QuestKinds[tier] {
-		if selfies || kind.Tasks[0].Metric != taskSelfie {
+		if (selfies || kind.Tasks[0].Metric != taskSelfie) && (not == nil || not.tier != tier || not.kind != k) {
 			kinds = append(kinds, k)
 		}
 	}
@@ -139,7 +141,7 @@ func (st *state) deal(s *server, m *member, guild, user snowflake.ID, today int6
 		days = 1
 	}
 	for k := range min(days, int64(st.b.QuestHold-len(m.quests))) {
-		m.quests = append(m.quests, st.b.draw(st.seedOf(today), uint64(guild), uint64(user), today, slotDeal+uint64(k)*2, s.selfies != 0))
+		m.quests = append(m.quests, st.b.draw(st.seedOf(today), uint64(guild), uint64(user), today, slotDeal+uint64(k)*2, s.selfies != 0, nil))
 	}
 	m.questDay, m.dirty = today, true
 }
@@ -198,7 +200,7 @@ func (st *state) reroll(s *server, m *member, guild, user snowflake.ID, i int, t
 		return core.Tell("that quest has had today's reroll; another comes at 00:00 utc")
 	}
 	// Each place has its own slot, so two rerolls in a day draw apart.
-	m.quests[i] = st.b.draw(st.seedOf(today), uint64(guild), uint64(user), today, slotReroll+uint64(i)*2, s.selfies != 0)
+	m.quests[i] = st.b.draw(st.seedOf(today), uint64(guild), uint64(user), today, slotReroll+uint64(i)*2, s.selfies != 0, &m.quests[i])
 	m.quests[i].rerolled, m.dirty = today, true
 	return nil
 }
