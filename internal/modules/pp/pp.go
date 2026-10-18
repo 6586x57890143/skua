@@ -238,6 +238,13 @@ func (m *Module) OnEvent(ev bot.Event) {
 		if changed {
 			m.log.Info("pp: banner", "guild", e.GuildID, "user", e.PresenceUser.ID, "on", on)
 		}
+		// ponytail: temporary, to see a live status with an invite in it;
+		// remove with the banner fix.
+		for _, a := range e.Activities {
+			if a.Type == discord.ActivityTypeCustom && a.State != nil && strings.Contains(strings.ToLower(*a.State), "gg/") {
+				m.log.Info("pp: live invite", "guild", e.GuildID, "user", e.PresenceUser.ID, "status", e.Status, "on", on, "state", fmt.Sprintf("%+q", *a.State))
+			}
+		}
 	}
 }
 
