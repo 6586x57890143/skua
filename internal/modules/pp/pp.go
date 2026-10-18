@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -238,24 +237,6 @@ func (m *Module) OnEvent(ev bot.Event) {
 		if changed {
 			m.log.Info("pp: banner", "guild", e.GuildID, "user", e.PresenceUser.ID, "on", on)
 		}
-		// ponytail: temporary, the shape of every presence (no text), to
-		// find one member's; remove with the banner fix.
-		var shape []string
-		for _, a := range e.Activities {
-			n := -1
-			if a.State != nil {
-				n = len(*a.State)
-			}
-			shape = append(shape, fmt.Sprintf("%d:%d", a.Type, n))
-		}
-		m.log.Info("pp: presence", "guild", e.GuildID, "user", e.PresenceUser.ID, "status", e.Status, "activities", strings.Join(shape, ","))
-		// ponytail: temporary, to see a live status with an invite in it;
-		// remove with the banner fix.
-		for _, a := range e.Activities {
-			if a.Type == discord.ActivityTypeCustom && a.State != nil && strings.Contains(strings.ToLower(*a.State), "gg/") {
-				m.log.Info("pp: live invite", "guild", e.GuildID, "user", e.PresenceUser.ID, "status", e.Status, "on", on, "state", fmt.Sprintf("%+q", *a.State))
-			}
-		}
 	}
 }
 
@@ -275,30 +256,15 @@ func (m *Module) ready(guild snowflake.ID, g discord.GatewayGuild) {
 	for _, vs := range g.VoiceStates {
 		m.st.sit(s, guild, vs.UserID, vs, bots[vs.UserID], now)
 	}
-	worn, custom, invites := 0, 0, 0
+	worn := 0
 	for _, p := range g.Presences {
 		on := bannerOf(p.Activities, vanity)
 		s.wearBanner(p.PresenceUser.ID, on, now)
 		if on {
 			worn++
 		}
-		for _, a := range p.Activities {
-			if a.Type == discord.ActivityTypeCustom && a.State != nil {
-				custom++
-				if strings.Contains(strings.ToLower(*a.State), ".gg/") {
-					invites++
-					if !on {
-						// ponytail: temporary, to see why an invite didn't
-						// match; remove with the banner fix.
-						m.log.Info("pp: unmatched invite", "guild", guild, "state", fmt.Sprintf("%+q", *a.State))
-					}
-				}
-			}
-		}
 	}
-	// Counts only: how many custom statuses arrived and how many carry an
-	// invite, against the vanity the banner looks for.
-	m.log.Info("pp: ready", "guild", guild, "presences", len(g.Presences), "custom", custom, "invites", invites, "vanity", vanity, "banners", worn)
+	m.log.Info("pp: ready", "guild", guild, "presences", len(g.Presences), "banners", worn)
 }
 
 // loop pays voice once a minute and saves what changed. The first tick and
