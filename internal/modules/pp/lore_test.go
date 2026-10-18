@@ -65,3 +65,23 @@ func TestLorePress(t *testing.T) {
 		t.Errorf("the lore button for a monk: %s", got)
 	}
 }
+
+// Every class's card goes out with a picture description Discord takes:
+// past altLimit it refuses the whole message.
+func TestLoreAltFits(t *testing.T) {
+	for i, cl := range Classes {
+		msg, err := loreMessage(i, 0, "", 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d := msg.Files[0].Description; len(d) > altLimit || !strings.HasSuffix(d, ".") && !strings.HasSuffix(d, "\"") {
+			t.Errorf("%s's description runs %d: %q", cl.Key, len(d), d)
+		}
+	}
+	if got := clip("one. two. three", 9); got != "one. two." {
+		t.Errorf("clip: %q", got)
+	}
+	if got := clip("abcdefgh", 4); got != "abcd" {
+		t.Errorf("clip with no sentence: %q", got)
+	}
+}
