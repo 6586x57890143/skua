@@ -152,7 +152,7 @@ func loreMessage(i, page int, mine string, cost, purse int64) (discord.MessageCr
 		return discord.MessageCreate{}, err
 	}
 	l := ClassLore[cl.Key]
-	alt := cl.Name() + ", " + l.Epithet + ": " + strings.Join(l.Story, " ") + " \"" + l.Quote + "\""
+	alt := clip(cl.Name()+", "+l.Epithet+": "+strings.Join(l.Story, " ")+" \""+l.Quote+"\"", altLimit)
 	price := "your first pick this season is free. after it a change costs pp, more the higher your level and more again each time"
 	if cost > 0 {
 		price = fmt.Sprintf("changing class now costs %s pp and you have %s. the first pick of a new season is free again", grouped(cost/unit), grouped(purse/unit))
@@ -182,6 +182,23 @@ func loreMessage(i, page int, mine string, cost, purse int64) (discord.MessageCr
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
+}
+
+// altLimit is the most Discord takes for a picture's description; past it
+// the whole message is refused.
+const altLimit = 1024
+
+// clip is s cut at the last sentence that ends within limit, or at limit
+// when no sentence does.
+func clip(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	// A sentence may end right at limit, its space just past it.
+	if end := strings.LastIndex(s[:limit+1], ". "); end > 0 {
+		return s[:end+1]
+	}
+	return s[:limit]
 }
 
 // classIndex is where key sits in Classes, the wanderer's 0 for one it
