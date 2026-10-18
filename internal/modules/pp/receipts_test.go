@@ -18,8 +18,8 @@ func who(user snowflake.ID, name string) *discord.ResolvedMember {
 }
 
 // A member's journal is their own ledger lines as a screen, newest first,
-// with the day still open and what went to the treasury today; admins get
-// the treasury's card, which nobody else can open.
+// with the day still open and no note over it; admins get the treasury's
+// card, which nobody else can open.
 func TestJournalAndTreasury(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
@@ -29,7 +29,7 @@ func TestJournalAndTreasury(t *testing.T) {
 	a := old(1)
 
 	empty, err := m.journal(ctx, g, who(a, "steve"))
-	if err != nil || len(empty.Files) != 1 || strings.Contains(js(empty.Components), "went to the treasury") {
+	if err != nil || len(empty.Files) != 1 || strings.Contains(js(empty.Components), "-# ") {
 		t.Fatalf("a member with no lines: %s, %v", js(empty.Components), err)
 	}
 
@@ -47,7 +47,7 @@ func TestJournalAndTreasury(t *testing.T) {
 	s.mu.Unlock()
 
 	msg, err := m.journal(ctx, g, who(a, "steve"))
-	if err != nil || len(msg.Files) != 1 || !strings.Contains(js(msg.Components), "went to the treasury") {
+	if err != nil || len(msg.Files) != 1 || strings.Contains(js(msg.Components), "-# ") {
 		t.Fatalf("the journal: %s, %v", js(msg.Components), err)
 	}
 	for reason, want := range map[string]string{
