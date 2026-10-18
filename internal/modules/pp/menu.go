@@ -128,10 +128,16 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 			return err
 		}
 		return e.CreateMessage(msg)
+	case "pp:buffs":
+		msg, err := m.buffsMessage(*guild, e.Member())
+		if err != nil {
+			return err
+		}
+		return e.CreateMessage(msg)
 	case "pp:reroll":
 		return m.rerollPicked(*guild, e)
-	case "pp:shop", "pp:climb":
-		return m.shop(ctx, *guild, e, e.Data.CustomID() == "pp:climb")
+	case "pp:shop", "pp:climb", "pp:look", "pp:back":
+		return m.shop(ctx, *guild, e)
 	case "pp:ledger":
 		msg, err := m.journal(ctx, *guild, e.Member())
 		if err != nil {
@@ -230,7 +236,8 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	picked := mem.classSeason != -1
 	line := "-# " + dayLine(now)
 	if mem.rung > 0 {
-		line += fmt.Sprintf(" · prestige rung %d", mem.rung)
+		name, _ := perch(mem.rung)
+		line += fmt.Sprintf(" · on the %s, rung %d", name, mem.rung)
 	}
 	s.mu.Unlock()
 	if !picked {
@@ -250,13 +257,7 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 		Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt,
 	})}
 	if buttons {
-		class := discord.NewSecondaryButton("class", "pp:class")
-		if e := brand.ComponentEmoji("pp_" + classIcons[sh.Class.Key]); e != nil {
-			class = class.WithEmoji(*e)
-		}
-		extra = append(extra, discord.NewActionRow(class, discord.NewSecondaryButton("quests", "pp:quests"), discord.NewSecondaryButton("shop", "pp:shop"), discord.NewSecondaryButton("journal", "pp:ledger"),
-			discord.NewSecondaryButton("show the channel", "pp:show")),
-			boardRow(admin))
+		extra = append(extra, menuRows(sh.Class.Key, admin)...)
 	}
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", line, extra...)},
@@ -264,6 +265,34 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
+}
+
+// menuRows are the status card's buttons, as UX.md has them: first the
+// screens it opens, then what the member does from it, every one wearing
+// the icon of what it opens.
+func menuRows(class string, admin bool) []discord.ContainerSubComponent {
+	act := discord.NewActionRow(withIcon(discord.NewSecondaryButton("class", "pp:class"), classIcons[class]),
+		withIcon(discord.NewSecondaryButton("buffs", "pp:buffs"), "hearth"),
+		withIcon(discord.NewSecondaryButton("share", "pp:show"), "bell"))
+	if admin {
+		act = act.AddComponents(withIcon(discord.NewSecondaryButton("treasury", "pp:treasury"), "pot"))
+	}
+	return []discord.ContainerSubComponent{
+		discord.NewActionRow(
+			withIcon(discord.NewSecondaryButton("quests", "pp:quests"), "compass"),
+			withIcon(discord.NewSecondaryButton("board", "pp:board"), "laurel"),
+			withIcon(discord.NewSecondaryButton("shop", "pp:shop"), "scales"),
+			withIcon(discord.NewSecondaryButton("journal", "pp:ledger"), "quill")),
+		act,
+	}
+}
+
+// withIcon is b wearing the pp_<icon> emoji, once the emoji have synced.
+func withIcon(b discord.ButtonComponent, icon string) discord.ButtonComponent {
+	if e := brand.ComponentEmoji("pp_" + icon); e != nil {
+		return b.WithEmoji(*e)
+	}
+	return b
 }
 
 // titleMessage is the title screen as a message, for a member who hasn't
@@ -278,7 +307,7 @@ func titleMessage(buttons bool) (discord.MessageCreate, error) {
 		Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt,
 	})}
 	if buttons {
-		extra = append(extra, discord.NewActionRow(discord.NewPrimaryButton("pick a class", "pp:class")))
+		extra = append(extra, discord.NewActionRow(withIcon(discord.NewPrimaryButton("pick a class", "pp:class"), "lantern")))
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "melting pot",
@@ -303,8 +332,8 @@ func (m *Module) sheet(s *server, mem *member, guild, user snowflake.ID, today i
 	vigor, phase := b.Vigor(mem.day, m.st.pools(guild, user, today))
 	season, week := b.Season(today)
 	sh := Sheet{
-		Portrait: Portrait(ClassOf(mem.class)),
-		Class:    ClassOf(mem.class), Level: l, Into: into, Need: need, Total: mem.total, Purse: mem.purse,
+		Portrait: Portrait(ClassOf(mem.class)), Rung: mem.rung,
+		Class: ClassOf(mem.class), Level: l, Into: into, Need: need, Total: mem.total, Purse: mem.purse,
 		Vigor: vigor, Phase: phase, Season: season, Week: week, Held: len(mem.quests),
 	}
 	for _, w := range []struct {
@@ -318,10 +347,21 @@ func (m *Module) sheet(s *server, mem *member, guild, user snowflake.ID, today i
 	if tier := s.hearth(); tier > 0 {
 		sh.Buffs = append(sh.Buffs, Buff{Icon: "hearth", Label: hearthWord(tier)})
 	}
-	if season > 0 && mem.seasonPP > 0 {
+	// The place on the board the screen's tab names: the season's race,
+	// or before the first season the levels board, ranked by everything
+	// earned as the board button shows it.
+	switch {
+	case season > 0 && mem.seasonPP > 0:
 		sh.Place = 1
 		for _, o := range s.members {
 			if o.season == season && o.seasonPP > mem.seasonPP {
+				sh.Place++
+			}
+		}
+	case season <= 0 && mem.total > 0:
+		sh.Place = 1
+		for _, o := range s.members {
+			if o.total > mem.total {
 				sh.Place++
 			}
 		}

@@ -62,7 +62,22 @@ The rules every bird shares, which `brand/voice_test.go` holds the status lines 
   decoration. Buttons go inside the container, below the text. A live readout is
   edited as a card too (`discord.NewMessageUpdateV2`) and its accent follows its state.
   Errors stay `core.Tell`, plain text.
-- A notify card is the one card accented by platform, not mood: its platform's
+- A card that is a menu, a set of buttons that open screens (`/pp`'s status card is
+  the reference), lays them out like an old game's menu:
+  - Every button wears the app emoji of what it opens or does, so a row reads by
+    picture first: on `/pp` the compass is quests, the laurel the board, the scales
+    the shop, the quill the journal and the bell share, and class wears the class's
+    own emblem. Its label is one or two lowercase words.
+  - A row holds at most four buttons, so it never wraps on a desktop. The screens the
+    card opens come first, then what the member does from it.
+  - The one primary button is the thing the card is for (pick a class, climb a rung);
+    the rest are secondary. A way back is `◂ <where>`, first in its row. A yes or no
+    pair (approve, refuse) is coloured success and danger instead of wearing icons.
+  - A card about one of several things (a shop item) is reached from a select on the
+    overview and edits the same message in place, with `◂` back to it.
+- An amount a member reads is in pp. Pot days are the economy's internal unit: a
+  member never reads them, and only the admins' grant form takes them.
+, not mood: its platform's
   muted colour from `brand.PlatformColor`, because a channel of them reads by
   platform. Its button and creator line wear the platform's tile, the glyph in the
   platform's colour lifted to read on slate (`platformInk` in `tools/sprites`). Its
@@ -127,4 +142,26 @@ taken from the environment, is said out loud before it is used.
   application emoji at eight, so a button and a screen match. An icon is centred on its
   grid to the nearest cell (`pixel`'s tests hold it), and set beside text it starts two
   pixels above the line so the two share a middle.
+- `/pp`'s screens are typeset in one family of four pixel faces (`internal/pixel/faces.go`),
+  each with one job:
+  - **bold:** tabs, headings and a word that leads a line.
+  - **regular:** values and plain text.
+  - **light:** a label and the quiet words beside a value.
+  - **serif:** the story an item tells.
+
+  Regular and bold are monospaced, so figures line up. Light and serif are set
+  proportionally. A member's name is set in the look their rung of the rookery stair
+  bought (`lookOf`), wherever others read it.
+- An item's card reads like an old game's item screen: a plain line on what it is, its
+  story with only a hint of poetry, and an `effect` line saying exactly what it does in
+  the game.
+- `/pp`'s screens are windows on a 384 by 216 canvas. A window's frame is never broken:
+  its tab sits in the corner inside the frame, the dark rule thickening into it.
+  Text on a screen is bounded by the room it has, measured and not assumed: a line
+  gives up words to `shortForms` first (`raven sorcerer` over `hedge sorcerer` reads
+  `raven sorc` over `hedge sorc`), then tightens a cell, and only then is cut with
+  `...`. Longer text (an item's lore) wraps between words. `layout_test` holds every
+  screen to it: nothing overlaps anything and nothing leaves a window's parchment,
+  every mark at least a pixel inside it, so a new screen comes with its fixtures
+  there.
 - Edit `art/source` or `tools/sprites` and rerun the generator, never the output PNGs.

@@ -171,8 +171,7 @@ func (m *Module) savings(s *server, today int64) string {
 	for _, p := range purses[len(purses)-max(len(purses)/100, 1):] {
 		top += p
 	}
-	pd := m.st.b.PotDay(Rules)
-	return fmt.Sprintf("median %.1f pot days · top 1%% %d%%", float64(purses[len(purses)/2])/float64(pd), top*100/all)
+	return fmt.Sprintf("median %s pp · top 1%% %d%%", grouped(purses[len(purses)/2]/unit), top*100/all)
 }
 
 // hearthWord is a hearth tier as members read it.

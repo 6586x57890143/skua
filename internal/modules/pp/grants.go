@@ -40,7 +40,7 @@ func (m *Module) grantControls() []discord.ContainerSubComponent {
 	return []discord.ContainerSubComponent{
 		discord.NewTextDisplay(fmt.Sprintf("### grants\n-# pay a contest winner from the treasury: at most a quarter of it a week and %d pot days a season to anyone. a second admin approves anything over %d pot day, and every grant is posted in the ledger channel",
 			Rules.GrantSeason, Rules.GrantSecond)),
-		discord.NewActionRow(discord.NewSecondaryButton("grant pp", "pp:grant")),
+		discord.NewActionRow(withIcon(discord.NewSecondaryButton("grant pp", "pp:grant"), "envelope")),
 	}
 }
 

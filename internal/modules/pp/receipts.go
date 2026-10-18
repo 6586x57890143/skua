@@ -46,7 +46,7 @@ func journalLine(reason string, inputs []int64) (icon, what string) {
 	case reasonGrant:
 		return "envelope", "a grant"
 	}
-	return "lantern", "what you held"
+	return "lantern", "purse carried over"
 }
 
 // journal is user's journal as a screen.
@@ -97,11 +97,11 @@ func (m *Module) journal(ctx context.Context, guild snowflake.ID, who *discord.R
 		icon, what := journalLine(l.reason, l.inputs)
 		out[i] = JournalRow{Day: dayDate(l.day), Icon: icon, What: what, PP: l.delta}
 	}
-	pic, err := JournalScreen(pixelName(who), out, open, seq)
+	pic, err := JournalScreen(pixelName(who), out, open)
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
-	note := "-# each line is written into the server's ledger for good"
+	note := fmt.Sprintf("-# each line is written into the server's ledger for good; it's %s lines long", grouped(seq))
 	if levy != 0 {
 		note = fmt.Sprintf("-# today %s pp of yours went to the treasury, which pays the weekly prizes\n", grouped(levy/unit)) + note
 	}

@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"strings"
 	"testing"
 )
 
@@ -14,7 +15,7 @@ func TestPalette(t *testing.T) {
 		t.Fatalf("%d colours don't fit an indexed PNG", len(Palette))
 	}
 	seen := map[uint8]bool{}
-	for _, i := range append([]uint8{Ink, Dim, Shadow, Bone, Gold, Green, Red, Ember, Line, Glove, Yellow, Blue, Crimson, lit[Yellow], lit[Blue], lit[Crimson], shade[Yellow], shade[Blue], shade[Crimson]}, Sky[:]...) {
+	for _, i := range append([]uint8{Ink, Dim, Shadow, Bone, Gold, Green, Red, Ember, Line, Glove, Slate, Glass, Bronze, Gilt, Yellow, Blue, Crimson, lit[Yellow], lit[Blue], lit[Crimson], shade[Yellow], shade[Blue], shade[Crimson]}, Sky[:]...) {
 		if seen[i] {
 			t.Errorf("ink %d is used twice", i)
 		}
@@ -136,8 +137,13 @@ func TestTab(t *testing.T) {
 	w := image.Rect(2, 2, 78, 38)
 	c.Window(w)
 	c.Tab(w, "buffs")
-	if c.ColorIndexAt(6, 2) != Shadow || c.ColorIndexAt(8, 4) != Line {
-		t.Error("the tab isn't drawn inside the window's top")
+	// The frame stays whole over the tab, and the tab fills the corner
+	// inside it down to TabDrop.
+	if c.ColorIndexAt(8, 2) != Shadow || c.ColorIndexAt(8, 3) != Bone || c.ColorIndexAt(3, 8) != Bone {
+		t.Error("the tab breaks the window's frame")
+	}
+	if c.ColorIndexAt(6, 6) != Line || c.ColorIndexAt(6, 2+TabDrop-1) != Line || c.ColorIndexAt(6, 2+TabDrop) == Line {
+		t.Error("the tab doesn't fill the corner inside the frame down to TabDrop")
 	}
 	var glove int
 	for _, p := range c.Pix {
@@ -238,5 +244,19 @@ func TestSoft(t *testing.T) {
 	light, _, _, _ := img.At(22, 4).RGBA()
 	if dark >= edge || edge >= light {
 		t.Errorf("the edge isn't softened: %d %d %d", dark>>8, edge>>8, light>>8)
+	}
+}
+
+func TestWrap(t *testing.T) {
+	got := Wrap("the bronze of a bell pulled from the sunk chapel", 14*Advance)
+	want := []string{"the bronze of", "a bell pulled", "from the sunk", "chapel"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("got %q; want %q", got, want)
+	}
+	if got := Wrap("abcdefghij", 4*Advance); strings.Join(got, "|") != "abcd|efgh|ij" {
+		t.Errorf("a long word cuts to %q", got)
+	}
+	if got := Wrap("  ", 70); len(got) != 0 {
+		t.Errorf("blank wraps to %q", got)
 	}
 }

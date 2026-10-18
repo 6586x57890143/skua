@@ -19,9 +19,11 @@ import (
 // The boards: levels, everything ever earned, which runs before the first
 // season and alongside every one; and while a season runs, the season's
 // race. Each shows its top boardRows, the member's own line taking the
-// last when they're further down.
+// last when they're further down. Before the first season the levels board
+// runs across the screen over a line on when the first season starts, and
+// shows preseasonRows.
 
-const boardRows = 10
+const boardRows, preseasonRows = 10, 8
 
 // standing is one member on a board.
 type standing struct {
@@ -45,14 +47,14 @@ func rank(users []snowflake.ID, scores []int64) []standing {
 
 // boardTop is a board's first rows, the member's own line in the last place
 // when they're further down.
-func boardTop(board []standing, user snowflake.ID) []standing {
-	if len(board) <= boardRows {
+func boardTop(board []standing, user snowflake.ID, n int) []standing {
+	if len(board) <= n {
 		return board
 	}
-	out := slices.Clone(board[:boardRows])
+	out := slices.Clone(board[:n])
 	if !slices.ContainsFunc(out, func(st standing) bool { return st.user == user }) {
 		if i := slices.IndexFunc(board, func(st standing) bool { return st.user == user }); i >= 0 {
-			out[boardRows-1] = board[i]
+			out[n-1] = board[i]
 		}
 	}
 	return out
@@ -66,7 +68,8 @@ func (m *Module) boardMessage(guild, user snowflake.ID) (discord.MessageCreate, 
 	s.mu.Lock()
 	var users []snowflake.ID
 	var totals, seasons []int64
-	names, icons := map[snowflake.ID]string{}, map[snowflake.ID]string{}
+	names, icons, classes := map[snowflake.ID]string{}, map[snowflake.ID]string{}, map[snowflake.ID]string{}
+	rungs := map[snowflake.ID]int64{}
 	for u, mem := range s.members {
 		users = append(users, u)
 		totals = append(totals, mem.total)
@@ -75,37 +78,40 @@ func (m *Module) boardMessage(guild, user snowflake.ID) (discord.MessageCreate, 
 			pp = mem.seasonPP
 		}
 		seasons = append(seasons, pp)
-		names[u], icons[u] = or(mem.name, "someone"), classIcons[ClassOf(mem.class).Key]
+		names[u], icons[u], classes[u] = or(mem.name, "someone"), classIcons[ClassOf(mem.class).Key], ClassOf(mem.class).Name()
+		rungs[u] = mem.rung
 	}
 	s.mu.Unlock()
 
 	b := m.st.b
-	rows := func(board []standing, value func(standing) string, gold bool) []BoardRow {
+	rows := func(board []standing, n int, value func(standing) string, gold bool) []BoardRow {
 		var out []BoardRow
-		for _, st := range boardTop(board, user) {
-			out = append(out, BoardRow{Place: st.place, Icon: icons[st.user], Name: names[st.user], Value: value(st), You: st.user == user, ValueIsGold: gold})
+		for _, st := range boardTop(board, user, n) {
+			out = append(out, BoardRow{Place: st.place, Icon: icons[st.user], Name: names[st.user], Rung: rungs[st.user], Class: classes[st.user],
+				Value: value(st), You: st.user == user, ValueIsGold: gold})
 		}
 		return out
 	}
 	level := func(st standing) string { l, _, _ := b.Level(st.score); return fmt.Sprintf("lv %d", l) }
 	levelBoard := rank(users, totals)
-	levels := rows(levelBoard, level, false)
-
-	var seasonRows []BoardRow
-	tab, starts, you := "", "", ""
-	if season > 0 {
-		tab = fmt.Sprintf("season %d", season)
-		seasonRows = rows(rank(users, seasons), func(st standing) string { return grouped(st.score/unit) + " pp" }, true)
-	} else {
-		starts = strings.ToLower(time.Unix(b.SeasonStart*86400, 0).UTC().Format("2 Jan"))
-		you = "you haven't earned yet"
-		for _, st := range levelBoard {
-			if st.user == user {
-				you = fmt.Sprintf("you're %s, %s", ordinal(st.place), strings.Replace(level(st), "lv", "level", 1))
-			}
+	you := "-# you haven't earned yet"
+	for _, st := range levelBoard {
+		if st.user == user {
+			you = fmt.Sprintf("-# you're %s on the levels board, at %s", ordinal(st.place), strings.Replace(level(st), "lv", "level", 1))
 		}
 	}
-	pic, err := BoardScreen(levels, seasonRows, tab, starts, you)
+
+	var levels, seasonRows []BoardRow
+	tab, starts := "", ""
+	if season > 0 {
+		tab = fmt.Sprintf("season %d", season)
+		levels = rows(levelBoard, boardRows, level, false)
+		seasonRows = rows(rank(users, seasons), boardRows, func(st standing) string { return grouped(st.score / unit) }, true)
+	} else {
+		starts = strings.ToLower(time.Unix(b.SeasonStart*86400, 0).UTC().Format("2 Jan"))
+		levels = rows(levelBoard, preseasonRows, level, false)
+	}
+	pic, err := BoardScreen(levels, seasonRows, tab, starts)
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
@@ -117,22 +123,12 @@ func (m *Module) boardMessage(guild, user snowflake.ID) (discord.MessageCreate, 
 		alt += ", and the " + tab + " board"
 	}
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "board", "",
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "board", you,
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}))},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
-}
-
-// boardRow is the status card's second row: the board, and for admins the
-// treasury.
-func boardRow(admin bool) discord.ActionRowComponent {
-	row := discord.NewActionRow(discord.NewSecondaryButton("board", "pp:board"))
-	if admin {
-		row = row.AddComponents(discord.NewSecondaryButton("treasury", "pp:treasury"))
-	}
-	return row
 }
 
 // treasuryMessage is the server's money for its admins, as a screen: what
@@ -211,7 +207,7 @@ func (m *Module) treasuryMessage(ctx context.Context, guild snowflake.ID) (disco
 				head += p
 			}
 		}
-		t.Median = float64(purses[len(purses)/2]) / float64(m.st.potDay)
+		t.Median = purses[len(purses)/2]
 		t.Top = head * 100 / max(all, 1)
 	}
 	t.Head = t.Head[:min(len(t.Head), 8)]

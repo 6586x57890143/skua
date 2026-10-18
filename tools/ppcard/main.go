@@ -51,6 +51,12 @@ func main() {
 			s.Laurels = 3
 			return pp.StatusScreen(s)
 		},
+		"status-raven": func() ([]byte, error) {
+			return pp.StatusScreen(sheet("BooCoconuts", "sorcerer", 1800*100, 70, "warm", buff("plume", "hearth iii"), 0, 0, 37, 1, true))
+		},
+		"status-albatross": func() ([]byte, error) {
+			return pp.StatusScreen(sheet("glow", "wanderer", 900000*100, 70, "warm", nil, 0, 0, 2, 0, true))
+		},
 		"quests": func() ([]byte, error) {
 			return pp.QuestScreen("heavywinds", []pp.QuestLine{
 				{Icon: "quill", What: "send 40 messages", Progress: 23, Goal: 40, Tier: 0, Reward: 250 * 100},
@@ -60,12 +66,13 @@ func main() {
 		},
 		"quests-empty": func() ([]byte, error) { return pp.QuestScreen("steve", nil, false) },
 		"icons":        iconSheet,
+		"type":         typeSheet,
 	}
 	for name, draw := range shots {
 		data, err := draw()
 		if err == nil {
 			ext := ".jpg" // the screens, softened as on a television
-			if name == "icons" {
+			if name == "icons" || name == "type" {
 				ext = ".png"
 			}
 			err = os.WriteFile(filepath.Join(*out, name+ext), data, 0o644)
@@ -91,6 +98,25 @@ func iconSheet() ([]byte, error) {
 		x, y := 12+i%3*124, 12+i/3*22
 		c.Icon(n, image.Pt(x, y-2))
 		c.Text(x+20, y, n, pixel.Ink, 0)
+	}
+	return c.PNG(3)
+}
+
+// typeSheet sets every face of the family on a window: its name, the
+// lowercase, the figures and a line of prose.
+func typeSheet() ([]byte, error) {
+	faces := []struct {
+		name string
+		f    *pixel.Face
+	}{{"regular", pixel.Regular}, {"bold", pixel.Bold}, {"light", pixel.Light}, {"serif", pixel.Serif}}
+	c := pixel.New(384, 16+len(faces)*58)
+	c.Window(c.Rect)
+	for i, f := range faces {
+		y := 10 + i*58
+		c.Print(pixel.Bold, 12, y, f.name, pixel.Gold)
+		c.Print(f.f, 80, y, "abcdefghijklmnopqrstuvwxyz", pixel.Ink)
+		c.Print(f.f, 80, y+17, "0123456789 lv 12 / 3,428 pp", pixel.Ink)
+		c.Print(f.f, 12, y+34, "the flock burned their lamps low, and stayed.", pixel.Ink)
 	}
 	return c.PNG(3)
 }

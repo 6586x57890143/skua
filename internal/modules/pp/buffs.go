@@ -1,0 +1,75 @@
+package pp
+
+import (
+	"bytes"
+	"fmt"
+	"strings"
+
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/snowflake/v2"
+
+	"github.com/6586x57890143/skua/internal/brand"
+	"github.com/6586x57890143/skua/internal/core"
+)
+
+// The buffs card explains every buff, worn or not: what it adds, how a
+// member comes by it, and whether they have it now. A buff that runs out
+// says how long it has left; none do yet, and one that does sets Left.
+
+// buffList is every buff as mem stands in s, crest, banner, plume and
+// the hearth. s.mu held.
+func (st *state) buffList(s *server, mem *member, vanity string) []BuffInfo {
+	b := st.b
+	status := "put this server's invite in your custom status"
+	if vanity != "" {
+		status = "put .gg/" + strings.ToLower(vanity) + " in your custom status"
+	}
+	hearth := BuffInfo{Icon: "hearth", Name: "hearth", Effect: fmt.Sprintf("+%d to %d%%", b.Hearth[0], b.Hearth[2]),
+		How: "lit for all when the server beats its usual day", Off: "unlit"}
+	if tier := s.hearth(); tier > 0 {
+		hearth.Name, hearth.Effect, hearth.On = hearthWord(tier), fmt.Sprintf("+%d%%", b.Hearth[tier-1]), true
+	}
+	return []BuffInfo{
+		{Icon: "crest", Name: "crest", Effect: fmt.Sprintf("+%d%%", b.Crest), How: "wear this server's tag as yours", On: mem.wear.Crest},
+		{Icon: "banner", Name: "banner", Effect: fmt.Sprintf("+%d%%", b.Banner), How: status, On: mem.wear.Banner},
+		{Icon: "plume", Name: "plume", Effect: fmt.Sprintf("+%d%%", b.Plume), How: "boost the server; it lasts while you boost", On: mem.wear.Plume},
+		hearth,
+	}
+}
+
+// buffsMessage is the buffs card for who: the screen and, under it, the
+// rules every buff shares.
+func (m *Module) buffsMessage(guild snowflake.ID, who *discord.ResolvedMember) (discord.MessageCreate, error) {
+	vanity := ""
+	if m.info != nil {
+		_, vanity = m.info(guild)
+	}
+	today := DayOf(m.now())
+	s := m.st.server(guild)
+	s.mu.Lock()
+	buffs := m.st.buffList(s, m.st.member(s, guild, who.User.ID, today), vanity)
+	s.mu.Unlock()
+
+	pic, err := BuffScreen(pixelName(who), buffs)
+	if err != nil {
+		return discord.MessageCreate{}, err
+	}
+	var worn []string
+	for _, b := range buffs {
+		if b.On {
+			worn = append(worn, b.Name)
+		}
+	}
+	alt := "your buffs: none worn"
+	if len(worn) > 0 {
+		alt = "your buffs: " + strings.Join(worn, ", ") + " worn"
+	}
+	const note = "-# buffs add to what voice and chat pay you, never to quests, and they stack. the hearth lights for the rest of the day and the whole next one"
+	return discord.MessageCreate{
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorInfo, "pp", "buffs", note,
+			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}))},
+		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
+		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
+		AllowedMentions: core.NoPings(),
+	}, nil
+}

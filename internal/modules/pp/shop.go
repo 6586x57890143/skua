@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -64,25 +65,68 @@ func (st *state) seasonTurn(s *server) {
 	s.sinkLast, s.seasonMint, s.seasonBurn = burned, 0, 0
 }
 
-// perchNames are the rookery stair's rungs, as members read them; past the
-// last, every rung is a perch nobody built.
-var perchNames = []string{"tallow perch", "shale perch", "chitin perch", "pale-glass perch", "drowned-bell perch", "a perch nobody built"}
+// perchKind is one rung of the rookery stair: the perch, and the text its
+// card tells of it the way an old game's item screen does, a plain line on
+// what it is, its story and what it does.
+type perchKind struct {
+	name, icon          string
+	what, story, effect string
+}
+
+// perches are the rookery stair's rungs; past the last, every rung is a
+// perch nobody built.
+var perches = []perchKind{
+	{"tallow perch", pixel.Perches[0], "a perch poured from rendered fat",
+		"in the first winter of the rookery there was no timber and no stone, only what the flock could spare. they burned their lamps low for a month to pour this one. the birds who sat on it through that dark were the ones who stayed, and it still smells faintly of smoke",
+		"your name is set in bold on every board and on your status"},
+	{"shale perch", pixel.Perches[1], "a perch split from the sea cliff",
+		"when the first rookery slid into the sea, the ones left climbed the bare rock above it and cut their perches from the cliff itself. the layers still hold the prints of wings older than any bird alive. the masons say the stone keeps count of everyone who sits on it",
+		"your name is set in bold slate on every board and on your status"},
+	{"chitin perch", pixel.Perches[2], "a perch cut from a shed shell",
+		"something climbed the stair long before the birds did and left its skin behind on the way up. the shell is warm to the touch and hums in wet weather. the flock cut it into perches and stopped asking what it was, though those who sit on it say it still turns toward the top",
+		"your name turns chitin red, set in bold, with this perch beside it"},
+	{"pale-glass perch", pixel.Perches[3], "a perch of cloudy glass from the mire kilns",
+		"the kiln keepers blew it from ash and lamp smoke in the year the mire rose. look down through it and the ground seems further off than it is. a bird on glass can be seen from anywhere in the rookery, which was always the point, and the kiln keepers charged for it",
+		"a pale glass plate behind your line, under your red name and perch"},
+	{"drowned-bell perch", pixel.Perches[4], "a perch cast from a drowned bell",
+		"the chapel bell went under with the rest of the low town. divers brought it up in pieces over three summers, and the bronze was cast into perches for those who had climbed this far. at the hour the water came in it still rings, faintly, and the birds below look up",
+		"the plate turns bronze and your name is set in the book hand, beside your perch"},
+	{"a perch nobody built", pixel.Perches[5], "a perch that was already there",
+		"when the stair reached this height the climbers found it waiting, with no maker's mark, no nails and no seam. nobody remembers who sat on it first. those who sit on it now tend to stop talking about it, and the flock has learned not to ask them",
+		"your name in gilt on a dark plate in a gilt frame. rungs past this one are counted by your perch"},
+}
+
+// perchOf is rung n's perch, from 1.
+func perchOf(n int64) perchKind { return perches[min(max(n, 1), int64(len(perches)))-1] }
 
 // perch is rung n's name and icon, from 1.
 func perch(n int64) (name, icon string) {
-	i := min(int(n), len(perchNames)) - 1
-	return perchNames[i], pixel.Perches[i]
+	p := perchOf(n)
+	return p.name, p.icon
 }
 
-// shopMessage is the shop as a member sees it: the stair with what they
-// hold and what comes next, their purse, and the button to climb.
+// shopRungs is how many rungs the shop's front shows, from the one under
+// the member's.
+const shopRungs = 6
+
+// shopMessage is the shop's front as a member sees it: the stair with what
+// they hold and what comes next, their purse, a menu to look closer at a
+// rung and the button to climb.
 func (st *state) shopMessage(s *server, m *member) (discord.MessageCreate, error) {
 	price := rungPrice(st.potDay, m.rung)
 	first := max(1, m.rung-1)
 	var rungs []Rung
-	for n := first; n < first+6; n++ {
+	look := make([]discord.StringSelectMenuOption, 0, shopRungs)
+	for n := first; n < first+shopRungs; n++ {
 		name, icon := perch(n)
-		rungs = append(rungs, Rung{N: n, Icon: icon, Name: name, PotDays: rungPrice(st.potDay, n-1) / st.potDay, Held: n <= m.rung, Next: n == m.rung+1})
+		g := Rung{N: n, Icon: icon, Name: name, Price: rungPrice(st.potDay, n-1), Held: n <= m.rung, Next: n == m.rung+1}
+		rungs = append(rungs, g)
+		o := discord.NewStringSelectMenuOption(name, strconv.FormatInt(n, 10))
+		o.Description = fmt.Sprintf("rung %d · %s pp", n, grouped(g.Price/unit))
+		if g.Held {
+			o.Description = fmt.Sprintf("rung %d · climbed", n)
+		}
+		look = append(look, o)
 	}
 	heldName, heldIcon := "", ""
 	if m.rung > 0 {
@@ -96,16 +140,61 @@ func (st *state) shopMessage(s *server, m *member) (discord.MessageCreate, error
 	alt := fmt.Sprintf("the rookery stair: you sit on %s, the %s costs %s pp and you hold %s pp", or(heldName, "the ground"), next, grouped(price/unit), grouped(m.purse/unit))
 	note := "-# each rung costs twice the one before; everything bought is burned"
 	if s.heavy {
-		note += fmt.Sprintf("\n-# the shop has been quiet for two seasons, so a purse past %d pot days keeps a tenth of new earning until it picks up", Rules.Line)
-	}
-	climb := discord.NewPrimaryButton("climb to the "+next, "pp:climb")
-	if m.purse < price {
-		climb = climb.AsDisabled()
+		note += fmt.Sprintf("\n-# the shop has been quiet for two seasons, so a purse past %s pp keeps a tenth of new earning until it picks up", grouped(Rules.Line*st.potDay/unit))
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", note,
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
-			discord.NewActionRow(climb))},
+			discord.NewActionRow(discord.NewStringSelectMenu("pp:look", "look closer at a rung", look...)),
+			discord.NewActionRow(climbButton("climb to the "+next, m.purse >= price)))},
+		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
+		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
+		AllowedMentions: core.NoPings(),
+	}, nil
+}
+
+// climbButton buys the next rung; it's greyed out until the member can
+// pay for it.
+func climbButton(label string, can bool) discord.ButtonComponent {
+	b := withIcon(discord.NewPrimaryButton(label, "pp:climb"), "pot")
+	if !can {
+		b = b.AsDisabled()
+	}
+	return b
+}
+
+// itemMessage is rung n's own card: its perch large, its story and what
+// it does, what it costs and the member's name as it will look, and the
+// way back to the stair with, when it's the next rung, the button to
+// climb.
+func (st *state) itemMessage(m *member, n int64) (discord.MessageCreate, error) {
+	p := perchOf(n)
+	look := lookOf(n)
+	price := rungPrice(st.potDay, n-1)
+	it := Item{Icon: p.icon, Kind: fmt.Sprintf("rung %d", n), Name: p.name, What: p.what, Story: p.story, Effect: p.effect,
+		Price: price, Short: n > m.rung && m.purse < price, You: or(m.name, "you"), Look: &look}
+	pic, err := ItemScreen(it)
+	if err != nil {
+		return discord.MessageCreate{}, err
+	}
+	alt := fmt.Sprintf("the %s, rung %d of the rookery stair, %s pp: %s. %s. effect: %s", p.name, n, grouped(price/unit), p.what, p.story, p.effect)
+	where := fmt.Sprintf("-# you hold %s pp", grouped(m.purse/unit))
+	switch {
+	case n <= m.rung:
+		where = "-# you've climbed this one"
+	case n > m.rung+1:
+		prev, _ := perch(n - 1)
+		where += "; the " + prev + " comes first"
+	}
+	note := where + "\n-# rungs are climbed in order, each costs twice the one before and what you pay is burned"
+	row := discord.NewActionRow(discord.NewSecondaryButton("◂ shop", "pp:back"))
+	if n == m.rung+1 {
+		row = row.AddComponents(climbButton("climb · "+grouped(price/unit)+" pp", m.purse >= price))
+	}
+	return discord.MessageCreate{
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", note,
+			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
+			row)},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
@@ -120,16 +209,43 @@ func or(s, otherwise string) string {
 	return s
 }
 
-// shop opens the shop, or climbs a rung and shows it again.
-func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate, climbing bool) error {
+// errNoRung is a look at a rung the menu never offered.
+var errNoRung = core.Tell("that rung isn't on the stair; open the shop again")
+
+// shop is a press in the shop: shop opens its front as a new message,
+// climb buys the next rung and shows the front again, back shows the
+// front again and look shows the rung picked in the menu.
+func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate) error {
+	id := e.Data.CustomID()
+	look := int64(0)
+	if id == "pp:look" {
+		// The custom ID comes from the client, so the data may not be a
+		// select's at all.
+		data, ok := e.Data.(discord.StringSelectMenuInteractionData)
+		if !ok || len(data.Values) != 1 {
+			return errNoRung
+		}
+		n, err := strconv.ParseInt(data.Values[0], 10, 64)
+		if err != nil || n < 1 || n > 64 {
+			return errNoRung
+		}
+		look = n
+	}
 	today := DayOf(m.now())
 	s := m.st.server(guild)
 	s.mu.Lock()
 	var err error
-	if climbing {
+	if id == "pp:climb" {
 		err = m.st.climb(s, guild, e.User().ID, today)
 	}
-	msg, drawn := m.st.shopMessage(s, m.st.member(s, guild, e.User().ID, today))
+	mem := m.st.member(s, guild, e.User().ID, today)
+	var msg discord.MessageCreate
+	var drawn error
+	if look > 0 {
+		msg, drawn = m.st.itemMessage(mem, look)
+	} else {
+		msg, drawn = m.st.shopMessage(s, mem)
+	}
 	s.mu.Unlock()
 	if err != nil {
 		return err
@@ -137,10 +253,10 @@ func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.Component
 	if drawn != nil {
 		return drawn
 	}
-	if climbing {
-		return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...))
+	if id == "pp:shop" {
+		return e.CreateMessage(msg)
 	}
-	return e.CreateMessage(msg)
+	return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...))
 }
 
 // sinksRow is the season's burn so far and the backstop, for the help
