@@ -242,16 +242,7 @@ func (b *Balance) Buff(w Wearing, hearth int) int64 {
 // HearthTier is the tier a server's raw pp today reaches against its usual
 // day, the mean of the days in history it earned anything.
 func (b *Balance) HearthTier(today int64, history []int64) int {
-	var sum, n int64
-	for _, h := range history {
-		if h > 0 {
-			sum, n = sum+h, n+1
-		}
-	}
-	usual := b.HearthFloor
-	if n > 0 {
-		usual = sum / n
-	}
+	usual := b.Usual(history)
 	tier := 0
 	for i, at := range b.HearthAt {
 		if today >= usual*at/100 {
@@ -259,6 +250,21 @@ func (b *Balance) HearthTier(today int64, history []int64) int {
 		}
 	}
 	return tier
+}
+
+// Usual is a server's usual day, the mean of the days in history it
+// earned anything, HearthFloor before it has one.
+func (b *Balance) Usual(history []int64) int64 {
+	var sum, n int64
+	for _, h := range history {
+		if h > 0 {
+			sum, n = sum+h, n+1
+		}
+	}
+	if n == 0 {
+		return b.HearthFloor
+	}
+	return sum / n
 }
 
 // Need is what level l to l+1 costs.

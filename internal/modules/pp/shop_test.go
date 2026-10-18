@@ -171,7 +171,7 @@ func TestShopCards(t *testing.T) {
 // and every one wears an icon that's drawn.
 func TestMenuRows(t *testing.T) {
 	for _, admin := range []bool{false, true} {
-		for _, row := range menuRows("sorcerer", admin) {
+		for _, row := range menuRows("sorcerer", admin, "pp:status") {
 			if n := len(row.(discord.ActionRowComponent).Components); n > 4 {
 				t.Errorf("a row of %d buttons", n)
 			}

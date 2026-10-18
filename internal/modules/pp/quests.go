@@ -52,11 +52,13 @@ type QuestKind struct {
 const selfieWait = 24 * time.Hour
 
 // heldQuest is one held quest: its tier and kind, how far each task has come,
-// and a selfie posted for it, waiting out selfieWait.
+// a selfie posted for it, waiting out selfieWait, and the day it was last
+// rerolled.
 type heldQuest struct {
 	tier, kind int
 	prog       [3]int64
 	ref, refAt int64 // the selfie message and when it was posted (unix)
+	rerolled   int64
 }
 
 func (q heldQuest) tasks(b *Balance) []Task { return b.QuestKinds[q.tier][q.kind].Tasks }
@@ -71,30 +73,30 @@ func (q heldQuest) done(b *Balance) bool {
 	return true
 }
 
-// encodeQuests is held quests as they're saved: tier, kind, progress, ref
-// and refAt, comma separated, a quest each between semicolons.
+// encodeQuests is held quests as they're saved: tier, kind, progress, ref,
+// refAt and rerolled, comma separated, a quest each between semicolons.
 func encodeQuests(qs []heldQuest) string {
 	parts := make([]string, len(qs))
 	for i, q := range qs {
-		parts[i] = fmt.Sprintf("%d,%d,%d,%d,%d,%d,%d", q.tier, q.kind, q.prog[0], q.prog[1], q.prog[2], q.ref, q.refAt)
+		parts[i] = fmt.Sprintf("%d,%d,%d,%d,%d,%d,%d,%d", q.tier, q.kind, q.prog[0], q.prog[1], q.prog[2], q.ref, q.refAt, q.rerolled)
 	}
 	return strings.Join(parts, ";")
 }
 
-// decodeQuests reads saved quests back, dropping any the balance no longer
-// has a kind for.
+// decodeQuests reads saved quests back, those saved before rerolled was
+// too, dropping any the balance no longer has a kind for.
 func decodeQuests(b *Balance, s string) []heldQuest {
 	var out []heldQuest
 	for part := range strings.SplitSeq(s, ";") {
 		f := strings.Split(part, ",")
-		if len(f) != 7 {
+		if len(f) != 7 && len(f) != 8 {
 			continue
 		}
-		var n [7]int64
+		var n [8]int64
 		for i := range f {
 			n[i], _ = strconv.ParseInt(f[i], 10, 64)
 		}
-		q := heldQuest{tier: int(n[0]), kind: int(n[1]), prog: [3]int64{n[2], n[3], n[4]}, ref: n[5], refAt: n[6]}
+		q := heldQuest{tier: int(n[0]), kind: int(n[1]), prog: [3]int64{n[2], n[3], n[4]}, ref: n[5], refAt: n[6], rerolled: n[7]}
 		if q.tier >= 0 && q.tier < len(b.QuestKinds) && q.kind >= 0 && q.kind < len(b.QuestKinds[q.tier]) {
 			out = append(out, q)
 		}
@@ -186,16 +188,18 @@ func (st *state) payQuest(s *server, m *member, user snowflake.ID, q heldQuest) 
 	m.dirty, s.dirty = true, true
 }
 
-// reroll swaps m's quest i for a fresh draw, once a day. s.mu held.
+// reroll swaps m's quest i for a fresh draw, each quest once a day.
+// s.mu held.
 func (st *state) reroll(s *server, m *member, guild, user snowflake.ID, i int, today int64) error {
 	switch {
-	case m.rerollDay == today:
-		return core.Tell("you've used today's reroll; another comes at 00:00 utc")
 	case i < 0 || i >= len(m.quests):
 		return core.Tell("that quest isn't held any more; open your quests again")
+	case m.quests[i].rerolled == today:
+		return core.Tell("that quest has had today's reroll; another comes at 00:00 utc")
 	}
-	m.quests[i] = st.b.draw(st.seedOf(today), uint64(guild), uint64(user), today, slotReroll, s.selfies != 0)
-	m.rerollDay, m.dirty = today, true
+	// Each place has its own slot, so two rerolls in a day draw apart.
+	m.quests[i] = st.b.draw(st.seedOf(today), uint64(guild), uint64(user), today, slotReroll+uint64(i)*2, s.selfies != 0)
+	m.quests[i].rerolled, m.dirty = today, true
 	return nil
 }
 
@@ -312,14 +316,17 @@ func (m *Module) questsMessage(guild snowflake.ID, who *discord.ResolvedMember) 
 	s.mu.Lock()
 	mem := m.st.member(s, guild, who.User.ID, today)
 	qs := append([]heldQuest(nil), mem.quests...)
-	ready := mem.rerollDay != today
 	s.mu.Unlock()
 
 	b := m.st.b
 	lines := make([]QuestLine, len(qs))
 	var text []string
 	color, golden := brand.ColorNotice, false
+	ready := 0
 	for i, q := range qs {
+		if q.rerolled != today {
+			ready++
+		}
 		goal, prog := int64(0), int64(0)
 		for j, t := range q.tasks(b) {
 			goal, prog = goal+t.Goal, prog+min(q.prog[j], t.Goal)
@@ -348,12 +355,18 @@ func (m *Module) questsMessage(guild snowflake.ID, who *discord.ResolvedMember) 
 		discord.NewTextDisplay("-# " + strings.ReplaceAll(body, "\n", "\n-# ")),
 		discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
 	}
-	if ready && len(qs) > 0 {
-		opts := make([]discord.StringSelectMenuOption, len(qs))
+	if len(qs) > 0 {
+		// A reroll button per quest, in the screen's order, each greyed
+		// out once it has had today's.
+		row := discord.NewActionRow()
 		for i, q := range qs {
-			opts[i] = discord.NewStringSelectMenuOption(QuestTiers[q.tier]+": "+shortQuest(b.QuestKinds[q.tier][q.kind]), strconv.Itoa(i))
+			btn := withIcon(discord.NewSecondaryButton(fmt.Sprintf("reroll %d", i+1), "pp:reroll:"+strconv.Itoa(i)), "reroll")
+			if q.rerolled == today {
+				btn = btn.AsDisabled()
+			}
+			row = row.AddComponents(btn)
 		}
-		extra = append(extra, discord.NewActionRow(discord.NewStringSelectMenu("pp:reroll", "reroll one, once a day", opts...)))
+		extra = append(extra, row)
 	}
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(color, "pp", "quests", "", extra...)},
@@ -389,16 +402,12 @@ func pixelName(who *discord.ResolvedMember) string {
 	return name
 }
 
-// rerollPicked rerolls the quest the member picked and shows their quests
-// again.
+// rerollPicked rerolls the quest whose button the member pressed and
+// shows their quests again.
 func (m *Module) rerollPicked(guild snowflake.ID, e *events.ComponentInteractionCreate) error {
-	data, ok := e.Data.(discord.StringSelectMenuInteractionData)
-	if !ok || len(data.Values) != 1 {
-		return core.Tell("pick the quest to reroll")
-	}
-	i, err := strconv.Atoi(data.Values[0])
+	i, err := strconv.Atoi(strings.TrimPrefix(e.Data.CustomID(), "pp:reroll:"))
 	if err != nil {
-		return core.Tell("pick the quest to reroll")
+		return core.Tell("that quest isn't held any more; open your quests again")
 	}
 	today := DayOf(m.now())
 	s := m.st.server(guild)
@@ -412,7 +421,7 @@ func (m *Module) rerollPicked(guild snowflake.ID, e *events.ComponentInteraction
 	if err != nil {
 		return err
 	}
-	return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...))
+	return m.answer(guild, e, msg, "pp:quests")
 }
 
 // selfieControls is the selfie channel picker for /pp's help page.

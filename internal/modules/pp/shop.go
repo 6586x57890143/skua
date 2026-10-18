@@ -73,27 +73,27 @@ type perchKind struct {
 	what, story, effect string
 }
 
-// perches are the rookery stair's rungs; past the last, every rung is a
-// perch nobody built.
+// perches are the rookery stair's rungs; past the last, every rung is the
+// perch touched by the great nothingness.
 var perches = []perchKind{
 	{"tallow perch", pixel.Perches[0], "a perch poured from rendered fat",
 		"in the first winter of the rookery there was no timber and no stone, only what the flock could spare. they burned their lamps low for a month to pour this one. the birds who sat on it through that dark were the ones who stayed, and it still smells faintly of smoke",
-		"your name is set in bold on every board and on your status"},
+		"your name is set in bold with this perch beside it, on every board and on your status"},
 	{"shale perch", pixel.Perches[1], "a perch split from the sea cliff",
 		"when the first rookery slid into the sea, the ones left climbed the bare rock above it and cut their perches from the cliff itself. the layers still hold the prints of wings older than any bird alive. the masons say the stone keeps count of everyone who sits on it",
-		"your name is set in bold slate on every board and on your status"},
+		"your name turns slate, in bold beside your perch, on every board and on your status"},
 	{"chitin perch", pixel.Perches[2], "a perch cut from a shed shell",
 		"something climbed the stair long before the birds did and left its skin behind on the way up. the shell is warm to the touch and hums in wet weather. the flock cut it into perches and stopped asking what it was, though those who sit on it say it still turns toward the top",
-		"your name turns chitin red, set in bold, with this perch beside it"},
+		"your name turns chitin red, in bold beside your perch"},
 	{"pale-glass perch", pixel.Perches[3], "a perch of cloudy glass from the mire kilns",
 		"the kiln keepers blew it from ash and lamp smoke in the year the mire rose. look down through it and the ground seems further off than it is. a bird on glass can be seen from anywhere in the rookery, which was always the point, and the kiln keepers charged for it",
 		"a pale glass plate behind your line, under your red name and perch"},
 	{"drowned-bell perch", pixel.Perches[4], "a perch cast from a drowned bell",
 		"the chapel bell went under with the rest of the low town. divers brought it up in pieces over three summers, and the bronze was cast into perches for those who had climbed this far. at the hour the water came in it still rings, faintly, and the birds below look up",
 		"the plate turns bronze and your name is set in the book hand, beside your perch"},
-	{"a perch nobody built", pixel.Perches[5], "a perch that was already there",
-		"when the stair reached this height the climbers found it waiting, with no maker's mark, no nails and no seam. nobody remembers who sat on it first. those who sit on it now tend to stop talking about it, and the flock has learned not to ask them",
-		"your name in gilt on a dark plate in a gilt frame. rungs past this one are counted by your perch"},
+	{"perch touched by the great nothingness", pixel.Perches[5], "a perch where the stair ran out",
+		"past the bell the stair climbed into a place where nothing was. the climbers stepped out and the nothing held them. where it touched the last rung the wood turned to gold. those who sit there stop talking, and the flock knows not to ask what they heard",
+		"your name in gilt on a dark plate, framed in gilt; your perch counts every rung past it"},
 }
 
 // perchOf is rung n's perch, from 1.
@@ -212,9 +212,9 @@ func or(s, otherwise string) string {
 // errNoRung is a look at a rung the menu never offered.
 var errNoRung = core.Tell("that rung isn't on the stair; open the shop again")
 
-// shop is a press in the shop: shop opens its front as a new message,
-// climb buys the next rung and shows the front again, back shows the
-// front again and look shows the rung picked in the menu.
+// shop is a press in the shop: shop and back show its front, climb buys
+// the next rung and shows that rung's card, and look shows the rung picked
+// in the menu.
 func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate) error {
 	id := e.Data.CustomID()
 	look := int64(0)
@@ -235,10 +235,17 @@ func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.Component
 	s := m.st.server(guild)
 	s.mu.Lock()
 	var err error
+	climbed := false
 	if id == "pp:climb" {
 		err = m.st.climb(s, guild, e.User().ID, today)
+		climbed = err == nil
 	}
 	mem := m.st.member(s, guild, e.User().ID, today)
+	if climbed {
+		// What was bought shows straight away: the rung's own card, the
+		// member's name already set in its look.
+		look = mem.rung
+	}
 	var msg discord.MessageCreate
 	var drawn error
 	if look > 0 {
@@ -253,10 +260,13 @@ func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.Component
 	if drawn != nil {
 		return drawn
 	}
-	if id == "pp:shop" {
-		return e.CreateMessage(msg)
+	if climbed {
+		name, _ := perch(look)
+		card := msg.Components[0].(discord.ContainerComponent)
+		card.Components = append([]discord.ContainerSubComponent{discord.NewTextDisplay("you sit on the " + name + " now")}, card.Components...)
+		msg.Components[0] = card
 	}
-	return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...))
+	return m.answer(guild, e, msg, "pp:shop")
 }
 
 // sinksRow is the season's burn so far and the backstop, for the help

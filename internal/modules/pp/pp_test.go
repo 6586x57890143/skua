@@ -131,7 +131,11 @@ func pick(t *testing.T, value string) (*events.ComponentInteractionCreate, *[]di
 // attachment://pp.jpg, listed twice it refuses the edit.
 func TestPickListsTheScreen(t *testing.T) {
 	m := testModule(&fakeDB{})
-	e, _ := pick(t, "thief")
+	// The chat hasn't moved past the picker, so it's edited in place.
+	e, _ := coretest.Button(t, "pp:pick", func(p map[string]any) {
+		p["data"] = map[string]any{"custom_id": "pp:pick", "component_type": 3, "values": []any{"thief"}}
+		p["channel"] = map[string]any{"id": "4", "type": 0, "last_message_id": "9"}
+	})
 	var got discord.MessageUpdate
 	e.Respond = func(typ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
 		got, _ = d.(discord.MessageUpdate)

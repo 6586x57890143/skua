@@ -123,28 +123,39 @@ func TestQuestPays(t *testing.T) {
 	}
 
 	// Round trip through the save format, dropping what the balance lost.
+	mem.quests[0].rerolled = 20000
 	saved := encodeQuests(mem.quests) + ";9,9,0,0,0,0,0;junk"
 	if back := decodeQuests(&Default, saved); len(back) != 1 || back[0] != mem.quests[0] {
 		t.Errorf("came back as %+v", back)
 	}
+	// Saved before rerolls were each quest's.
+	if back := decodeQuests(&Default, "0,1,5,0,0,0,0"); len(back) != 1 || back[0].prog[0] != 5 || back[0].rerolled != 0 {
+		t.Errorf("an old save came back as %+v", back)
+	}
 }
 
-// One reroll a day, of a quest held.
+// Each quest held rerolls once a day, on its own.
 func TestQuestReroll(t *testing.T) {
 	st := newState(&Default, 42)
 	s := st.server(guild)
 	a := old(1)
 	today := DayOf(t0)
 	mem := st.member(s, guild, a, today)
-	mem.quests = []heldQuest{{tier: 0, kind: 0}}
+	mem.quests = []heldQuest{{tier: 0, kind: 0}, {tier: 0, kind: 0}}
 	if err := st.reroll(s, mem, guild, a, 3, today); err == nil {
 		t.Error("rerolled a quest not held")
 	}
-	if err := st.reroll(s, mem, guild, a, 0, today); err != nil || mem.rerollDay != today {
+	if err := st.reroll(s, mem, guild, a, 0, today); err != nil || mem.quests[0].rerolled != today {
 		t.Fatalf("reroll: %v", err)
 	}
 	if err := st.reroll(s, mem, guild, a, 0, today); err == nil {
-		t.Error("rerolled twice in a day")
+		t.Error("rerolled one quest twice in a day")
+	}
+	if err := st.reroll(s, mem, guild, a, 1, today); err != nil || mem.quests[1].rerolled != today {
+		t.Fatalf("the second quest's reroll: %v", err)
+	}
+	if err := st.reroll(s, mem, guild, a, 0, today+1); err != nil {
+		t.Errorf("a new day's reroll: %v", err)
 	}
 }
 
@@ -214,29 +225,28 @@ func TestSelfieQuest(t *testing.T) {
 }
 
 // The quests button shows the screen and every quest as text; a golden one
-// turns the card gold; the reroll select swaps one.
+// turns the card gold; each quest's reroll button swaps it, under the menu.
 func TestQuestsButton(t *testing.T) {
 	m := testModule(&fakeDB{})
 	s := m.st.server(3)
 	user := snowflake.ID(5)
 	mem := m.st.member(s, 3, user, DayOf(t0))
 	mem.quests = []heldQuest{{tier: 2, kind: 0}, {tier: 0, kind: 1}}
+	mem.classSeason = 0
 	e, sent := coretest.Button(t, "pp:quests", nil)
 	if err := m.press(context.Background(), e); err != nil {
 		t.Fatal(err)
 	}
 	card := js((*sent)[0].Components)
-	if !strings.Contains(card, "a golden quest came up") || !strings.Contains(card, "while the hearth burns") || !strings.Contains(card, "pp:reroll") {
+	if !strings.Contains(card, "a golden quest came up") || !strings.Contains(card, "while the hearth burns") || !strings.Contains(card, "pp:reroll:0") || !strings.Contains(card, "pp:reroll:1") || !strings.Contains(card, "pp:status") {
 		t.Errorf("the quests card: %s", card)
 	}
 
-	r, _ := coretest.Button(t, "pp:reroll", func(p map[string]any) {
-		p["data"] = map[string]any{"custom_id": "pp:reroll", "component_type": 3, "values": []any{"1"}}
-	})
+	r, _ := coretest.Button(t, "pp:reroll:1", nil)
 	r.Respond = func(discord.InteractionResponseType, discord.InteractionResponseData, ...rest.RequestOpt) error {
 		return nil
 	}
-	if err := m.press(context.Background(), r); err != nil || mem.rerollDay != DayOf(t0) {
+	if err := m.press(context.Background(), r); err != nil || mem.quests[1].rerolled != DayOf(t0) || mem.quests[0].rerolled != 0 {
 		t.Errorf("rerolling: %v", err)
 	}
 

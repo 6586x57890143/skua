@@ -251,12 +251,12 @@ type QuestLine struct {
 
 // QuestScreen draws the open quests as an item list in a named panel, the
 // cursor on the first, each with its icon, a gauge of how far along it is
-// and what it pays.
-func QuestScreen(name string, quests []QuestLine, rerollReady bool) ([]byte, error) {
-	return questCanvas(name, quests, rerollReady).Soft(screenScale)
+// and what it pays, over how many of their rerolls are left today.
+func QuestScreen(name string, quests []QuestLine, rerolls int) ([]byte, error) {
+	return questCanvas(name, quests, rerolls).Soft(screenScale)
 }
 
-func questCanvas(name string, quests []QuestLine, rerollReady bool) *pixel.Canvas {
+func questCanvas(name string, quests []QuestLine, rerolls int) *pixel.Canvas {
 	c := pixel.New(screenW, screenH)
 	list := image.Rect(4, 4, 380, 172)
 	c.Window(list)
@@ -288,9 +288,9 @@ func questCanvas(name string, quests []QuestLine, rerollReady bool) *pixel.Canva
 	c.Window(foot)
 	y := midLine(foot)
 	c.Icon("reroll", image.Pt(16, y-iconLift))
-	end := label(c, 16+pixel.IconCells+4, y, "one reroll a day") + pixel.Advance
-	if rerollReady {
-		c.Text(end, y, "ready", pixel.Green, 0)
+	end := label(c, 16+pixel.IconCells+4, y, "a reroll a day each") + pixel.Advance
+	if rerolls > 0 {
+		c.Text(end, y, fmt.Sprintf("%d ready", rerolls), pixel.Green, 0)
 	} else {
 		label(c, end, y, "used")
 	}

@@ -42,10 +42,9 @@ type member struct {
 	// name is how they were last seen called, for the board.
 	name string
 	// quests are those held, questDay the day they were last dealt,
-	// rerollDay the day the reroll was last used, questsDone how many ever
-	// finished.
-	quests                          []heldQuest
-	questDay, rerollDay, questsDone int64
+	// questsDone how many ever finished.
+	quests               []heldQuest
+	questDay, questsDone int64
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, a fingerprint of their last message, when they last showed a

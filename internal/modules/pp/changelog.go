@@ -11,6 +11,17 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.6.1",
+	Date:    "2026-10-18",
+	Balance: "570115",
+	Lines: []string{
+		"the menu stays under every /pp screen, and paging through it keeps to one message until the chat moves on",
+		"each quest has its own reroll a day",
+		"a perch shows beside your name from the first rung, and climbing opens the rung you bought",
+		"the top rung is the perch touched by the great nothingness",
+		"the buffs button says how close the server is to lighting the hearth",
+	},
+}, {
 	Version: "0.6.0",
 	Date:    "2026-10-17",
 	Balance: "69bb55",

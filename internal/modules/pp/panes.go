@@ -247,11 +247,23 @@ func itemCanvas(it Item) *pixel.Canvas {
 
 	text := image.Rect(116, 4, 380, 212)
 	c.Window(text)
-	c.Tab(text, it.Name)
 	x, width := 128, 368-128
 	y = paneTop(text)
-	for _, l := range pixel.Wrap(it.What, width) {
-		c.Text(x, y, l, pixel.Ink, 0)
+	// A name too long for the tab heads the text instead, in bold, and
+	// says enough on its own that the plain line gives way to it.
+	what := it.What
+	if pixel.Bold.Width(it.Name) <= width-pixel.IconCells {
+		c.Tab(text, it.Name)
+	} else {
+		c.Tab(text, "item")
+		what = it.Name
+	}
+	face, ink := pixel.Regular, uint8(pixel.Ink)
+	if what == it.Name {
+		face, ink = pixel.Bold, pixel.Gold
+	}
+	for _, l := range face.Wrap(what, width) {
+		c.Print(face, x, y, l, ink)
 		y += 15
 	}
 	y += 4

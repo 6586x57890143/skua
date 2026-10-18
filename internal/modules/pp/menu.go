@@ -45,11 +45,11 @@ func (m *Module) Commands() []core.Command {
 				}
 				return e.CreateMessage(msg)
 			}
-			msg, err := m.status(*guild, e.Member(), true, m.Admin != nil && m.Admin(e))
+			msg, err := m.status(*guild, e.Member(), true)
 			if err != nil {
 				return err
 			}
-			return e.CreateMessage(msg.WithEphemeral(true))
+			return e.CreateMessage(m.withMenu(*guild, e.User().ID, m.Admin != nil && m.Admin(e), msg, "pp:status").WithEphemeral(true))
 		},
 	}}
 }
@@ -59,7 +59,8 @@ func (m *Module) Components() []core.Component {
 }
 
 // press is a button or select on a /pp reply: class opens the picker, pick
-// takes a class, show posts the screen for the channel.
+// takes a class, show posts the screen for the channel, and every other
+// screen opens through answer with the menu under it.
 func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate) error {
 	guild := e.GuildID()
 	if guild == nil {
@@ -90,13 +91,21 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 	if !m.plays(e) {
 		return errBeta
 	}
-	switch e.Data.CustomID() {
+	id := e.Data.CustomID()
+	if strings.HasPrefix(id, "pp:reroll:") {
+		return m.rerollPicked(*guild, e)
+	}
+	var msg discord.MessageCreate
+	var err error
+	switch id {
+	case "pp:status":
+		msg, err = m.status(*guild, e.Member(), true)
 	case "pp:class":
-		return e.CreateMessage(discord.MessageCreate{
+		msg = discord.MessageCreate{
 			Components:      []discord.LayoutComponent{classCard(m.price(*guild, e.User().ID))},
 			Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 			AllowedMentions: core.NoPings(),
-		})
+		}
 	case "pp:pick":
 		// The custom ID comes from the client, so the data may not be a
 		// select's at all.
@@ -107,56 +116,79 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		if err := m.pick(*guild, e.User().ID, data.Values[0]); err != nil {
 			return err
 		}
-		msg, err := m.status(*guild, e.Member(), true, m.Admin != nil && m.Admin(e))
-		if err != nil {
-			return err
-		}
-		return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...))
+		id = "pp:status"
+		msg, err = m.status(*guild, e.Member(), true)
 	case "pp:show":
-		msg, err := m.status(*guild, e.Member(), false, false)
+		msg, err := m.status(*guild, e.Member(), false)
 		if err != nil {
 			return err
 		}
 		return e.CreateMessage(msg)
 	case "pp:board":
-		msg, err := m.boardMessage(*guild, e.User().ID)
-		if err != nil {
-			return err
-		}
-		return e.CreateMessage(msg)
+		msg, err = m.boardMessage(*guild, e.User().ID)
 	case "pp:treasury":
 		if m.Admin == nil || !m.Admin(e) {
 			return errNotAdmin
 		}
-		msg, err := m.treasuryMessage(ctx, *guild)
-		if err != nil {
-			return err
-		}
-		return e.CreateMessage(msg)
+		msg, err = m.treasuryMessage(ctx, *guild)
 	case "pp:quests":
-		msg, err := m.questsMessage(*guild, e.Member())
-		if err != nil {
-			return err
-		}
-		return e.CreateMessage(msg)
+		msg, err = m.questsMessage(*guild, e.Member())
 	case "pp:buffs":
-		msg, err := m.buffsMessage(*guild, e.Member())
-		if err != nil {
-			return err
-		}
-		return e.CreateMessage(msg)
-	case "pp:reroll":
-		return m.rerollPicked(*guild, e)
+		msg, err = m.buffsMessage(*guild, e.Member())
 	case "pp:shop", "pp:climb", "pp:look", "pp:back":
 		return m.shop(ctx, *guild, e)
 	case "pp:ledger":
-		msg, err := m.journal(ctx, *guild, e.Member())
-		if err != nil {
-			return err
-		}
-		return e.CreateMessage(msg)
+		msg, err = m.journal(ctx, *guild, e.Member())
+	default:
+		return errNotAClass
 	}
-	return errNotAClass
+	if err != nil {
+		return err
+	}
+	return m.answer(*guild, e, msg, id)
+}
+
+// answer shows msg, the screen current, with the menu under it: in place of
+// the screen pressed on while the chat hasn't moved past it, or as a new
+// one at the bottom once it has, so the menu is always at hand.
+func (m *Module) answer(guild snowflake.ID, e *events.ComponentInteractionCreate, msg discord.MessageCreate, current string) error {
+	msg = m.withMenu(guild, e.User().ID, m.Admin != nil && m.Admin(e), msg, current)
+	if moved(e) {
+		return e.CreateMessage(msg.WithEphemeral(true))
+	}
+	return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...))
+}
+
+// moved is whether the channel has had a message since the one pressed on.
+// Ephemeral replies don't count, so a member paging through /pp in a quiet
+// channel keeps one message.
+func moved(e *events.ComponentInteractionCreate) bool {
+	ch := e.Channel().MessageChannel
+	if ch == nil {
+		return false
+	}
+	last := ch.LastMessageID()
+	return last != nil && *last > e.Message.ID
+}
+
+// withMenu is msg with the menu added to its card, once user has picked a
+// class; before that the title and the picker are all there is.
+func (m *Module) withMenu(guild, user snowflake.ID, admin bool, msg discord.MessageCreate, current string) discord.MessageCreate {
+	s := m.st.server(guild)
+	s.mu.Lock()
+	mem := m.st.member(s, guild, user, DayOf(m.now()))
+	class, picked := mem.class, mem.classSeason != -1
+	s.mu.Unlock()
+	if !picked || len(msg.Components) == 0 {
+		return msg
+	}
+	card, ok := msg.Components[0].(discord.ContainerComponent)
+	if !ok {
+		return msg
+	}
+	card.Components = append(card.Components, menuRows(class, admin, current)...)
+	msg.Components = append([]discord.LayoutComponent{card}, msg.Components[1:]...)
+	return msg
 }
 
 // price is what changing class costs mem now: nothing for the first pick
@@ -235,7 +267,7 @@ func classCard(cost, purse int64) discord.ContainerComponent {
 // status is who's screen as a message: the card, the picture and, on their
 // own copy, the buttons. It counts as a sign of life and refreshes what
 // they wear.
-func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons, admin bool) (discord.MessageCreate, error) {
+func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons bool) (discord.MessageCreate, error) {
 	now := m.now()
 	today := DayOf(now)
 	s := m.st.server(guild)
@@ -264,36 +296,38 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 		return discord.MessageCreate{}, err
 	}
 	alt := fmt.Sprintf("%s, %s, level %d, %s pp to spend", pixel.Plain(sh.Name), sh.Class.Name(), sh.Level, grouped(sh.Purse/unit))
-	extra := []discord.ContainerSubComponent{discord.NewMediaGallery(discord.MediaGalleryItem{
-		Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt,
-	})}
-	if buttons {
-		extra = append(extra, menuRows(sh.Class.Key, admin)...)
-	}
 	return discord.MessageCreate{
-		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", line, extra...)},
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", line,
+			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}))},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
 }
 
-// menuRows are the status card's buttons, as UX.md has them: first the
-// screens it opens, then what the member does from it, every one wearing
-// the icon of what it opens.
-func menuRows(class string, admin bool) []discord.ContainerSubComponent {
-	act := discord.NewActionRow(withIcon(discord.NewSecondaryButton("class", "pp:class"), classIcons[class]),
-		withIcon(discord.NewSecondaryButton("buffs", "pp:buffs"), "hearth"),
-		withIcon(discord.NewSecondaryButton("share", "pp:show"), "bell"))
+// menuRows are the menu under every /pp screen, as UX.md has them: first
+// the screens it opens, then what the member does from it, every one
+// wearing the icon of what it opens. The screen open now, current, is
+// greyed out; on the status screen share takes the place of status.
+func menuRows(class string, admin bool, current string) []discord.ContainerSubComponent {
+	btn := func(label, id, icon string) discord.InteractiveComponent {
+		b := withIcon(discord.NewSecondaryButton(label, id), icon)
+		if id == current {
+			b = b.AsDisabled()
+		}
+		return b
+	}
+	home := btn("status", "pp:status", "lantern")
+	if current == "pp:status" {
+		home = btn("share", "pp:show", "bell")
+	}
+	act := discord.NewActionRow(home, btn("class", "pp:class", classIcons[class]), btn("buffs", "pp:buffs", "hearth"))
 	if admin {
-		act = act.AddComponents(withIcon(discord.NewSecondaryButton("treasury", "pp:treasury"), "pot"))
+		act = act.AddComponents(btn("treasury", "pp:treasury", "pot"))
 	}
 	return []discord.ContainerSubComponent{
-		discord.NewActionRow(
-			withIcon(discord.NewSecondaryButton("quests", "pp:quests"), "compass"),
-			withIcon(discord.NewSecondaryButton("board", "pp:board"), "laurel"),
-			withIcon(discord.NewSecondaryButton("shop", "pp:shop"), "scales"),
-			withIcon(discord.NewSecondaryButton("journal", "pp:ledger"), "quill")),
+		discord.NewActionRow(btn("quests", "pp:quests", "compass"), btn("board", "pp:board", "laurel"),
+			btn("shop", "pp:shop", "scales"), btn("journal", "pp:ledger", "quill")),
 		act,
 	}
 }
