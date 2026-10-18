@@ -269,6 +269,11 @@ func (m *Module) ready(guild snowflake.ID, g discord.GatewayGuild) {
 				custom++
 				if strings.Contains(strings.ToLower(*a.State), ".gg/") {
 					invites++
+					if !on {
+						// ponytail: temporary, to see why an invite didn't
+						// match; remove with the banner fix.
+						m.log.Info("pp: unmatched invite", "guild", guild, "state", fmt.Sprintf("%+q", *a.State))
+					}
 				}
 			}
 		}
