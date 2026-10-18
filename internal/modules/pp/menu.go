@@ -200,17 +200,6 @@ func (m *Module) cost(mem *member, season int64) int64 {
 	return m.st.b.ClassCost(l, mem.classChanges)
 }
 
-// price is what changing class costs user now, and what they hold.
-func (m *Module) price(guild, user snowflake.ID) (cost, purse int64) {
-	today := DayOf(m.now())
-	season, _ := m.st.b.Season(today)
-	s := m.st.server(guild)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	mem := m.st.member(s, guild, user, today)
-	return m.cost(mem, season), mem.purse
-}
-
 // pick makes user a key: the season's first pick free, every change after
 // it paid for from their purse.
 func (m *Module) pick(guild, user snowflake.ID, key string) error {
