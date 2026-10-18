@@ -134,6 +134,12 @@ a PR must be up to date with `main` to merge. On `main` it then pushes
 writes them), using the `VPS_HOST`/`VPS_SSH_KEY` repository secrets. The deploy only runs while the repository variable `DEPLOY_ENABLED` is
 `true`; otherwise it skips green with a notice.
 
+The deploy job signs each build for cygnet with the `BIRD_RELEASE_KEY` secret
+(cygnet's `link/cmd/attest`: the bird, commit and image digest). skua shows the
+signature as `SKUA_ATTEST` when she links, so a cygnet that pins skua's public key in
+`CYGNET_BIRD_KEYS` lets in only builds from this repository's `main`. The signature is
+kept beside its tag in `deployed-tag.env`, so a rollback carries its own.
+
 Rollback, and the manual path, are in `docker-compose.prod.yml` and `scripts/deploy.sh`.
 
 ## Working in parallel

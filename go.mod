@@ -3,7 +3,7 @@ module github.com/6586x57890143/skua
 go 1.27.2
 
 require (
-	github.com/6586x57890143/cygnet/link v0.8.0
+	github.com/6586x57890143/cygnet/link v0.9.0
 	github.com/btcsuite/btcd/btcec/v2 v2.5.0
 	github.com/disgoorg/disgo v0.19.6
 	github.com/disgoorg/omit v1.0.0

@@ -149,7 +149,18 @@ func run(log *slog.Logger) error {
 	linked := make(chan struct{})
 	var fleetLink *link.Client
 	if url, tok := os.Getenv("SKUA_CYGNET_URL"), os.Getenv("SKUA_CYGNET_TOKEN"); url != "" && tok != "" {
-		c := link.New(link.Config{URL: url, Token: tok, Build: core.Revision(), Log: log})
+		// What CI signed for this build, for cygnet to check at hello. A
+		// bad one is dropped, not fatal: skua links unsigned, and a cygnet
+		// that pins her key turns that away, which is the point.
+		var attest *link.Attestation
+		if v := os.Getenv("SKUA_ATTEST"); v != "" {
+			if a, err := link.DecodeAttestation(v); err != nil {
+				log.Warn("SKUA_ATTEST doesn't decode; linking unsigned", "err", err)
+			} else {
+				attest = &a
+			}
+		}
+		c := link.New(link.Config{URL: url, Token: tok, Build: core.Revision(), Attest: attest, Log: log})
 		fleetLink = c
 		c.Handle("ping", func(context.Context, link.Call) (any, error) { return nil, nil })
 		c.Handle(pace.Method, pacer.Answer)

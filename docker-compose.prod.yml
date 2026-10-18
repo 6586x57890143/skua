@@ -15,6 +15,10 @@ services:
       - ALL
     env_file:
       - .env
+    # What CI signed for this image, which skua shows cygnet when she links
+    # (deployed-tag.env keeps it with its tag); empty for an unsigned build.
+    environment:
+      SKUA_ATTEST: ${SKUA_ATTEST:-}
     depends_on:
       postgres:
         condition: service_healthy
