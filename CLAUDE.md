@@ -12,6 +12,11 @@ lowercase, errors as `core.Tell`, facts on a grid, art on an exact pixel grid.
 - `internal/core`: `Module` interface and the command `Router`. A tier is mandatory, and
   an unset one fails boot.
 - `internal/intents`: portal flags → granted intents → what to identify with.
+- `internal/flood`: tells a member flooding a channel from one talking fast, one decaying
+  score each, no Discord payload in it, so merlin can carry it too.
+- `internal/sanction`: what happens to who a module catches: a doubling `Ladder`, the
+  `History` it reads, and `Judge`, which records first and tries each `Sanction` in turn.
+  A new punishment (timeout, jail, ban) is a `Sanction`, never a change to a detector.
 - `internal/guard`: per-guild per-op GCRA caps plus a breaker. Route new Discord writes
   through `Allow`/`Report`.
 - `internal/brand`: palette, mood icons and skua's application emoji. The mood comes from

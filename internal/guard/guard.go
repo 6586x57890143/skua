@@ -12,10 +12,12 @@ package guard
 
 import (
 	"errors"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 )
 
@@ -162,6 +164,21 @@ func (g *Guard) Report(guild snowflake.ID, failed bool) {
 		b.fails.Store(0)
 		b.openUntil.Store(g.now().Add(coolDown).UnixNano())
 	}
+}
+
+// Done is Report straight from a write's error: only a Discord answer that
+// says Discord is struggling counts against the breaker.
+func (g *Guard) Done(guild snowflake.ID, err error) { g.Report(guild, Struggling(err)) }
+
+// Struggling is true only for answers that say Discord is (429, 5xx), not
+// the request. Every writer once kept its own copy of this.
+func Struggling(err error) bool {
+	re, ok := errors.AsType[*rest.Error](err)
+	if !ok || re.Response == nil {
+		return false
+	}
+	s := re.Response.StatusCode
+	return s == http.StatusTooManyRequests || s >= 500
 }
 
 // ponytail: cells and breakers are never evicted; a few hundred bytes per

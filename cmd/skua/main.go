@@ -45,10 +45,12 @@ import (
 	"github.com/6586x57890143/skua/internal/modules/pp"
 	"github.com/6586x57890143/skua/internal/modules/preen"
 	"github.com/6586x57890143/skua/internal/modules/purge"
+	"github.com/6586x57890143/skua/internal/modules/spam"
 	"github.com/6586x57890143/skua/internal/modules/status"
 	"github.com/6586x57890143/skua/internal/modules/whisper"
 	"github.com/6586x57890143/skua/internal/obs"
 	"github.com/6586x57890143/skua/internal/ratelimit"
+	"github.com/6586x57890143/skua/internal/sanction"
 	"github.com/6586x57890143/skua/internal/store"
 	"github.com/6586x57890143/skua/internal/webhook"
 )
@@ -112,6 +114,9 @@ func run(log *slog.Logger) error {
 
 	var db status.Pinger
 	var purgeDB purge.DB
+	// Every sanction's record, for the ladder; without a database there is
+	// none, and every sentence is the first.
+	var record sanction.History
 	// Modules a guild has turned off; without a database a restart turns
 	// them all back on.
 	toggles := core.NewToggles(nil, nil)
@@ -124,7 +129,7 @@ func run(log *slog.Logger) error {
 		if err := store.Migrate(ctx, pool); err != nil {
 			return err
 		}
-		db, purgeDB = pool, pool
+		db, purgeDB, record = pool, pool, store.Sanctions{Pool: pool}
 		flipped, err := store.ModulesFlipped(ctx, pool)
 		if err != nil {
 			return fmt.Errorf("reading module switches: %w", err)
@@ -212,6 +217,8 @@ func run(log *slog.Logger) error {
 	// Shutdown waits on preen, so a self-react's removal is never lost to a
 	// deploy.
 	preener := preen.New(g, obs.Default, whispers)
+	// spam sanctions through bird, so bird exists first.
+	birds := bird.New(g, hooks, filter.Default(), os.Getenv("SKUA_XENO_CANTO_KEY"))
 	all := []core.Module{
 		status.New(func() status.Probe { return probe }, db, fleet, func() time.Duration {
 			if client == nil || client.Gateway == nil {
@@ -220,7 +227,7 @@ func run(log *slog.Logger) error {
 			return client.Gateway.Latency()
 		}),
 		whispers,
-		bird.New(g, hooks, filter.Default(), os.Getenv("SKUA_XENO_CANTO_KEY")),
+		birds,
 		purge.New(g, purgeDB, log, bootstrap),
 		preener,
 		perf.New(obs.Default),
@@ -235,6 +242,19 @@ func run(log *slog.Logger) error {
 			return err
 		}
 		all = append(all, bridge)
+	}
+
+	// spam watches the channels each server picks and turns whoever floods
+	// one into a bird. Its scope shares the purge pool; if it can't be read,
+	// skua runs without spam rather than without a scope.
+	if spammer, err := spam.New(ctx, log, g, purgeDB, record, func(id snowflake.ID) (snowflake.ID, bool) {
+		guild, ok := client.Caches.Guild(id)
+		return guild.OwnerID, ok
+	}, bootstrap, birds.Sanction()); err != nil {
+		log.Error("spam is off: it couldn't start", "err", err)
+	} else {
+		spammer.Admin = func(i discord.Interaction) bool { return router.Admin(i) }
+		all = append(all, spammer)
 	}
 
 	// notify keeps its follows in the purge pool too, or in memory without

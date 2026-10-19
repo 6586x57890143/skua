@@ -8,14 +8,16 @@
 // up before the original comes down, so a failure leaves their message where
 // it was, and only the newest bird stays up: each one takes down the last. Like whisper, every post carries a subtext marker saying what
 // happened, the species linking to the recording's xeno-canto entry, which
-// carries its credit and licence.
+// carries its credit and licence. The species' photo and a line about it
+// come with it when two databases agree on the bird (about.go).
+//
+// The spam module turns members into birds too, through Turn.
 package bird
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -69,21 +71,48 @@ type target struct{ guild, user snowflake.ID }
 
 // prank is one member being one bird until a time.
 type prank struct {
-	by    snowflake.ID // who ran /bird, for the audit log
-	until time.Time
+	by    string // who started it, for the audit log
 	rec   recording
 	audio []byte
+	about about
 
-	mu   sync.Mutex
-	last *discord.Message // the newest bird posted, the only one kept up
+	mu    sync.Mutex
+	until time.Time        // moved only by extend once stored
+	last  *discord.Message // the newest bird posted, the only one kept up
+}
+
+func (p *prank) end() time.Time {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.until
+}
+
+// extend keeps a running prank going until at least to. It reports false
+// for one already over at now.
+func (p *prank) extend(now, to time.Time) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !now.Before(p.until) {
+		return false
+	}
+	if to.After(p.until) {
+		p.until = to
+	}
+	return true
 }
 
 // recording is the part of a xeno-canto API v3 recording bird reads.
 type recording struct {
 	ID   string `json:"id"`
 	En   string `json:"en"`
+	Gen  string `json:"gen"`
+	Sp   string `json:"sp"`
 	File string `json:"file"`
 }
+
+// species is the scientific name, the one key the photo and the line are
+// matched on.
+func (r recording) species() string { return strings.TrimSpace(r.Gen + " " + r.Sp) }
 
 type Module struct {
 	guard  *guard.Guard
@@ -91,8 +120,14 @@ type Module struct {
 	screen screen
 	http   *http.Client
 	api    string // xeno-canto's recordings endpoint
+	inat   string // iNaturalist's taxa endpoint
+	wiki   string // Wikipedia's page summary endpoint, ending in a slash
+	photos string // the only prefix a photo is fetched from
 	key    string
-	pages  atomic.Int64 // result pages last seen, so the next pick can be any of them
+	// turning is the members a fetch is under way for, so two trips at
+	// once fetch once.
+	turning sync.Map     // target -> struct{}
+	pages   atomic.Int64 // result pages last seen, so the next pick can be any of them
 	// ponytail: in memory, so a restart lifts every prank, and a prank whose
 	// member never speaks again stays until a restart. Both are fine at
 	// minutes long and admin-only; a table if pranks ever need to outlive
@@ -107,8 +142,11 @@ type Module struct {
 func New(g *guard.Guard, p poster, s screen, key string) *Module {
 	return &Module{
 		guard: g, post: p, screen: s, key: key, now: time.Now,
-		http: &http.Client{Timeout: 10 * time.Second},
-		api:  "https://xeno-canto.org/api/3/recordings",
+		http:   &http.Client{Timeout: 10 * time.Second},
+		api:    "https://xeno-canto.org/api/3/recordings",
+		inat:   "https://api.inaturalist.org/v1/taxa",
+		wiki:   "https://en.wikipedia.org/api/rest_v1/page/summary/",
+		photos: "https://inaturalist-open-data.s3.amazonaws.com/",
 	}
 }
 
@@ -128,7 +166,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorOK,
 		Line:  "turns a member into a bird for a while",
-		About: "an admin runs /bird on a member for up to 60 minutes. until the time runs out each message they send is swapped for a single real bird call from xeno-canto, posted under their name with the species linked to its recording. run it again with 0 minutes to turn them back early",
+		About: "an admin runs /bird on a member for up to 60 minutes. until the time runs out each message they send is swapped for a single real bird call from xeno-canto, posted under their name with the species linked to its recording, an openly licensed photo of it from inaturalist and a line about it from wikipedia, shown only when both agree on which bird it is. run it again with 0 minutes to turn them back early",
 	}
 }
 
@@ -151,7 +189,11 @@ func (m *Module) Commands() []core.Command {
 	}}
 }
 
-var errNoBird = core.Tell("xeno-canto didn't hand over a bird; try again in a moment")
+var (
+	errNoBird = core.Tell("xeno-canto didn't hand over a bird; try again in a moment")
+	errNoKey  = core.Tell("skua has no xeno-canto key; set SKUA_XENO_CANTO_KEY and restart")
+	errBusy   = core.Tell("a bird is already on its way for them")
+)
 
 func (m *Module) bird(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error {
 	guild := e.GuildID()
@@ -171,24 +213,53 @@ func (m *Module) bird(ctx context.Context, e *events.ApplicationCommandInteracti
 		return reply(e, "✓ @"+user.Username+" is themselves again")
 	}
 	if m.key == "" {
-		return core.Tell("skua has no xeno-canto key; set SKUA_XENO_CANTO_KEY and restart")
+		return errNoKey
 	}
 	if err := e.DeferCreateMessage(true); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 	defer cancel()
-	rec, audio, err := m.fetch(ctx)
+	species, err := m.Turn(ctx, k.guild, k.user, e.User().ID.String(), time.Duration(minutes)*time.Minute)
 	if err != nil {
-		return fmt.Errorf("%w: %w", errNoBird, err)
+		return err
 	}
-	until := m.now().Add(time.Duration(minutes) * time.Minute)
-	m.pranks.Store(k, &prank{by: e.User().ID, until: until, rec: rec, audio: audio})
 	_, err = e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(), discord.MessageUpdate{
-		Content:         new(fmt.Sprintf("✓ @%s is a bird for %dm: %s", user.Username, minutes, strings.ToLower(rec.En))),
+		Content:         new(fmt.Sprintf("✓ @%s is a bird for %dm: %s", user.Username, minutes, species)),
 		AllowedMentions: core.NoPings(),
 	}, rest.WithCtx(ctx))
 	return err
+}
+
+// Turn makes user a bird for d, started by by, and says which bird. A
+// member who already is one stays that bird, for at least d from now, with
+// nothing fetched; otherwise it fetches a recording with its photo and
+// line, inside ctx. Any length goes: /bird caps its own at an hour.
+func (m *Module) Turn(ctx context.Context, guild, user snowflake.ID, by string, d time.Duration) (string, error) {
+	k := target{guild, user}
+	now := m.now()
+	if v, ok := m.pranks.Load(k); ok && v.(*prank).extend(now, now.Add(d)) {
+		return strings.ToLower(v.(*prank).rec.En), nil
+	}
+	if m.key == "" {
+		return "", errNoKey
+	}
+	if _, busy := m.turning.LoadOrStore(k, struct{}{}); busy {
+		return "", errBusy
+	}
+	defer m.turning.Delete(k)
+	rec, audio, ab, err := m.fetch(ctx)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errNoBird, err)
+	}
+	m.pranks.Store(k, &prank{by: by, until: m.now().Add(d), rec: rec, audio: audio, about: ab})
+	return strings.ToLower(rec.En), nil
+}
+
+// Bird is whether user is a bird right now.
+func (m *Module) Bird(guild, user snowflake.ID) bool {
+	v, ok := m.pranks.Load(target{guild, user})
+	return ok && m.now().Before(v.(*prank).end())
 }
 
 func reply(e *events.ApplicationCommandInteractionCreate, text string) error {
@@ -196,20 +267,21 @@ func reply(e *events.ApplicationCommandInteractionCreate, text string) error {
 }
 
 // fetch picks a random recording from a random page of results and
-// downloads it. The first pick only knows page 1 exists.
-func (m *Module) fetch(ctx context.Context) (recording, []byte, error) {
+// downloads it, looking up its photo and line meanwhile. The first pick
+// only knows page 1 exists. A missing photo or line is no failure.
+func (m *Module) fetch(ctx context.Context) (recording, []byte, about, error) {
 	page := 1 + rand.Int64N(max(m.pages.Load(), 1))
 	q := url.Values{"query": {query}, "key": {m.key}, "page": {strconv.FormatInt(page, 10)}}
 	var res struct {
 		NumPages   json.Number `json:"numPages"`
 		Recordings []recording `json:"recordings"`
 	}
-	body, err := m.get(ctx, m.api+"?"+q.Encode(), 4<<20)
+	body, _, err := m.get(ctx, m.api+"?"+q.Encode(), 4<<20)
 	if err != nil {
-		return recording{}, nil, err
+		return recording{}, nil, about{}, err
 	}
 	if err := json.Unmarshal(body, &res); err != nil {
-		return recording{}, nil, fmt.Errorf("decoding recordings: %w", err)
+		return recording{}, nil, about{}, fmt.Errorf("decoding recordings: %w", err)
 	}
 	if n, err := res.NumPages.Int64(); err == nil && n > 0 {
 		m.pages.Store(n)
@@ -222,32 +294,39 @@ func (m *Module) fetch(ctx context.Context) (recording, []byte, error) {
 		}
 	}
 	if len(usable) == 0 {
-		return recording{}, nil, fmt.Errorf("page %d has no downloadable recording", page)
+		return recording{}, nil, about{}, fmt.Errorf("page %d has no downloadable recording", page)
 	}
 	rec := usable[rand.IntN(len(usable))]
-	audio, err := m.get(ctx, rec.File, maxAudio)
-	return rec, audio, err
+	looked := make(chan about, 1)
+	go func() { looked <- m.lookUp(ctx, rec) }()
+	audio, _, err := m.get(ctx, rec.File, maxAudio)
+	ab := <-looked
+	if err != nil {
+		return recording{}, nil, about{}, err
+	}
+	return rec, audio, ab, nil
 }
 
-func (m *Module) get(ctx context.Context, u string, limit int64) ([]byte, error) {
+// get reads u, up to limit bytes, and says what type the answer was.
+func (m *Module) get(ctx context.Context, u string, limit int64) ([]byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	req.Header.Set("User-Agent", "skua (https://skua.lol)")
 	res, err := m.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("xeno-canto answered %s", res.Status)
+		return nil, "", fmt.Errorf("%s answered %s", req.URL.Host, res.Status)
 	}
 	b, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
 	if err == nil && int64(len(b)) > limit {
-		err = errors.New("xeno-canto sent more than expected")
+		err = fmt.Errorf("%s sent more than expected", req.URL.Host)
 	}
-	return b, err
+	return b, res.Header.Get("Content-Type"), err
 }
 
 // OnEvent replaces a pranked member's messages. It returns at once: the
@@ -267,7 +346,7 @@ func (m *Module) OnEvent(ev bot.Event) {
 		return
 	}
 	p := v.(*prank)
-	if !m.now().Before(p.until) {
+	if !m.now().Before(p.end()) {
 		m.pranks.CompareAndDelete(k, v)
 		return
 	}
@@ -288,13 +367,17 @@ func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Messa
 	if n := strings.ToLower(name); strings.Contains(n, "discord") || strings.Contains(n, "clyde") {
 		name = msg.Author.Username
 	}
+	files := []*discord.File{discord.NewFile("xc"+p.rec.ID+".mp3", "", bytes.NewReader(p.audio))}
+	if p.about.photo != nil {
+		files = append(files, discord.NewFile(p.about.photoName, "", bytes.NewReader(p.about.photo)))
+	}
 	post := discord.WebhookMessageCreate{
-		Content:         marker(msg.Author.Username, p.until.Sub(m.now()), p.rec),
+		Content:         marker(msg.Author.Username, p.end().Sub(m.now()), p.rec) + p.about.lines(),
 		Username:        m.screen.Check(name).Text,
 		AvatarURL:       msg.Author.EffectiveAvatarURL(),
 		AllowedMentions: core.NoPings(),
 		Flags:           discord.MessageFlagSuppressEmbeds,
-		Files:           []*discord.File{discord.NewFile("xc"+p.rec.ID+".mp3", "", bytes.NewReader(p.audio))},
+		Files:           files,
 	}
 	posted, err := m.post.Send(ctx, r, guild, msg.ChannelID, app, post)
 	if err != nil {
@@ -312,8 +395,8 @@ func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Messa
 	if m.guard.Allow(guild, guard.MessageDelete) != nil {
 		return
 	}
-	err = r.DeleteMessage(msg.ChannelID, msg.ID, rest.WithCtx(ctx), rest.WithReason("bird: replaced with a recording, started by "+p.by.String()))
-	m.guard.Report(guild, struggling(err))
+	err = r.DeleteMessage(msg.ChannelID, msg.ID, rest.WithCtx(ctx), rest.WithReason("bird: replaced with a recording, started by "+p.by))
+	m.guard.Done(guild, err)
 }
 
 // markdown escapes brackets too, so a name cannot close the species link.
@@ -325,22 +408,16 @@ var markdown = strings.NewReplacer(`\`, `\\`, `_`, `\_`, `*`, `\*`, `~`, `\~`, "
 func marker(username string, left time.Duration, rec recording) string {
 	mins := max(int(left.Round(time.Minute)/time.Minute), 1)
 	species := strings.ToLower(rec.En)
-	// "eu", "ura" and "uni" sound like "you": a eurasian wren, a ural owl.
-	article := "a"
-	if species != "" && strings.ContainsRune("aeiou", rune(species[0])) &&
-		!strings.HasPrefix(species, "eu") && !strings.HasPrefix(species, "ura") && !strings.HasPrefix(species, "uni") {
-		article = "an"
-	}
 	return fmt.Sprintf("-# @%s is %s [%s](<https://xeno-canto.org/%s>) for %dm",
-		markdown.Replace(username), article, markdown.Replace(species), rec.ID, mins)
+		markdown.Replace(username), article(species), markdown.Replace(species), rec.ID, mins)
 }
 
-// struggling is true only for answers that say Discord is, not the request.
-func struggling(err error) bool {
-	re, ok := errors.AsType[*rest.Error](err)
-	if !ok || re.Response == nil {
-		return false
+// article is "a" or "an" for species. "eu", "ura" and "uni" sound like
+// "you": a eurasian wren, a ural owl.
+func article(species string) string {
+	if species != "" && strings.ContainsRune("aeiou", rune(species[0])) &&
+		!strings.HasPrefix(species, "eu") && !strings.HasPrefix(species, "ura") && !strings.HasPrefix(species, "uni") {
+		return "an"
 	}
-	s := re.Response.StatusCode
-	return s == 429 || s >= 500
+	return "a"
 }

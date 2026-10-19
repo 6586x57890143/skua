@@ -2,9 +2,12 @@ package guard
 
 import (
 	"errors"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/disgoorg/disgo/rest"
 )
 
 func fixed(t *time.Time) func() time.Time { return func() time.Time { return *t } }
@@ -119,5 +122,26 @@ func TestPurgeBudgetsAreIndependent(t *testing.T) {
 func TestStepIsTheWindowOverTheCap(t *testing.T) {
 	if Step(CommandSync) != window/8 {
 		t.Fatalf("Step(CommandSync) = %v", Step(CommandSync))
+	}
+}
+
+func TestDoneReadsTheError(t *testing.T) {
+	if Struggling(nil) || Struggling(errors.New("x")) || Struggling(&rest.Error{}) {
+		t.Fatal("not a Discord answer")
+	}
+	if !Struggling(&rest.Error{Response: &http.Response{StatusCode: 503}}) || !Struggling(&rest.Error{Response: &http.Response{StatusCode: 429}}) ||
+		Struggling(&rest.Error{Response: &http.Response{StatusCode: 404}}) {
+		t.Fatal("misread a status")
+	}
+	g := New()
+	for range tripAfter {
+		g.Done(1, &rest.Error{Response: &http.Response{StatusCode: 500}})
+	}
+	if err := g.Allow(1, MessageSend); !errors.Is(err, ErrCircuitOpen) {
+		t.Fatalf("five 500s left the breaker %v", err)
+	}
+	g.Done(2, &rest.Error{Response: &http.Response{StatusCode: 404}})
+	if g.Allow(2, MessageSend) != nil {
+		t.Fatal("a 404 counted against the breaker")
 	}
 }
