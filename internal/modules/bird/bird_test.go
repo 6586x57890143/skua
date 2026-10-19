@@ -51,13 +51,14 @@ func xenoCanto(t *testing.T, status int) (*httptest.Server, *[]string) {
 func module(api string) *Module {
 	m := New(guard.New(), &fakePoster{}, filter.Default(), "k")
 	m.api = api
+	m.inat = ""
 	return m
 }
 
 func TestFetchPicksADownloadableRecordingAndLearnsThePages(t *testing.T) {
 	srv, asked := xenoCanto(t, http.StatusOK)
 	m := module(srv.URL + "/api")
-	rec, audio, err := m.fetch(context.Background())
+	rec, audio, _, err := m.fetch(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,21 +75,21 @@ func TestFetchPicksADownloadableRecordingAndLearnsThePages(t *testing.T) {
 
 func TestFetchFailsOnABadAnswer(t *testing.T) {
 	srv, _ := xenoCanto(t, http.StatusTooManyRequests)
-	if _, _, err := module(srv.URL).fetch(context.Background()); err == nil {
+	if _, _, _, err := module(srv.URL).fetch(context.Background()); err == nil {
 		t.Fatal("a 429 fetched a bird")
 	}
 	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprint(w, `{"numPages":1,"recordings":[{"id":"1","file":""}]}`)
 	}))
 	defer empty.Close()
-	if _, _, err := module(empty.URL).fetch(context.Background()); err == nil {
+	if _, _, _, err := module(empty.URL).fetch(context.Background()); err == nil {
 		t.Fatal("a page of restricted recordings fetched a bird")
 	}
 	big := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.Copy(w, io.LimitReader(zeros{}, 5<<20))
 	}))
 	defer big.Close()
-	if _, err := module(big.URL).get(context.Background(), big.URL, 4<<20); err == nil {
+	if _, _, err := module(big.URL).get(context.Background(), big.URL, 4<<20); err == nil {
 		t.Fatal("an oversized answer was read")
 	}
 }
@@ -250,7 +251,7 @@ func pranked(now time.Time) (*Module, *fakePoster) {
 	p := &fakePoster{}
 	m := New(guard.New(), p, filter.Default(), "k")
 	m.now = func() time.Time { return now }
-	m.pranks.Store(target{3, 7}, &prank{by: 8, until: now.Add(5 * time.Minute), rec: recording{ID: "42", En: "Wren"}, audio: []byte("chirp")})
+	m.pranks.Store(target{3, 7}, &prank{by: "8", until: now.Add(5 * time.Minute), rec: recording{ID: "42", En: "Wren"}, audio: []byte("chirp")})
 	return m, p
 }
 
@@ -335,15 +336,6 @@ func (sendFunc) Delete(context.Context, rest.Rest, snowflake.ID, snowflake.ID, s
 func (f sendFunc) Send(context.Context, rest.Rest, snowflake.ID, snowflake.ID, snowflake.ID, discord.WebhookMessageCreate) (*discord.Message, error) {
 	f()
 	return nil, errors.New("stop here")
-}
-
-func TestStruggling(t *testing.T) {
-	if struggling(nil) || struggling(errors.New("x")) {
-		t.Fatal("not a Discord answer")
-	}
-	if !struggling(&rest.Error{Response: &http.Response{StatusCode: 503}}) || struggling(&rest.Error{Response: &http.Response{StatusCode: 404}}) {
-		t.Fatal("misread a status")
-	}
 }
 
 func mustPrank(t *testing.T, m *Module) *prank {

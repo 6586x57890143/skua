@@ -132,3 +132,32 @@ var lookalikes = map[rune]rune{
 	0x1D0D: 'm', 0x0274: 'n', 0x1D0F: 'o', 0x1D18: 'p', 0x0280: 'r', 0xA731: 's',
 	0x1D1B: 't', 0x1D1C: 'u', 0x1D20: 'v', 0x1D21: 'w', 0x028F: 'y', 0x1D22: 'z',
 }
+
+// Key is s reduced to the letters a reader sees, for telling whether two
+// messages say the same thing: folded, then everything but letters dropped,
+// so spacing, digits, punctuation, zero-width runes, fullwidth and Zalgo
+// all come to the same key. Fewer than four letters is Short, one key for
+// every "hi", "hu" and "h". No letters at all is 0.
+func Key(s string) uint64 {
+	h, n := uint64(14695981039346656037), 0 // FNV-1a
+	var buf [utf8.UTFMax]byte
+	for _, r := range fold(s).text {
+		if !unicode.IsLetter(r) {
+			continue
+		}
+		for _, b := range utf8.AppendRune(buf[:0], unicode.ToLower(r)) {
+			h = (h ^ uint64(b)) * 1099511628211
+		}
+		n++
+	}
+	switch {
+	case n == 0:
+		return 0
+	case n < 4:
+		return Short
+	}
+	return h
+}
+
+// Short is Key's one key for a message of one to three letters.
+const Short uint64 = 1

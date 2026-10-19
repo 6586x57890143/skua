@@ -7,8 +7,12 @@ import (
 	"slices"
 	"testing"
 	"testing/fstest"
+	"time"
+
+	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/core"
+	"github.com/6586x57890143/skua/internal/sanction"
 )
 
 // The test needs a real Postgres: CI runs one, and locally `docker compose up
@@ -108,4 +112,31 @@ func TestModuleSwitchesRoundTrip(t *testing.T) {
 	if off, _ := ModulesFlipped(ctx, pool); slices.Contains(off, s) {
 		t.Fatal("flipped back, still flipped")
 	}
+}
+
+func TestSanctionsCountTheWindow(t *testing.T) {
+	ctx := context.Background()
+	pool, err := Open(ctx, dsn(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	h := Sanctions{pool}
+	guild, user := snowflake.ID(1<<60+7), snowflake.ID(9)
+	at := time.Now().Truncate(time.Second)
+	for _, ago := range []time.Duration{time.Hour, 48 * time.Hour, 30 * 24 * time.Hour} {
+		if err := h.Record(ctx, sanction.Sentence{Offence: sanction.Offence{Guild: guild, User: user, Rule: "spam", At: at.Add(-ago)}, For: 10 * time.Minute}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := h.Priors(ctx, guild, user, at.Add(-7*24*time.Hour)); err != nil || n != 2 {
+		t.Fatalf("priors %d (%v), want 2", n, err)
+	}
+	if n, _ := h.Priors(ctx, guild, user+1, at.Add(-7*24*time.Hour)); n != 0 {
+		t.Fatalf("someone else's record counted: %d", n)
+	}
+	_, _ = pool.Exec(ctx, "delete from sanctions where guild_id = $1", int64(guild))
 }
