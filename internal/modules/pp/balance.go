@@ -107,7 +107,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.7.5",
+	Version: "0.7.6",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -127,7 +127,7 @@ var Default = Balance{
 	ChatMinRunes: 3,
 	ActivityGap:  10 * time.Second,
 
-	Pool:        600 * unit,
+	Pool:        700 * unit,
 	Jitter:      15,
 	Taper:       [2]Band{{Upto: 60, Rate: 100}, {Upto: 100, Rate: 50}},
 	VoiceTail:   5,
