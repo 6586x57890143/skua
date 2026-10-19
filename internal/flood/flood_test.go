@@ -90,7 +90,7 @@ func TestSpamTrips(t *testing.T) {
 			return Message{Text: fmt.Sprintf("free nitro %d at discord dot gift%s", i, strings.Repeat(" ", i))}
 		}), 6},
 		"zero width variants": {3 * time.Second, repeat(20, func(i int) Message {
-			return Message{Text: strings.Repeat("​", i) + "free nitro at the li​nk"}
+			return Message{Text: strings.Repeat("\u200b", i) + "free nitro at the li\u200bnk"}
 		}), 6},
 		"fullwidth variants": {3 * time.Second, repeat(20, func(i int) Message {
 			if i%2 == 0 {
