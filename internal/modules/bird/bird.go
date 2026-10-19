@@ -122,8 +122,12 @@ type Module struct {
 	api    string // xeno-canto's recordings endpoint
 	inat   string // iNaturalist's taxa endpoint
 	wiki   string // Wikipedia's page summary endpoint, ending in a slash
-	photos string // the only prefix a photo is fetched from
-	key    string
+	photos string // the only prefix an iNaturalist photo is fetched from
+	// commons is Wikimedia Commons' API, and wikimedia the only prefixes a
+	// Commons file is taken from: its originals and its thumbnails.
+	commons   string
+	wikimedia []string
+	key       string
 	// turning is the members a fetch is under way for, so two trips at
 	// once fetch once.
 	turning sync.Map     // target -> struct{}
@@ -142,11 +146,16 @@ type Module struct {
 func New(g *guard.Guard, p poster, s screen, key string) *Module {
 	return &Module{
 		guard: g, post: p, screen: s, key: key, now: time.Now,
-		http:   &http.Client{Timeout: 10 * time.Second},
-		api:    "https://xeno-canto.org/api/3/recordings",
-		inat:   "https://api.inaturalist.org/v1/taxa",
-		wiki:   "https://en.wikipedia.org/api/rest_v1/page/summary/",
-		photos: "https://inaturalist-open-data.s3.amazonaws.com/",
+		http:    &http.Client{Timeout: 10 * time.Second},
+		api:     "https://xeno-canto.org/api/3/recordings",
+		inat:    "https://api.inaturalist.org/v1/taxa",
+		wiki:    "https://en.wikipedia.org/api/rest_v1/page/summary/",
+		photos:  "https://inaturalist-open-data.s3.amazonaws.com/",
+		commons: "https://commons.wikimedia.org/w/api.php",
+		wikimedia: []string{
+			"https://upload.wikimedia.org/wikipedia/commons/",
+			"https://thumb.wikimedia.org/wikipedia/commons/",
+		},
 	}
 }
 
@@ -166,7 +175,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorOK,
 		Line:  "turns a member into a bird for a while",
-		About: "an admin runs /bird on a member for up to 60 minutes. until the time runs out each message they send is swapped for a single real bird call from xeno-canto, posted under their name with the species linked to its recording, an openly licensed photo of it from inaturalist and a line about it from wikipedia, shown only when both agree on which bird it is. run it again with 0 minutes to turn them back early",
+		About: "an admin runs /bird on a member for up to 60 minutes. until the time runs out each message they send is swapped for a single real bird call from xeno-canto, posted under their name with the species linked to its recording, an openly licensed photo of it from inaturalist, or from its wikipedia article when inaturalist has none, and a line about it from wikipedia, shown only when both agree on which bird it is. run it again with 0 minutes to turn them back early",
 	}
 }
 

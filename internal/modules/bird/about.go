@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"html"
 	"net/url"
+	"path"
 	"strings"
 	"unicode"
 )
@@ -20,7 +22,9 @@ var openLicences = map[string]string{"cc0": "cc0", "cc-by": "cc by", "cc-by-sa":
 // when it is matched to the recording's scientific name: the photo is the
 // iNaturalist taxon of exactly that name, and the line is Wikipedia's
 // article for that name, kept only when it is the article iNaturalist
-// links for the same taxon. Two databases agreeing is the check.
+// links for the same taxon. Two databases agreeing is the check. When
+// iNaturalist has no open photo, the photo is that same article's lead
+// image, taken only from Wikimedia Commons, which holds nothing unfree.
 type about struct {
 	photo     []byte
 	photoName string
@@ -90,10 +94,14 @@ func (m *Module) lookUp(ctx context.Context, rec recording) about {
 		return about{}
 	}
 	var a about
+	var lead string
 	lined := make(chan struct{})
-	go func() { defer close(lined); a.line, a.article = m.line(ctx, rec, t.WikipediaURL) }()
+	go func() { defer close(lined); a.line, a.article, lead = m.line(ctx, rec, t.WikipediaURL) }()
 	a.photo, a.photoName, a.credit, a.source = m.photo(ctx, t)
 	<-lined
+	if a.photo == nil && lead != "" {
+		a.photo, a.photoName, a.credit, a.source = m.commonsPhoto(ctx, lead)
+	}
 	return a
 }
 
@@ -122,16 +130,7 @@ func (m *Module) photo(ctx context.Context, t *taxon) (img []byte, name, credit,
 		}
 	}
 	licence := openLicences[p.Licence]
-	img, kind, err := m.get(ctx, p.Medium, maxPhoto)
-	if err != nil {
-		return nil, "", "", ""
-	}
-	switch {
-	case strings.HasPrefix(kind, "image/jpeg") && len(img) > 2 && img[0] == 0xFF && img[1] == 0xD8:
-		name = "bird.jpg"
-	case strings.HasPrefix(kind, "image/png") && strings.HasPrefix(string(img), "\x89PNG"):
-		name = "bird.png"
-	default:
+	if img, name = m.image(ctx, p.Medium); img == nil {
 		return nil, "", "", ""
 	}
 	// "(c) Luiz Lapa, some rights reserved (CC BY)" is the photographer
@@ -145,16 +144,143 @@ func (m *Module) photo(ctx context.Context, t *taxon) (img []byte, name, credit,
 	return img, name, markdown.Replace(credit), fmt.Sprintf("https://www.inaturalist.org/photos/%d", p.ID)
 }
 
+// image is the JPEG or PNG at u, checked by its type and its first bytes,
+// and the name it is attached under.
+func (m *Module) image(ctx context.Context, u string) ([]byte, string) {
+	img, kind, err := m.get(ctx, u, maxPhoto)
+	switch {
+	case err != nil:
+		return nil, ""
+	case strings.HasPrefix(kind, "image/jpeg") && len(img) > 2 && img[0] == 0xFF && img[1] == 0xD8:
+		return img, "bird.jpg"
+	case strings.HasPrefix(kind, "image/png") && strings.HasPrefix(string(img), "\x89PNG"):
+		return img, "bird.png"
+	}
+	return nil, ""
+}
+
+// commonsPhoto is the lead image of the bird's article, when it is a file
+// on Wikimedia Commons under a free licence with no restriction marked on
+// it, as a 500px thumbnail, credited to its author.
+func (m *Module) commonsPhoto(ctx context.Context, lead string) (img []byte, name, credit, source string) {
+	file, ok := m.onCommons(lead)
+	if !ok || m.commons == "" {
+		return nil, "", "", ""
+	}
+	q := url.Values{
+		"action": {"query"}, "format": {"json"}, "formatversion": {"2"},
+		"titles": {"File:" + file}, "prop": {"imageinfo"}, "iiprop": {"url|extmetadata|mime"}, "iiurlwidth": {"500"},
+		"iiextmetadatafilter": {"Artist|LicenseShortName|License|NonFree|Restrictions"},
+	}
+	body, _, err := m.get(ctx, m.commons+"?"+q.Encode(), 1<<20)
+	if err != nil {
+		return nil, "", "", ""
+	}
+	var res struct {
+		Query struct {
+			Pages []struct {
+				Repository string `json:"imagerepository"`
+				Info       []struct {
+					Thumb string `json:"thumburl"`
+					Page  string `json:"descriptionurl"`
+					Mime  string `json:"mime"`
+					Meta  map[string]struct {
+						Value string `json:"value"`
+					} `json:"extmetadata"`
+				} `json:"imageinfo"`
+			} `json:"pages"`
+		} `json:"query"`
+	}
+	if json.Unmarshal(body, &res) != nil || len(res.Query.Pages) != 1 || res.Query.Pages[0].Repository != "local" || len(res.Query.Pages[0].Info) != 1 {
+		return nil, "", "", ""
+	}
+	info := res.Query.Pages[0].Info[0]
+	meta := func(k string) string { return strings.TrimSpace(info.Meta[k].Value) }
+	if !freeLicence(meta("License")) || (meta("NonFree") != "" && meta("NonFree") != "false") || meta("Restrictions") != "" ||
+		!m.onWikimedia(info.Thumb) || !strings.HasPrefix(info.Page, "https://commons.wikimedia.org/wiki/File:") {
+		return nil, "", "", ""
+	}
+	if img, name = m.image(ctx, info.Thumb); img == nil {
+		return nil, "", "", ""
+	}
+	who := strings.Join(strings.Fields(html.UnescapeString(stripTags(meta("Artist")))), " ")
+	if who == "" || len(who) > 80 {
+		who = "wikimedia commons"
+	}
+	licence := strings.ToLower(meta("LicenseShortName"))
+	if licence == "" || len(licence) > 40 {
+		licence = strings.ReplaceAll(meta("License"), "-", " ")
+	}
+	credit = m.screen.Check(strings.ToLower(who)).Text + ", " + licence
+	return img, name, markdown.Replace(credit), info.Page
+}
+
+// onCommons is the file name of lead, when it is an original on Commons
+// rather than a file held by one Wikipedia, which is where unfree ones live.
+func (m *Module) onCommons(lead string) (string, bool) {
+	u, err := url.Parse(lead)
+	if err != nil || len(m.wikimedia) == 0 {
+		return "", false
+	}
+	u.RawQuery = ""
+	if !strings.HasPrefix(u.String(), m.wikimedia[0]) {
+		return "", false
+	}
+	file := path.Base(u.Path)
+	return file, file != "" && file != "." && file != "/"
+}
+
+func (m *Module) onWikimedia(u string) bool {
+	for _, p := range m.wikimedia {
+		if strings.HasPrefix(u, p) && !strings.Contains(u[len(p):], "..") {
+			return true
+		}
+	}
+	return false
+}
+
+// freeLicence is a Commons licence template skua may repost under with
+// credit: CC0, public domain, or CC BY and BY-SA. Commons takes nothing
+// else, and this holds it to that.
+func freeLicence(l string) bool {
+	l = strings.ToLower(l)
+	switch {
+	case l == "cc0", l == "pd", strings.HasPrefix(l, "pd-"), l == "public domain":
+		return true
+	case strings.HasPrefix(l, "cc-by"):
+		return !strings.Contains(l, "-nc") && !strings.Contains(l, "-nd")
+	}
+	return false
+}
+
+// stripTags drops the markup Commons wraps an author's name in.
+func stripTags(s string) string {
+	var b strings.Builder
+	in := false
+	for _, r := range s {
+		switch {
+		case r == '<':
+			in = true
+		case r == '>':
+			in = false
+		case !in:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // line is one sentence of Wikipedia's article for rec's scientific name,
-// when that article is the one iNaturalist links for the same taxon.
-func (m *Module) line(ctx context.Context, rec recording, linked string) (string, string) {
+// when that article is the one iNaturalist links for the same taxon, with
+// the article's lead image.
+func (m *Module) line(ctx context.Context, rec recording, linked string) (text, article, lead string) {
 	want := articleOf(linked)
 	if want == "" || m.wiki == "" {
-		return "", ""
+		return "", "", ""
 	}
 	body, _, err := m.get(ctx, m.wiki+url.PathEscape(rec.Gen+"_"+rec.Sp), 1<<20)
 	if err != nil {
-		return "", ""
+		return "", "", ""
 	}
 	var s struct {
 		Type   string `json:"type"`
@@ -163,21 +289,25 @@ func (m *Module) line(ctx context.Context, rec recording, linked string) (string
 		} `json:"titles"`
 		Description string `json:"description"`
 		Extract     string `json:"extract"`
+		Image       struct {
+			Source string `json:"source"`
+		} `json:"originalimage"`
 	}
 	if json.Unmarshal(body, &s) != nil || s.Type != "standard" || !strings.EqualFold(s.Titles.Canonical, want) {
-		return "", ""
+		return "", "", ""
 	}
+	lead = s.Image.Source
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(rec.ID))
-	text := pick(sentences(s.Extract), h.Sum32())
+	text = pick(sentences(s.Extract), h.Sum32())
 	if text == "" {
 		text = s.Description
 	}
 	text = strings.Join(strings.Fields(strings.ToLower(text)), " ")
 	if text == "" || len(text) > 220 {
-		return "", ""
+		return "", "", lead
 	}
-	return markdown.Replace(m.screen.Check(text).Text), "https://en.wikipedia.org/wiki/" + url.PathEscape(s.Titles.Canonical)
+	return markdown.Replace(m.screen.Check(text).Text), "https://en.wikipedia.org/wiki/" + url.PathEscape(s.Titles.Canonical), lead
 }
 
 // articleOf is the article title a Wikipedia link names, or "".
