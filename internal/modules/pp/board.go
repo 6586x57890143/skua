@@ -171,15 +171,7 @@ func (m *Module) treasuryMessage(ctx context.Context, guild snowflake.ID) (disco
 	s.mu.Lock()
 	t.Balance, t.Taking, t.Backstop = s.treasury, s.levying(), s.heavy
 	t.Levy += s.levyOpen
-	t.Grants = "open"
-	if s.levySince == 0 || today-s.levySince < Rules.GrantsAfter {
-		t.Grants = strings.TrimPrefix(grantsRow(s, today), "open ")
-	}
-	week := s.grantWeekSum
-	if s.grantWeek != weekOf(today) {
-		week = 0
-	}
-	t.GrantRoom = max(Rules.GrantShare*(s.treasury+week)/100-week, 0)
+	t.Fund = s.fund
 	var purses []int64
 	for _, mem := range s.members {
 		t.Supply += mem.purse

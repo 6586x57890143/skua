@@ -394,8 +394,7 @@ func journalCanvas(name string, rows []JournalRow, open int64) *pixel.Canvas {
 type Treasury struct {
 	Balance        int64
 	Taking         bool
-	Grants         string // open or when it opens
-	GrantRoom      int64
+	Fund           int64  // the part of Balance only grants spend
 	Period         string // the season, or preseason
 	Levy, Prizes   int64  // this period: levy in, prizes out
 	Granted, Quest int64  // grants out, quests paid as labour
@@ -433,9 +432,9 @@ func treasuryCanvas(t Treasury) *pixel.Canvas {
 	if t.Taking {
 		taking, ink = "taking", pixel.Green
 	}
-	row(tr, 1, "bell", fmt.Sprintf("levy %d%%", Rules.Levy/100), taking, ink)
-	row(tr, 2, "envelope", "grants", t.Grants, pixel.Ink)
-	row(tr, 3, "", "this week", grouped(t.GrantRoom/unit)+" pp", pixel.Ink)
+	row(tr, 1, "bell", "levy "+Rules.LevyPct(), taking, ink)
+	row(tr, 2, "envelope", "contest fund", grouped(t.Fund/unit)+" pp", pixel.Ink)
+	row(tr, 3, "laurel", "for prizes", grouped((t.Balance-t.Fund)/unit)+" pp", pixel.Ink)
 
 	in := image.Rect(194, 4, 380, 106)
 	c.Window(in)

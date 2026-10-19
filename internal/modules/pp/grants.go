@@ -18,9 +18,9 @@ import (
 	"github.com/6586x57890143/skua/internal/guard"
 )
 
-// Grants are how admins reward contest winners: never pp from nothing,
-// always the treasury's, under the charter's limits, and every one posted
-// in the ledger channel. A grant over GrantSecond pot days waits there for
+// Grants are how admins reward contest winners: always out of the contest
+// fund, which grows with every quest paid, under the charter's limits, and
+// every one posted in the ledger channel. A grant over GrantSecond pot days waits there for
 // a second admin to approve it.
 
 const grantForm = "ppgrant"
@@ -38,8 +38,8 @@ var (
 // grantControls is the grant button for /pp's help page.
 func (m *Module) grantControls() []discord.ContainerSubComponent {
 	return []discord.ContainerSubComponent{
-		discord.NewTextDisplay(fmt.Sprintf("### grants\n-# pay a contest winner from the treasury: at most a quarter of it a week and %d pot days a season to anyone. a second admin approves anything over %d pot day, and every grant is posted in the ledger channel",
-			Rules.GrantSeason, Rules.GrantSecond)),
+		discord.NewTextDisplay(fmt.Sprintf("### grants\n-# pay a contest winner from the contest fund, which grows with every quest: at most %s pp a prize and %d pot days a season to anyone. a second admin approves anything over %d pot day, and every grant is posted in the ledger channel",
+			grouped(Rules.Prize(m.st.bal())/unit), Rules.GrantSeason, Rules.GrantSecond)),
 		discord.NewActionRow(withIcon(discord.NewSecondaryButton("grant pp", "pp:grant"), "envelope")),
 	}
 }
@@ -48,7 +48,7 @@ func (m *Module) grantControls() []discord.ContainerSubComponent {
 func grantModal() discord.ModalCreate {
 	return discord.ModalCreate{
 		CustomID: grantForm,
-		Title:    "grant pp from the treasury",
+		Title:    "grant pp from the contest fund",
 		Components: []discord.LayoutComponent{
 			discord.NewLabel("who", discord.UserSelectMenuComponent{CustomID: "to", MaxValues: 1}),
 			discord.NewLabel("pot days", discord.TextInputComponent{
@@ -109,7 +109,7 @@ func (m *Module) submitGrant(ctx context.Context, e *events.ModalSubmitInteracti
 		if err := m.pay(*guild, g); err != nil {
 			return err
 		}
-		return e.CreateMessage(said(fmt.Sprintf("✓ <@%s> got %s pp from the treasury", g.to, grouped(amount/unit))))
+		return e.CreateMessage(said(fmt.Sprintf("✓ <@%s> got %s pp from the contest fund", g.to, grouped(amount/unit))))
 	}
 	if err := queryOne(ctx, m.db, `insert into pp_grant (guild_id, from_id, to_id, amount, reason) values ($1, $2, $3, $4, $5) returning id`,
 		[]any{int64(*guild), int64(g.from), int64(g.to), g.amount, g.reason}, &g.id); err != nil {
@@ -122,8 +122,8 @@ func (m *Module) submitGrant(ctx context.Context, e *events.ModalSubmitInteracti
 }
 
 // canGrant checks g against the charter: a ledger channel to post in, a
-// treasury that has been taking long enough, room in the week's quarter
-// and in the member's season. It changes nothing.
+// prize no bigger than the biggest, room in the contest fund and in the
+// member's season. It changes nothing.
 func (m *Module) canGrant(guild snowflake.ID, g grant) error {
 	today := DayOf(m.now())
 	season, _ := m.st.bal().Season(today)
@@ -133,19 +133,11 @@ func (m *Module) canGrant(guild snowflake.ID, g grant) error {
 	if s.logChannel == 0 {
 		return errNoLedger
 	}
-	if s.levySince == 0 || today-s.levySince < Rules.GrantsAfter {
-		left := Rules.GrantsAfter
-		if s.levySince != 0 {
-			left -= today - s.levySince
-		}
-		return core.Tell(fmt.Sprintf("the treasury opens for grants %d days after it first takes its levy, so %d more days", Rules.GrantsAfter, left))
+	if most := Rules.Prize(m.st.bal()); g.amount > most {
+		return core.Tell(fmt.Sprintf("a prize is at most %s pp, %d golden quests", grouped(most/unit), Rules.PrizeMax))
 	}
-	week := s.grantWeekSum
-	if s.grantWeek != weekOf(today) {
-		week = 0
-	}
-	if (week+g.amount)*100 > Rules.GrantShare*(s.treasury+week) || g.amount > s.treasury {
-		return core.Tell(fmt.Sprintf("the treasury can grant %s pp more this week: a quarter of what it holds", grouped(max(Rules.GrantShare*(s.treasury+week)/100-week, 0)/unit)))
+	if g.amount > s.fund {
+		return core.Tell(fmt.Sprintf("the contest fund holds %s pp: it grows with every quest paid", grouped(s.fund/unit)))
 	}
 	var had int64
 	if mem, ok := s.members[g.to]; ok && mem.grantSeason == season {
@@ -157,7 +149,7 @@ func (m *Module) canGrant(guild snowflake.ID, g grant) error {
 	return nil
 }
 
-// pay moves g from the treasury into the member's purse, both into the
+// pay moves g from the contest fund into the member's purse, both into the
 // ledger, and posts it. The level doesn't count it: levels are time.
 func (m *Module) pay(guild snowflake.ID, g grant) error {
 	if err := m.canGrant(guild, g); err != nil {
@@ -171,11 +163,8 @@ func (m *Module) pay(guild snowflake.ID, g grant) error {
 	if mem.grantSeason != season {
 		mem.grantSeason, mem.granted = season, 0
 	}
-	if s.grantWeek != weekOf(today) {
-		s.grantWeek, s.grantWeekSum = weekOf(today), 0
-	}
 	s.treasury -= g.amount
-	s.grantWeekSum += g.amount
+	s.fund -= g.amount
 	mem.purse += g.amount
 	mem.granted += g.amount
 	s.append(0, today, reasonGrant, -g.amount, []int64{int64(g.to), int64(g.from), int64(g.second)})
@@ -192,7 +181,7 @@ func (m *Module) pay(guild snowflake.ID, g grant) error {
 // grantCard is a grant as the ledger channel shows it: waiting, with the
 // buttons to settle it, or done.
 func grantCard(g grant, waiting bool, note string) discord.ContainerComponent {
-	head := fmt.Sprintf("<@%s> got %s pp from the treasury", g.to, grouped(g.amount/unit))
+	head := fmt.Sprintf("<@%s> got %s pp from the contest fund", g.to, grouped(g.amount/unit))
 	color := brand.ColorOK
 	who := fmt.Sprintf("granted by <@%s>", g.from)
 	if g.second != 0 {
@@ -200,7 +189,7 @@ func grantCard(g grant, waiting bool, note string) discord.ContainerComponent {
 	}
 	var extra []discord.ContainerSubComponent
 	if waiting {
-		head = fmt.Sprintf("<@%s> asks to grant <@%s> %s pp from the treasury", g.from, g.to, grouped(g.amount/unit))
+		head = fmt.Sprintf("<@%s> asks to grant <@%s> %s pp from the contest fund", g.from, g.to, grouped(g.amount/unit))
 		color, who = brand.ColorWarn, "a second admin approves or refuses it"
 		id := strconv.FormatInt(g.id, 10)
 		extra = append(extra, discord.NewActionRow(discord.NewSuccessButton("approve", "pp:approve:"+id), discord.NewDangerButton("refuse", "pp:refuse:"+id)))
@@ -282,25 +271,14 @@ func (m *Module) settle(ctx context.Context, guild snowflake.ID, e *events.Compo
 			_, _ = m.db.Exec(ctx, `update pp_grant set state = 'waiting', second_id = 0 where id = $1`, id)
 			return err
 		}
-		note = fmt.Sprintf("✓ <@%s> got %s pp from the treasury", g.to, grouped(g.amount/unit))
+		note = fmt.Sprintf("✓ <@%s> got %s pp from the contest fund", g.to, grouped(g.amount/unit))
 	}
 	return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(grantCard(g, false, note))))
 }
 
-// grantsRow is the treasury's grant state for the help page. s.mu held.
-func grantsRow(s *server, today int64) string {
-	if s.levySince == 0 || today-s.levySince < Rules.GrantsAfter {
-		left := Rules.GrantsAfter
-		if s.levySince != 0 {
-			left -= today - s.levySince
-		}
-		return fmt.Sprintf("open in %d days", left)
-	}
-	week := s.grantWeekSum
-	if s.grantWeek != weekOf(today) {
-		week = 0
-	}
-	return fmt.Sprintf("open · %s pp left this week", grouped(max(Rules.GrantShare*(s.treasury+week)/100-week, 0)/unit))
+// grantsRow is the contest fund for the help page. s.mu held.
+func grantsRow(s *server) string {
+	return grouped(s.fund/unit) + " pp in the contest fund"
 }
 
 // queryOne scans the one row sql returns into dest, pgx.ErrNoRows if none.

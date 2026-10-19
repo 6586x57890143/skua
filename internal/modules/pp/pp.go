@@ -131,7 +131,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		treasury += "full"
 	}
 	savings := m.savings(s, DayOf(m.now()))
-	grants := grantsRow(s, DayOf(m.now()))
+	grants := grantsRow(s)
 	sinks := sinksRow(s)
 	s.mu.Unlock()
 	next := "none yet"

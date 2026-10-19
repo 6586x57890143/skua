@@ -166,6 +166,26 @@ func (st *state) progress(s *server, m *member, user snowflake.ID, metric string
 	m.quests = kept
 }
 
+// growFund mints the contest fund's share of a quest that paid got into
+// the treasury, until the fund holds FundHold of the biggest prize. The
+// first quest seeds it full instead, once. s.mu held.
+func (st *state) growFund(s *server, day, got int64) {
+	hold := Rules.FundHold * Rules.Prize(st.bal())
+	add, reason := got*Rules.FundShare/10000, reasonFund
+	if !s.seeded {
+		add, reason, s.seeded = hold, reasonSeed, true
+	}
+	add = min(add, hold-s.fund)
+	if add <= 0 {
+		return
+	}
+	s.fund += add
+	s.treasury += add
+	s.seasonMint += add
+	s.append(0, day, reason, add, nil)
+	s.dirty = true
+}
+
 // payQuest pays q as labour, its own ledger row. s.mu held.
 func (st *state) payQuest(s *server, m *member, user snowflake.ID, q heldQuest) {
 	got := st.bal().QuestPP[q.tier]
@@ -176,6 +196,7 @@ func (st *state) payQuest(s *server, m *member, user snowflake.ID, q heldQuest) 
 	s.levyFull += Rules.levy(got)
 	s.treasury += lv
 	s.levyOpen += lv
+	st.growFund(s, m.dayN, got)
 	net := got - lv
 	credit := net
 	if s.heavy && m.purse >= Rules.Line*st.pot() {

@@ -3,6 +3,7 @@ package pp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -42,17 +43,17 @@ func grantFor(t *testing.T, g, from, to snowflake.ID, amount string, bot, admin 
 	return e
 }
 
-// An open treasury in guild with a ledger channel, holding treasury pp.
-func openTreasury(m *Module, g snowflake.ID, treasury int64) *server {
+// A contest fund in guild with a ledger channel, holding fund pp, all of
+// the treasury.
+func openFund(m *Module, g snowflake.ID, fund int64) *server {
 	s := m.st.server(g)
-	s.logChannel, s.treasury = 88, treasury
-	s.levySince = DayOf(t0) - Rules.GrantsAfter
+	s.logChannel, s.treasury, s.fund, s.seeded = 88, fund, fund, true
 	return s
 }
 
 // Grants follow the charter: admins only, never to an admin, a bot or
-// themselves, only once the treasury has a ledger channel and has been
-// taking long enough, within a quarter of it a week and a member's season.
+// themselves, only with a ledger channel, never past the biggest prize,
+// the contest fund or a member's season.
 func TestGrantRefusals(t *testing.T) {
 	m := testModule(&fakeDB{})
 	m.rest, m.Guard = &postRest{}, guard.New()
@@ -86,11 +87,11 @@ func TestGrantRefusals(t *testing.T) {
 			t.Errorf("%s: %v", c.name, err)
 		}
 	}
-	s.logChannel = 88
-	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, "0.5", false, false)); err == nil || !strings.Contains(err.Error(), "more days") {
-		t.Errorf("a treasury that never took its levy granted: %v", err)
+	s.logChannel, s.treasury = 88, 100*pd
+	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, "0.5", false, false)); err == nil || !strings.Contains(err.Error(), "contest fund holds") {
+		t.Errorf("the treasury outside the fund granted: %v", err)
 	}
-	openTreasury(m, g, 100*pd)
+	openFund(m, g, 100*pd)
 	for _, c := range []struct {
 		name string
 		e    *events.ModalSubmitInteractionCreate
@@ -106,21 +107,26 @@ func TestGrantRefusals(t *testing.T) {
 			t.Errorf("%s: %v", c.name, err)
 		}
 	}
+	// No prize past PrizeMax golden quests.
+	over := fmt.Sprint(float64(Rules.Prize(&Default))/float64(pd) + 0.1)
+	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, over, false, false)); err == nil || !strings.Contains(err.Error(), "golden quests") {
+		t.Errorf("a prize past the biggest: %v", err)
+	}
 	// A season's room for one member.
-	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, "11", false, false)); err == nil || !strings.Contains(err.Error(), "this season") {
-		t.Errorf("eleven pot days to one member: %v", err)
+	season, _ := Default.Season(DayOf(t0))
+	mem := m.st.member(s, g, winner, DayOf(t0))
+	mem.grantSeason, mem.granted = season, (Rules.GrantSeason-1)*pd
+	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, "1.5", false, false)); err == nil || !strings.Contains(err.Error(), "this season") {
+		t.Errorf("past a member's season: %v", err)
 	}
-	// A quarter of the treasury a week.
-	openTreasury(m, g, 4*pd)
-	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, "1", false, false)); err != nil {
-		t.Fatalf("a pot day of four: %v", err)
-	}
-	if err := m.submitGrant(ctx, grantFor(t, g, 5, old(8), "0.5", false, false)); err == nil || !strings.Contains(err.Error(), "this week") {
-		t.Errorf("past a quarter of the treasury in a week: %v", err)
+	// No more than the fund holds.
+	openFund(m, g, pd/2)
+	if err := m.submitGrant(ctx, grantFor(t, g, 5, old(8), "1", false, false)); err == nil || !strings.Contains(err.Error(), "contest fund holds") {
+		t.Errorf("past the contest fund: %v", err)
 	}
 }
 
-// A grant up to a pot day pays at once: out of the treasury, into the
+// A grant up to a pot day pays at once: out of the contest fund, into the
 // purse but not the level, both into the ledger, and posted.
 func TestGrantPays(t *testing.T) {
 	m := testModule(&fakeDB{})
@@ -128,7 +134,7 @@ func TestGrantPays(t *testing.T) {
 	m.rest, m.Guard = r, guard.New()
 	pd := Default.PotDay(Rules)
 	g := snowflake.ID(3)
-	s := openTreasury(m, g, 50*pd)
+	s := openFund(m, g, 50*pd)
 	winner := old(7)
 	e := grantFor(t, g, 5, winner, "1", false, false)
 	var got []string
@@ -140,7 +146,7 @@ func TestGrantPays(t *testing.T) {
 		t.Fatal(err)
 	}
 	mem := s.members[winner]
-	if mem.purse != pd || mem.total != 0 || s.treasury != 49*pd || mem.granted != pd {
+	if mem.purse != pd || mem.total != 0 || s.treasury != 49*pd || s.fund != 49*pd || mem.granted != pd {
 		t.Errorf("purse %d total %d treasury %d granted %d", mem.purse, mem.total, s.treasury, mem.granted)
 	}
 	if n := len(s.pending); n != 2 || s.pending[0].user != 0 || s.pending[0].delta != -pd || s.pending[1].user != winner || s.pending[1].reason != reasonGrant {
@@ -152,11 +158,11 @@ func TestGrantPays(t *testing.T) {
 	if len(got) != 1 || !strings.Contains(got[0], "✓") {
 		t.Errorf("the admin was told %v", got)
 	}
-	if !strings.Contains(js(m.Report(g).Rows), "left this week") || !strings.Contains(js(m.Report(g).Controls), "pp:grant") {
+	if !strings.Contains(js(m.Report(g).Rows), "in the contest fund") || !strings.Contains(js(m.Report(g).Controls), "pp:grant") {
 		t.Errorf("the help page: %s", js(m.Report(g)))
 	}
-	if row := grantsRow(newServer(1), DayOf(t0)); !strings.Contains(row, "open in") {
-		t.Errorf("a new treasury's grants read %q", row)
+	if row := grantsRow(newServer(1)); row != "0 pp in the contest fund" {
+		t.Errorf("a new server's grants read %q", row)
 	}
 }
 
@@ -170,7 +176,7 @@ func TestGrantApproval(t *testing.T) {
 	m.rest, m.Guard = r, guard.New()
 	pd := Default.PotDay(Rules)
 	g := snowflake.New(time.Now()) + snowflake.ID(time.Now().UnixNano()%4096)
-	s := openTreasury(m, g, 40*pd)
+	s := openFund(m, g, 40*pd)
 	s.append(0, DayOf(t0), reasonOpen, 40*pd, nil) // what the treasury holds, in its ledger
 	winner := old(7)
 

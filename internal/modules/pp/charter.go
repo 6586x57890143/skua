@@ -1,5 +1,7 @@
 package pp
 
+import "strconv"
+
 // Charter is the economy's ground rules, apart from Balance because they
 // are meant to hold for years: a Balance tunes how play pays, the Charter
 // says where pp may come from and go. charter_test pins every version's
@@ -11,11 +13,13 @@ package pp
 //   - only time creates pp: voice, chat and quests, under the daily pool;
 //     no admin mints, and there is no bank, debt or borrowing
 //   - Levy of every earning goes to the server's treasury, until it holds
-//     TreasuryWeeks of it; the treasury pays prizes and grants
-//   - grants: GrantShare of the treasury a week at most, GrantSeason pot
-//     days a season to anyone, never to an admin, a second admin above
-//     GrantSecond pot days, every one posted, none before the treasury has
-//     taken its levy for GrantsAfter days
+//     TreasuryWeeks of it beside the contest fund; it pays the prizes
+//   - the contest fund, in the treasury, is the one pp made beside time,
+//     and only out of it: FundShare of every quest paid, until it holds
+//     FundHold of the biggest prize; it starts full, once
+//   - grants come out of the contest fund: PrizeMax golden quests at most,
+//     GrantSeason pot days a season to anyone, never to an admin, a second
+//     admin above GrantSecond pot days, every one posted
 //   - spending is burned; members never trade pp; nothing pp buys is
 //     scarce; prices are set in pot days
 //   - nothing a member holds is ever taken
@@ -30,8 +34,11 @@ type Charter struct {
 	Levy          int64 // basis points of every earning
 	TreasuryWeeks int64
 
-	GrantShare, GrantSeason, GrantSecond int64
-	GrantsAfter                          int64 // days after the treasury's first levy
+	FundShare int64 // basis points of every quest paid
+	FundHold  int64 // of the biggest prize
+	PrizeMax  int64 // golden quests
+
+	GrantSeason, GrantSecond int64
 
 	SinkFloor, Line, Keep int64
 
@@ -44,13 +51,14 @@ type Charter struct {
 
 // Rules is the charter in force.
 var Rules = Charter{
-	Version:       "2",
-	Levy:          200,
+	Version:       "3",
+	Levy:          350,
 	TreasuryWeeks: 8,
-	GrantShare:    25,
+	FundShare:     300,
+	FundHold:      3,
+	PrizeMax:      5,
 	GrantSeason:   10,
 	GrantSecond:   1,
-	GrantsAfter:   28,
 	SinkFloor:     5,
 	Line:          45,
 	Keep:          10,
@@ -84,3 +92,9 @@ func (b *Balance) QuestEV() int64 {
 
 // levy is what the treasury takes of got while it's taking.
 func (c Charter) levy(got int64) int64 { return got * c.Levy / 10000 }
+
+// LevyPct is the levy as members read it, like 3.5%.
+func (c Charter) LevyPct() string { return strconv.FormatFloat(float64(c.Levy)/100, 'f', -1, 64) + "%" }
+
+// Prize is the biggest grant: PrizeMax golden quests under b.
+func (c Charter) Prize(b *Balance) int64 { return c.PrizeMax * b.QuestPP[len(b.QuestPP)-1] }

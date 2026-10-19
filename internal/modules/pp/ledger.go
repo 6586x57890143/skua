@@ -22,7 +22,9 @@ const (
 	reasonLabour = "labour" // a closed day of earning
 	reasonClass  = "class"  // a class change paid for
 	reasonLevy   = "levy"   // a day's levy, into the treasury (user 0)
-	reasonGrant  = "grant"  // a grant: out of the treasury, into a purse
+	reasonGrant  = "grant"  // a grant: out of the contest fund, into a purse
+	reasonFund   = "fund"   // the contest fund's share of a quest, minted into the treasury
+	reasonSeed   = "seed"   // the contest fund's one seed, the same way
 	reasonPrize  = "prize"  // a weekly checkpoint's prize, the same way
 	reasonShop   = "shop"   // something bought, burned
 	reasonQuest  = "quest"  // a finished quest, as labour

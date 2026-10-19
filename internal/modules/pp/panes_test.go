@@ -84,7 +84,7 @@ func TestPanes(t *testing.T) {
 	}, 213*unit))
 	save("journal_empty.jpg", journalCanvas("steve", nil, 0))
 
-	save("treasury.jpg", treasuryCanvas(Treasury{Balance: 81234 * unit, Taking: true, Grants: "open", GrantRoom: 20300 * unit, Period: "preseason",
+	save("treasury.jpg", treasuryCanvas(Treasury{Balance: 81234 * unit, Taking: true, Fund: 11250 * unit, Period: "preseason",
 		Levy: 40210 * unit, Prizes: 16000 * unit, Granted: 2140 * unit, Quest: 88400 * unit, Active: 231, Median: 1455 * unit, Top: 11,
 		Supply: 1830400 * unit, Burned: 7, Rows: 12044, Head: "3fa9c1d2", Backstop: true}))
 }
