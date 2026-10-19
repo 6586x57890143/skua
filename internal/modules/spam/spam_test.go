@@ -140,6 +140,42 @@ func TestTheBahamasBurstBecomesABird(t *testing.T) {
 	}
 }
 
+// The melting pot: one sticker six times, no text.
+func TestTheSameStickerBecomesABird(t *testing.T) {
+	b := &bird{}
+	m := module(t, b)
+	if err := m.pick(context.Background(), 3, []snowflake.ID{4}); err != nil {
+		t.Fatal(err)
+	}
+	r := &fakeRest{done: make(chan struct{}), roles: []discord.Role{{ID: 50}}}
+	for n := range 6 {
+		m.OnEvent(message(r, n, func(msg *discord.Message) {
+			msg.Type, msg.Content, msg.Mentions = discord.MessageTypeDefault, "", nil
+			msg.StickerItems = []discord.MessageSticker{{ID: 1234, Name: "crying"}}
+		}))
+	}
+	select {
+	case <-r.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("six of the same sticker didn't trip")
+	}
+}
+
+func TestCarried(t *testing.T) {
+	png := "image/png"
+	text, media := carried(discord.Message{
+		Content:      "look",
+		StickerItems: []discord.MessageSticker{{ID: 7}},
+		Attachments:  []discord.Attachment{{Size: 48211, ContentType: &png, Filename: "image.png"}, {Size: 9}},
+		MessageSnapshots: []discord.MessageSnapshot{{Message: discord.PartialMessage{
+			Content: " again", StickerItems: []discord.MessageSticker{{ID: 8}}, Attachments: []discord.Attachment{{Size: 10}},
+		}}},
+	})
+	if text != "look again" || strings.Join(media, ",") != "s:7,s:8,a:48211:image/png,a:9:,a:10:" {
+		t.Fatalf("carried %q %q", text, media)
+	}
+}
+
 func TestOnlyWatchedChannelsAndRealMembers(t *testing.T) {
 	b := &bird{}
 	m := module(t, b)

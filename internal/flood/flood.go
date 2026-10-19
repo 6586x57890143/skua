@@ -54,6 +54,9 @@ type Message struct {
 	Pings []snowflake.ID
 	// Everyone is an @everyone or @here in the text, allowed or not.
 	Everyone bool
+	// Media is what it carries besides text, one string per sticker or
+	// attachment, the same string for the same one (filter.MediaKey).
+	Media []string
 }
 
 // Seen is a message the detector remembers, for deleting a burst.
@@ -61,9 +64,9 @@ type Seen struct{ Channel, ID snowflake.ID }
 
 type seen struct {
 	Seen
-	at  time.Time
-	key uint64
-	to  snowflake.ID // the first ping, 0 for none
+	at         time.Time
+	key, media uint64
+	to         snowflake.ID // the first ping, 0 for none
 }
 
 type member struct {
@@ -100,7 +103,7 @@ func (d *Detector) Observe(m Message) (bool, []Seen) {
 	if m.At.Before(s.quiet) {
 		return false, nil
 	}
-	now := seen{Seen: Seen{m.Channel, m.ID}, at: m.At, key: filter.Key(m.Text)}
+	now := seen{Seen: Seen{m.Channel, m.ID}, at: m.At, key: filter.Key(m.Text), media: filter.MediaKey(m.Media)}
 	if len(m.Pings) > 0 {
 		now.to = m.Pings[0]
 	}
@@ -129,14 +132,22 @@ func (s *member) weigh(m Message, now seen) (float64, bool) {
 	if len(m.Text) > 1200 || lines(m.Text) > 15 {
 		w += 3
 	}
-	var same, to, pinged int
+	var same, short, to, pinged int
 	var prev seen
 	for i := range min(s.n, ring) {
 		r := s.ring[i]
 		if m.At.Sub(r.at) > window {
 			continue
 		}
-		if now.key != 0 && r.key == now.key {
+		// The same sticker or image again is a repeat whatever the text,
+		// and so is the same text; a short reply is easy to repeat by
+		// accident, so it counts apart, at half.
+		switch {
+		case now.media != 0 && r.media == now.media:
+			same++
+		case now.key == filter.Short && r.key == now.key:
+			short++
+		case now.key != 0 && r.key == now.key:
 			same++
 		}
 		if now.to != 0 && r.to == now.to {
@@ -152,12 +163,7 @@ func (s *member) weigh(m Message, now seen) (float64, bool) {
 			w += 0.5
 		}
 	}
-	// A short reply is easy to repeat by accident, so it counts half.
-	if now.key == filter.Short {
-		w += float64(min(same, 4)) / 2
-	} else {
-		w += float64(min(same, 5))
-	}
+	w += float64(min(same, 5)) + float64(min(short, 4))/2
 	// A ping is 2, but pinging the one member already pinged this minute
 	// is a conversation: 1, and a half more for each time, up to 2.
 	w += 2 * float64(min(pings, 10))

@@ -288,14 +288,41 @@ func (m *Module) OnEvent(ev bot.Event) {
 		}
 	}
 	pings = append(pings, msg.MentionRoles...)
+	text, media := carried(msg)
 	trip, burst := m.flood.Observe(flood.Message{
 		Guild: e.GuildID, User: msg.Author.ID, Channel: msg.ChannelID, ID: msg.ID,
-		At: msg.CreatedAt, Text: msg.Content, Pings: pings,
+		At: msg.CreatedAt, Text: text, Pings: pings, Media: media,
+		// Their own text only: a forwarded @everyone pings nobody.
 		Everyone: msg.MentionEveryone || strings.Contains(msg.Content, "@everyone") || strings.Contains(msg.Content, "@here"),
 	})
 	if trip {
 		go m.act(e.Client().Rest, e.GuildID, msg, burst)
 	}
+}
+
+// carried is what a message shows: its text and, for flood.Message.Media,
+// a string per sticker (its ID) and per attachment (its size and type, the
+// same for the same file posted again, whatever its name). A forward
+// carries nothing of its own, so it is read as what it forwards.
+func carried(msg discord.Message) (string, []string) {
+	text, stickers, files := msg.Content, msg.StickerItems, msg.Attachments
+	for _, s := range msg.MessageSnapshots {
+		text += s.Message.Content
+		stickers = append(stickers, s.Message.StickerItems...)
+		files = append(files, s.Message.Attachments...)
+	}
+	var media []string
+	for _, s := range stickers {
+		media = append(media, "s:"+s.ID.String())
+	}
+	for _, a := range files {
+		kind := ""
+		if a.ContentType != nil {
+			kind = *a.ContentType
+		}
+		media = append(media, fmt.Sprintf("a:%d:%s", a.Size, kind))
+	}
+	return text, media
 }
 
 // act clears the burst and sentences the member, unless they are staff.

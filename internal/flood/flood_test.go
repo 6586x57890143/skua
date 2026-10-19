@@ -62,8 +62,11 @@ func TestTalkIsNotSpam(t *testing.T) {
 		"a back and forth with replies": {6 * time.Second, repeat(20, func(i int) Message {
 			return Message{Text: fmt.Sprintf("answer number %c to you", 'a'+rune(i)), Pings: []snowflake.ID{9}}
 		})},
-		"a few photos":       {time.Second, repeat(6, func(int) Message { return Message{} })},
-		"one ping, a thread": {2 * time.Second, append([]Message{{Text: "look at this", Pings: []snowflake.ID{9}}}, texts("it's a gull", "eating a whole pasty", "on the pier")...)},
+		"a few photos":                    {time.Second, repeat(6, func(i int) Message { return Message{Media: []string{fmt.Sprintf("a:%d:image/jpeg", 100000+i)}} })},
+		"a few stickers":                  {2 * time.Second, repeat(5, func(i int) Message { return Message{Media: []string{fmt.Sprintf("s:%d", 900+i)}} })},
+		"a reaction sticker now and then": {8 * time.Second, repeat(6, func(int) Message { return Message{Media: []string{"s:900"}} })},
+		"emoji reactions":                 {3 * time.Second, texts("\U0001F602", "lol", "\U0001F62D\U0001F62D", "no way", "\U0001F480")},
+		"one ping, a thread":              {2 * time.Second, append([]Message{{Text: "look at this", Pings: []snowflake.ID{9}}}, texts("it's a gull", "eating a whole pasty", "on the pier")...)},
 	}
 	for name, c := range cases {
 		if i := play(&Detector{}, c.gap, c.msgs); i >= 0 {
@@ -101,7 +104,16 @@ func TestSpamTrips(t *testing.T) {
 		"a channel hopper": {2 * time.Second, repeat(20, func(i int) Message {
 			return Message{Text: "join my server for prizes", Channel: snowflake.ID(10 + i)}
 		}), 5},
-		"a mention bomb": {time.Second, []Message{{Text: "hey", Pings: []snowflake.ID{1, 2, 3, 4, 5}}}, 1},
+		// The melting pot: the same sticker six times in a row.
+		"the same sticker": {time.Second, repeat(6, func(int) Message { return Message{Media: []string{"s:1234"}} }), 5},
+		"the same image, captions varied": {2 * time.Second, repeat(10, func(i int) Message {
+			return Message{Text: fmt.Sprintf("look %c", 'a'+rune(i)), Media: []string{"a:48211:image/png"}}
+		}), 6},
+		"emoji only": {time.Second, repeat(12, func(i int) Message {
+			return Message{Text: strings.Repeat("\U0001F62D", i%3+1) + strings.Repeat("\U0001F525", i%2+1) + "\U0001F62D\U0001F525"}
+		}), 6},
+		"a lone emoji, over and over": {time.Second, repeat(15, func(int) Message { return Message{Text: "\U0001F62D"} }), 8},
+		"a mention bomb":              {time.Second, []Message{{Text: "hey", Pings: []snowflake.ID{1, 2, 3, 4, 5}}}, 1},
 		"a mention drip": {2 * time.Second, repeat(10, func(i int) Message {
 			return Message{Text: fmt.Sprintf("hey %c you", 'a'+rune(i)), Pings: []snowflake.ID{snowflake.ID(20 + i)}}
 		}), 4},
