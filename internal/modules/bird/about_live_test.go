@@ -15,7 +15,7 @@ import (
 // iNaturalist and Wikipedia, for birds xeno-canto names. Not run in CI.
 func TestLiveLookUp(t *testing.T) {
 	m := New(guard.New(), &fakePoster{}, filter.Default(), "")
-	for _, sp := range [][2]string{{"Turdus", "merula"}, {"Troglodytes", "troglodytes"}, {"Erithacus", "rubecula"}, {"Strix", "uralensis"}, {"Cyanocitta", "cristata"}, {"Pitangus", "sulphuratus"}} {
+	for _, sp := range [][2]string{{"Turdus", "merula"}, {"Troglodytes", "troglodytes"}, {"Erithacus", "rubecula"}, {"Strix", "uralensis"}, {"Cyanocitta", "cristata"}, {"Pitangus", "sulphuratus"}, {"Pyriglena", "maura"}, {"Thamnophilus", "doliatus"}} {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		a := m.lookUp(ctx, recording{ID: "1", Gen: sp[0], Sp: sp[1]})
 		cancel()

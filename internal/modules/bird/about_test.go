@@ -23,6 +23,7 @@ const blackbird = `The common blackbird is a species of true thrush. It is also 
 type lookups struct {
 	taxa, summary string
 	page          string // the taxon's own page, with its curated photos
+	commons       string // Commons' answer for the article's lead image
 	photo         []byte
 	kind          string
 }
@@ -36,9 +37,15 @@ func (l *lookups) serve(t *testing.T) (*Module, *httptest.Server) {
 			_, _ = fmt.Fprint(w, l.page)
 		case r.URL.Path == "/wiki/Turdus_merula":
 			_, _ = fmt.Fprint(w, l.summary)
-		case strings.HasPrefix(r.URL.Path, "/photos/"):
+		case strings.HasPrefix(r.URL.Path, "/photos/"), strings.HasPrefix(r.URL.Path, "/thumbs/"):
 			w.Header().Set("Content-Type", l.kind)
 			_, _ = w.Write(l.photo)
+		case r.URL.Path == "/commons" && l.commons != "":
+			if r.URL.Query().Get("titles") != "File:Pyriglena_maura_male.jpg" {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = fmt.Fprint(w, l.commons)
 		default:
 			http.NotFound(w, r)
 		}
@@ -46,6 +53,7 @@ func (l *lookups) serve(t *testing.T) (*Module, *httptest.Server) {
 	t.Cleanup(srv.Close)
 	m := New(guard.New(), &fakePoster{}, filter.Default(), "k")
 	m.inat, m.wiki, m.photos = srv.URL+"/taxa", srv.URL+"/wiki/", srv.URL+"/photos/"
+	m.commons, m.wikimedia = srv.URL+"/commons", []string{srv.URL + "/files/", srv.URL + "/thumbs/"}
 	return m, srv
 }
 
@@ -168,6 +176,63 @@ func TestLookUpFallsBackToACuratedPhoto(t *testing.T) {
 	l.page = `{"results":[{"id":12716,"taxon_photos":[{"photo":{"license_code":null,"medium_url":"x"}}]}]}`
 	if a := m.lookUp(context.Background(), merula); a.photo != nil || a.line == "" {
 		t.Fatal("no open photo, yet one was posted, or the line went with it")
+	}
+}
+
+// commonsAnswer is Commons' imageinfo for one file, as the API sends it.
+func commonsAnswer(base, repo, licence, nonFree, restrictions, thumb string) string {
+	return fmt.Sprintf(`{"query":{"pages":[{"imagerepository":%q,"imageinfo":[{"thumburl":%q,
+		"descriptionurl":"https://commons.wikimedia.org/wiki/File:Pyriglena_maura_male.jpg","mime":"image/jpeg",
+		"extmetadata":{"Artist":{"value":"<a href=\"//commons.wikimedia.org/wiki/User:Hector_Bottai\">Hector Bottai</a>"},
+		"LicenseShortName":{"value":"CC BY-SA 4.0"},"License":{"value":%q},"NonFree":{"value":%q},"Restrictions":{"value":%q}}}]}]}}`,
+		repo, base+thumb, licence, nonFree, restrictions)
+}
+
+// With no open photo on iNaturalist, the article's lead image comes from
+// Commons, and only from Commons, only when it is free and unrestricted.
+func TestLookUpFallsBackToCommons(t *testing.T) {
+	l := &lookups{photo: jpeg, kind: "image/jpeg"}
+	m, srv := l.serve(t)
+	l.taxa = taxa(srv.URL+"/photos/1/medium.jpg", "Turdus merula", "cc-by-nc", "[]", "http://en.wikipedia.org/wiki/Common_blackbird")
+	withLead := func(lead string) string {
+		return fmt.Sprintf(`{"type":"standard","titles":{"canonical":"Common_blackbird"},"extract":%q,"originalimage":{"source":%q}}`, blackbird, lead)
+	}
+	l.summary = withLead(srv.URL + "/files/a/a6/Pyriglena_maura_male.jpg?utm_source=x")
+	l.commons = commonsAnswer(srv.URL, "local", "cc-by-sa-4.0", "", "", "/thumbs/a/a6/500px-x.jpg")
+	a := m.lookUp(context.Background(), merula)
+	if a.photo == nil || a.credit != "hector bottai, cc by-sa 4.0" || a.source != "https://commons.wikimedia.org/wiki/File:Pyriglena_maura_male.jpg" || a.line == "" {
+		t.Fatalf("photo %v credit %q source %q line %q", a.photo != nil, a.credit, a.source, a.line)
+	}
+	cases := map[string]func(){
+		"held by one wikipedia": func() { l.summary = withLead(srv.URL + "/wikipedia/en/a/a6/Pyriglena_maura_male.jpg") },
+		"a non-commercial licence": func() {
+			l.commons = commonsAnswer(srv.URL, "local", "cc-by-nc-sa-4.0", "", "", "/thumbs/x.jpg")
+		},
+		"marked unfree": func() { l.commons = commonsAnswer(srv.URL, "local", "cc-by-sa-4.0", "true", "", "/thumbs/x.jpg") },
+		"restricted": func() {
+			l.commons = commonsAnswer(srv.URL, "local", "cc-by-sa-4.0", "", "personality", "/thumbs/x.jpg")
+		},
+		"not on commons": func() { l.commons = commonsAnswer(srv.URL, "shared", "cc-by-sa-4.0", "", "", "/thumbs/x.jpg") },
+		"a foreign thumb": func() {
+			l.commons = commonsAnswer("http://elsewhere", "local", "cc-by-sa-4.0", "", "", "/thumbs/x.jpg")
+		},
+		"no lead image": func() { l.summary = withLead("") },
+	}
+	for name, set := range cases {
+		l.summary = withLead(srv.URL + "/files/a/a6/Pyriglena_maura_male.jpg")
+		l.commons = commonsAnswer(srv.URL, "local", "cc-by-sa-4.0", "", "", "/thumbs/a/a6/500px-x.jpg")
+		set()
+		if a := m.lookUp(context.Background(), merula); a.photo != nil {
+			t.Errorf("%s: posted a photo", name)
+		}
+	}
+	for l, want := range map[string]bool{"cc0": true, "pd": true, "pd-old-70": true, "cc-by-4.0": true, "cc-by-sa-3.0": true, "cc-by-nc-4.0": false, "cc-by-nd-2.0": false, "gfdl": false, "": false} {
+		if freeLicence(l) != want {
+			t.Errorf("freeLicence(%q) = %v", l, !want)
+		}
+	}
+	if stripTags(`<a href="x">Hector <b>Bottai</b></a>`) != "Hector Bottai" {
+		t.Fatal("stripTags")
 	}
 }
 
