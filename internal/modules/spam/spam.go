@@ -14,9 +14,11 @@ package spam
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -336,8 +338,13 @@ func (m *Module) act(r rest.Rest, guild snowflake.ID, msg discord.Message, burst
 	}
 	v, _ := m.trips.LoadOrStore(guild, new(atomic.Int64))
 	v.(*atomic.Int64).Add(1)
-	cleared := m.clear(ctx, r, guild, burst)
+	// The burst comes down at once, then, once the sanction holds, whatever
+	// they sent while it was being applied: all of it, in case any of it
+	// is something no one should be left looking at.
+	gone := map[snowflake.ID]bool{}
+	cleared := m.clear(ctx, r, guild, burst, gone)
 	verdict := sanction.Judge(ctx, m.history, Ladder, sanction.Offence{Guild: guild, User: user, Channel: msg.ChannelID, Rule: Name, At: msg.CreatedAt}, m.sanctions...)
+	cleared += m.clear(ctx, r, guild, m.flood.Since(guild, user, msg.CreatedAt), gone)
 	m.log.Info("spam: tripped", "guild", guild, "user", user, "cleared", cleared, "priors", verdict.Priors,
 		"for", verdict.For, "by", verdict.By, "err", verdict.Err)
 	if verdict.Said == "" || m.guard.Allow(guild, guard.MessageSend) != nil {
@@ -377,37 +384,62 @@ func (m *Module) staff(r rest.Rest, guild, user snowflake.ID, member *discord.Me
 	return perms&staff != 0, nil
 }
 
-// clear takes the burst down, a channel at a time, and says how many went.
-// Each call is one MessageDelete from the guard, a bulk delete of many
-// included; the burst is under a minute old, well inside bulk delete's two
-// weeks.
-func (m *Module) clear(ctx context.Context, r rest.Rest, guild snowflake.ID, burst []flood.Seen) int {
+// clear takes the burst down, a channel at a time, and says how many went,
+// skipping and then marking what gone already holds. Each call is one
+// MessageDelete from the guard, a bulk delete of many included; the burst
+// is under a minute old, well inside bulk delete's two weeks. Discord turns
+// a whole bulk delete down for one message it can't take (one the member
+// or the bird already deleted), so a refused one goes again a message at a
+// time, and a message already gone counts as cleared.
+func (m *Module) clear(ctx context.Context, r rest.Rest, guild snowflake.ID, burst []flood.Seen, gone map[snowflake.ID]bool) int {
 	by := map[snowflake.ID][]snowflake.ID{}
 	var order []snowflake.ID
 	for _, s := range burst {
+		if gone[s.ID] || s.ID == 0 {
+			continue
+		}
 		if by[s.Channel] == nil {
 			order = append(order, s.Channel)
 		}
 		by[s.Channel] = append(by[s.Channel], s.ID)
 	}
+	why := rest.WithReason("spam: a burst from one member")
+	del := func(ch, id snowflake.ID) bool {
+		if m.guard.Allow(guild, guard.MessageDelete) != nil {
+			return false
+		}
+		err := r.DeleteMessage(ch, id, rest.WithCtx(ctx), why)
+		m.guard.Done(guild, err)
+		return err == nil || missing(err)
+	}
 	n := 0
 	for _, ch := range order {
-		if m.guard.Allow(guild, guard.MessageDelete) != nil {
-			break
+		ids := by[ch]
+		if len(ids) > 1 && m.guard.Allow(guild, guard.MessageDelete) == nil {
+			err := r.BulkDeleteMessages(ch, ids, rest.WithCtx(ctx), why)
+			m.guard.Done(guild, err)
+			if err == nil {
+				for _, id := range ids {
+					gone[id] = true
+				}
+				n += len(ids)
+				continue
+			}
 		}
-		ids, why := by[ch], rest.WithReason("spam: a burst from one member")
-		var err error
-		if len(ids) == 1 {
-			err = r.DeleteMessage(ch, ids[0], rest.WithCtx(ctx), why)
-		} else {
-			err = r.BulkDeleteMessages(ch, ids, rest.WithCtx(ctx), why)
-		}
-		m.guard.Done(guild, err)
-		if err == nil {
-			n += len(ids)
+		for _, id := range ids {
+			if del(ch, id) {
+				gone[id] = true
+				n++
+			}
 		}
 	}
 	return n
+}
+
+// missing is Discord saying the message is already gone.
+func missing(err error) bool {
+	re, ok := errors.AsType[*rest.Error](err)
+	return ok && re.Response != nil && re.Response.StatusCode == http.StatusNotFound
 }
 
 // Report is the scope and what it has caught, for the server's admins.

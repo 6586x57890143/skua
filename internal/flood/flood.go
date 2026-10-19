@@ -31,8 +31,9 @@ const (
 	limit = 12.0
 	// window is how far back repeats and repeat targets are counted.
 	window = time.Minute
-	// ring is how many recent messages a member's state remembers.
-	ring = 8
+	// ring is how many recent messages a member's state remembers, and so
+	// the most of a burst that comes down with it.
+	ring = 16
 	// bomb distinct pings in one message trip at once.
 	bomb = 5
 	// drip messages that ping, inside dripIn, trip at once.
@@ -89,7 +90,7 @@ type Detector struct {
 // Observe scores one message and reports whether it tripped the limit,
 // with the member's messages from the last minute when it did, newest
 // last, so the burst can come down. A member who tripped is not scored
-// again for Quiet.
+// again for Quiet, but what they send is still remembered, for Since.
 func (d *Detector) Observe(m Message) (bool, []Seen) {
 	d.sweep(m.At)
 	k := who{m.Guild, m.User}
@@ -100,12 +101,14 @@ func (d *Detector) Observe(m Message) (bool, []Seen) {
 	s := v.(*member)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if m.At.Before(s.quiet) {
-		return false, nil
-	}
 	now := seen{Seen: Seen{m.Channel, m.ID}, at: m.At, key: filter.Key(m.Text), media: filter.MediaKey(m.Media)}
 	if len(m.Pings) > 0 {
 		now.to = m.Pings[0]
+	}
+	if m.At.Before(s.quiet) {
+		s.ring[s.n%ring] = now
+		s.n++
+		return false, nil
 	}
 	w, trip := s.weigh(m, now)
 	if !s.last.IsZero() {
@@ -171,6 +174,25 @@ func (s *member) weigh(m Message, now seen) (float64, bool) {
 		w += float64(min(to, 4))/2 - 1
 	}
 	return w, pings >= bomb || (now.to != 0 && pinged+1 >= drip)
+}
+
+// Since is what the member sent from at on, oldest first: what came in
+// after a trip, while its sanction was being applied.
+func (d *Detector) Since(guild, user snowflake.ID, at time.Time) []Seen {
+	v, ok := d.members.Load(who{guild, user})
+	if !ok {
+		return nil
+	}
+	s := v.(*member)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []Seen
+	for i := max(s.n-ring, 0); i < s.n; i++ {
+		if r := s.ring[i%ring]; !r.at.Before(at) {
+			out = append(out, r.Seen)
+		}
+	}
+	return out
 }
 
 func (s *member) burst(at time.Time) []Seen {
