@@ -11,6 +11,15 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.8.0",
+	Date:    "2026-10-19",
+	Balance: "c65e95",
+	Lines: []string{
+		"contest prizes come from a contest fund in the treasury, which grows by 3% of every quest paid and starts with three of the biggest prizes",
+		"a contest prize can be up to five golden quests, and anyone can win up to ten pot days of them a season",
+		"the levy is now 3.5%, enough to pay every weekly prize",
+	},
+}, {
 	Version: "0.7.7",
 	Date:    "2026-10-19",
 	Balance: "5931ef",

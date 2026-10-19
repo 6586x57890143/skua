@@ -26,7 +26,9 @@ func TestCheckpoint(t *testing.T) {
 			st.chat(s, guild, old(i+1), "something worth saying "+string(rune('a'+k)), t0.Add(time.Duration(k)*time.Minute))
 		}
 	}
-	s.treasury = 3000 * unit
+	// The contest fund is in the treasury, but no prize comes out of it.
+	s.fund = 900 * unit
+	s.treasury = 3000*unit + s.fund
 	before := map[int]int64{}
 	for i := range 6 {
 		m := s.members[old(i+1)]
@@ -51,7 +53,7 @@ func TestCheckpoint(t *testing.T) {
 			t.Errorf("place %d got %d; want an even 600 pp", 6-i, got/unit)
 		}
 	}
-	if s.treasury != 0 || s.members[old(1)].purse != before[0] {
+	if s.treasury != s.fund || s.fund != 900*unit || s.members[old(1)].purse != before[0] {
 		t.Errorf("a short treasury paid: treasury %d, sixth %d", s.treasury, s.members[old(1)].purse-before[0])
 	}
 	var prizes int

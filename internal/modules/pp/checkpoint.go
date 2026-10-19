@@ -10,8 +10,8 @@ import (
 )
 
 // The weekly checkpoint: when a server's week turns, the top places on each
-// board (voice and chat) are paid Balance.Prizes from the treasury, which
-// has first claim on it, before any grant. A treasury that can't pay every
+// board (voice and chat) are paid Balance.Prizes from the treasury, never
+// from its contest fund, which is for grants. A treasury that can't pay every
 // place splits what it has evenly between them, so a short week doesn't
 // fall on whoever is paid last. Prizes go into the purse, not the level or
 // the season: levels are time, and the season is its own race.
@@ -61,9 +61,9 @@ func (st *state) checkpoint(s *server, week, today int64) {
 			news.prizes = append(news.prizes, prize{user: users[i], board: board, place: places[i], amount: want})
 		}
 	}
-	if owed > s.treasury {
+	if free := s.treasury - s.fund; owed > free {
 		news.short = true
-		share := s.treasury / int64(len(news.prizes))
+		share := free / int64(len(news.prizes))
 		for i := range news.prizes {
 			news.prizes[i].amount = share
 		}

@@ -12,6 +12,7 @@ import (
 var charterHashes = map[string]string{
 	"1": "4c203cc5694c",
 	"2": "ff8920b9861d",
+	"3": "38ff3b827608",
 }
 
 func TestCharterPinned(t *testing.T) {
@@ -55,5 +56,48 @@ func TestPotDay(t *testing.T) {
 	}
 	if ev := Default.QuestEV(); ev <= Default.QuestPP[0] || ev >= Default.QuestPP[2] {
 		t.Errorf("a quest is worth %d on average", ev)
+	}
+}
+
+// The first quest seeds the contest fund full, once. After that it grows by
+// FundShare of every quest, never past FundHold prizes, and the levy's
+// pause doesn't count it.
+func TestContestFund(t *testing.T) {
+	st := newState(&Default, 42)
+	s := st.server(guild)
+	m := st.member(s, guild, old(1), DayOf(t0))
+	hold := Rules.FundHold * Rules.Prize(&Default)
+	st.payQuest(s, m, old(1), heldQuest{})
+	if e := s.pending[len(s.pending)-2]; s.fund != hold || !s.seeded || e.user != 0 || e.reason != reasonSeed || e.delta != hold {
+		t.Fatalf("the seed: fund %d, row %+v", s.fund, e)
+	}
+
+	// A prize paid out; the next quest grows it by its share.
+	s.fund -= Rules.Prize(&Default)
+	s.treasury -= Rules.Prize(&Default)
+	fund, treasury := s.fund, s.treasury
+	st.payQuest(s, m, old(1), heldQuest{})
+	share := Default.QuestPP[0] * Rules.FundShare / 10000
+	if s.fund-fund != share || s.treasury-treasury < share || s.pending[len(s.pending)-2].reason != reasonFund {
+		t.Errorf("a quest grew the fund by %d, want %d", s.fund-fund, share)
+	}
+
+	// Never past its hold.
+	s.treasury += hold - 1 - s.fund
+	s.fund = hold - 1
+	st.payQuest(s, m, old(1), heldQuest{})
+	if s.fund != hold {
+		t.Errorf("the fund holds %d past its %d", s.fund, hold)
+	}
+	rows := len(s.pending)
+	st.payQuest(s, m, old(1), heldQuest{})
+	if s.fund != hold || len(s.pending) != rows+1 {
+		t.Errorf("a full fund grew: %d", s.fund)
+	}
+
+	// The levy keeps taking with a full fund in the treasury.
+	s.levyDays, s.treasury = []int64{100}, s.fund+Rules.TreasuryWeeks*100-1
+	if !s.levying() {
+		t.Error("the contest fund paused the levy")
 	}
 }

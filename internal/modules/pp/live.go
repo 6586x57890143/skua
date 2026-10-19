@@ -98,9 +98,10 @@ type server struct {
 	// the days before (up to a week), which says when it's full.
 	treasury, levyOpen, levyFull int64
 	levyDays                     []int64
-	// levySince is the day the treasury first took its levy, 0 not yet,
-	// and grantWeekSum what it granted in grantWeek.
-	levySince, grantWeek, grantWeekSum int64
+	// fund is the contest fund, the part of treasury only grants spend,
+	// and seeded whether it has had its one seed.
+	fund   int64
+	seeded bool
 	// checkpoints are the weekly checkpoints paid and not yet posted.
 	checkpoints []checkpointNews
 	// The season so far, for the backstop: what it minted and burned, the
@@ -260,14 +261,14 @@ func (st *state) rollServer(s *server, today int64) {
 }
 
 // levying is whether the treasury takes its levy: until it holds
-// TreasuryWeeks of what a week's levy comes to at the full rate, and always
-// while there's no week to go by. s.mu held.
+// TreasuryWeeks of what a week's levy comes to at the full rate beside the
+// contest fund, and always while there's no week to go by. s.mu held.
 func (s *server) levying() bool {
 	var week int64
 	for _, l := range s.levyDays {
 		week += l
 	}
-	return week == 0 || s.treasury < Rules.TreasuryWeeks*week
+	return week == 0 || s.treasury-s.fund < Rules.TreasuryWeeks*week
 }
 
 // hearth is the tier s's members earn under now. s.mu held.
@@ -292,9 +293,6 @@ func (st *state) earn(s *server, m *member, guild, user snowflake.ID, chat bool,
 	}
 	s.treasury += lv
 	s.levyOpen += lv
-	if lv > 0 && s.levySince == 0 {
-		s.levySince = m.dayN
-	}
 	m.dayLevy += lv
 	// Past the heavy purse line, while it's on, a purse keeps a tenth.
 	net := got - lv

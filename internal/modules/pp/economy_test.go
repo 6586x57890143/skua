@@ -78,6 +78,7 @@ type econ struct {
 	// percent of new earning, from the next season on.
 	sinkFloor, line, keep int64
 	grants                int64 // pot days a week the admins grant, from week 5
+	fund                  int64 // basis points of quest pay minted into the contest fund
 	quests                int64 // percent of QuestPP a quest pays
 	churn                 int64 // percent of the assumed leaving rate
 	// shock multiplies arrivals and turning up by pct percent over weeks
@@ -89,7 +90,7 @@ type econ struct {
 
 // charter is the economy PR 3 ships.
 var charter = econ{levy: Rules.Levy, weeks: Rules.TreasuryWeeks, sinkFloor: Rules.SinkFloor, line: Rules.Line, keep: Rules.Keep,
-	spend: 30, ladder: true, grants: 20, quests: 100, churn: 100, run: 156}
+	fund: Rules.FundShare, spend: 30, ladder: true, grants: 20, quests: 100, churn: 100, run: 156}
 
 // citizen is one member of the simulated server.
 type citizen struct {
@@ -249,6 +250,12 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 	}
 
 	var treasury, burned, withheld, mint, questMint, transfers int64
+	// The contest fund starts full, once, and grows with every quest.
+	var fund, hold int64
+	if e.fund > 0 {
+		hold = Rules.FundHold * Rules.Prize(b)
+		fund, mint = hold, hold
+	}
 	var weekMint, weekTransfer [4]int64
 	var seasonMint, seasonBurn int64
 	lastSink := int64(-1)
@@ -284,6 +291,9 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 				q := quest(b, rng) * e.quests / 100
 				got += q
 				questMint += q
+				add := min(q*e.fund/10000, hold-fund)
+				fund += add
+				mint += add
 			}
 			c.prev, c.prevPools, c.seen = d, pools, day
 			for i, act := range d.Activity() {
@@ -306,6 +316,9 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 				lv = got * e.levy / 10000
 			}
 			treasury += lv
+			if lv > 0 && full > 0 && treasury > (e.weeks+2)*full {
+				o.treasuryOK = false
+			}
 			net := got - lv
 			credit := net
 			if heavy && c.purse >= H {
@@ -331,9 +344,9 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 			continue
 		}
 		weekTransfer[week%4] = 0
-		pay := func(c *citizen, amount int64) int64 {
-			amount = min(amount, treasury)
-			treasury -= amount
+		pay := func(from *int64, c *citizen, amount int64) int64 {
+			amount = min(amount, *from)
+			*from -= amount
 			c.purse += amount
 			c.weekCredit += amount
 			weekTransfer[week%4] += amount
@@ -347,13 +360,13 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 				scores[i] = c.week[board]
 			}
 			for i, place := range Places(scores) {
-				pay(people[i], b.Prize(place))
+				pay(&treasury, people[i], b.Prize(place))
 			}
 		}
-		// Grants, once the treasury has had four weeks to fill: a quarter
-		// of it a week at most, ten pot days a season to anyone.
+		// Grants, from the contest fund, from week 5: ten pot days a
+		// season to anyone.
 		if week >= 4 {
-			budget := min(e.grants*pd, treasury/4)
+			budget := min(e.grants*pd, fund)
 			var active []*citizen
 			for _, c := range people {
 				if c.alive && c.seen > day-7 {
@@ -369,7 +382,7 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 				if g <= 0 {
 					continue
 				}
-				got := pay(c, g)
+				got := pay(&fund, c, g)
 				c.granted += got
 				budget -= got
 			}
@@ -423,22 +436,19 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 			}
 		}
 
-		// A1: every pp minted is in a purse, the treasury, the shop's burn
-		// or withheld past the heavy purse line.
+		// A1: every pp minted is in a purse, the treasury, the contest
+		// fund, the shop's burn or withheld past the heavy purse line.
 		var held int64
 		for _, c := range people {
 			held += c.purse
 		}
-		if held+treasury+burned+withheld != mint {
+		if held+treasury+fund+burned+withheld != mint {
 			o.conserved = false
 		}
-		// A6: the treasury never runs dry into debt and never runs past
-		// its pause by more than a week of levy.
-		var full int64
-		for _, g := range trailing {
-			full += g
-		}
-		if treasury < 0 || full > 0 && treasury > (e.weeks+2)*full*e.levy/10000 {
+		// A6: the treasury and the fund never run dry into debt, and the
+		// levy never fills the treasury past its pause by more than a week
+		// of it (checked as it takes, since a slump shrinks the week).
+		if treasury < 0 || fund < 0 {
 			o.treasuryOK = false
 		}
 		// A5: transfers against labour, every four weeks.

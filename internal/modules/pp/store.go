@@ -41,7 +41,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		return err
 	}
 	rows, err = db.Query(ctx, `select guild_id, day, raw, history, lit, lit_before, beta_role, log_channel,
-		treasury, levy_open, levy_full, levy_days, levy_since, grant_week, grant_week_sum, season_mint, season_burn, sink_last, heavy, selfie_channel from pp_guild`)
+		treasury, levy_open, levy_full, levy_days, fund, fund_seeded, season_mint, season_burn, sink_last, heavy, selfie_channel from pp_guild`)
 	if err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		var guild, beta, logCh, selfies int64
 		var s server
 		if err := rows.Scan(&guild, &s.day, &s.raw, &s.history, &s.lit, &s.litBefore, &beta, &logCh,
-			&s.treasury, &s.levyOpen, &s.levyFull, &s.levyDays, &s.levySince, &s.grantWeek, &s.grantWeekSum, &s.seasonMint, &s.seasonBurn, &s.sinkLast, &s.heavy, &selfies); err != nil {
+			&s.treasury, &s.levyOpen, &s.levyFull, &s.levyDays, &s.fund, &s.seeded, &s.seasonMint, &s.seasonBurn, &s.sinkLast, &s.heavy, &selfies); err != nil {
 			rows.Close()
 			return err
 		}
@@ -58,7 +58,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		into.day, into.raw, into.history, into.lit, into.litBefore = s.day, s.raw, s.history, s.lit, s.litBefore
 		into.beta, into.logChannel = snowflake.ID(beta), snowflake.ID(logCh)
 		into.treasury, into.levyOpen, into.levyFull, into.levyDays = s.treasury, s.levyOpen, s.levyFull, s.levyDays
-		into.levySince, into.grantWeek, into.grantWeekSum = s.levySince, s.grantWeek, s.grantWeekSum
+		into.fund, into.seeded = s.fund, s.seeded
 		into.seasonMint, into.seasonBurn, into.sinkLast, into.heavy = s.seasonMint, s.seasonBurn, s.sinkLast, s.heavy
 		into.selfies = snowflake.ID(selfies)
 		into.mu.Unlock()
@@ -131,8 +131,8 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 	var ledger ledgerRows
 	took := map[*server][]entry{}
 	var guilds, days, raws, lits, before []int64
-	var treasuries, open, full, since, gweek, gsum, smint, sburn, slast []int64
-	var heavy []bool
+	var treasuries, open, full, funds, smint, sburn, slast []int64
+	var heavy, seeded []bool
 	var levyDays [][]int64
 	var histories [][]int64
 	type mark struct {
@@ -163,7 +163,7 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			lits = append(lits, int64(s.lit))
 			before = append(before, int64(s.litBefore))
 			treasuries, open, full = append(treasuries, s.treasury), append(open, s.levyOpen), append(full, s.levyFull)
-			since, gweek, gsum = append(since, s.levySince), append(gweek, s.grantWeek), append(gsum, s.grantWeekSum)
+			funds, seeded = append(funds, s.fund), append(seeded, s.seeded)
 			smint, sburn, slast, heavy = append(smint, s.seasonMint), append(sburn, s.seasonBurn), append(slast, s.sinkLast), append(heavy, s.heavy)
 			levyDays = append(levyDays, append([]int64{}, s.levyDays...))
 			s.dirty = false
@@ -226,14 +226,14 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 	// servers go one statement each; there are few, and few change.
 	for i, g := range guilds {
 		_, err := db.Exec(ctx, `insert into pp_guild (guild_id, day, raw, history, lit, lit_before, treasury, levy_open, levy_full, levy_days,
-				levy_since, grant_week, grant_week_sum, season_mint, season_burn, sink_last, heavy)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+				fund, fund_seeded, season_mint, season_burn, sink_last, heavy)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 			on conflict (guild_id) do update set day = excluded.day, raw = excluded.raw, history = excluded.history,
 				lit = excluded.lit, lit_before = excluded.lit_before, treasury = excluded.treasury,
 				levy_open = excluded.levy_open, levy_full = excluded.levy_full, levy_days = excluded.levy_days,
-				levy_since = excluded.levy_since, grant_week = excluded.grant_week, grant_week_sum = excluded.grant_week_sum,
+				fund = excluded.fund, fund_seeded = excluded.fund_seeded,
 				season_mint = excluded.season_mint, season_burn = excluded.season_burn, sink_last = excluded.sink_last, heavy = excluded.heavy`,
-			g, days[i], raws[i], histories[i], lits[i], before[i], treasuries[i], open[i], full[i], levyDays[i], since[i], gweek[i], gsum[i], smint[i], sburn[i], slast[i], heavy[i])
+			g, days[i], raws[i], histories[i], lits[i], before[i], treasuries[i], open[i], full[i], levyDays[i], funds[i], seeded[i], smint[i], sburn[i], slast[i], heavy[i])
 		if err != nil {
 			remark()
 			return 0, err
