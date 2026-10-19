@@ -79,9 +79,8 @@ func (m *Module) ping(_ context.Context, e *events.ApplicationCommandInteraction
 	})
 }
 
-// status is a two-column readout in a code block: a monospace grid lines up
-// the same on every client, where how embed fields wrap is up to each
-// client. Anything that is not a short fact goes in a line below the block.
+// status is a readout of facts (DESIGN.md), anything that is not a short
+// fact in a line below them.
 func (m *Module) status(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error {
 	p := m.probe()
 	color := brand.ColorOK
@@ -122,7 +121,7 @@ func (m *Module) status(ctx context.Context, e *events.ApplicationCommandInterac
 }
 
 // ping is one dependency's row: its round trip, or why it has none, with
-// the error as a note below the grid.
+// the error as a note below the facts.
 func ping(ctx context.Context, name string, p Pinger) (row, note string) {
 	if p == nil {
 		return "not configured", ""

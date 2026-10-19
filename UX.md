@@ -4,6 +4,12 @@ Every surface skua has follows this: replies, embeds, webhook posts, command nam
 descriptions, the setup CLI, and the art. A change to a surface is checked against it,
 and a layout claim is checked by measuring or by a test, never by eye.
 
+The shared rules are in [`DESIGN.md`](./DESIGN.md), a copy of the guide every bird
+follows, kept word for word. This file adds what is skua's own (her voice, how her
+modules use the shared layouts, her CLI and her art) and never contradicts it. A shared
+rule changes in the guide first and is copied over this one; a lesson about how a
+surface reads goes in the guide's Log.
+
 ## Voice
 
 skua is a quiet, clever bird who knows more than she says and is casual about it, a
@@ -14,18 +20,10 @@ read as generated: a tag hung off a comma for effect (`takes back what you said,
 it`), dramatic two-word fragments (`coffee's cold. trail's warm`), and chains of
 semicolons. Errors stay plain: say what happened and what to do, with no wit.
 
-The rules every bird shares, which `brand/voice_test.go` holds the status lines to and
-`help`'s voice test holds every page to:
-
-- All lowercase. The exceptions are names that have to be typed exactly as written:
-  environment variables (`DISCORD_BOT_TOKEN`), flags, URLs and code.
-- No closing full stop. Clauses join with `; `, or with `:` when the second explains the
-  first: `slowmode is on: you can send again in 20s`.
-- Say what happened, then what to do: `you're sending too fast; try again in a couple of
-  minutes`. A wait or a limit is stated as it is, not rounded to sound nicer.
-- Plain words and contractions. No oxford commas, no exclamation marks, no emoji. The
-  marks are `✓` done, `!` warning, `✗` failed, `▸` step, `·` between facts on one line.
-- The prose check applies: no em dashes, ellipsis characters or curly quotes.
+The shared rules are DESIGN.md's Voice, which `brand/voice_test.go` holds the status
+lines to and `help`'s voice test holds every page to. skua adds two: no oxford commas,
+and a wait or a limit is stated as it is, not rounded to sound nicer (`you're sending
+too fast; try again in a couple of minutes`).
 
 ## Discord
 
@@ -47,17 +45,19 @@ The rules every bird shares, which `brand/voice_test.go` holds the status lines 
   below at full width, because beside a thumbnail a phone gives text a narrow column.
   The about says what the module does and how to use it before anything else.
 - An ASCII glyph that leads a line (`├ └ ▸`) leads only a line short enough never to
-  wrap, or one inside a code block: a wrapped line leaves its text hanging under the
-  glyph on a phone. The `/help` index has no tree: each module's emoji leads its name
-  line, with what it does as `-#` subtext below. Its command grid branches subcommands
-  inside the code block.
+  wrap: a wrapped line leaves its text hanging under the glyph on a phone. The `/help`
+  index has no tree: each module's emoji leads its name line, with what it does as `-#`
+  subtext below. A page's commands are facts, one line per subcommand:
+  `**/purge now** admin`.
 - Every other reply is a card (`brand.Card`, `/purge` is the reference): one
   Components V2 container, accented in the mood of what it says (ok when done, warn
   while working, error when it failed, info for a readout), whose first line is the
   module's emoji, its name in bold and what the reply is: `<emoji> **purge** · status`.
-  Below it the content is text: a `✓`/`!` line, a code block grid, `-#` detail, an ASCII
-  bar (`▰▱`) or tree (`├ └`). An icon is an app emoji inline, never an attachment, so a
-  card uploads nothing and before the emoji sync its head is text alone. A thumbnail
+  Below it the content is text: a `✓`/`!` line, facts, `-#` detail, an ASCII bar
+  (`▰▱`) or tree (`├ └`). An icon is an app emoji inline, never an attachment, so a
+  card uploads nothing and before the emoji sync its head is text alone. Where
+  DESIGN.md has every message wear the face and the rule, skua keeps a card free of
+  uploads, so the rule waits until it can be shown without attaching it. A thumbnail
   or other asset is for a page that is about the thing it shows (`/help`'s), not for
   decoration. Buttons go inside the container, below the text. A live readout is
   edited as a card too (`discord.NewMessageUpdateV2`) and its accent follows its state.
@@ -77,7 +77,7 @@ The rules every bird shares, which `brand/voice_test.go` holds the status lines 
     overview and edits the same message in place, with `◂` back to it.
 - An amount a member reads is in pp. Pot days are the economy's internal unit: a
   member never reads them, and only the admins' grant form takes them.
-, not mood: its platform's
+- A notify card is the one card accented by platform, not mood: its platform's
   muted colour from `brand.PlatformColor`, because a channel of them reads by
   platform. Its button and creator line wear the platform's tile, the glyph in the
   platform's colour lifted to read on slate (`platformInk` in `tools/sprites`). Its
@@ -92,14 +92,11 @@ The rules every bird shares, which `brand/voice_test.go` holds the status lines 
   embed: a webhook can't make a real Discord reply, and a box outweighs the message it
   annotates. When skua needs more than a line, it borrows `/help`'s colour identity and
   layout rather than inventing a new one.
-- Facts go in a code block grid (`status.readout`): the label column is the longest
-  label plus two spaces, a value wraps after a comma inside 28 columns, and a whole line
-  stays within 40. A 360 px phone fits only about 34 columns of code block, so a grid
-  read on phones keeps to 32 (`/help`'s command grid does). Anything that is not a short fact goes on a line below the block,
-  detail as `-#` subtext. A code block, because monospace lines up the same in every
-  client, where how embed fields wrap is up to the client.
-- Numbers: `42 ms` with a space, one decimal under 10 ms. Durations use the two largest
-  units: `45s`, `12m`, `3h 12m`, `2d 4h`. A value not measured yet says so, never `0`.
+- Facts are DESIGN.md's, one line each with the key in bold, written by
+  `core.Readout`. Anything that is not a short fact goes on a line below them, detail as
+  `-#` subtext. A code block holds only what somebody copies: `/pp`'s keys, a season's
+  secret and its hash.
+- Numbers follow DESIGN.md, with one decimal under 10 ms.
 - Command and option descriptions: lowercase, no full stop, what it does in a few words.
 
 ## CLI

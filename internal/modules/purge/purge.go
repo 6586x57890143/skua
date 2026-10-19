@@ -697,10 +697,7 @@ func outcome(err error, took time.Duration) string {
 	return "✗ something went wrong on skua's side after " + span(took) + "; run /purge now again to pick up the rest"
 }
 
-// labelWidth is the longest label plus two (UX.md's grid).
-const labelWidth = len("unreachable") + 2
-
-// render is the readout: facts in a code block, what happened below it.
+// render is the readout: facts, then what happened below them.
 // deleted is out of every message the index holds for the member, its bar
 // counting misses too; rate is deletes a minute since deleting began.
 // scanned is what this purge had to read; channels is how far that got.
@@ -760,16 +757,8 @@ const (
 	listing = "listing"
 )
 
-// grid is facts in a code block, labels padded to one column.
-func grid(rows [][2]string) string {
-	var b strings.Builder
-	b.WriteString("```\n")
-	for _, r := range rows {
-		fmt.Fprintf(&b, "%-*s%s\n", labelWidth, r[0], r[1])
-	}
-	b.WriteString("```")
-	return b.String()
-}
+// grid is rows as facts (DESIGN.md).
+func grid(rows [][2]string) string { return strings.TrimSuffix(core.Readout(rows), "\n") }
 
 // couldnt names the channels a sweep couldn't read, ten at most.
 func couldnt(ids []snowflake.ID) string {

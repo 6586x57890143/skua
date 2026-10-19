@@ -797,7 +797,7 @@ func TestReportForItsServerOnly(t *testing.T) {
 	h.pool.health = []concord.RelayHealth{{URL: "wss://a", Up: true, Heard: time.Now()}}
 	r := h.m.Report(7)
 	all := core.Readout(r.Rows) + strings.Join(r.Notes, "\n")
-	for _, want := range []string{"health     outage", "✗ outage: #99999999 isn't readable", "community  test", "relays     1 of 1 up",
+	for _, want := range []string{"**health** outage", "✗ outage: #99999999 isn't readable", "**community** test", "**relays** 1 of 1 up",
 		"<#100> ↔ #general · readable", "1 in · 0 out · last 0s ago · 1 failed", "<#200> ↔ #99999999 · not readable"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("report is missing %q:\n%s", want, all)

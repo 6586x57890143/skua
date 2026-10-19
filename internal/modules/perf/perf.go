@@ -1,8 +1,7 @@
 // Package perf is /perf: where skua spends her time, module by module and
 // stage by stage, from the Go runtime up to Discord's API. It reads what
-// internal/obs records and lays it out as a code block grid, slowest first,
-// each row with a bar scaled to the slowest so the outlier shows at a
-// glance.
+// internal/obs records and lays it out as facts, slowest first, so the
+// outlier leads.
 //
 // The numbers are the whole process's, every server skua is in, so they say
 // how busy other servers keep her. /perf is BreakGlass: a server's own
@@ -12,7 +11,6 @@ package perf
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -72,45 +70,20 @@ func (m *Module) perf(_ context.Context, e *events.ApplicationCommandInteraction
 	})
 }
 
-// The grid's columns: label, bar, p99, p50, count. 19+2+7+7+5 is 40, the
-// line limit UX.md sets. A value is at most 6 wide, so its column keeps a
-// gap, and the label gets the room a call's name needs.
-const labelW, barW = 19, 2
-
+// readout is one fact per stage, slowest p99 first, then the runtime's own.
 func (m *Module) readout() string {
-	rows := m.rec.Rows()
-	var b strings.Builder
-	b.WriteString("```\n")
-	fmt.Fprintf(&b, "%-*s%7s%7s%5s\n", labelW+barW, "", "p99", "p50", "n")
-	if len(rows) == 0 {
-		b.WriteString("nothing measured yet\n")
+	stages := m.rec.Rows()
+	var rows [][2]string
+	for _, r := range stages[:min(top, len(stages))] {
+		rows = append(rows, [2]string{r.Who + " " + r.Stage.String(), dur(r.P99) + " p99 · " + dur(r.P50) + " p50 · " + count(r.N)})
 	}
-	var slowest time.Duration
+	text := "nothing measured yet\n"
 	if len(rows) > 0 {
-		slowest = rows[0].P99
-	}
-	for _, r := range rows[:min(top, len(rows))] {
-		label := clip(r.Who, labelW-2-len(r.Stage.String())) + " " + r.Stage.String()
-		fmt.Fprintf(&b, "%-*s%-*s%7s%7s%5s\n", labelW, label, barW, bar(r.P99, slowest, barW-1), dur(r.P99), dur(r.P50), count(r.N))
+		text = core.Readout(rows)
 	}
 	sched, gc := m.runtime()
-	fmt.Fprintf(&b, "%s\n%-*s%7s\n%-*s%7s\n```\n", strings.Repeat("·", 40), labelW+barW, "go sched", dur(sched), labelW+barW, "go gc pause", dur(gc))
-	b.WriteString("-# since boot · in: gateway to dispatch · run: handler · wait: rate limit · http: round trip · build " + core.Revision())
-	return b.String()
-}
-
-// bar is d against max as up to width cells of eighths, so two stages a
-// few percent apart still look apart.
-func bar(d, max time.Duration, width int) string {
-	if max <= 0 {
-		return ""
-	}
-	eighths := int(int64(d) * int64(width*8) / int64(max))
-	if eighths == 0 && d > 0 {
-		eighths = 1
-	}
-	parts := []rune(" ▏▎▍▌▋▊▉")
-	return strings.Repeat("█", eighths/8) + strings.TrimSpace(string(parts[eighths%8]))
+	text += core.Readout([][2]string{{"go sched", dur(sched)}, {"go gc pause", dur(gc)}})
+	return text + "-# since boot · in: gateway to dispatch · run: handler · wait: rate limit · http: round trip · build " + core.Revision()
 }
 
 // dur is a duration the way UX.md writes numbers, down to microseconds.
@@ -138,11 +111,4 @@ func count(n uint64) string {
 		return fmt.Sprintf("%.1fk", float64(n)/1000)
 	}
 	return fmt.Sprintf("%dk", n/1000)
-}
-
-func clip(s string, n int) string {
-	if r := []rune(s); len(r) > n {
-		return string(r[:n])
-	}
-	return s
 }
