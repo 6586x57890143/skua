@@ -72,7 +72,7 @@ func (ss *seasonSeed) settle() uint64 {
 
 // seedOf is the seed day's rolls draw from.
 func (st *state) seedOf(day int64) uint64 {
-	season, _ := st.b.Season(day)
+	season, _ := st.bal().Season(day)
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if ss, ok := st.seeds[season]; ok {
@@ -92,7 +92,7 @@ func roundTime(r int64) time.Time { return time.Unix(drandGenesis+(r-1)*drandPer
 
 // seasonStart is when season begins.
 func (b *Balance) seasonStart(season int64) time.Time {
-	return time.Unix((b.SeasonStart+(season-1)*7*b.SeasonWeeks)*86400, 0)
+	return dayStart(b.SeasonStart + (season-1)*7*b.SeasonWeeks)
 }
 
 // Beacon fetches drand's randomness for a round.
@@ -157,12 +157,12 @@ type seasonNews struct {
 // commits and reveals comes back to be posted.
 func (st *state) tickSeeds(ctx context.Context, db DB, beacon Beacon, now time.Time) (seasonNews, error) {
 	var news seasonNews
-	season, _ := st.b.Season(DayOf(now))
+	season, _ := st.bal().Season(DayOf(now))
 	next := season + 1
 	st.mu.Lock()
 	_, have := st.seeds[next]
 	st.mu.Unlock()
-	if at := st.b.seasonStart(next).Add(-beaconLead); !have && at.After(now) {
+	if at := st.bal().seasonStart(next).Add(-beaconLead); !have && at.After(now) {
 		ss := &seasonSeed{season: next, secret: make([]byte, 32), round: roundAt(at)}
 		rand.Read(ss.secret)
 		if _, err := db.Exec(ctx, `insert into pp_season (season, secret, round) values ($1, $2, $3) on conflict do nothing`,

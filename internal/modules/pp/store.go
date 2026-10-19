@@ -2,6 +2,7 @@ package pp
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/jackc/pgx/v5"
@@ -33,7 +34,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 			rows.Close()
 			return err
 		}
-		m.quests = decodeQuests(st.b, quests)
+		m.quests = decodeQuests(st.bal(), quests)
 		st.server(snowflake.ID(guild)).members[snowflake.ID(user)] = m
 	}
 	if err := rows.Err(); err != nil {
@@ -239,4 +240,45 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 		}
 	}
 	return len(rows.user), nil
+}
+
+// loadBalance sets the balance today runs under: the one saved for today,
+// if this boot is a deploy mid-day, or else next, which it saves for today.
+// The saved one is read over next, so a field it predates keeps next's value.
+func (st *state) loadBalance(ctx context.Context, db DB, next *Balance, today int64) error {
+	rows, err := db.Query(ctx, `select day, body from pp_balance`)
+	if err != nil {
+		return err
+	}
+	day, body := int64(-1), []byte(nil)
+	for rows.Next() {
+		if err := rows.Scan(&day, &body); err != nil {
+			rows.Close()
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if day == today {
+		b := *next
+		if err := json.Unmarshal(body, &b); err != nil {
+			return err
+		}
+		st.use(&b)
+		return nil
+	}
+	st.use(next)
+	return saveBalance(ctx, db, today, next)
+}
+
+// saveBalance records b as the balance day runs under.
+func saveBalance(ctx context.Context, db DB, day int64, b *Balance) error {
+	body, err := json.Marshal(b)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(ctx, `insert into pp_balance (day, body) values ($1, $2)
+		on conflict (id) do update set day = excluded.day, body = excluded.body`, day, body)
+	return err
 }

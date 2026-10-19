@@ -33,7 +33,7 @@ func rungPrice(potDay, rung int64) int64 { return potDay << min(rung+1, 40) }
 // climb buys user the next rung, burning its price. s.mu held.
 func (st *state) climb(s *server, guild, user snowflake.ID, today int64) error {
 	m := st.member(s, guild, user, today)
-	price := rungPrice(st.potDay, m.rung)
+	price := rungPrice(st.pot(), m.rung)
 	if m.purse < price {
 		return errCantClimb
 	}
@@ -113,13 +113,13 @@ const shopRungs = 6
 // they hold and what comes next, their purse, a menu to look closer at a
 // rung and the button to climb.
 func (st *state) shopMessage(s *server, m *member) (discord.MessageCreate, error) {
-	price := rungPrice(st.potDay, m.rung)
+	price := rungPrice(st.pot(), m.rung)
 	first := max(1, m.rung-1)
 	var rungs []Rung
 	look := make([]discord.StringSelectMenuOption, 0, shopRungs)
 	for n := first; n < first+shopRungs; n++ {
 		name, icon := perch(n)
-		g := Rung{N: n, Icon: icon, Name: name, Price: rungPrice(st.potDay, n-1), Held: n <= m.rung, Next: n == m.rung+1}
+		g := Rung{N: n, Icon: icon, Name: name, Price: rungPrice(st.pot(), n-1), Held: n <= m.rung, Next: n == m.rung+1}
 		rungs = append(rungs, g)
 		o := discord.NewStringSelectMenuOption(name, strconv.FormatInt(n, 10))
 		o.Description = fmt.Sprintf("rung %d · %s pp", n, grouped(g.Price/unit))
@@ -166,7 +166,7 @@ func climbButton(label string, can bool) discord.ButtonComponent {
 func (st *state) itemMessage(m *member, n int64) (discord.MessageCreate, error) {
 	p := perchOf(n)
 	look := lookOf(n)
-	price := rungPrice(st.potDay, n-1)
+	price := rungPrice(st.pot(), n-1)
 	it := Item{Icon: p.icon, Kind: fmt.Sprintf("rung %d", n), Name: p.name, What: p.what, Story: p.story, Effect: p.effect,
 		Price: price, Short: n > m.rung && m.purse < price, Climbed: n <= m.rung, You: or(m.name, "you"), Look: &look}
 	pic, err := ItemScreen(it)

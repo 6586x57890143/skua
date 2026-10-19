@@ -306,7 +306,7 @@ func questCanvas(name string, quests []QuestLine, rerolls int) *pixel.Canvas {
 		y += questGap
 	}
 	if len(quests) == 0 {
-		label(c, x, 32, "no quests open; a new one comes at 00:00 utc")
+		label(c, x, 32, "no quests open; a new one comes at 05:30 utc")
 	}
 
 	foot := image.Rect(4, 176, 380, 212)

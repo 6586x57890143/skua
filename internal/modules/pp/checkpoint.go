@@ -53,7 +53,7 @@ func (st *state) checkpoint(s *server, week, today int64) {
 			return cmp.Or(cmp.Compare(places[a], places[b]), cmp.Compare(users[a], users[b]))
 		})
 		for _, i := range order {
-			want := st.b.Prize(places[i])
+			want := st.bal().Prize(places[i])
 			if want == 0 {
 				break
 			}

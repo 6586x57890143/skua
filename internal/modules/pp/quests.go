@@ -133,15 +133,15 @@ func (b *Balance) old(user snowflake.ID, now time.Time) bool {
 // deal gives m a quest for each day since the last, up to QuestHold held.
 // s.mu held.
 func (st *state) deal(s *server, m *member, guild, user snowflake.ID, today int64) {
-	if m.questDay >= today || !st.b.old(user, time.Unix(today*86400, 0)) {
+	if m.questDay >= today || !st.bal().old(user, dayStart(today)) {
 		return
 	}
 	days := today - m.questDay
 	if m.questDay == 0 {
 		days = 1
 	}
-	for k := range min(days, int64(st.b.QuestHold-len(m.quests))) {
-		m.quests = append(m.quests, st.b.draw(st.seedOf(today), uint64(guild), uint64(user), today, slotDeal+uint64(k)*2, s.selfies != 0, nil))
+	for k := range min(days, int64(st.bal().QuestHold-len(m.quests))) {
+		m.quests = append(m.quests, st.bal().draw(st.seedOf(today), uint64(guild), uint64(user), today, slotDeal+uint64(k)*2, s.selfies != 0, nil))
 	}
 	m.questDay, m.dirty = today, true
 }
@@ -151,13 +151,13 @@ func (st *state) deal(s *server, m *member, guild, user snowflake.ID, today int6
 func (st *state) progress(s *server, m *member, user snowflake.ID, metric string) {
 	kept := m.quests[:0]
 	for _, q := range m.quests {
-		for i, t := range q.tasks(st.b) {
+		for i, t := range q.tasks(st.bal()) {
 			if t.Metric == metric && q.prog[i] < t.Goal {
 				q.prog[i]++
 				m.dirty = true
 			}
 		}
-		if q.done(st.b) {
+		if q.done(st.bal()) {
 			st.payQuest(s, m, user, q)
 			continue
 		}
@@ -168,7 +168,7 @@ func (st *state) progress(s *server, m *member, user snowflake.ID, metric string
 
 // payQuest pays q as labour, its own ledger row. s.mu held.
 func (st *state) payQuest(s *server, m *member, user snowflake.ID, q heldQuest) {
-	got := st.b.QuestPP[q.tier]
+	got := st.bal().QuestPP[q.tier]
 	lv := int64(0)
 	if s.levying() {
 		lv = Rules.levy(got)
@@ -178,7 +178,7 @@ func (st *state) payQuest(s *server, m *member, user snowflake.ID, q heldQuest) 
 	s.levyOpen += lv
 	net := got - lv
 	credit := net
-	if s.heavy && m.purse >= Rules.Line*st.potDay {
+	if s.heavy && m.purse >= Rules.Line*st.pot() {
 		credit = net * Rules.Keep / 100
 	}
 	m.purse += credit
@@ -197,10 +197,10 @@ func (st *state) reroll(s *server, m *member, guild, user snowflake.ID, i int, t
 	case i < 0 || i >= len(m.quests):
 		return core.Tell("that quest isn't held any more; open your quests again")
 	case m.quests[i].rerolled == today:
-		return core.Tell("that quest has had today's reroll; another comes at 00:00 utc")
+		return core.Tell("that quest has had today's reroll; another comes at 05:30 utc")
 	}
 	// Each place has its own slot, so two rerolls in a day draw apart.
-	m.quests[i] = st.b.draw(st.seedOf(today), uint64(guild), uint64(user), today, slotReroll+uint64(i)*2, s.selfies != 0, &m.quests[i])
+	m.quests[i] = st.bal().draw(st.seedOf(today), uint64(guild), uint64(user), today, slotReroll+uint64(i)*2, s.selfies != 0, &m.quests[i])
 	m.quests[i].rerolled, m.dirty = today, true
 	return nil
 }
@@ -221,7 +221,7 @@ func (st *state) selfie(s *server, m *member, msg discord.Message, now time.Time
 		return
 	}
 	for i, q := range m.quests {
-		if q.ref == 0 && q.tasks(st.b)[0].Metric == taskSelfie {
+		if q.ref == 0 && q.tasks(st.bal())[0].Metric == taskSelfie {
 			m.quests[i].ref, m.quests[i].refAt, m.dirty = int64(msg.ID), now.Unix(), true
 			return
 		}
@@ -320,7 +320,7 @@ func (m *Module) questsMessage(guild snowflake.ID, who *discord.ResolvedMember) 
 	qs := append([]heldQuest(nil), mem.quests...)
 	s.mu.Unlock()
 
-	b := m.st.b
+	b := m.st.bal()
 	lines := make([]QuestLine, len(qs))
 	var text []string
 	color, golden := brand.ColorNotice, false
@@ -345,7 +345,7 @@ func (m *Module) questsMessage(guild snowflake.ID, who *discord.ResolvedMember) 
 	}
 	// Everything is on the screen; the quests as text are its description,
 	// for a reader that can't see it.
-	alt := "your quests: none held, a new one comes at 00:00 utc"
+	alt := "your quests: none held, a new one comes at 05:30 utc"
 	if len(text) > 0 {
 		alt = "your quests: " + strings.Join(text, ". ")
 	}

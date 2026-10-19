@@ -107,7 +107,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.7.6",
+	Version: "0.7.7",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -169,7 +169,7 @@ var Default = Balance{
 	ClassBase:     200 * unit,
 	ClassPerLevel: 50 * unit,
 
-	SeasonStart: DayOf(time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)),
+	SeasonStart: DayOf(time.Date(2026, 11, 2, 5, 30, 0, 0, time.UTC)),
 	SeasonWeeks: 4,
 	Prizes:      [5]int64{1500 * unit, 1000 * unit, 750 * unit, 500 * unit, 250 * unit},
 }

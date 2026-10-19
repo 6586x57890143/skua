@@ -19,7 +19,7 @@ import (
 // buffList is every buff as mem stands in s, crest, banner, plume and
 // the hearth. s.mu held.
 func (st *state) buffList(s *server, mem *member, vanity string) []BuffInfo {
-	b := st.b
+	b := st.bal()
 	status := "put this server's invite in your custom status"
 	if vanity != "" {
 		status = "put .gg/" + strings.ToLower(vanity) + " in your custom status"
@@ -41,7 +41,7 @@ func (st *state) buffList(s *server, mem *member, vanity string) []BuffInfo {
 // server is to lighting it, or to its next tier. It's the one buff nobody
 // wears alone, so the line says how far along everyone is. s.mu held.
 func (st *state) hearthHow(s *server) string {
-	b := st.b
+	b := st.bal()
 	if s.lit >= len(b.HearthAt) {
 		return "at its brightest, through tomorrow"
 	}
