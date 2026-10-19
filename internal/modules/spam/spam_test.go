@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -32,6 +34,8 @@ type fakeRest struct {
 	rolesErr error
 	deleted  []snowflake.ID
 	bulk     [][]snowflake.ID
+	bulkErr  error
+	gone     map[snowflake.ID]bool // deleted before skua got to them
 	posted   []discord.MessageCreate
 	done     chan struct{}
 }
@@ -43,6 +47,9 @@ func (f *fakeRest) GetRoles(snowflake.ID, ...rest.RequestOpt) ([]discord.Role, e
 func (f *fakeRest) DeleteMessage(_, id snowflake.ID, _ ...rest.RequestOpt) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.gone[id] {
+		return &rest.Error{Response: &http.Response{StatusCode: http.StatusNotFound}}
+	}
 	f.deleted = append(f.deleted, id)
 	return nil
 }
@@ -50,6 +57,9 @@ func (f *fakeRest) DeleteMessage(_, id snowflake.ID, _ ...rest.RequestOpt) error
 func (f *fakeRest) BulkDeleteMessages(_ snowflake.ID, ids []snowflake.ID, _ ...rest.RequestOpt) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.bulkErr != nil {
+		return f.bulkErr
+	}
 	f.bulk = append(f.bulk, ids)
 	return nil
 }
@@ -129,8 +139,17 @@ func TestTheBahamasBurstBecomesABird(t *testing.T) {
 	if len(b.got) != 1 || b.got[0].Rule != "spam" || b.got[0].For != 10*time.Minute || b.got[0].User != 7 {
 		t.Fatalf("sentenced %+v", b.got)
 	}
-	if len(r.bulk) != 1 || len(r.bulk[0]) < 3 {
-		t.Fatalf("cleared %v", r.bulk)
+	// Every one of the seventeen comes down: the burst, then the rest.
+	r.mu.Lock()
+	all := append([]snowflake.ID{}, r.deleted...)
+	for _, b := range r.bulk {
+		all = append(all, b...)
+	}
+	r.mu.Unlock()
+	for n := range 17 {
+		if !slices.Contains(all, snowflake.ID(100+n)) {
+			t.Fatalf("message %d stayed up: cleared %v", 100+n, all)
+		}
 	}
 	if got := r.posted[0].Content; got != `-# @lachy\_ got too loud and is a common blackbird for 10m` || r.posted[0].AllowedMentions == nil {
 		t.Fatalf("said %q", got)
@@ -238,10 +257,71 @@ func TestStaffAreLetGo(t *testing.T) {
 func TestClearSplitsByChannel(t *testing.T) {
 	m := module(t)
 	r := &fakeRest{}
-	n := m.clear(context.Background(), r, 3, []flood.Seen{{Channel: 4, ID: 1}, {Channel: 5, ID: 2}, {Channel: 4, ID: 3}})
+	gone := map[snowflake.ID]bool{}
+	n := m.clear(context.Background(), r, 3, []flood.Seen{{Channel: 4, ID: 1}, {Channel: 5, ID: 2}, {Channel: 4, ID: 3}}, gone)
 	if n != 3 || len(r.bulk) != 1 || len(r.bulk[0]) != 2 || len(r.deleted) != 1 || r.deleted[0] != 2 {
 		t.Fatalf("cleared %d: bulk %v single %v", n, r.bulk, r.deleted)
 	}
+	// What is already cleared isn't asked for twice.
+	if n := m.clear(context.Background(), r, 3, []flood.Seen{{Channel: 4, ID: 1}, {Channel: 4, ID: 9}}, gone); n != 1 || r.deleted[len(r.deleted)-1] != 9 {
+		t.Fatalf("second pass cleared %d, single %v", n, r.deleted)
+	}
+}
+
+// One message the member already deleted makes Discord refuse the whole
+// bulk delete; the rest still come down, one at a time.
+func TestClearFallsBackWhenABulkDeleteIsRefused(t *testing.T) {
+	m := module(t)
+	r := &fakeRest{bulkErr: &rest.Error{Response: &http.Response{StatusCode: http.StatusBadRequest}}, gone: map[snowflake.ID]bool{2: true}}
+	n := m.clear(context.Background(), r, 3, []flood.Seen{{Channel: 4, ID: 1}, {Channel: 4, ID: 2}, {Channel: 4, ID: 3}}, map[snowflake.ID]bool{})
+	if n != 3 || len(r.deleted) != 2 || r.deleted[0] != 1 || r.deleted[1] != 3 {
+		t.Fatalf("cleared %d, single %v", n, r.deleted)
+	}
+	if !missing(&rest.Error{Response: &http.Response{StatusCode: 404}}) || missing(errors.New("x")) || missing(&rest.Error{}) {
+		t.Fatal("missing")
+	}
+}
+
+// Whatever they send while the bird is being fetched comes down too.
+func TestTheSweepAfterTheSanction(t *testing.T) {
+	m := module(t)
+	r := &fakeRest{roles: []discord.Role{{ID: 50}}}
+	slow := sanctionFunc(func() {
+		// Two more while the sanction is applied, one in another channel.
+		m.OnEvent(message(r, 20, nil))
+		m.OnEvent(message(r, 21, func(msg *discord.Message) { msg.ChannelID = 5 }))
+	})
+	m.sanctions = []sanction.Sanction{slow}
+	if err := m.everywhere(context.Background(), 3, true); err != nil {
+		t.Fatal(err)
+	}
+	var burst []flood.Seen
+	var tripped discord.Message
+	for n := range 17 {
+		e := message(r, n, nil)
+		if trip, b := m.flood.Observe(flood.Message{Guild: 3, User: 7, Channel: 4, ID: e.Message.ID, At: e.Message.CreatedAt, Text: "hi", Pings: []snowflake.ID{9}}); trip {
+			burst, tripped = b, e.Message
+			break
+		}
+	}
+	m.act(r, 3, tripped, burst)
+	all := append([]snowflake.ID{}, r.deleted...)
+	for _, b := range r.bulk {
+		all = append(all, b...)
+	}
+	for _, want := range []snowflake.ID{120, 121, tripped.ID} {
+		if !slices.Contains(all, want) {
+			t.Errorf("message %d stayed up: deleted %v", want, all)
+		}
+	}
+}
+
+type sanctionFunc func()
+
+func (sanctionFunc) Name() string { return "bird" }
+func (f sanctionFunc) Apply(context.Context, sanction.Sentence) (string, error) {
+	f()
+	return "a bird for 10m", nil
 }
 
 func TestAFailedSanctionSaysNothing(t *testing.T) {

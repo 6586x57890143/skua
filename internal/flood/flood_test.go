@@ -148,6 +148,11 @@ func TestATripHandsBackTheBurstThenGoesQuiet(t *testing.T) {
 			t.Fatal("tripped again inside the quiet")
 		}
 	}
+	// What came in during the quiet is still remembered, for Since.
+	after := d.Since(3, 7, t0.Add(time.Minute))
+	if len(after) != ring || after[len(after)-1].ID != 0 || len(d.Since(3, 9, t0)) != 0 {
+		t.Fatalf("since the trip: %v", after)
+	}
 	// Someone else in the same guild is their own score.
 	if trip, _ := d.Observe(Message{Guild: 3, User: 8, Channel: 4, At: t0.Add(time.Minute), Text: "spam spam spam"}); trip {
 		t.Fatal("member 8 tripped on member 7's score")
