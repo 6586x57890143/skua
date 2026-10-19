@@ -93,7 +93,7 @@ Both wear the bird's face and the rule, and are accented in the colour of their 
 3. **The fields** are the summary list, in the same order on every card, in two
    sections: who did it, to whom and where; then the facts of the action, ending with
    what it touched (messages, `deleted → reposted`). An automatic actor is the bird by
-   name: `merlin (automatic)`. No field without a value.
+   name: `<bird> (automatic)`. No field without a value.
 4. **The grid.** Discord divides each row by the inline fields in it, so a row of two
    sits in halves under a row of three in thirds and nothing lines up. So every row is
    three columns, padded with blank fields; each section starts a row of its own; a
@@ -105,7 +105,7 @@ Both wear the bird's face and the rule, and are accented in the colour of their 
    much as its look: an embed is sized to its content, so without it every card is a
    different width and a channel of them reads ragged.
 6. **The footer** is the record's subtext line, as a panel's `-#` line is: which
-   module, then provenance (`aimod · follows merlin:40`).
+   module, then provenance (`aimod · follows <bird>:40`).
 7. **Buttons** under the embed.
 
 A record can become a panel when somebody presses one of its buttons, but a panel can
@@ -142,7 +142,7 @@ record is answered with a new message, not an edit.
 What a bird posts to a server's log channel about something it did, drawn by
 `ledger.Render`, so a channel holding several birds' cards reads as one log. A record
 as above: the module's icon and the summary as the title, the reason quoted, then the
-first section `actor` (`merlin (automatic)` or the member), `member`, `channel`,
+first section `actor` (`<bird> (automatic)` or the member), `member`, `channel`,
 `role`, and the second each labelled ref, the facts, the changes and `message`
 (`deleted → reposted`, each word its link). A run of the same action by the
 same actor is one card that edits itself as it grows, its count in the title, one line
