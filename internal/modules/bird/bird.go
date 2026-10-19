@@ -175,7 +175,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorOK,
 		Line:  "turns a member into a bird for a while",
-		About: "an admin runs /bird on a member for up to 60 minutes. until the time runs out each message they send is swapped for a single real bird call from xeno-canto, posted under their name with the species linked to its recording, an openly licensed photo of it from inaturalist, or from its wikipedia article when inaturalist has none, and a line about it from wikipedia, shown only when both agree on which bird it is. run it again with 0 minutes to turn them back early",
+		About: "an admin runs /bird on a member for up to 60 minutes. until the time runs out each message they send is swapped for a single real bird call from xeno-canto, posted under their name with the species linked to its recording. an openly licensed photo of it comes along from inaturalist or else its wikipedia article. so does a line from wikipedia, both only when the two agree on which bird it is. run it again with 0 minutes to turn them back early",
 	}
 }
 
