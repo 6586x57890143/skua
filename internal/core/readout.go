@@ -19,7 +19,7 @@ type Reporter interface {
 	Report(guild snowflake.ID) Report
 }
 
-// Report is facts for a Readout grid and notes for the lines below it, in
+// Report is facts for a Readout and notes for the lines below it, in
 // skua's voice (UX.md). An empty one shows nothing.
 type Report struct {
 	Rows  [][2]string
@@ -29,52 +29,19 @@ type Report struct {
 	Controls []discord.ContainerSubComponent
 }
 
-// valueWidth holds the value column to 28, so a line stays within 40.
-const valueWidth = 28
-
-// Readout lays rows out as a code block grid (UX.md): the label column is
-// the longest label and two spaces, and a value too long for its column
-// wraps after a comma, continuing in the value column. A monospace grid
-// lines up the same on every client, where how embed fields wrap is up to
-// each client.
+// Readout lays rows out as facts (DESIGN.md), one line each with its label
+// in bold and an empty value left off. Plain text, so a value wraps where
+// the client needs it to and a mention or link in it renders.
 func Readout(rows [][2]string) string {
-	labels := 0
-	for _, r := range rows {
-		labels = max(labels, len(r[0]))
-	}
 	var b strings.Builder
-	b.WriteString("```\n")
 	for _, r := range rows {
-		for i, line := range wrap(r[1], valueWidth) {
-			label := ""
-			if i == 0 {
-				label = r[0]
-			}
-			fmt.Fprintf(&b, "%-*s%s\n", labels+2, label, line)
+		b.WriteString("**" + r[0] + "**")
+		if r[1] != "" {
+			b.WriteString(" " + r[1])
 		}
+		b.WriteByte('\n')
 	}
-	b.WriteString("```\n")
 	return b.String()
-}
-
-// wrap breaks a comma separated list into lines of at most width, breaking
-// only after a comma. A single item longer than width stays whole and runs
-// past the grid.
-func wrap(s string, width int) []string {
-	var lines []string
-	line := ""
-	for i, item := range strings.Split(s, ", ") {
-		if i > 0 {
-			item = ", " + item
-		}
-		if line != "" && len(line)+len(item) > width {
-			lines = append(lines, line+",")
-			item = strings.TrimPrefix(item, ", ")
-			line = ""
-		}
-		line += item
-	}
-	return append(lines, line)
 }
 
 // Duration is the two largest units that matter: "45s", "12m", "3h 12m",

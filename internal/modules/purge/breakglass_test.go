@@ -153,7 +153,7 @@ func TestBreakGlassSetsTheMembersRow(t *testing.T) {
 	if got := cmd("every", map[string]any{"name": "every", "type": 3, "value": "7d"}); !strings.HasPrefix(got, "**purge** · every\n✓ every 7d") {
 		t.Fatalf("every: %q", got)
 	}
-	if got := cmd("status"); !strings.Contains(got, "live         10m") || !strings.Contains(got, "every        7d") {
+	if got := cmd("status"); !strings.Contains(got, "**live** 10m") || !strings.Contains(got, "**every** 7d") {
 		t.Fatalf("status:\n%s", got)
 	}
 }

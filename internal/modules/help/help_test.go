@@ -298,7 +298,7 @@ func TestPickingTurnsAnEphemeralGuideInPlace(t *testing.T) {
 	if c.AccentColor != brand.ColorOK {
 		t.Errorf("page accent %#06x, want the module's colour", c.AccentColor)
 	}
-	contains(t, "page", all, "## nest", "twigs mostly", "/nest\\n├ build", "twig, count", "└ leave\\n", "Steal egg", "apps menu · admin", `"default":true`, `"help:index"`)
+	contains(t, "page", all, "## nest", "twigs mostly", "**/nest build** twig, count", "**/nest leave**\\n", "**Steal egg** apps menu · admin", `"default":true`, `"help:index"`)
 	if strings.Contains(all, "help:off") {
 		t.Error("a member is shown the switch")
 	}
@@ -318,13 +318,12 @@ func TestAPageWithoutCommandsHasNoEmptyGrid(t *testing.T) {
 	contains(t, "page", all, "-# no commands: it works on its own")
 }
 
-// The grid is a tree: a command with subcommands heads its branches, and
-// no line carries trailing spaces.
-func TestGridBranchesSubcommands(t *testing.T) {
-	got := grid(nest.cmds)
-	want := "```\n/nest\n├ build    twig, count\n└ leave\nSteal egg  apps menu · admin\n```"
+// Every subcommand is its own line.
+func TestCommandsAreLines(t *testing.T) {
+	got := commands(nest.cmds)
+	want := "**/nest build** twig, count\n**/nest leave**\n**Steal egg** apps menu · admin"
 	if got != want {
-		t.Errorf("grid\n%s\nwant\n%s", got, want)
+		t.Errorf("commands\n%s\nwant\n%s", got, want)
 	}
 }
 
@@ -461,13 +460,6 @@ func TestEveryPageKeepsTheVoice(t *testing.T) {
 		if utf8.RuneCountInString(h.Help().Line) > 100 {
 			t.Errorf("%s: line over 100", mod.Name())
 		}
-		// A 360 px phone fits about 34 columns of code block, so the grid
-		// keeps to 32 and never wraps there.
-		for line := range strings.SplitSeq(grid(mod.Commands()), "\n") {
-			if utf8.RuneCountInString(line) > 32 {
-				t.Errorf("%s: grid line %q is over 32 columns", mod.Name(), line)
-			}
-		}
 	}
 }
 
@@ -516,7 +508,7 @@ func TestAdminsSeeAModulesStatus(t *testing.T) {
 	tern := reported{paged{fake{"tern", nil, core.Help{Color: brand.ColorOK, Line: "watches", About: "and reports"}}}}
 	r := newRouter(t, nil, tern, nest)
 	_, all := page(t, click(t, r, "help:pick", true, true, "tern"))
-	contains(t, "admin page", all, "### status", "server  3", "links   1", "-# all quiet")
+	contains(t, "admin page", all, "### status", "**server** 3", "**links** 1", "-# all quiet")
 	if _, all := page(t, click(t, r, "help:pick", true, false, "tern")); strings.Contains(all, "### status") {
 		t.Error("a member sees the status")
 	}

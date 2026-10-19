@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
@@ -21,8 +20,7 @@ func module(rec *obs.Recorder) *Module {
 	return m
 }
 
-// The readout lists the slowest stage first, fits UX.md's 40 columns and
-// scales each bar to the slowest.
+// The readout lists the slowest stage first, a line of facts each.
 func TestReadout(t *testing.T) {
 	rec := obs.New()
 	rec.Add("whisper", obs.Run, 3*time.Millisecond)
@@ -34,18 +32,10 @@ func TestReadout(t *testing.T) {
 		rec.Add("bird", obs.In, 40*time.Millisecond)
 	}
 	got := module(rec).readout()
-	lines := strings.Split(got, "\n")
-	for _, l := range lines[:len(lines)-1] {
-		if n := utf8.RuneCountInString(l); n > 40 {
-			t.Errorf("%q is %d columns", l, n)
-		}
+	if !strings.HasPrefix(got, "**preen fill run** 9.4s p99 · 9.4s p50 · 1\n") {
+		t.Errorf("readout doesn't lead with the slowest:\n%s", got)
 	}
-	first := lines[2]
-	if !strings.HasPrefix(first, "preen fill run     █") {
-		t.Errorf("first row %q, want the slowest with a full bar", first)
-	}
-	// Every value keeps a gap from the one before it.
-	for _, s := range []string{"9.4s   9.4s", "3.8s   3.8s", "get channels wait", "put reactions wait", "whisper run", "1.5k", "go sched", "40 µs", "go gc pause", "build " + core.Revision()} {
+	for _, s := range []string{"**get channels wait** 3.8s", "**put reactions/@me wait**", "**whisper run**", "· 1.5k", "**go sched** 40 µs", "**go gc pause** 300 µs", "build " + core.Revision()} {
 		if !strings.Contains(got, s) {
 			t.Errorf("readout is missing %q:\n%s", s, got)
 		}
@@ -109,20 +99,6 @@ func TestFormatting(t *testing.T) {
 	for n, want := range map[uint64]string{7: "7", 1500: "1.5k", 42000: "42k"} {
 		if got := count(n); got != want {
 			t.Errorf("count(%d) = %q, want %q", n, got, want)
-		}
-	}
-	for _, c := range []struct {
-		d, max time.Duration
-		want   string
-	}{
-		{0, 0, ""},
-		{100, 100, "████"},
-		{50, 100, "██"},
-		{1, 1000, "▏"},
-		{30, 100, "█▏"},
-	} {
-		if got := bar(c.d, c.max, 4); got != c.want {
-			t.Errorf("bar(%v, %v) = %q, want %q", c.d, c.max, got, c.want)
 		}
 	}
 }

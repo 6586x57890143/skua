@@ -43,7 +43,7 @@ func TestJobsListsWhatIsRunning(t *testing.T) {
 
 	got := subCmd(t, m, "jobs", "", "", guildID)
 	for _, want := range []string{
-		"running      2", "catching up  2", "scheduled    0",
+		"**running** 2", "**catching up** 2", "**scheduled** 0",
 		"<@6> in 40 · scheduled · 0s · 12 of 48 deleted ▰▰▰▰▱▱▱▱",
 		"<@5> in 40 · now · 0s · reading what's new",
 		"reading 41 · listing channels",
