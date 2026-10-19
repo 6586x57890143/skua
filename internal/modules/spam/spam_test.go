@@ -77,10 +77,16 @@ func (f *fakeRest) CreateMessage(_ snowflake.ID, m discord.MessageCreate, _ ...r
 type bird struct {
 	got []sanction.Sentence
 	err error
+	// hold, when set, keeps the sanction applying until it closes: the
+	// fetch a real bird waits on.
+	hold chan struct{}
 }
 
 func (*bird) Name() string { return "bird" }
 func (b *bird) Apply(_ context.Context, s sanction.Sentence) (string, error) {
+	if b.hold != nil {
+		<-b.hold
+	}
 	b.got = append(b.got, s)
 	return "a common blackbird for 10m", b.err
 }
@@ -122,7 +128,9 @@ func message(r rest.Rest, n int, edit func(*discord.Message)) *events.GuildMessa
 }
 
 func TestTheBahamasBurstBecomesABird(t *testing.T) {
-	b := &bird{}
+	// The bird is still being fetched while the rest of the seventeen
+	// arrive, as it is live; once it holds, the bird replaces anything later.
+	b := &bird{hold: make(chan struct{})}
 	m := module(t, b)
 	if err := m.pick(context.Background(), 3, []snowflake.ID{4}); err != nil {
 		t.Fatal(err)
@@ -131,6 +139,7 @@ func TestTheBahamasBurstBecomesABird(t *testing.T) {
 	for n := range 17 {
 		m.OnEvent(message(r, n, nil))
 	}
+	close(b.hold)
 	select {
 	case <-r.done:
 	case <-time.After(5 * time.Second):
