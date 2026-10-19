@@ -8,9 +8,10 @@ import (
 	"github.com/6586x57890143/skua/internal/guard"
 )
 
-// When the week turns, each board's best are paid from the treasury, in
-// order of place, into their purse but not their level; both sides go into
-// the ledger, and the ledger channel hears about it.
+// When the week turns, each board's best are paid from the treasury into
+// their purse but not their level; both sides go into the ledger, and the
+// ledger channel hears about it. A treasury short of every prize splits
+// evenly.
 func TestCheckpoint(t *testing.T) {
 	m := testModule(&fakeDB{})
 	r := &postRest{}
@@ -41,15 +42,17 @@ func TestCheckpoint(t *testing.T) {
 	st.minute(s, guild, afkCh, monday)
 
 	top := s.members[old(6)]
-	if got := top.purse - before[5]; got != Default.Prizes[0] {
-		t.Errorf("first place got %d", got)
-	}
 	if top.total != totals {
 		t.Error("a prize counted toward the level")
 	}
-	// 3,000 pp pays 1,500 and 1,000, then 500 of third's 750.
-	if s.treasury != 0 || s.members[old(4)].purse-before[3] != 500*unit || s.members[old(3)].purse != before[2] {
-		t.Errorf("a short treasury paid: treasury %d, third %d, fourth %d", s.treasury, s.members[old(4)].purse-before[3], s.members[old(3)].purse-before[2])
+	// 3,000 pp can't pay the 4,000 the five places are owed, so each gets 600.
+	for i := 1; i < 6; i++ {
+		if got := s.members[old(i+1)].purse - before[i]; got != 600*unit {
+			t.Errorf("place %d got %d; want an even 600 pp", 6-i, got/unit)
+		}
+	}
+	if s.treasury != 0 || s.members[old(1)].purse != before[0] {
+		t.Errorf("a short treasury paid: treasury %d, sixth %d", s.treasury, s.members[old(1)].purse-before[0])
 	}
 	var prizes int
 	for _, e := range s.pending {
@@ -57,15 +60,15 @@ func TestCheckpoint(t *testing.T) {
 			prizes++
 		}
 	}
-	if prizes != 6 {
-		t.Errorf("%d prize rows; want two for each of three places", prizes)
+	if prizes != 10 {
+		t.Errorf("%d prize rows; want two for each of five places", prizes)
 	}
 
 	last := DayOf(monday)
 	m.now = func() time.Time { return monday.Add(time.Minute) }
 	m.tick(t.Context(), &last)
 	all := strings.Join(r.posts, " ")
-	if !strings.Contains(all, "the week of") || !strings.Contains(all, "+1,500 pp") || !strings.Contains(all, "ran short") || !strings.Contains(all, "**chat**") {
+	if !strings.Contains(all, "the week of") || !strings.Contains(all, "+600 pp") || !strings.Contains(all, "ran short") || !strings.Contains(all, "**chat**") {
 		t.Errorf("posted %v", r.posts)
 	}
 	if len(s.checkpoints) != 0 {
@@ -76,5 +79,13 @@ func TestCheckpoint(t *testing.T) {
 	st.minute(s, guild, afkCh, monday.Add(7*24*time.Hour))
 	if len(s.checkpoints) != 0 {
 		t.Errorf("an empty week queued %+v", s.checkpoints)
+	}
+
+	// A full treasury pays each place its own prize.
+	s.treasury = 5000 * unit
+	before[5] = top.purse
+	st.checkpoint(s, top.week, DayOf(monday))
+	if got := top.purse - before[5]; got != Default.Prizes[0] || s.treasury != 1000*unit {
+		t.Errorf("a full treasury paid first %d and kept %d", got/unit, s.treasury/unit)
 	}
 }
