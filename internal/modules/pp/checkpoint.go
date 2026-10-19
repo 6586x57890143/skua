@@ -11,9 +11,10 @@ import (
 
 // The weekly checkpoint: when a server's week turns, the top places on each
 // board (voice and chat) are paid Balance.Prizes from the treasury, which
-// has first claim on it, before any grant. A short treasury pays down the
-// places until it's empty. Prizes go into the purse, not the level or the
-// season: levels are time, and the season is its own race.
+// has first claim on it, before any grant. A treasury that can't pay every
+// place splits what it has evenly between them, so a short week doesn't
+// fall on whoever is paid last. Prizes go into the purse, not the level or
+// the season: levels are time, and the season is its own race.
 
 // prize is one place paid at a checkpoint.
 type prize struct {
@@ -27,12 +28,13 @@ type prize struct {
 type checkpointNews struct {
 	week   int64
 	prizes []prize
-	short  bool // the treasury ran out before every place was paid
+	short  bool // the treasury couldn't pay every place, so it split evenly
 }
 
 // checkpoint pays week's places. s.mu held.
 func (st *state) checkpoint(s *server, week, today int64) {
 	news := checkpointNews{week: week}
+	var owed int64
 	for board := range Boards {
 		var users []snowflake.ID
 		var scores []int64
@@ -55,21 +57,27 @@ func (st *state) checkpoint(s *server, week, today int64) {
 			if want == 0 {
 				break
 			}
-			pay := min(want, s.treasury)
-			if pay < want {
-				news.short = true
-			}
-			if pay <= 0 {
-				continue
-			}
-			u, m := users[i], s.members[users[i]]
-			s.treasury -= pay
-			m.purse += pay
-			s.append(0, today, reasonPrize, -pay, []int64{int64(u), int64(board), int64(places[i])})
-			s.append(u, today, reasonPrize, pay, []int64{int64(board), int64(places[i])})
-			m.dirty, s.dirty = true, true
-			news.prizes = append(news.prizes, prize{user: u, board: board, place: places[i], amount: pay})
+			owed += want
+			news.prizes = append(news.prizes, prize{user: users[i], board: board, place: places[i], amount: want})
 		}
+	}
+	if owed > s.treasury {
+		news.short = true
+		share := s.treasury / int64(len(news.prizes))
+		for i := range news.prizes {
+			news.prizes[i].amount = share
+		}
+		if share == 0 {
+			news.prizes = nil
+		}
+	}
+	for _, p := range news.prizes {
+		m := s.members[p.user]
+		s.treasury -= p.amount
+		m.purse += p.amount
+		s.append(0, today, reasonPrize, -p.amount, []int64{int64(p.user), int64(p.board), int64(p.place)})
+		s.append(p.user, today, reasonPrize, p.amount, []int64{int64(p.board), int64(p.place)})
+		m.dirty, s.dirty = true, true
 	}
 	if len(news.prizes) > 0 || news.short {
 		s.checkpoints = append(s.checkpoints, news)
@@ -97,7 +105,7 @@ func checkpointText(n checkpointNews) string {
 		}
 	}
 	if n.short {
-		b.WriteString("\n-# the treasury ran short, so it paid the places it could")
+		b.WriteString("\n-# the treasury ran short, so it split what it had evenly between the places")
 	}
 	return b.String()
 }
