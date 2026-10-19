@@ -195,8 +195,8 @@ func (m *Module) cost(mem *member, season int64) int64 {
 	if mem.classSeason != season {
 		return 0
 	}
-	l, _, _ := m.st.b.Level(mem.total)
-	return m.st.b.ClassCost(l, mem.classChanges)
+	l, _, _ := m.st.bal().Level(mem.total)
+	return m.st.bal().ClassCost(l, mem.classChanges)
 }
 
 // pick makes user a key: the season's first pick free, every change after
@@ -206,7 +206,7 @@ func (m *Module) pick(guild, user snowflake.ID, key string) error {
 		return errNotAClass
 	}
 	today := DayOf(m.now())
-	season, _ := m.st.b.Season(today)
+	season, _ := m.st.bal().Season(today)
 	s := m.st.server(guild)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -236,7 +236,7 @@ func (m *Module) pick(guild, user snowflake.ID, key string) error {
 // for i -1: the wanderer's until they've picked one.
 func (m *Module) lore(guild, user snowflake.ID, i, page int) (discord.MessageCreate, error) {
 	today := DayOf(m.now())
-	season, _ := m.st.b.Season(today)
+	season, _ := m.st.bal().Season(today)
 	s := m.st.server(guild)
 	s.mu.Lock()
 	mem := m.st.member(s, guild, user, today)
@@ -347,7 +347,7 @@ func titleMessage(buttons bool) (discord.MessageCreate, error) {
 
 // sheet is mem's status screen. s.mu held.
 func (m *Module) sheet(s *server, mem *member, guild, user snowflake.ID, today int64) Sheet {
-	b := m.st.b
+	b := m.st.bal()
 	l, into, need := b.Level(mem.total)
 	vigor, phase := b.Vigor(mem.day, m.st.pools(guild, user, today))
 	season, week := b.Season(today)

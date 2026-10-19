@@ -63,7 +63,7 @@ func boardTop(board []standing, user snowflake.ID, n int) []standing {
 // boardMessage is the boards for user in guild, as a screen.
 func (m *Module) boardMessage(guild, user snowflake.ID) (discord.MessageCreate, error) {
 	today := DayOf(m.now())
-	season, _ := m.st.b.Season(today)
+	season, _ := m.st.bal().Season(today)
 	s := m.st.server(guild)
 	s.mu.Lock()
 	var users []snowflake.ID
@@ -83,7 +83,7 @@ func (m *Module) boardMessage(guild, user snowflake.ID) (discord.MessageCreate, 
 	}
 	s.mu.Unlock()
 
-	b := m.st.b
+	b := m.st.bal()
 	rows := func(board []standing, n int, value func(standing) string, gold bool) []BoardRow {
 		var out []BoardRow
 		for _, st := range boardTop(board, user, n) {
@@ -131,7 +131,7 @@ func (m *Module) boardMessage(guild, user snowflake.ID) (discord.MessageCreate, 
 // and the ledger stand.
 func (m *Module) treasuryMessage(ctx context.Context, guild snowflake.ID) (discord.MessageCreate, error) {
 	today := DayOf(m.now())
-	b := m.st.b
+	b := m.st.bal()
 	season, _ := b.Season(today)
 	from, period := int64(0), "preseason"
 	if season > 0 {

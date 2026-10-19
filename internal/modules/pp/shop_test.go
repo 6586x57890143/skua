@@ -22,7 +22,7 @@ func TestLadder(t *testing.T) {
 	st := m.st
 	s := st.server(guild)
 	a := old(1)
-	pd := st.potDay
+	pd := st.pot()
 	if rungPrice(pd, 0) != 2*pd || rungPrice(pd, 3) != 16*pd {
 		t.Fatalf("rungs cost %d and %d", rungPrice(pd, 0), rungPrice(pd, 3))
 	}
@@ -95,7 +95,7 @@ func TestBackstop(t *testing.T) {
 
 	a := old(1)
 	mem := st.member(s, guild, a, DayOf(t0))
-	mem.purse = Rules.Line * st.potDay
+	mem.purse = Rules.Line * st.pot()
 	before, total := mem.purse, mem.total
 	st.chat(s, guild, a, "a heavy purse earns", t0)
 	gained, earned := mem.purse-before, mem.total-total
@@ -121,7 +121,7 @@ func TestShopCards(t *testing.T) {
 	s := m.st.server(guild)
 	a := old(1)
 	mem := m.st.member(s, guild, a, DayOf(t0))
-	mem.rung, mem.purse = 2, 10*m.st.potDay
+	mem.rung, mem.purse = 2, 10*m.st.pot()
 	as := func(p map[string]any) {
 		p["member"].(map[string]any)["user"] = map[string]any{"id": a.String(), "username": "member"}
 	}

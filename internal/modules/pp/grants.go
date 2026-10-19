@@ -105,7 +105,7 @@ func (m *Module) submitGrant(ctx context.Context, e *events.ModalSubmitInteracti
 	if err := m.canGrant(*guild, g); err != nil {
 		return err
 	}
-	if amount <= Rules.GrantSecond*Default.PotDay(Rules) {
+	if amount <= Rules.GrantSecond*m.st.pot() {
 		if err := m.pay(*guild, g); err != nil {
 			return err
 		}
@@ -126,7 +126,7 @@ func (m *Module) submitGrant(ctx context.Context, e *events.ModalSubmitInteracti
 // and in the member's season. It changes nothing.
 func (m *Module) canGrant(guild snowflake.ID, g grant) error {
 	today := DayOf(m.now())
-	season, _ := m.st.b.Season(today)
+	season, _ := m.st.bal().Season(today)
 	s := m.st.server(guild)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -151,7 +151,7 @@ func (m *Module) canGrant(guild snowflake.ID, g grant) error {
 	if mem, ok := s.members[g.to]; ok && mem.grantSeason == season {
 		had = mem.granted
 	}
-	if room := Rules.GrantSeason*Default.PotDay(Rules) - had; g.amount > room {
+	if room := Rules.GrantSeason*m.st.pot() - had; g.amount > room {
 		return core.Tell(fmt.Sprintf("<@%s> can get %s pp more in grants this season", g.to, grouped(max(room, 0)/unit)))
 	}
 	return nil
@@ -164,7 +164,7 @@ func (m *Module) pay(guild snowflake.ID, g grant) error {
 		return err
 	}
 	today := DayOf(m.now())
-	season, _ := m.st.b.Season(today)
+	season, _ := m.st.bal().Season(today)
 	s := m.st.server(guild)
 	s.mu.Lock()
 	mem := m.st.member(s, guild, g.to, today)

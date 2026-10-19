@@ -2,8 +2,16 @@ package pp
 
 import "time"
 
-// DayOf is the game day t falls in. Days turn at 00:00 UTC.
-func DayOf(t time.Time) int64 { return t.Unix() / 86400 }
+// Turn is when a day turns, past 00:00 UTC: a sweet spot between western
+// Europe's morning and the US's night.
+const Turn = 5*time.Hour + 30*time.Minute
+
+// DayOf is the game day t falls in. Day n runs from Turn on its date to
+// Turn on the next.
+func DayOf(t time.Time) int64 { return (t.Unix() - int64(Turn/time.Second)) / 86400 }
+
+// dayStart is when day begins.
+func dayStart(day int64) time.Time { return time.Unix(day*86400, 0).Add(Turn) }
 
 // Pools is one member's pools for one day: the jittered base pool and the
 // percent their idle graces run to.

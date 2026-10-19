@@ -4,6 +4,7 @@ import (
 	"hash/maphash"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -122,18 +123,34 @@ func weekOf(day int64) int64 { return (day + 3) / 7 }
 // state is everything /pp holds, by guild. seed draws the rolls of any
 // season without a committed seed of its own in seeds.
 type state struct {
-	b    *Balance
-	seed uint64
-	// potDay is b's pot day under the charter, worked out once.
+	cur   atomic.Pointer[era]
+	seed  uint64
+	mu    sync.Mutex
+	srv   map[snowflake.ID]*server
+	seeds map[int64]*seasonSeed
+}
+
+// era is the balance the day runs under and its pot day under the charter,
+// worked out once. A deploy's new balance waits for the next day to turn.
+type era struct {
+	b      *Balance
 	potDay int64
-	mu     sync.Mutex
-	srv    map[snowflake.ID]*server
-	seeds  map[int64]*seasonSeed
 }
 
 func newState(b *Balance, seed uint64) *state {
-	return &state{b: b, seed: seed, potDay: b.PotDay(Rules), srv: map[snowflake.ID]*server{}, seeds: map[int64]*seasonSeed{}}
+	st := &state{seed: seed, srv: map[snowflake.ID]*server{}, seeds: map[int64]*seasonSeed{}}
+	st.use(b)
+	return st
 }
+
+// use runs st under b from now on.
+func (st *state) use(b *Balance) { st.cur.Store(&era{b: b, potDay: b.PotDay(Rules)}) }
+
+// bal is the balance in force.
+func (st *state) bal() *Balance { return st.cur.Load().b }
+
+// pot is the pot day in force.
+func (st *state) pot() int64 { return st.cur.Load().potDay }
 
 // server is guild's state, made on first sight.
 func (st *state) server(guild snowflake.ID) *server {
@@ -159,7 +176,7 @@ func (st *state) servers() map[snowflake.ID]*server {
 }
 
 func (st *state) pools(guild, user snowflake.ID, day int64) Pools {
-	return st.b.Pools(st.seedOf(day), uint64(guild), uint64(user), day)
+	return st.bal().Pools(st.seedOf(day), uint64(guild), uint64(user), day)
 }
 
 // member is user in s, made on first sight, rolled into today with s.
@@ -183,14 +200,14 @@ func (st *state) member(s *server, guild, user snowflake.ID, today int64) *membe
 func (st *state) roll(s *server, m *member, guild, user snowflake.ID, today int64) {
 	if m.dayN != today {
 		st.close(s, user, m)
-		m.day = Day{Rested: st.b.Rested(m.day, st.pools(guild, user, m.dayN), today-m.dayN)}
+		m.day = Day{Rested: st.bal().Rested(m.day, st.pools(guild, user, m.dayN), today-m.dayN)}
 		m.dayN = today
 		m.dirty = true
 	}
 	if w := weekOf(today); m.week != w {
 		m.week, m.weekAct, m.dirty = w, [Boards]int64{}, true
 	}
-	if season, _ := st.b.Season(today); m.season != season {
+	if season, _ := st.bal().Season(today); m.season != season {
 		m.season, m.seasonPP, m.dirty = season, 0, true
 	}
 	st.deal(s, m, guild, user, today)
@@ -213,8 +230,8 @@ func (st *state) rollServer(s *server, today int64) {
 		st.checkpoint(s, weekOf(s.day), today)
 	}
 	if s.day > 0 {
-		before, _ := st.b.Season(s.day)
-		if now, _ := st.b.Season(today); before != now {
+		before, _ := st.bal().Season(s.day)
+		if now, _ := st.bal().Season(today); before != now {
 			st.seasonTurn(s)
 		}
 	}
@@ -260,8 +277,8 @@ func (s *server) hearth() int { return max(s.lit, s.litBefore) }
 // toward the server's hearth and m's week. s.mu held.
 func (st *state) earn(s *server, m *member, guild, user snowflake.ID, chat bool, raw int64) int64 {
 	before, act := m.day.Voice+m.day.Chat, m.day.Activity()
-	buff := st.b.Buff(m.wear, s.hearth())
-	got := st.b.Earn(&m.day, st.pools(guild, user, m.dayN), chat, raw, buff)
+	buff := st.bal().Buff(m.wear, s.hearth())
+	got := st.bal().Earn(&m.day, st.pools(guild, user, m.dayN), chat, raw, buff)
 	if m.day.Minutes+m.day.Paid == 1 {
 		m.buffLo, m.buffHi = buff, buff
 	}
@@ -282,7 +299,7 @@ func (st *state) earn(s *server, m *member, guild, user snowflake.ID, chat bool,
 	// Past the heavy purse line, while it's on, a purse keeps a tenth.
 	net := got - lv
 	credit := net
-	if s.heavy && m.purse >= Rules.Line*st.potDay {
+	if s.heavy && m.purse >= Rules.Line*st.pot() {
 		credit = net * Rules.Keep / 100
 	}
 	m.dayWithheld += net - credit
@@ -304,7 +321,7 @@ func (st *state) earn(s *server, m *member, guild, user snowflake.ID, chat bool,
 		st.progress(s, m, user, taskVoice)
 	}
 	s.raw += m.day.Voice + m.day.Chat - before
-	if tier := st.b.HearthTier(s.raw, s.history); tier > s.lit {
+	if tier := st.bal().HearthTier(s.raw, s.history); tier > s.lit {
 		s.lit = tier
 	}
 	m.dirty, s.dirty = true, true
@@ -383,18 +400,18 @@ func (st *state) chat(s *server, guild, user snowflake.ID, content string, now t
 		h := maphash.String(hashSeed, content)
 		repeat, m.lastHash = h == m.lastHash, h
 	}
-	if !st.b.ChatCounts(now.Sub(m.lastCount), runes, repeat) {
+	if !st.bal().ChatCounts(now.Sub(m.lastCount), runes, repeat) {
 		return 0
 	}
 	m.lastCount, m.life = now, now
 	m.messages++
 	m.dirty = true
-	if !st.b.ChatPays(now.Sub(m.lastPay), runes, repeat) {
+	if !st.bal().ChatPays(now.Sub(m.lastPay), runes, repeat) {
 		return 0
 	}
 	m.lastPay = now
 	r := Roll(st.seedOf(m.dayN), uint64(guild), uint64(user), m.dayN, uint64(m.day.Paid))
-	return st.earn(s, m, guild, user, true, st.b.ChatRaw(r))
+	return st.earn(s, m, guild, user, true, st.bal().ChatRaw(r))
 }
 
 // sit puts user in voice as vs says, or takes them out. Joining, and
@@ -447,7 +464,7 @@ func (st *state) minute(s *server, guild, afk snowflake.ID, now time.Time) int {
 					others = append(others, Seat{Bot: them.bot, Deaf: them.deaf, Age: now.Sub(o.Time())})
 				}
 			}
-			raw := st.b.VoiceRaw(me, others, st.pools(guild, u, today).Pace)
+			raw := st.bal().VoiceRaw(me, others, st.pools(guild, u, today).Pace)
 			if raw == 0 {
 				continue
 			}

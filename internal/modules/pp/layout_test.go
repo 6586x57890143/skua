@@ -96,7 +96,7 @@ func TestFitPair(t *testing.T) {
 // board's: by everything earned, unplaced only with nothing earned.
 func TestPreseasonPlace(t *testing.T) {
 	m := testModule(&fakeDB{})
-	today := m.st.b.SeasonStart - 3
+	today := m.st.bal().SeasonStart - 3
 	s := m.st.server(guild)
 	s.mu.Lock()
 	defer s.mu.Unlock()

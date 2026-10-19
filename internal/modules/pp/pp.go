@@ -64,6 +64,9 @@ type Module struct {
 // holds, so there is nothing new to configure.
 func New(ctx context.Context, log *slog.Logger, db DB, seed uint64, info GuildInfo) (*Module, error) {
 	m := &Module{log: log, db: db, st: newState(&Default, seed), info: info, now: time.Now, beacon: drand}
+	if err := m.st.loadBalance(ctx, db, &Default, DayOf(m.now())); err != nil {
+		return nil, err
+	}
 	if err := m.st.load(ctx, db); err != nil {
 		return nil, err
 	}
@@ -132,7 +135,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 	sinks := sinksRow(s)
 	s.mu.Unlock()
 	next := "none yet"
-	season, _ := m.st.b.Season(DayOf(m.now()))
+	season, _ := m.st.bal().Season(DayOf(m.now()))
 	m.st.mu.Lock()
 	if ss, ok := m.st.seeds[season+1]; ok {
 		next = fmt.Sprintf("s%d · %s", ss.season, ss.commitment()[:8])
@@ -268,7 +271,7 @@ func (m *Module) ready(guild snowflake.ID, g discord.GatewayGuild) {
 }
 
 // loop pays voice once a minute and saves what changed. The first tick and
-// the first after each midnight audit the ledger and post its head, and
+// the first after each turn of the day audit the ledger and post its head, and
 // every tick moves the season seeds along.
 func (m *Module) loop(ctx context.Context) {
 	tick := time.NewTicker(time.Minute)
@@ -286,10 +289,20 @@ func (m *Module) loop(ctx context.Context) {
 
 // tick is one minute of the loop; last is the day it last turned.
 func (m *Module) tick(ctx context.Context, last *int64) {
+	now := m.now()
+	day := DayOf(now)
+	// A new day runs under the balance this build shipped.
+	// ponytail: a message in the turn's first minute can still roll a day
+	// under the old one; check the day in bal() if that ever matters.
+	if *last != 0 && day != *last {
+		m.st.use(&Default)
+		if err := saveBalance(ctx, m.db, day, &Default); err != nil {
+			m.log.Warn("pp: saving the balance", "err", err)
+		}
+	}
 	m.minute()
 	m.Save()
-	now := m.now()
-	if day := DayOf(now); day != *last {
+	if day != *last {
 		// The audit may open members' ledgers, which the save writes; a
 		// boot only audits, so a restart doesn't post the head again.
 		m.audit(ctx)
