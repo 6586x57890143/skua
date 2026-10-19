@@ -133,31 +133,73 @@ var lookalikes = map[rune]rune{
 	0x1D1B: 't', 0x1D1C: 'u', 0x1D20: 'v', 0x1D21: 'w', 0x028F: 'y', 0x1D22: 'z',
 }
 
-// Key is s reduced to the letters a reader sees, for telling whether two
-// messages say the same thing: folded, then everything but letters dropped,
-// so spacing, digits, punctuation, zero-width runes, fullwidth and Zalgo
-// all come to the same key. Fewer than four letters is Short, one key for
-// every "hi", "hu" and "h". No letters at all is 0.
+// Key is s reduced to what a reader sees, for telling whether two messages
+// say the same thing: folded, then only its letters kept, so spacing,
+// digits, punctuation, zero-width runes, fullwidth and Zalgo all come to
+// the same key, and a held character counts once, so "youuu" is "you" and
+// a longer run of one emoji is the same message. A message with no letters
+// is keyed by what it does show, its emoji, digits and symbols. Fewer than
+// four is Short, one key for every "hi", "hu", "h" and lone emoji. Nothing
+// a reader sees at all is 0.
 func Key(s string) uint64 {
-	h, n := uint64(14695981039346656037), 0 // FNV-1a
-	var buf [utf8.UTFMax]byte
+	letters, symbols := uint64(offset), uint64(offset)
+	var n, m int
+	var prev rune
 	for _, r := range fold(s).text {
-		if !unicode.IsLetter(r) {
-			continue
+		r = unicode.ToLower(r)
+		switch {
+		case r == prev:
+		case unicode.IsLetter(r):
+			letters = mix(letters, r)
+			n++
+		case !unicode.IsSpace(r) && !drop(r) && !unicode.Is(unicode.Variation_Selector, r):
+			symbols = mix(symbols, r)
+			m++
+		default:
+			continue // a space or an invisible rune doesn't break a run
 		}
-		for _, b := range utf8.AppendRune(buf[:0], unicode.ToLower(r)) {
-			h = (h ^ uint64(b)) * 1099511628211
-		}
-		n++
+		prev = r
 	}
 	switch {
-	case n == 0:
-		return 0
-	case n < 4:
+	case n >= 4:
+		return letters
+	case n > 0:
 		return Short
+	case m >= 4:
+		return symbols
+	case m > 0:
+		return Short
+	}
+	return 0
+}
+
+// Short is Key's one key for a message of one to three characters.
+const Short uint64 = 1
+
+// offset is FNV-1a's, which mix folds a rune into.
+const offset = 14695981039346656037
+
+func mix(h uint64, r rune) uint64 {
+	var buf [utf8.UTFMax]byte
+	for _, b := range utf8.AppendRune(buf[:0], r) {
+		h = (h ^ uint64(b)) * 1099511628211
 	}
 	return h
 }
 
-// Short is Key's one key for a message of one to three letters.
-const Short uint64 = 1
+// MediaKey is what a message carries besides its text, as its sticker IDs
+// and its attachments' sizes and types, so the same sticker or image posted
+// again matches and two different photos don't. Nothing is 0.
+func MediaKey(media []string) uint64 {
+	if len(media) == 0 {
+		return 0
+	}
+	h := uint64(offset)
+	for _, s := range media {
+		for _, r := range s {
+			h = mix(h, r)
+		}
+		h = mix(h, 0)
+	}
+	return h | 2 // never 0, and never Short
+}
