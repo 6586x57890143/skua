@@ -280,12 +280,19 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	}
 	alt := fmt.Sprintf("%s, %s, level %d, %s pp to spend", pixel.Plain(sh.Name), sh.Class.Name(), sh.Level, grouped(sh.Purse/unit))
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", "",
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", turnsOver(today),
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}))},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
+}
+
+// turnsOver is when the day after today starts, in the reader's own time:
+// Discord shows a timestamp in each member's timezone.
+func turnsOver(today int64) string {
+	at := dayStart(today + 1).Unix()
+	return fmt.Sprintf("-# the pot turns over <t:%d:t>, <t:%d:R>", at, at)
 }
 
 // menuRows are the menu under every /pp screen, as UX.md has them: first

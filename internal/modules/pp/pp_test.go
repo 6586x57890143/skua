@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -89,7 +90,18 @@ func TestStatusCommand(t *testing.T) {
 	}
 	msg := (*sent)[0]
 	got := js(msg)
-	for _, want := range []string{"attachment://pp.jpg", "pp:class", "pp:show", `"parse":[]`} {
+	// The card says when the day turns, in each reader's own time.
+	next := dayStart(DayOf(m.now()) + 1)
+	if next.UTC().Hour() != 5 || next.UTC().Minute() != 30 || !next.After(m.now()) {
+		t.Errorf("the next turn is %v", next)
+	}
+	if got := turnsOver(DayOf(m.now())); got != fmt.Sprintf("-# the pot turns over <t:%d:t>, <t:%d:R>", next.Unix(), next.Unix()) {
+		t.Errorf("the turn reads %q", got)
+	}
+	// js escapes < and > the way encoding/json does, so the want is too.
+	esc, _ := json.Marshal(fmt.Sprintf("the pot turns over <t:%d:t>", next.Unix()))
+	turn := strings.Trim(string(esc), `"`)
+	for _, want := range []string{"attachment://pp.jpg", "pp:class", "pp:show", `"parse":[]`, turn} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the reply lacks %q: %s", want, got)
 		}
