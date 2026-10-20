@@ -129,10 +129,14 @@ next day is out, whatever the city does after.
 ## Factions
 
 - **The counting house** (ravens). The bank and the city's memory. They read
-  the pot's steam, keep the ledger and lend against perches.
+  the pot's steam, keep the ledger and lend against perches. A reckoner
+  struck off the roll is branded on the quill hand with the house's mark, a
+  raven's eye over a ledger line.
 - **The order of the stair** (cranes). Knights sworn to hold the stair, rung
   by rung. In practice they guard the gilt, collect perch rents and serve
-  writs. Every knight climbs to the top once, at their vigil.
+  writs. Every knight climbs to the top once, at their vigil, alone, and
+  stands in the nothing until the drowned bell rings the hour. The names of
+  those who don't come down are written on the chapter house wall.
 - **The hedge company** (shrikes). A chartered mercenary company that holds
   the hedge against the mire, paid by the city and by whoever pays more.
 - **The wet guild** (magpies). Divers and salvagers of the low town, and the
@@ -148,7 +152,11 @@ next day is out, whatever the city does after.
 - **The kiln keepers.** The glassmakers' guild of the mire's edge, rich from
   the bellward's windows, and the glass perches that let the gilt be seen.
 - **The tally board.** The debt court and the keepers of the tally mines.
-  Nobody joins it, and everybody owes it.
+  Nobody joins it, and everybody owes it. An insult is a debt too: a writ
+  for a verse is set at whatever the family insulted names.
+- **The north sea company.** A whaling concern with offices in the
+  bellward. Its ships are insured at the counting house, and a ship lost
+  with all hands pays out.
 
 ## What happened
 
