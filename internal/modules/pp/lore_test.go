@@ -9,7 +9,7 @@ import (
 	"github.com/6586x57890143/skua/internal/core/coretest"
 )
 
-// Every class has a character, its story on at most two pages that stay
+// Every class has a character, its story on three pages that stay
 // inside the card, and every page set where it can be read.
 func TestLoreCards(t *testing.T) {
 	for _, cl := range Classes {
@@ -19,7 +19,7 @@ func TestLoreCards(t *testing.T) {
 			continue
 		}
 		pages := lorePages(l)
-		if len(pages) > 2 {
+		if len(pages) != 3 {
 			t.Errorf("%s's story runs to %d pages", cl.Key, len(pages))
 		}
 		for p, lines := range pages {
@@ -38,14 +38,14 @@ func TestLoreCards(t *testing.T) {
 // class or page that isn't there.
 func TestLorePress(t *testing.T) {
 	m := testModule(&fakeDB{})
-	e, sent := coretest.Button(t, loreID(3, 1), nil)
+	e, sent := coretest.Button(t, loreID(3, 2), nil)
 	if err := m.press(context.Background(), e); err != nil {
 		t.Fatal(err)
 	}
 	got := js((*sent)[0])
 	for _, want := range []string{"raven sorcerer", "from the top", loreID(3, 0), loreID(2, 0), loreID(4, 0), "pp:pick:sorcerer"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("the sorcerer's second page has no %q: %s", want, got)
+			t.Errorf("the sorcerer's last page has no %q: %s", want, got)
 		}
 	}
 	for _, bad := range []string{"pp:lore:8:0", "pp:lore:0:9", "pp:lore:-1:0", "pp:lore:x", "pp:lore:0:0:0"} {

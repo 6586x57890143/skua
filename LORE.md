@@ -102,6 +102,14 @@ when more has gone into the pot than on an ordinary day, and on a lit day
 everyone's work goes further. Whether that's a rule of the fire or a rule of
 the herons is argued over in every coffee room.
 
+What counts as ordinary is kept on a **notch stick**. Each time the pot turns
+over, before dawn, a novice cuts the day just gone into the stick and shaves
+the oldest notch off, so it never holds more than seven. A good week raises
+the mark and a lean week lowers it. The keepers read the steam for talk and
+work poured in at the rim, and leave the notices on the board out of the
+count. The fire has three heights, and once lit it isn't let down until the
+next day is out, whatever the city does after.
+
 ## Beyond the hedge
 
 - **The mire.** A drowned country of reed, peat and black water to the south
@@ -121,10 +129,14 @@ the herons is argued over in every coffee room.
 ## Factions
 
 - **The counting house** (ravens). The bank and the city's memory. They read
-  the pot's steam, keep the ledger and lend against perches.
+  the pot's steam, keep the ledger and lend against perches. A reckoner
+  struck off the roll is branded on the quill hand with the house's mark, a
+  raven's eye over a ledger line.
 - **The order of the stair** (cranes). Knights sworn to hold the stair, rung
   by rung. In practice they guard the gilt, collect perch rents and serve
-  writs. Every knight climbs to the top once, at their vigil.
+  writs. Every knight climbs to the top once, at their vigil, alone, and
+  stands in the nothing until the drowned bell rings the hour. The names of
+  those who don't come down are written on the chapter house wall.
 - **The hedge company** (shrikes). A chartered mercenary company that holds
   the hedge against the mire, paid by the city and by whoever pays more.
 - **The wet guild** (magpies). Divers and salvagers of the low town, and the
@@ -140,7 +152,11 @@ the herons is argued over in every coffee room.
 - **The kiln keepers.** The glassmakers' guild of the mire's edge, rich from
   the bellward's windows, and the glass perches that let the gilt be seen.
 - **The tally board.** The debt court and the keepers of the tally mines.
-  Nobody joins it, and everybody owes it.
+  Nobody joins it, and everybody owes it. An insult is a debt too: a writ
+  for a verse is set at whatever the family insulted names.
+- **The north sea company.** A whaling concern with offices in the
+  bellward. Its ships are insured at the counting house, and a ship lost
+  with all hands pays out.
 
 ## What happened
 
