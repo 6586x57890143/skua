@@ -13,9 +13,10 @@ type Entry struct {
 var Changelog = []Entry{{
 	Version: "0.8.1",
 	Date:    "2026-10-21",
-	Balance: "795edc",
+	Balance: "d68156",
 	Lines: []string{
 		"if the treasury can't pay every weekly prize, each place gets the same share of its own, so first still pays the most",
+		"the day's pool swings about half as much from one day to the next",
 	},
 }, {
 	Version: "0.8.0",
