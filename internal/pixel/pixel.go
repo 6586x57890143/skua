@@ -13,6 +13,9 @@ import (
 	"image/png"
 	"slices"
 	"strings"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/6586x57890143/skua/internal/brand"
 )
@@ -266,14 +269,19 @@ func (c *Canvas) text(f *Face, x, y int, s string, i, shadow uint8, max, tight i
 // Wrap breaks s into lines at most width wide set in Regular.
 func Wrap(s string, width int) []string { return Regular.Wrap(s, width) }
 
-// Plain is s in what the face has, printable ASCII, on one line.
+// Plain is s in what the face has, printable ASCII, on one line. Styled
+// letters fold to their plain ones first (fullwidth, script and bold math
+// letters, accents), so a fancy name still reads.
 func Plain(s string) string {
 	s = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Mn, r) {
+			return -1
+		}
 		if r < 0x20 || r > 0x7E {
 			return ' '
 		}
 		return r
-	}, s)
+	}, norm.NFKD.String(s))
 	return strings.Join(strings.Fields(s), " ")
 }
 
