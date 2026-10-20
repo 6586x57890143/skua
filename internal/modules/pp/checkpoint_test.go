@@ -10,8 +10,8 @@ import (
 
 // When the week turns, each board's best are paid from the treasury into
 // their purse but not their level; both sides go into the ledger, and the
-// ledger channel hears about it. A treasury short of every prize splits
-// evenly.
+// ledger channel hears about it. A treasury short of every prize pays each
+// place the same share of its own.
 func TestCheckpoint(t *testing.T) {
 	m := testModule(&fakeDB{})
 	r := &postRest{}
@@ -47,10 +47,11 @@ func TestCheckpoint(t *testing.T) {
 	if top.total != totals {
 		t.Error("a prize counted toward the level")
 	}
-	// 3,000 pp can't pay the 4,000 the five places are owed, so each gets 600.
+	// 3,000 pp can't pay the 4,000 the five places are owed, so each gets
+	// three quarters of its prize.
 	for i := 1; i < 6; i++ {
-		if got := s.members[old(i+1)].purse - before[i]; got != 600*unit {
-			t.Errorf("place %d got %d; want an even 600 pp", 6-i, got/unit)
+		if got, want := s.members[old(i+1)].purse-before[i], Default.Prizes[5-i]*3/4; got != want {
+			t.Errorf("place %d got %d; want %d", 6-i, got, want)
 		}
 	}
 	if s.treasury != s.fund || s.fund != 900*unit || s.members[old(1)].purse != before[0] {
@@ -70,7 +71,7 @@ func TestCheckpoint(t *testing.T) {
 	m.now = func() time.Time { return monday.Add(time.Minute) }
 	m.tick(t.Context(), &last)
 	all := strings.Join(r.posts, " ")
-	if !strings.Contains(all, "the week of") || !strings.Contains(all, "+600 pp") || !strings.Contains(all, "ran short") || !strings.Contains(all, "**chat**") {
+	if !strings.Contains(all, "the week of") || !strings.Contains(all, "+1,125 pp") || !strings.Contains(all, "ran short") || !strings.Contains(all, "**chat**") {
 		t.Errorf("posted %v", r.posts)
 	}
 	if len(s.checkpoints) != 0 {

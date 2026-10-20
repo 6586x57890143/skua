@@ -12,8 +12,10 @@ import (
 // The weekly checkpoint: when a server's week turns, the top places on each
 // board (voice and chat) are paid Balance.Prizes from the treasury, never
 // from its contest fund, which is for grants. A treasury that can't pay every
-// place splits what it has evenly between them, so a short week doesn't
-// fall on whoever is paid last. Prizes go into the purse, not the level or
+// place pays each the same share of its prize, so a short week neither
+// falls on whoever is paid last nor flattens first into fifth. It never
+// pays past the table: a rich week's surplus stays as next week's cushion.
+// Prizes go into the purse, not the level or
 // the season: levels are time, and the season is its own race.
 
 // prize is one place paid at a checkpoint.
@@ -28,7 +30,7 @@ type prize struct {
 type checkpointNews struct {
 	week   int64
 	prizes []prize
-	short  bool // the treasury couldn't pay every place, so it split evenly
+	short  bool // the treasury couldn't pay every place, so each got a share
 }
 
 // checkpoint pays week's places. s.mu held.
@@ -63,13 +65,13 @@ func (st *state) checkpoint(s *server, week, today int64) {
 	}
 	if free := s.treasury - s.fund; owed > free {
 		news.short = true
-		share := free / int64(len(news.prizes))
-		for i := range news.prizes {
-			news.prizes[i].amount = share
+		kept := news.prizes[:0]
+		for _, p := range news.prizes {
+			if p.amount = p.amount * free / owed; p.amount > 0 {
+				kept = append(kept, p)
+			}
 		}
-		if share == 0 {
-			news.prizes = nil
-		}
+		news.prizes = kept
 	}
 	for _, p := range news.prizes {
 		m := s.members[p.user]
@@ -105,7 +107,7 @@ func checkpointText(n checkpointNews) string {
 		}
 	}
 	if n.short {
-		b.WriteString("\n-# the treasury ran short, so it split what it had evenly between the places")
+		b.WriteString("\n-# the treasury ran short, so every place got the same share of its prize")
 	}
 	return b.String()
 }
