@@ -128,7 +128,7 @@ var Default = Balance{
 	ActivityGap:  10 * time.Second,
 
 	Pool:        700 * unit,
-	Jitter:      15,
+	Jitter:      8,
 	Taper:       [2]Band{{Upto: 60, Rate: 100}, {Upto: 100, Rate: 50}},
 	VoiceTail:   5,
 	ChatTail:    0,
