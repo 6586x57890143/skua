@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -127,9 +128,10 @@ func TestGrantRefusals(t *testing.T) {
 }
 
 // A grant up to a pot day pays at once: out of the contest fund, into the
-// purse but not the level, both into the ledger, and posted.
+// purse but not the level, both into the ledger, saved at once, and posted.
 func TestGrantPays(t *testing.T) {
-	m := testModule(&fakeDB{})
+	db := &fakeDB{}
+	m := testModule(db)
 	r := &postRest{}
 	m.rest, m.Guard = r, guard.New()
 	pd := Default.PotDay(Rules)
@@ -149,8 +151,11 @@ func TestGrantPays(t *testing.T) {
 	if mem.purse != pd || mem.total != 0 || s.treasury != 49*pd || s.fund != 49*pd || mem.granted != pd {
 		t.Errorf("purse %d total %d treasury %d granted %d", mem.purse, mem.total, s.treasury, mem.granted)
 	}
-	if n := len(s.pending); n != 2 || s.pending[0].user != 0 || s.pending[0].delta != -pd || s.pending[1].user != winner || s.pending[1].reason != reasonGrant {
-		t.Errorf("the ledger got %+v", s.pending)
+	if len(s.pending) != 0 || len(db.execs) == 0 || !strings.Contains(db.execs[0], "insert into pp_ledger") {
+		t.Errorf("not saved at once: pending %+v, wrote %d", s.pending, len(db.execs))
+	}
+	if s.seq != 2 {
+		t.Errorf("the ledger got %d rows", s.seq)
 	}
 	if len(r.posts) != 1 || !strings.Contains(r.posts[0], "won the screenshot contest") || !strings.Contains(r.posts[0], "granted by") {
 		t.Errorf("posted %v", r.posts)
@@ -229,5 +234,82 @@ func TestGrantApproval(t *testing.T) {
 	if n, err := m.st.audit(ctx, db); err != nil || n != 0 {
 		t.Errorf("the audit after grants: %d, %v", n, err)
 	}
+	var state string
+	if err := queryOne(ctx, db, `select state from pp_grant where guild_id = $1 and to_id = $2`, []any{int64(g), int64(winner)}, &state); err != nil || state != "paid" {
+		t.Errorf("an approved grant is %q after its save: %v", state, err)
+	}
 
+}
+
+// Two grants at once can't both take the room for one: each checks the
+// fund under the lock it pays under.
+func TestGrantRace(t *testing.T) {
+	m := testModule(&fakeDB{})
+	pd := Default.PotDay(Rules)
+	g := snowflake.ID(3)
+	s := openFund(m, g, pd)
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for i := range 8 {
+		wg.Go(func() { errs <- m.pay(g, grant{from: 5, to: old(10 + i), amount: pd}) })
+	}
+	wg.Wait()
+	close(errs)
+	var ok int
+	for err := range errs {
+		if err == nil {
+			ok++
+		}
+	}
+	if ok != 1 || s.fund != 0 || s.treasury != 0 {
+		t.Errorf("%d grants paid, fund %d, treasury %d", ok, s.fund, s.treasury)
+	}
+}
+
+// A grant a crash left paying, claimed but never flushed, was never paid:
+// the next boot puts it back to waiting. A paid one stays paid.
+func TestGrantPayingWaitsAgain(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	g := snowflake.New(time.Now()) + snowflake.ID(time.Now().UnixNano()%4096)
+	var paying, paid int64
+	for _, c := range []struct {
+		state string
+		id    *int64
+	}{{"paying", &paying}, {"paid", &paid}} {
+		if err := queryOne(ctx, db, `insert into pp_grant (guild_id, from_id, to_id, amount, reason, state, second_id) values ($1, 5, 7, 1, 'x', $2, 6) returning id`,
+			[]any{int64(g), c.state}, c.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := newState(&Default, 42).load(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[int64]string{paying: "waiting", paid: "paid"} {
+		var state string
+		if err := queryOne(ctx, db, `select state from pp_grant where id = $1`, []any{id}, &state); err != nil || state != want {
+			t.Errorf("grant %d is %q, want %q: %v", id, state, want, err)
+		}
+	}
+}
+
+// A grant whose save fails stays queued to be marked paid with its ledger
+// rows, and the next save writes both.
+func TestGrantSaveFails(t *testing.T) {
+	db := &fakeDB{fail: errors.New("down")}
+	m := testModule(db)
+	pd := Default.PotDay(Rules)
+	g := snowflake.ID(3)
+	s := openFund(m, g, 10*pd)
+	if err := m.pay(g, grant{id: 9, from: 5, to: old(7), amount: pd}); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.paid) != 1 || len(s.pending) != 2 || !s.dirty {
+		t.Fatalf("after a failed save: paid %v, pending %d, dirty %v", s.paid, len(s.pending), s.dirty)
+	}
+	db.fail, db.execs = nil, nil
+	m.Save()
+	if len(s.paid) != 0 || len(s.pending) != 0 || !strings.Contains(strings.Join(db.execs, "\n"), "set state = 'paid'") {
+		t.Errorf("the next save: paid %v, pending %d, wrote %v", s.paid, len(s.pending), db.execs)
+	}
 }

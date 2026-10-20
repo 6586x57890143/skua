@@ -39,6 +39,21 @@ func (f *fakeDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
 	return nil, errors.New("fakeDB: no reads")
 }
 
+func (f *fakeDB) Begin(context.Context) (pgx.Tx, error) { return fakeTx{db: f}, nil }
+
+// fakeTx is a transaction on a fakeDB: its writes go straight through.
+type fakeTx struct {
+	pgx.Tx
+	db *fakeDB
+}
+
+func (t fakeTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	return t.db.Exec(ctx, sql, args...)
+}
+
+func (fakeTx) Commit(context.Context) error   { return nil }
+func (fakeTx) Rollback(context.Context) error { return nil }
+
 func testModule(db DB) *Module {
 	return &Module{
 		log: slog.New(slog.NewTextHandler(io.Discard, nil)), db: db, st: newState(&Default, 42),

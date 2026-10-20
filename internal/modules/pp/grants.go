@@ -125,11 +125,15 @@ func (m *Module) submitGrant(ctx context.Context, e *events.ModalSubmitInteracti
 // prize no bigger than the biggest, room in the contest fund and in the
 // member's season. It changes nothing.
 func (m *Module) canGrant(guild snowflake.ID, g grant) error {
-	today := DayOf(m.now())
-	season, _ := m.st.bal().Season(today)
 	s := m.st.server(guild)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return m.checkGrant(s, g)
+}
+
+// checkGrant is canGrant with s.mu held.
+func (m *Module) checkGrant(s *server, g grant) error {
+	season, _ := m.st.bal().Season(DayOf(m.now()))
 	if s.logChannel == 0 {
 		return errNoLedger
 	}
@@ -150,15 +154,19 @@ func (m *Module) canGrant(guild snowflake.ID, g grant) error {
 }
 
 // pay moves g from the contest fund into the member's purse, both into the
-// ledger, and posts it. The level doesn't count it: levels are time.
+// ledger, and posts it. The level doesn't count it: levels are time. It
+// checks g under the lock it pays under, so two grants can't both fit in
+// room for one, and saves at once: a waiting grant is marked paid in the
+// same transaction as its ledger rows.
 func (m *Module) pay(guild snowflake.ID, g grant) error {
-	if err := m.canGrant(guild, g); err != nil {
-		return err
-	}
 	today := DayOf(m.now())
 	season, _ := m.st.bal().Season(today)
 	s := m.st.server(guild)
 	s.mu.Lock()
+	if err := m.checkGrant(s, g); err != nil {
+		s.mu.Unlock()
+		return err
+	}
 	mem := m.st.member(s, guild, g.to, today)
 	if mem.grantSeason != season {
 		mem.grantSeason, mem.granted = season, 0
@@ -170,7 +178,11 @@ func (m *Module) pay(guild snowflake.ID, g grant) error {
 	s.append(0, today, reasonGrant, -g.amount, []int64{int64(g.to), int64(g.from), int64(g.second)})
 	s.append(g.to, today, reasonGrant, g.amount, []int64{int64(g.from), int64(g.second)})
 	mem.dirty, s.dirty = true, true
+	if g.id != 0 {
+		s.paid = append(s.paid, g.id)
+	}
 	s.mu.Unlock()
+	m.Save()
 	// Paid is paid; a post that fails is logged, and the ledger holds it.
 	if err := m.postGrant(guild, g, false); err != nil {
 		m.log.Warn("pp: posting a grant", "guild", guild, "err", err)
@@ -254,9 +266,11 @@ func (m *Module) settle(ctx context.Context, guild snowflake.ID, e *events.Compo
 		if err := m.canGrant(guild, g); err != nil {
 			return err
 		}
-		state, note = "paid", ""
+		state, note = "paying", ""
 	}
-	// Settle the row first, so a double press can't pay twice.
+	// Claim the row first, so a double press can't pay twice. A paying row
+	// turns paid in the flush that writes its ledger rows; one a crash
+	// left paying waits again at the next boot.
 	tag, err := m.db.Exec(ctx, `update pp_grant set state = $3, second_id = $4 where id = $1 and guild_id = $2 and state = 'waiting'`,
 		id, int64(guild), state, int64(e.User().ID))
 	if err != nil {
@@ -268,7 +282,7 @@ func (m *Module) settle(ctx context.Context, guild snowflake.ID, e *events.Compo
 	if approve {
 		if err := m.pay(guild, g); err != nil {
 			// Unpaid, so it waits again.
-			_, _ = m.db.Exec(ctx, `update pp_grant set state = 'waiting', second_id = 0 where id = $1`, id)
+			_, _ = m.db.Exec(ctx, `update pp_grant set state = 'waiting', second_id = 0 where id = $1 and state = 'paying'`, id)
 			return err
 		}
 		note = fmt.Sprintf("✓ <@%s> got %s pp from the contest fund", g.to, grouped(g.amount/unit))
