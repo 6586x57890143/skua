@@ -146,8 +146,8 @@ var Default = Balance{
 	CurveB: 150,
 	CurveC: 300,
 
-	QuestPP:   [3]int64{250 * unit, 400 * unit, 750 * unit},
-	QuestOdds: [3]uint64{16, 3, 1},
+	QuestPP:   [3]int64{300 * unit, 400 * unit, 750 * unit},
+	QuestOdds: [3]uint64{36, 3, 1},
 	QuestHold: 3,
 	QuestKinds: [3][]QuestKind{
 		{
