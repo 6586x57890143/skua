@@ -93,6 +93,9 @@ type server struct {
 	seq     int64
 	head    []byte
 	pending []entry
+	// paid are the grants approved since the last flush, which marks them
+	// paid in the transaction that writes their ledger rows.
+	paid []int64
 	// The treasury: what it holds, the levy it took today and hasn't put in
 	// the ledger yet, and the levy at the full rate today and on each of
 	// the days before (up to a week), which says when it's full.
@@ -124,11 +127,13 @@ func weekOf(day int64) int64 { return (day + 3) / 7 }
 // state is everything /pp holds, by guild. seed draws the rolls of any
 // season without a committed seed of its own in seeds.
 type state struct {
-	cur   atomic.Pointer[era]
-	seed  uint64
-	mu    sync.Mutex
-	srv   map[snowflake.ID]*server
-	seeds map[int64]*seasonSeed
+	cur  atomic.Pointer[era]
+	seed uint64
+	mu   sync.Mutex
+	// flushing keeps flushes one at a time, so an older one can't land last.
+	flushing sync.Mutex
+	srv      map[snowflake.ID]*server
+	seeds    map[int64]*seasonSeed
 }
 
 // era is the balance the day runs under and its pot day under the charter,

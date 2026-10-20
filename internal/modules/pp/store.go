@@ -13,6 +13,7 @@ import (
 type DB interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
 // load reads every member, server, ledger head and season seed /pp has
@@ -70,6 +71,11 @@ func (st *state) load(ctx context.Context, db DB) error {
 	if err := st.loadLedger(ctx, db); err != nil {
 		return err
 	}
+	// A grant still paying never reached a flush, which would have marked
+	// it paid with its ledger rows, so it was never paid: it waits again.
+	if _, err := db.Exec(ctx, `update pp_grant set state = 'waiting', second_id = 0 where state = 'paying'`); err != nil {
+		return err
+	}
 	return st.loadSeeds(ctx, db)
 }
 
@@ -122,12 +128,16 @@ func (r *memberRows) add(guild, user snowflake.ID, m *member) {
 	r.name = append(r.name, m.name)
 }
 
-// flush writes every member and server changed since the last flush, one
-// statement for each table however many changed, the ledger's new rows in
-// the same statement as the members, so a purse and its rows land together
-// or not at all. What fails to write stays marked and goes with the next.
+// flush writes every member, server and grant paid since the last flush in
+// one transaction, so a purse, its ledger rows, the treasury and the grant
+// that moved them land together or not at all. What fails to write stays
+// marked and goes with the next.
 func (st *state) flush(ctx context.Context, db DB) (int, error) {
+	st.flushing.Lock()
+	defer st.flushing.Unlock()
 	var rows memberRows
+	var paid []int64
+	tookPaid := map[*server][]int64{}
 	var ledger ledgerRows
 	took := map[*server][]entry{}
 	var guilds, days, raws, lits, before []int64
@@ -147,6 +157,10 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 		}
 		if len(s.pending) > 0 {
 			took[s], s.pending = s.pending, nil
+		}
+		if len(s.paid) > 0 {
+			paid = append(paid, s.paid...)
+			tookPaid[s], s.paid = s.paid, nil
 		}
 		for u, m := range s.members {
 			if m.dirty {
@@ -185,9 +199,31 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			s.pending = append(es, s.pending...)
 			s.mu.Unlock()
 		}
+		for s, ids := range tookPaid {
+			s.mu.Lock()
+			s.paid = append(ids, s.paid...)
+			s.mu.Unlock()
+		}
 	}
+	if len(rows.user) == 0 && len(ledger.seq) == 0 && len(guilds) == 0 && len(paid) == 0 {
+		return 0, nil
+	}
+	if err := pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
+		return writeFlush(ctx, tx, &rows, &ledger, paid, guilds, func(i int) []any {
+			return []any{guilds[i], days[i], raws[i], histories[i], lits[i], before[i], treasuries[i], open[i], full[i], levyDays[i], funds[i], seeded[i], smint[i], sburn[i], slast[i], heavy[i]}
+		})
+	}); err != nil {
+		remark()
+		return 0, err
+	}
+	return len(rows.user), nil
+}
+
+// writeFlush is flush's statements, inside its transaction; guild gives the
+// i'th server's row.
+func writeFlush(ctx context.Context, tx pgx.Tx, rows *memberRows, ledger *ledgerRows, paid, guilds []int64, guild func(int) []any) error {
 	if len(rows.user) > 0 || len(ledger.seq) > 0 {
-		_, err := db.Exec(ctx, `with ledger as (
+		_, err := tx.Exec(ctx, `with ledger as (
 				insert into pp_ledger (guild_id, seq, user_id, day, reason, delta, inputs, hash)
 				select l.g, l.s, l.u, l.d, l.r, l.dl, coalesce(($27::bigint[])[l.o + 1 : l.o + l.n], '{}'), l.h
 				from unnest($20::bigint[], $21::bigint[], $22::bigint[], $23::bigint[], $24::text[], $25::bigint[],
@@ -218,14 +254,18 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			ledger.off, ledger.n,
 			rows.dayGot, rows.buffLo, rows.buffHi, rows.dayMinutes, rows.dayPaid, rows.dayLevy, rows.granted, rows.grantSeason, rows.rung, rows.dayWithheld, rows.quests, rows.questDay, rows.questsDone, rows.name)
 		if err != nil {
-			remark()
-			return 0, err
+			return err
+		}
+	}
+	if len(paid) > 0 {
+		if _, err := tx.Exec(ctx, `update pp_grant set state = 'paid' where id = any($1) and state = 'paying'`, paid); err != nil {
+			return err
 		}
 	}
 	// A server's history is an array, which unnest would flatten, so
 	// servers go one statement each; there are few, and few change.
-	for i, g := range guilds {
-		_, err := db.Exec(ctx, `insert into pp_guild (guild_id, day, raw, history, lit, lit_before, treasury, levy_open, levy_full, levy_days,
+	for i := range guilds {
+		_, err := tx.Exec(ctx, `insert into pp_guild (guild_id, day, raw, history, lit, lit_before, treasury, levy_open, levy_full, levy_days,
 				fund, fund_seeded, season_mint, season_burn, sink_last, heavy)
 			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 			on conflict (guild_id) do update set day = excluded.day, raw = excluded.raw, history = excluded.history,
@@ -233,13 +273,12 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 				levy_open = excluded.levy_open, levy_full = excluded.levy_full, levy_days = excluded.levy_days,
 				fund = excluded.fund, fund_seeded = excluded.fund_seeded,
 				season_mint = excluded.season_mint, season_burn = excluded.season_burn, sink_last = excluded.sink_last, heavy = excluded.heavy`,
-			g, days[i], raws[i], histories[i], lits[i], before[i], treasuries[i], open[i], full[i], levyDays[i], funds[i], seeded[i], smint[i], sburn[i], slast[i], heavy[i])
+			guild(i)...)
 		if err != nil {
-			remark()
-			return 0, err
+			return err
 		}
 	}
-	return len(rows.user), nil
+	return nil
 }
 
 // loadBalance sets the balance today runs under: the one saved for today,
