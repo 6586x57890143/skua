@@ -199,6 +199,11 @@ func TestWearing(t *testing.T) {
 	if !m.wear.Crest || !m.wear.Plume {
 		t.Errorf("wearing %+v", m.wear)
 	}
+	glyphs := "🦆🦆"
+	seen(m, &discord.Member{Nick: &glyphs}, discord.User{Username: "steve"}, guild)
+	if m.name != "steve" {
+		t.Errorf("a name the board can't draw stayed %q", m.name)
+	}
 	status := func(s string) []discord.Activity {
 		return []discord.Activity{{Type: discord.ActivityTypeCustom, State: &s}}
 	}

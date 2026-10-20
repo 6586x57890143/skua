@@ -71,8 +71,14 @@ func TestText(t *testing.T) {
 	if ink == 0 || shadow == 0 {
 		t.Errorf("text drew %d ink and %d shadow", ink, shadow)
 	}
-	if Plain("héron\tthief  ok") != "h ron thief ok" {
-		t.Errorf("Plain: %q", Plain("héron\tthief  ok"))
+	for in, want := range map[string]string{
+		"héron\tthief  ok": "heron thief ok",
+		"𝓫𝓸𝓫 ＦＵＬＬ 𝐁𝐎𝐋𝐃":    "bob FULL BOLD",
+		"🦆 duck": "duck",
+	} {
+		if got := Plain(in); got != want {
+			t.Errorf("Plain(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

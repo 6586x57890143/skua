@@ -10,6 +10,8 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
+
+	"github.com/6586x57890143/skua/internal/pixel"
 )
 
 // What /pp knows lives here, in memory: everyone's day in every server and
@@ -349,6 +351,9 @@ func seen(m *member, mem *discord.Member, u discord.User, guild snowflake.ID) {
 		if mem.Nick != nil && *mem.Nick != "" {
 			name = *mem.Nick
 		}
+	}
+	if pixel.Plain(name) == "" {
+		name = u.Username
 	}
 	if name != "" && name != m.name {
 		m.name, m.dirty = name, true
