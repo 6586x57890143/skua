@@ -103,6 +103,25 @@ func simulate(b *Balance, p persona, days int) result {
 	return r
 }
 
+func TestQuestRoll(t *testing.T) {
+	var n [3]uint64
+	for r := range uint64(2000) {
+		tier, pp := b.QuestRoll(r)
+		if pp != b.QuestPP[tier] {
+			t.Fatalf("tier %d paid %d", tier, pp)
+		}
+		n[tier]++
+	}
+	if n != [3]uint64{1800, 150, 50} {
+		t.Errorf("2000 rolls fell %v; want 1800, 150, 50", n)
+	}
+	for i := 1; i < len(b.QuestPP); i++ {
+		if b.QuestPP[i] <= b.QuestPP[i-1] || b.QuestOdds[i] >= b.QuestOdds[i-1] {
+			t.Errorf("tier %d isn't rarer and richer than tier %d", i, i-1)
+		}
+	}
+}
+
 func TestBalanceHolds(t *testing.T) {
 	b := &Default
 	month := map[string]result{}
