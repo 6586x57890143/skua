@@ -166,7 +166,7 @@ func TestRun(t *testing.T) {
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("run: %v", err)
 			}
-			if tc.fail == "" {
+			if tc.fail != "/commits/" {
 				raw, err := os.ReadFile(sourceFile)
 				if err != nil || !strings.Contains(string(raw), strings.Repeat("b", 40)) {
 					t.Fatalf("source manifest missing after drift: %s %v", raw, err)

@@ -18,7 +18,9 @@
         "wrangler.toml",
         "wrangler.jsonc",
         "LICENSE",
-        "LICENSE.md"
+        "LICENSE.md",
+        "wrangler.example.toml",
+        "esbuild.config.mjs"
       ]
     },
     {

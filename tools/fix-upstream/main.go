@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -84,20 +85,33 @@ func run() error {
 	client := &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	changed, relevant := false, false
 	var snapshots []snapshot
+	var failures []error
 	fmt.Printf("# embed upstream review\n\nreviewed: %s\n\nMetadata services update independently. Review API and renderer changes before advancing upstreams.json. No upstream code is imported automatically.\n", pinned.Reviewed)
 	for _, repo := range pinned.Repositories {
 		var head struct{ SHA string }
 		if err = get(ctx, client, repo.Repository+"/commits/main", &head); err != nil {
-			return fmt.Errorf("%s head: %w", repo.Repository, err)
+			failures = append(failures, fmt.Errorf("%s head: %w", repo.Repository, err))
+			continue
 		}
 		source, err := sourceSnapshot(repo, head.SHA)
 		if err != nil {
-			return err
+			failures = append(failures, err)
+			continue
 		}
 		snapshots = append(snapshots, source)
+		if *sources != "" {
+			data, err := json.MarshalIndent(snapshots, "", "  ")
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(*sources, append(data, '\n'), 0600); err != nil {
+				return err
+			}
+		}
 		var diff comparison
 		if err = get(ctx, client, repo.Repository+"/compare/"+repo.Revision+"..."+head.SHA, &diff); err != nil {
-			return fmt.Errorf("%s comparison: %w", repo.Repository, err)
+			failures = append(failures, fmt.Errorf("%s comparison: %w", repo.Repository, err))
+			continue
 		}
 		fmt.Printf("\n## %s\n\nlicense: %s; reviewed: %s\n\n[%s: %d commits](%s)\n", repo.Repository, repo.License, repo.Revision, diff.Status, diff.Total, diff.HTMLURL)
 		if diff.Status != "identical" {
@@ -123,26 +137,18 @@ func run() error {
 		}
 		var prs []pull
 		if err = get(ctx, client, repo.Repository+"/pulls?state=open&per_page=20", &prs); err != nil {
-			return fmt.Errorf("%s contributions: %w", repo.Repository, err)
+			failures = append(failures, fmt.Errorf("%s contributions: %w", repo.Repository, err))
+			continue
 		}
 		fmt.Println("\nOpen contributions (at most 20, unreviewed):")
 		for _, pr := range prs {
 			fmt.Printf("- [#%d %s](%s)\n", pr.Number, pr.Title, pr.HTMLURL)
 		}
 	}
-	if *sources != "" {
-		data, err := json.MarshalIndent(snapshots, "", "  ")
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(*sources, append(data, '\n'), 0600); err != nil {
-			return err
-		}
-	}
 	if (*check && changed) || (*important && relevant) {
-		return fmt.Errorf("upstream sources changed; review the report and run live canaries before advancing the lock")
+		failures = append(failures, fmt.Errorf("upstream sources changed; review the report and run live canaries before advancing the lock"))
 	}
-	return nil
+	return errors.Join(failures...)
 }
 func main() {
 	if err := run(); err != nil {
