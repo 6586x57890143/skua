@@ -82,6 +82,12 @@ in one reads as a form.
   is a **Components V2 container**, which can hold selects and buttons between its
   text.
 
+Social previews are a Components V2 exception: media galleries keep mixed images
+and videos together. Their compact header is a platform icon and an author name
+linked to the original post, with no large thumbnail or duplicate link button.
+The source text uses normal body contrast; only nested quoted posts use a quote
+block. Engagement icons and localized Discord timestamps finish the card.
+
 Both wear the bird's face and the rule, and are accented in the colour of their mood.
 
 ## A record
@@ -151,6 +157,11 @@ per entry in the description. Moods are `ok`, `info`, `warn`, `error`, `idle` an
 tests.
 
 ## Log
+
+- **2026-10-23** Social previews use a compact linked author header and readable
+  body text after the owner compared FixTweet and Skua screenshots. A platform
+  icon replaces the oversized avatar; Components V2 has no inline remote-avatar
+  slot. This exception keeps playable mixed media without the large thumbnail.
 
 - **2026-10-18** Records are part of the new design, not a return to the old one, so
   they take its voice: all lowercase, titles and keys included, bold only on what a

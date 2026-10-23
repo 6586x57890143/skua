@@ -169,3 +169,15 @@ taken from the environment, is said out loud before it is used.
 table. Columns keep p50, p99, targets and counts aligned when the timing report is
 copied into an issue or compared with another run. A `!` marks a
 missed p99 target; those rows lead, then the slowest remaining stages.
+
+## social previews
+
+Social previews keep Components V2 media galleries. The platform's existing app
+icon sits beside the author name, linked to the original post. No large author
+thumbnail or duplicate open button. Source text keeps its case and uses normal
+body contrast; quoted posts are separate, linked sections. Engagement icons sit
+beside their counts and Discord timestamps use the reader's timezone.
+
+This follows the owner's 2026-10-23 comparison of FixTweet and Skua screenshots:
+the large avatar crowded the header and the quoted body was too faint. Components
+V2 cannot place a small remote avatar inline, so the platform icon takes that place.

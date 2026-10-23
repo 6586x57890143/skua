@@ -81,8 +81,9 @@ var caps = [opCount]int64{
 	Reaction: 1260,
 	// Discord allows 200 command creates a guild a day.
 	CommandSync: 8,
-	// A boot uploads only what was redrawn: a handful, never hundreds.
-	EmojiCreate: 50,
+	// A fresh install uploads the complete icon set (currently 61); later
+	// boots upload only missing art. Keep a bounded budget with room for both.
+	EmojiCreate: 64,
 	// One per bridged message with a pasted link: WebhookExecute's pace.
 	AttachmentRefresh: 300,
 }

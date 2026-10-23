@@ -33,11 +33,12 @@ func module() *Module {
 
 type recordingRest struct {
 	rest.Rest
-	mu      sync.Mutex
-	creates []discord.MessageCreate
-	updates []discord.MessageUpdate
-	deleted []snowflake.ID
-	err     error
+	mu         sync.Mutex
+	creates    []discord.MessageCreate
+	updates    []discord.MessageUpdate
+	suppressed []discord.MessageUpdate
+	deleted    []snowflake.ID
+	err        error
 }
 
 func (r *recordingRest) CreateMessage(_ snowflake.ID, msg discord.MessageCreate, _ ...rest.RequestOpt) (*discord.Message, error) {
@@ -49,7 +50,11 @@ func (r *recordingRest) CreateMessage(_ snowflake.ID, msg discord.MessageCreate,
 func (r *recordingRest) UpdateMessage(_ snowflake.ID, _ snowflake.ID, msg discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.updates = append(r.updates, msg)
+	if msg.Flags != nil && msg.Components == nil {
+		r.suppressed = append(r.suppressed, msg)
+	} else {
+		r.updates = append(r.updates, msg)
+	}
 	return &discord.Message{}, r.err
 }
 func (r *recordingRest) UpdateInteractionResponse(_ snowflake.ID, _ string, msg discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
@@ -86,7 +91,7 @@ func slash(t *testing.T, link string, share bool) (*events.ApplicationCommandInt
 }
 func TestModuleContractAndCommandDelivery(t *testing.T) {
 	m := module()
-	if m.Name() != Name || m.Want().Required != gateway.IntentGuilds || m.Want().Optional&gateway.IntentMessageContent == 0 || m.Perms()&discord.PermissionManageMessages != 0 || m.Help().About == "" {
+	if m.Name() != Name || m.Want().Required != gateway.IntentGuilds || m.Want().Optional&gateway.IntentMessageContent == 0 || m.Perms()&discord.PermissionManageMessages == 0 || m.Help().About == "" {
 		t.Fatal("module contract")
 	}
 	for _, share := range []bool{false, true} {

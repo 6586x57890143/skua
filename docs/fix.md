@@ -16,9 +16,22 @@ returns to off on restart.
 
 Automatic conversion needs the message content intent enabled in the Developer
 Portal. Commands keep working without it. Bot, webhook and system messages are
-ignored. Code, spoilers and angle-suppressed links are left alone. Originals are
-preserved; she never asks for Manage Messages or deletes someone else's message.
-Cards cannot ping anyone. Creator names, captions and alt text keep their original
+ignored. Code, spoilers and angle-suppressed links are left alone. Message text is
+preserved. After every supported link has a successfully delivered card, she
+suppresses the source message's native previews using Manage Messages. This is a
+flags-only edit, never a deletion. Without that permission the card still works
+and the original preview remains. Metadata/delivery failures, unsupported links
+and links beyond the three-card limit keep the original previews, because Discord
+can only suppress all embeds on a message at once. Private command previews never
+change the source. Permission refusals are not retried. If an edit makes replacement incomplete,
+she restores native previews only when she set the suppression flag herself;
+preexisting author suppression is preserved. Transient restore failures use the
+bounded retry queue. This follows the same 512-message tracking window as card
+edits: restart or eviction ends automatic preview-flag restoration.
+Cards cannot ping anyone. The platform icon sits beside the author's name, which
+links to the original post; there is no oversized avatar or open button. Body URLs
+and quote sources are clickable, engagement uses app icons, and Discord renders
+the timestamp in each reader's timezone. Creator names, captions and alt text keep their original
 case, while Skua's own labels follow the shared lowercase voice.
 
 ## providers
@@ -71,12 +84,12 @@ Up to eight fetch workers run at once. The existing per-guild message guard
 limits both API admissions and Discord writes; every write reports struggling
 responses to the guard. Requests stop at shutdown. Cards have a bounded text
 budget, up to 20 media items in galleries of ten, and up to six context sections.
-Source-sensitive media is spoilered and sensitive avatars are omitted. A failed
+Source-sensitive media is spoilered; the header uses a platform icon instead of a remote avatar. A failed
 provider yields a V2 card with the original link.
 
 Automatic replies follow edits and deletes for the most recent 512 source
 messages across the process, including edits that hide or remove a link. Tracking
-keeps source/reply IDs and validated URLs for pending or published links; it stores
+keeps a content hash for duplicate-event detection, source flags, source/reply IDs and validated URLs for pending or published links; it stores
 no captions or message text and survives neither restart nor eviction. Older cards
 therefore remain when their source is later edited/deleted. Edits to an untracked source do
 not create a new card. Manual shares are standalone cards. Per-server counters
@@ -187,3 +200,10 @@ trials for each of X text, video, GIF, Bluesky and Reddit audio/video, the slowe
 metadata result was 1.633 s, below the 4 s canary budget. Every Reddit combined
 MP4 probe contained both audio and video tracks. Discord delivery has not been
 live-tested; its complete-delivery budget is instrumented for deployment.
+
+The compact-card revision was rechecked on the same machine: mixed-media cards
+rendered in 4.85-4.92 us (87 allocations), ordinary-message scanning in 245-255 ns
+with zero allocations, obs sampling in 31.7-32.3 ns with zero allocations and guard
+admission in 4.98-5.53 ns with zero allocations (three 300 ms runs each). These are
+local averages. Native-preview suppression adds one guarded Discord write after
+successful delivery and remains inside the existing end-to-end measurement.
