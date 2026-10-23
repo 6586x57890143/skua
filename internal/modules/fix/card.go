@@ -78,7 +78,8 @@ func card(l Link, p Post) discord.MessageCreate {
 		remaining -= len(utf16.Encode([]rune(text)))
 	}
 	addText(heading)
-	if platform != "reddit" && p.Title != "" && p.Title != p.Text {
+	// Instagram titles are generated caption summaries, not separate headlines.
+	if platform != "reddit" && (platform != "instagram" || p.Text == "") && p.Title != "" && p.Title != p.Text {
 		addText("**" + clean(p.Title, 200) + "**")
 	}
 	if p.Text != "" && (platform != "reddit" || p.Text != p.Title) {
