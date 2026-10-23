@@ -31,6 +31,7 @@ func TestLiveProviders(t *testing.T) {
 		{"x-video-v2", "https://x.com/IndieGameJoe/status/2076971764257575262", false},
 		{"x-gif-v2", "https://x.com/RoRoFli/status/2031318660011188567", false},
 		{"bluesky-v2", "https://bsky.app/profile/bsky.app/post/3mqafridzgk2e", false},
+		{"reddit-missing-upstream-video", "https://www.reddit.com/r/Destiny/comments/1x7ehs9/", true},
 		{"reddit-video-audio", "https://www.reddit.com/r/marvelrivals/comments/1vclj7w/avengers_vs_ultron_animation_by_sarpsarter/", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

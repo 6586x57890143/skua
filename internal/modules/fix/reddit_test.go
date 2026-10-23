@@ -101,3 +101,81 @@ func TestRedditVideoReplacesSilentStreamWithoutLosingSignature(t *testing.T) {
 	a.reddit(context.Background(), l, d, &p)
 
 }
+
+func TestRedditMissingUpstreamVideoIsRecovered(t *testing.T) {
+	l, _ := Parse("https://www.reddit.com/r/Destiny/comments/1x7ehs9/")
+	const metadata = `{"success":true,"platform":"reddit","data":{"title":"A video post","url":"https://www.reddit.com/r/Destiny/comments/1x7ehs9/","authorName":"u/creator"}}`
+	for _, which := range []string{"video", "sensitive", "text", "offline", "too large"} {
+		t.Run(which, func(t *testing.T) {
+			calls := 0
+			a := apiFor(t, func(req *http.Request) (*http.Response, error) {
+				calls++
+				if calls == 1 {
+					body := metadata
+					if which == "sensitive" {
+						body = strings.Replace(body, `"authorName"`, `"sensitive":true,"authorName"`, 1)
+					}
+					return response(body), nil
+				}
+				if req.URL.String() != "https://embed.reddit.com/r/Destiny/comments/1x7ehs9/" {
+					t.Fatal(req.URL)
+				}
+				if which == "offline" {
+					return nil, errors.New("offline")
+				}
+				body := `"source":{"dimensions":{"height":720,"width":1280},"url":"` + muxURL + `"}`
+				if which == "text" {
+					body = "a text-only post"
+				}
+				if which == "too large" {
+					body = strings.Repeat("x", 512*1024+1)
+				}
+				r := response(body)
+				r.Header.Set("Content-Type", "text/html")
+				return r, nil
+			})
+			p, err := a.Resolve(context.Background(), l)
+			if err != nil || calls != 2 {
+				t.Fatalf("%+v %v calls=%d", p, err, calls)
+			}
+			if (which == "video" || which == "sensitive") && (len(p.Media) != 1 || p.Media[0].URL != muxURL) {
+				t.Fatal("missing recovered video", p)
+			}
+			if which == "sensitive" && !p.Media[0].Sensitive {
+				t.Fatal("recovered sensitive video exposed")
+			}
+			if p.Incomplete != (which != "video" && which != "sensitive") {
+				t.Fatalf("incomplete=%v", p.Incomplete)
+			}
+		})
+	}
+}
+
+func TestIncompleteRecoveryDoesNotSuppressOriginal(t *testing.T) {
+	m := module()
+	m.api = resolverFunc(func(context.Context, Link) (Post, error) { return Post{Title: "post", Incomplete: true}, nil })
+	r := &suppressionRest{recordingRest: &recordingRest{}}
+	m.queue(r, source{3, 4, 10}, "https://reddit.com/r/test/comments/abc/", false)
+	idle(t, m)
+	if r.attempts != 0 {
+		t.Fatal("hid original with incomplete media")
+	}
+}
+
+func TestMissingCommentMediaDoesNotBecomeParentVideo(t *testing.T) {
+	for _, raw := range []string{"https://reddit.com/r/test/comments/abc/title/def/", "https://reddit.com/r/test/comments/abc/title/?comment=def", "https://reddit.com/comments/abc/title/def/"} {
+		l, _ := Parse(raw)
+		a := apiFor(t, func(*http.Request) (*http.Response, error) {
+			t.Fatal("fetched parent media for comment")
+			return nil, nil
+		})
+		p := Post{Text: "comment"}
+		a.reddit(context.Background(), l, &fixData{SourceURL: "https://reddit.com/r/test/comments/abc/title/"}, &p)
+		if len(p.Media) != 0 || !p.Incomplete {
+			t.Fatal(p)
+		}
+	}
+	if redditComment("https://%zz") {
+		t.Fatal("invalid URL")
+	}
+}

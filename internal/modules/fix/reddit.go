@@ -20,12 +20,33 @@ var redditSource = regexp.MustCompile(`"source"\s*:\s*\{`)
 // Upstream currently assumes URL precedes dimensions in JSON; Reddit serves
 // the reverse order too. Decode member names instead of matching their order.
 func (a *API) reddit(ctx context.Context, l Link, d *fixData, p *Post) {
-	if d.Video == nil || d.Video.MediaType == "gif" {
-		return
+	missing := d.Video == nil && len(p.Media) == 0
+	if missing {
+		if redditComment(l.URL) || redditComment(d.SourceURL) {
+			p.Incomplete = true
+			return
+		}
+		for _, s := range p.Sections {
+			if len(s.Media) > 0 {
+				return
+			}
+		}
+	} else {
+		if d.Video == nil || d.Video.MediaType == "gif" {
+			return
+		}
+		video, err := url.Parse(d.Video.URL)
+		if err != nil || video.Hostname() != "v.redd.it" {
+			return
+		}
 	}
-	video, err := url.Parse(d.Video.URL)
-	if err != nil || video.Hostname() != "v.redd.it" {
-		return
+	unavailable := func() {
+		if missing {
+			p.Incomplete = true
+			p.Context += "\nmedia couldn't be checked; follow the post title to view the original"
+		} else {
+			p.Context += "\nvideo preview may be silent; follow the post title for audio"
+		}
 	}
 	original, ok := Parse(d.SourceURL)
 	if !ok || original.Platform != "reddit" {
@@ -34,7 +55,7 @@ func (a *API) reddit(ctx context.Context, l Link, d *fixData, p *Post) {
 	u, _ := url.Parse(original.URL)
 	path := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(path) < 4 || path[0] != "r" || path[2] != "comments" {
-		p.Context += "\nvideo preview may be silent; open original for audio"
+		unavailable()
 		return
 	}
 	start := time.Now()
@@ -55,6 +76,10 @@ func (a *API) reddit(ctx context.Context, l Link, d *fixData, p *Post) {
 			raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 512*1024+1))
 			if readErr == nil && len(raw) <= 512*1024 {
 				if muxed := redditMuxed(string(raw)); muxed != "" {
+					if missing {
+						p.Media = append(p.Media, Media{URL: muxed, Sensitive: p.Sensitive})
+						return
+					}
 					for i := range p.Media {
 						if p.Media[i].URL == d.Video.URL {
 							p.Media[i].URL = muxed
@@ -62,10 +87,14 @@ func (a *API) reddit(ctx context.Context, l Link, d *fixData, p *Post) {
 					}
 					return
 				}
+				if missing {
+					p.Incomplete = true
+					return
+				} // HTML alone cannot prove a text-only source.
 			}
 		}
 	}
-	p.Context += "\nvideo preview may be silent; open original for audio"
+	unavailable()
 }
 
 func redditMuxed(raw string) string {
@@ -91,4 +120,33 @@ func redditMuxed(raw string) string {
 		}
 	}
 	return best
+}
+
+// A comment is not its parent post. Never recover the parent video for a
+// comment URL whose own metadata intentionally has no media.
+func redditComment(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	if u.Query().Get("comment") != "" {
+		return true
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	return (len(parts) > 5 && parts[0] == "r" && parts[2] == "comments") || (len(parts) > 3 && parts[0] == "comments")
+}
+
+var redditUserPath = regexp.MustCompile(`^/user/[A-Za-z0-9_-]+/?$`)
+var redditUserName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+func redditProfile(p Post) string {
+	if u, err := url.Parse(p.AuthorURL); err == nil && u.Scheme == "https" && u.User == nil && (u.Host == "reddit.com" || u.Host == "www.reddit.com") && redditUserPath.MatchString(u.Path) {
+		return "https://www.reddit.com" + u.Path
+	}
+	for _, name := range []string{p.Handle, p.Author} {
+		if strings.HasPrefix(name, "u/") && redditUserName.MatchString(name[2:]) {
+			return "https://www.reddit.com/user/" + name[2:] + "/"
+		}
+	}
+	return ""
 }
