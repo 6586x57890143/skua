@@ -23,7 +23,11 @@ flags-only edit, never a deletion. Without that permission the card still works
 and the original preview remains. Metadata/delivery failures, unsupported links
 and links beyond the three-card limit keep the original previews, because Discord
 can only suppress all embeds on a message at once. Private command previews never
-change the source. Permission refusals are not retried.
+change the source. Permission refusals are not retried. If an edit makes replacement incomplete,
+she restores native previews only when she set the suppression flag herself;
+preexisting author suppression is preserved. Transient restore failures use the
+bounded retry queue. This follows the same 512-message tracking window as card
+edits: restart or eviction ends automatic preview-flag restoration.
 Cards cannot ping anyone. The platform icon sits beside the author's name, which
 links to the original post; there is no oversized avatar or open button. Body URLs
 and quote sources are clickable, engagement uses app icons, and Discord renders

@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/disgoorg/disgo/discord"
@@ -41,28 +42,51 @@ func canSuppress(text string, links []Link) bool {
 	return true
 }
 
-func (m *Module) suppressOriginal(ctx context.Context, r rest.Rest, key source, t *tracking, version uint64, count int) {
+// Reconcile only suppression owned by skua. A source that was already hidden
+// by its author is never unsuppressed. Every successful write is remembered,
+// even if an edit arrives while Discord is completing that write.
+func (m *Module) suppressOriginal(ctx context.Context, r rest.Rest, key source, t *tracking, version uint64, links []Link) {
 	m.mu.Lock()
-	ready := m.current(ctx, key, t, version) && count > 0 && t.completed == count && t.suppressible && !t.fallback && !t.suppressed
-	flags := t.sourceFlags | discord.MessageFlagSuppressEmbeds
+	current := m.current(m.ctx, key, t, version)
+	desired := len(links) > 0 && t.completed == len(links) && t.suppressible && !t.fallback
+	change := current && ((desired && !t.suppressed) || (!desired && t.ownsSuppression))
+	flags := t.sourceFlags
+	if desired {
+		flags |= discord.MessageFlagSuppressEmbeds
+	} else {
+		flags &^= discord.MessageFlagSuppressEmbeds
+	}
 	m.mu.Unlock()
-	if !ready {
+	if !change {
 		return
 	}
-	// A separate guarded write. Never delete the member's message or retry a
-	// permission refusal. Private previews and failed metadata never get here.
-	if m.guard.Allow(key.guild, guard.MessageSend) != nil {
-		return
+	err := ctx.Err()
+	if err == nil {
+		err = m.guard.Allow(key.guild, guard.MessageSend)
 	}
-	_, err := r.UpdateMessage(key.channel, key.message, discord.MessageUpdate{Flags: &flags}, rest.WithCtx(ctx))
-	m.guard.Report(key.guild, guard.Struggling(err))
+	denied := err != nil
+	if !denied {
+		_, err = r.UpdateMessage(key.channel, key.message, discord.MessageUpdate{Flags: &flags}, rest.WithCtx(ctx))
+		m.guard.Report(key.guild, guard.Struggling(err))
+	}
 	m.mu.Lock()
-	if err == nil && t.version == version {
-		t.suppressed = true
-		t.sourceFlags = flags
+	if err == nil {
+		t.suppressed = desired
+		t.ownsSuppression = desired
+		// Preserve the latest other flags if a concurrent edit superseded us.
+		if desired {
+			t.sourceFlags |= discord.MessageFlagSuppressEmbeds
+		} else {
+			t.sourceFlags &^= discord.MessageFlagSuppressEmbeds
+		}
+	} else if !desired && (denied || retryDelete(err)) && m.current(m.ctx, key, t, version) {
+		// Restore retries use the same bounded queue and timer. Completed cards
+		// are not re-fetched; only a new content revision resets their progress.
+		t.pending, t.dirty = links, true
+		t.nextFetch = time.Now().Add(30 * time.Second)
 	}
 	m.mu.Unlock()
 	if err != nil {
-		m.log.Debug("fix: original preview retained", "guild", key.guild)
+		m.log.Debug("fix: source preview flag unchanged", "guild", key.guild)
 	}
 }

@@ -27,24 +27,25 @@ type deletion struct {
 // Every tracking field belongs to Module.mu. No state lock spans network I/O.
 // Only validated links for the latest pending revision are retained, not text.
 type tracking struct {
-	contentSum   [32]byte
-	sourceFlags  discord.MessageFlags
-	suppressible bool
-	fallback     bool
-	suppressed   bool
-	version      uint64
-	gone         bool
-	forgotten    bool
-	cancel       context.CancelFunc
-	replies      []snowflake.ID
-	published    []string
-	completed    int
-	cleanup      []deletion
-	touched      time.Time
-	pending      []Link
-	dirty        bool
-	running      bool
-	nextFetch    time.Time
+	contentSum      [32]byte
+	sourceFlags     discord.MessageFlags
+	suppressible    bool
+	fallback        bool
+	suppressed      bool
+	ownsSuppression bool
+	version         uint64
+	gone            bool
+	forgotten       bool
+	cancel          context.CancelFunc
+	replies         []snowflake.ID
+	published       []string
+	completed       int
+	cleanup         []deletion
+	touched         time.Time
+	pending         []Link
+	dirty           bool
+	running         bool
+	nextFetch       time.Time
 }
 
 func (t *tracking) retire(from int) {
@@ -97,6 +98,9 @@ func (m *Module) queue(r rest.Rest, key source, text string, edit bool, flags ..
 	t.fallback = false
 	if len(flags) > 0 {
 		t.sourceFlags = flags[0]
+		if !t.sourceFlags.Has(discord.MessageFlagSuppressEmbeds) {
+			t.ownsSuppression = false
+		}
 	}
 	t.suppressed = t.sourceFlags.Has(discord.MessageFlagSuppressEmbeds)
 	t.touched = time.Now()
@@ -224,6 +228,9 @@ func (m *Module) work(ctx context.Context, r rest.Rest, key source, t *tracking,
 		m.mu.Unlock()
 		m.release()
 	}()
+	if refresh {
+		defer m.suppressOriginal(ctx, r, key, t, version, links)
+	}
 	m.cleanReplies(r, key, t)
 	if !refresh {
 		return
@@ -315,7 +322,6 @@ func (m *Module) convert(ctx context.Context, r rest.Rest, key source, t *tracki
 		m.mu.Unlock()
 		m.countTracked(key, t, func(c *counts) { c.Cards++ })
 	}
-	m.suppressOriginal(ctx, r, key, t, version, len(links))
 }
 
 func (m *Module) remove(r rest.Rest, key source) {

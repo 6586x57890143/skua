@@ -163,18 +163,124 @@ func TestSuppressionGuardAndObsoleteRevision(t *testing.T) {
 	r := &suppressionRest{recordingRest: &recordingRest{}}
 	key := source{3, 4, 10}
 	tr := &tracking{version: 1, completed: 1, suppressible: true}
-	m.suppressOriginal(context.Background(), r, key, tr, 2, 1)
+	m.suppressOriginal(context.Background(), r, key, tr, 2, []Link{{URL: "https://x.com/user/status/123"}})
 	if r.attempts != 0 {
 		t.Fatal("obsolete revision suppressed")
 	}
 	for range 120 {
 		_ = m.guard.Allow(3, guard.MessageSend)
 	}
-	m.suppressOriginal(context.Background(), r, key, tr, 1, 1)
+	m.suppressOriginal(context.Background(), r, key, tr, 1, []Link{{URL: "https://x.com/user/status/123"}})
 	if r.attempts != 0 {
 		t.Fatal("unguarded suppression")
 	}
 	if canSuppress("nothing", nil) {
 		t.Fatal("no replacement")
+	}
+}
+
+func TestEverySupportedPlatformHasAnIcon(t *testing.T) {
+	if err := brand.Sync(context.Background(), iconRest{}, 9, guard.New()); err != nil {
+		t.Fatal(err)
+	}
+	platforms := map[string]bool{"x": true, "bluesky": true}
+	for _, p := range platformHosts {
+		platforms[p] = true
+	}
+	for _, p := range shortHosts {
+		platforms[p] = true
+	}
+	for p := range platforms {
+		if brand.Mention("pf_"+p) == "" {
+			t.Errorf("no header icon for %s", p)
+		}
+	}
+}
+
+func TestEditsRestoreOnlyBotOwnedSuppression(t *testing.T) {
+	const original = "https://x.com/user/status/123"
+	for _, which := range []string{"unsupported", "removed", "fallback", "preexisting", "restore refused", "restore transient"} {
+		t.Run(which, func(t *testing.T) {
+			m := module()
+			r := &suppressionRest{recordingRest: &recordingRest{}}
+			key := source{3, 4, 10}
+			flags := discord.MessageFlags(0)
+			if which == "preexisting" {
+				flags = discord.MessageFlagSuppressEmbeds
+			}
+			m.queue(r, key, original, false, flags)
+			idle(t, m)
+			text := original + " https://example.com/article"
+			if which == "removed" {
+				text = "the link is gone"
+			}
+			if which == "fallback" {
+				text = "https://x.com/user/status/124"
+				m.api = resolverFunc(func(context.Context, Link) (Post, error) { return Post{}, errors.New("metadata") })
+			}
+			if which == "restore refused" {
+				r.refusal = discordError(403)
+			}
+			if which == "restore transient" {
+				r.refusal = discordError(503)
+			}
+			m.queue(r, key, text, true, discord.MessageFlagSuppressEmbeds)
+			idle(t, m)
+			m.mu.Lock()
+			tr := m.tracked[key]
+			owned, dirty := tr.ownsSuppression, tr.dirty
+			if m.wake != nil {
+				m.wake.Stop()
+				m.wake = nil
+			}
+			m.mu.Unlock()
+			if which == "preexisting" {
+				if r.attempts != 0 {
+					t.Fatal("touched author-owned flag")
+				}
+				return
+			}
+			if r.attempts != 2 {
+				t.Fatalf("calls=%d", r.attempts)
+			}
+			if which == "restore refused" || which == "restore transient" {
+				if !owned || dirty != (which == "restore transient") {
+					t.Fatalf("ownership=%v retry=%v", owned, dirty)
+				}
+				return
+			}
+			if owned || len(r.suppressed) != 2 || r.suppressed[1].Flags.Has(discord.MessageFlagSuppressEmbeds) {
+				t.Fatal("native previews not restored")
+			}
+		})
+	}
+}
+
+type blockedSuppressionRest struct {
+	*recordingRest
+	started, release chan struct{}
+	first            bool
+}
+
+func (r *blockedSuppressionRest) UpdateMessage(ch, id snowflake.ID, msg discord.MessageUpdate, opts ...rest.RequestOpt) (*discord.Message, error) {
+	if msg.Flags != nil && msg.Flags.Has(discord.MessageFlagSuppressEmbeds) && !r.first {
+		r.first = true
+		close(r.started)
+		<-r.release
+	}
+	return r.recordingRest.UpdateMessage(ch, id, msg, opts...)
+}
+func TestStaleSuccessfulSuppressionIsRestored(t *testing.T) {
+	m := module()
+	r := &blockedSuppressionRest{recordingRest: &recordingRest{}, started: make(chan struct{}), release: make(chan struct{})}
+	key := source{3, 4, 10}
+	m.queue(r, key, "https://x.com/user/status/123", false)
+	<-r.started
+	// Discord accepted the write despite cancellation while this edit arrived.
+	m.queue(r, key, "https://x.com/user/status/123 https://example.com/article", true)
+	close(r.release)
+	idle(t, m)
+	if len(r.suppressed) != 2 || r.suppressed[1].Flags.Has(discord.MessageFlagSuppressEmbeds) {
+		t.Fatal("lost stale successful side effect")
 	}
 }
