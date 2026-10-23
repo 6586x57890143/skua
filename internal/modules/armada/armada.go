@@ -92,12 +92,12 @@ func FromEnv() Config {
 // Configured is whether there is a bridge to run at all.
 func (c Config) Configured() bool { return c.Invite != "" }
 
-// fromDiscord is a Discord message on its way over, new or an edit, or a
-// reaction on one.
+// fromDiscord is a Discord message, edit, delete or reaction on its way over.
 type fromDiscord struct {
-	msg   discord.Message
-	edit  bool
-	react *reacted
+	msg     discord.Message
+	edit    bool
+	react   *reacted
+	deleted snowflake.ID
 }
 
 // reacted is a member's reaction added or taken off. Discord names no
@@ -378,7 +378,12 @@ func (m *Module) OnEvent(ev bot.Event) {
 		m.queue(e.GenericGuildMessage, true)
 	case *events.GuildMessageDelete:
 		if l, ok := m.byDisc[e.ChannelID]; ok {
-			go m.discordDelete(l, e.GuildID, e.MessageID)
+			l.guild.Store(uint64(e.GuildID))
+			select {
+			case l.toArm <- fromDiscord{deleted: e.MessageID}:
+			default:
+				m.log.Warn("armada: dropping a discord delete, the queue is full", "channel", l.discord)
+			}
 		}
 	case *events.GuildMessageReactionAdd:
 		if e.Member.User.Bot {
@@ -751,6 +756,8 @@ func (m *Module) discordWorker(l *link) {
 			return
 		case job := <-l.toArm:
 			switch {
+			case job.deleted != 0:
+				m.discordDelete(l, snowflake.ID(l.guild.Load()), job.deleted)
 			case job.react != nil:
 				m.discordReaction(l, *job.react)
 			case job.edit:
