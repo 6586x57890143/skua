@@ -246,3 +246,11 @@ a static module mark or text. Client animation settings control playback.
 Measured after the compact layout on the same Windows/amd64 host (three 300 ms
 runs): mixed-media rendering 4.97-5.81 us, 87 allocations; ordinary-message scanning
 249-250 ns, zero allocations. These are local averages, not production p99.
+
+Reddit link posts resolve one supported external post through the maintained
+provider APIs, with a four-second child deadline inside the existing fetch
+budget. Resolved media replaces the Reddit link thumbnail; the Reddit title
+and author remain the card identity. Unsupported article URLs stay links, and
+Reddit crossposts are not followed recursively. Failed linked-media extraction
+keeps the source preview visible. The linked Twitch clip regression is part of
+the live audio/video canaries. Masked username links preserve literal underscores.

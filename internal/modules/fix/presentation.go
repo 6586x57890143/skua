@@ -95,16 +95,16 @@ func identity(l Link, p Post) string {
 			title = "reddit post"
 		}
 		if dest := redditProfile(p); dest != "" {
-			author = "[" + author + "](<" + dest + ">)"
+			author = "[" + linkLabel(p.Author, 100) + "](<" + dest + ">)"
 		}
-		return mark + " **[" + clean(title, 200) + "](<" + l.URL + ">)**\n-# " + author
+		return mark + " **[" + linkLabel(title, 200) + "](<" + l.URL + ">)**\n-# " + author
 	}
-	head := mark + " **[" + author + "](<" + l.URL + ">)**"
+	head := mark + " **[" + linkLabel(authorName(p.Author, platform), 100) + "](<" + l.URL + ">)**"
 	if p.Handle != "" {
 		handle := "@" + strings.TrimPrefix(p.Handle, "@")
 		shown := clean(handle, 100)
 		if dest := profile(l, p.AuthorURL, p.Handle); dest != "" {
-			shown = "[" + shown + "](<" + dest + ">)"
+			shown = "[" + linkLabel(handle, 100) + "](<" + dest + ">)"
 		}
 		head += "\n-# " + shown
 	}
@@ -130,7 +130,7 @@ func sectionText(l Link, s Section, limit int) string {
 	}
 	label := clean(title, min(100, titleBudget))
 	if dest := remoteURL(s.URL); dest != "" {
-		linked := "[" + label + "](<" + dest + ">)"
+		linked := "[" + linkLabel(title, min(100, titleBudget)) + "](<" + dest + ">)"
 		if len(utf16.Encode([]rune(linked))) <= titleBudget {
 			label = linked
 		}
@@ -139,7 +139,7 @@ func sectionText(l Link, s Section, limit int) string {
 	if quoted && s.Handle != "" {
 		shown := clean("@"+strings.TrimPrefix(s.Handle, "@"), 70)
 		if dest := profile(l, s.AuthorURL, s.Handle); dest != "" {
-			shown = "[" + shown + "](<" + dest + ">)"
+			shown = "[" + linkLabel("@"+strings.TrimPrefix(s.Handle, "@"), 70) + "](<" + dest + ">)"
 		}
 		if len(utf16.Encode([]rune(heading+" · "+shown))) <= limit-20 {
 			heading += " · " + shown
@@ -158,4 +158,16 @@ func sectionText(l Link, s Section, limit int) string {
 		budget -= max(1, units-left)
 	}
 	return heading
+}
+
+// Discord displays escaped underscores literally inside masked-link labels.
+// Other metadata escaping remains intact, including brackets and mentions.
+func linkLabel(s string, limit int) string {
+	return strings.ReplaceAll(clean(s, limit), `\_`, `_`)
+}
+func authorName(author, platform string) string {
+	if author == "" {
+		return "post on " + platform
+	}
+	return author
 }

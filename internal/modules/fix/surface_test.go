@@ -442,3 +442,31 @@ func TestQuoteBudgetNeverCutsLinkDestinations(t *testing.T) {
 		}
 	}
 }
+
+func TestInstagramCaptionDoesNotRepeatAsHeadline(t *testing.T) {
+	for _, tc := range []struct {
+		platform, title, body string
+		headline              bool
+	}{
+		{"instagram", "If you're looking for a sign...", "If you're looking for a sign this is it. Send this to your friends.", false},
+		{"instagram", "Only available title", "", true},
+		{"twitch", "Distinct clip title", "Clip context", true},
+	} {
+		msg := card(Link{Platform: tc.platform, URL: "https://instagram.com/reel/abc"}, Post{Author: "creator", Title: tc.title, Text: tc.body, Provider: "fixembed"})
+		found := false
+		bodies := 0
+		for _, component := range msg.Components[0].(discord.ContainerComponent).Components {
+			if text, ok := component.(discord.TextDisplayComponent); ok {
+				if text.Content == "**"+clean(tc.title, 200)+"**" {
+					found = true
+				}
+				if tc.body != "" && text.Content == sourceText(tc.body, 1800) {
+					bodies++
+				}
+			}
+		}
+		if found != tc.headline || (tc.body != "" && bodies != 1) {
+			t.Fatalf("%s: headline=%v body count=%d", tc.platform, found, bodies)
+		}
+	}
+}
