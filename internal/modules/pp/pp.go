@@ -209,6 +209,14 @@ func (m *Module) OnEvent(ev bot.Event) {
 		})
 	case *events.GuildReady:
 		m.ready(e.GuildID, e.Guild)
+	case *events.GuildJoin:
+		m.ready(e.GuildID, e.Guild)
+	case *events.GuildAvailable:
+		m.ready(e.GuildID, e.Guild)
+	case *events.GuildLeave:
+		m.clearVoice(e.GuildID)
+	case *events.GuildUnavailable:
+		m.clearVoice(e.GuildID)
 	case *events.GuildMessageCreate:
 		msg := e.Message
 		if msg.Author.Bot || msg.Author.System || msg.WebhookID != nil {
@@ -241,6 +249,16 @@ func (m *Module) OnEvent(ev bot.Event) {
 			m.log.Info("pp: banner", "guild", e.GuildID, "user", e.PresenceUser.ID, "on", on)
 		}
 	}
+}
+
+// clearVoice drops transient occupancy when Discord can no longer tell us
+// who is present. Balances stay; a ready/available event reseats members.
+func (m *Module) clearVoice(guild snowflake.ID) {
+	s := m.st.server(guild)
+	s.mu.Lock()
+	clear(s.seats)
+	s.mu.Unlock()
+	m.earning.Delete(guild)
 }
 
 // ready seats everyone already in voice when skua (re)connects, and reads
