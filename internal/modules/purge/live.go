@@ -43,8 +43,9 @@ func choices(list []delay) []discord.ApplicationCommandOptionChoiceString {
 
 // liveSet is one live member's delay and where it applies.
 type liveSet struct {
-	d  time.Duration
-	in scope
+	d       time.Duration
+	in      scope
+	version uint64
 }
 
 // due is one message and when it goes.
@@ -90,32 +91,48 @@ func (m *Module) OnEvent(ev bot.Event) {
 		set, r, ch := v.(liveSet), e.Client().Rest, e.Message.ChannelID
 		id, at := msg{e.Message.ID, e.Message.Author.ID}, m.now().Add(set.d)
 		if len(set.in) == 0 || slices.Contains(set.in, ch) {
-			m.enqueue(r, e.GuildID, ch, id, at)
+			m.enqueueLive(r, e.GuildID, ch, id, at, set.version)
 			return
 		}
 		// A thread or a channel in a category they picked: placing it may
 		// ask Discord, which the gateway shouldn't wait on.
 		go func() {
 			if set.in.covers(ch, func(c snowflake.ID) snowflake.ID { return m.parent(r, c) }) {
-				m.enqueue(r, e.GuildID, ch, id, at)
+				m.enqueueLive(r, e.GuildID, ch, id, at, set.version)
 			}
 		}()
 	}
 }
 
 func (m *Module) setLive(k target, d time.Duration, in scope) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Waiting messages belong to the setting that queued them. Changing
+	// or disabling it withdraws those deletes, without touching other users.
+	for ch, q := range m.queues {
+		if q.guild != k.guild {
+			continue
+		}
+		q.items = slices.DeleteFunc(q.items, func(it due) bool { return it.author == k.user })
+		if len(q.items) == 0 {
+			q.timer.Stop()
+			delete(m.queues, ch)
+		}
+	}
 	if d == 0 {
 		if _, ok := m.live.LoadAndDelete(k); ok {
 			m.liveN.Add(-1)
 		}
 		return
 	}
-	if _, loaded := m.live.Swap(k, liveSet{d, in}); !loaded {
+	if _, loaded := m.live.Swap(k, liveSet{d: d, in: in, version: m.liveSeq.Add(1)}); !loaded {
 		m.liveN.Add(1)
 	}
 }
 
 func (m *Module) setLiveCmd(ctx context.Context, e *events.ApplicationCommandInteractionCreate, k target, after string, in scope) error {
+	m.settings.Lock()
+	defer m.settings.Unlock()
 	i := slices.IndexFunc(delays, func(d delay) bool { return d.name == after })
 	if i < 0 {
 		return errNotAChoice
@@ -144,6 +161,22 @@ func (m *Module) setLiveCmd(ctx context.Context, e *events.ApplicationCommandInt
 func (m *Module) enqueue(r rest.Rest, guild, ch snowflake.ID, id msg, at time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.enqueueLocked(r, guild, ch, id, at)
+}
+
+// enqueueLive refuses a delayed channel lookup from an older setting,
+// including one that completed after stop or a change of scope.
+func (m *Module) enqueueLive(r rest.Rest, guild, ch snowflake.ID, id msg, at time.Time, version uint64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	v, ok := m.live.Load(target{guild, id.author})
+	if !ok || v.(liveSet).version != version {
+		return
+	}
+	m.enqueueLocked(r, guild, ch, id, at)
+}
+
+func (m *Module) enqueueLocked(r rest.Rest, guild, ch snowflake.ID, id msg, at time.Time) {
 	q := m.queues[ch]
 	if q == nil {
 		q = &queue{r: r, guild: guild}
@@ -232,6 +265,8 @@ func (m *Module) saveLive(ctx context.Context, k target, d time.Duration, in sco
 }
 
 func (m *Module) loadLive(ctx context.Context) error {
+	m.settings.Lock()
+	defer m.settings.Unlock()
 	rows, err := m.db.Query(ctx, `select guild_id, user_id, live_delay_s, live_channels from purge_subs where live_delay_s is not null`)
 	if err != nil {
 		return err

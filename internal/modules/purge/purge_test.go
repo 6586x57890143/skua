@@ -153,7 +153,7 @@ func TestOneSweepAtATimeAndStop(t *testing.T) {
 	if sent := submit(t, m, f, "delete"); len(sent) != 1 || sent[0].Content != "✗ "+string(errRunning) {
 		t.Errorf("a second confirmation while running: %+v", sent)
 	}
-	if got := command(t, m, "stop", nil); got != "**purge** · stop\n✓ stopping; what's already deleted stays deleted" {
+	if got := command(t, m, "stop", nil); got != "**purge** · stop\n✓ stopping; live and every are off, and what's already deleted stays deleted" {
 		t.Errorf("stop: %q", got)
 	}
 	close(f.hold)

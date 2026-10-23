@@ -103,9 +103,13 @@ type Module struct {
 	live    sync.Map // target -> liveSet
 	parents sync.Map // channel -> parentAt, for scoped live members
 	liveN   atomic.Int64
-	mu      sync.Mutex
-	queues  map[snowflake.ID]*queue // channel ->
-	window  time.Duration           // how long a due delete waits for neighbours
+	liveSeq atomic.Uint64
+	// settings serializes persisted subscriptions with their in-memory
+	// state and scheduled claims, so stop cannot miss a claimed job.
+	settings sync.Mutex
+	mu       sync.Mutex
+	queues   map[snowflake.ID]*queue // channel ->
+	window   time.Duration           // how long a due delete waits for neighbours
 }
 
 // New takes the process's one guard, the database (which may be nil) and
@@ -257,12 +261,7 @@ func (m *Module) purge(ctx context.Context, e *events.ApplicationCommandInteract
 	k := target{*guild, user}
 	switch sub {
 	case "stop":
-		v, ok := m.running.Load(k)
-		if !ok {
-			return core.Tell("no purge is running here")
-		}
-		v.(*run).cancel()
-		return reply(e, brand.ColorOK, "stop", "✓ stopping; what's already deleted stays deleted")
+		return m.stopCmd(ctx, e, k)
 	case "live":
 		return m.setLiveCmd(ctx, e, k, data.String("after"), where)
 	case "every":
