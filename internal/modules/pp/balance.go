@@ -107,7 +107,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.8.1",
+	Version: "0.8.2",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -146,8 +146,8 @@ var Default = Balance{
 	CurveB: 150,
 	CurveC: 300,
 
-	QuestPP:   [3]int64{250 * unit, 400 * unit, 750 * unit},
-	QuestOdds: [3]uint64{16, 3, 1},
+	QuestPP:   [3]int64{275 * unit, 400 * unit, 750 * unit},
+	QuestOdds: [3]uint64{36, 3, 1},
 	QuestHold: 3,
 	QuestKinds: [3][]QuestKind{
 		{
