@@ -207,6 +207,11 @@ func (a *API) fix(ctx context.Context, l Link) (Post, error) {
 		return Post{}, errMetadata
 	}
 	if l.Platform == "reddit" {
+		if redditComment(l.URL) || redditComment(d.SourceURL) {
+			p.Incomplete = true
+		} else {
+			a.redditLinked(ctx, d, &p)
+		}
 		a.reddit(ctx, l, d, &p)
 	}
 	return p, nil

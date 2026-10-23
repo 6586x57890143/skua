@@ -32,6 +32,7 @@ func TestLiveProviders(t *testing.T) {
 		{"x-gif-v2", "https://x.com/RoRoFli/status/2031318660011188567", false},
 		{"bluesky-v2", "https://bsky.app/profile/bsky.app/post/3mqafridzgk2e", false},
 		{"reddit-missing-upstream-video", "https://www.reddit.com/r/Destiny/comments/1x7ehs9/", true},
+		{"reddit-linked-twitch", "https://www.reddit.com/r/LivestreamFail/s/NGoCPGnDZC", true},
 		{"reddit-video-audio", "https://www.reddit.com/r/marvelrivals/comments/1vclj7w/avengers_vs_ultron_animation_by_sarpsarter/", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -84,7 +85,7 @@ func TestLiveProviders(t *testing.T) {
 				t.Fatal("Reddit video missing")
 			}
 			u, err := url.Parse(p.Media[0].URL)
-			if err != nil || u.Scheme != "https" || u.Host != "packaged-media.redd.it" || u.User != nil {
+			if err != nil || u.Scheme != "https" || (u.Host != "packaged-media.redd.it" && (tc.name != "reddit-linked-twitch" || !strings.HasSuffix(u.Host, ".cloudfront.net"))) || u.User != nil {
 				t.Fatal("Reddit did not provide a combined audio/video rendition")
 			}
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
