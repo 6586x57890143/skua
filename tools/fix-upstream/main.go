@@ -1,5 +1,5 @@
-// Command fix-upstream reports upstream changes for review. It never downloads
-// executable code, updates dependencies or changes the reviewed revision lock.
+// Command fix-upstream reports upstream changes for review. It never executes
+// upstream code, updates dependencies or changes the reviewed revision lock.
 package main
 
 import (
@@ -26,7 +26,7 @@ type comparison struct {
 	HTMLURL string `json:"html_url"`
 	Status  string
 	Total   int `json:"total_commits"`
-	Files   []struct{ Filename string }
+	Files   []changedFile
 	Commits []struct {
 		HTMLURL string `json:"html_url"`
 		Commit  struct{ Message string }
@@ -68,6 +68,8 @@ func get(ctx context.Context, c *http.Client, path string, out any) error {
 func run() error {
 	file := flag.String("lock", "internal/modules/fix/upstreams.json", "reviewed source revisions")
 	check := flag.Bool("check", false, "exit nonzero when reviewed sources have changed")
+	important := flag.Bool("check-relevant", false, "exit nonzero for extraction/API changes or incomplete comparisons")
+	sources := flag.String("sources", "", "write exact reviewed and observed source archive URLs as JSON")
 	flag.Parse()
 	raw, err := os.ReadFile(*file)
 	if err != nil {
@@ -80,25 +82,36 @@ func run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	client := &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	changed := false
+	changed, relevant := false, false
+	var snapshots []snapshot
 	fmt.Printf("# embed upstream review\n\nreviewed: %s\n\nMetadata services update independently. Review API and renderer changes before advancing upstreams.json. No upstream code is imported automatically.\n", pinned.Reviewed)
 	for _, repo := range pinned.Repositories {
+		var head struct{ SHA string }
+		if err = get(ctx, client, repo.Repository+"/commits/main", &head); err != nil {
+			return fmt.Errorf("%s head: %w", repo.Repository, err)
+		}
+		source, err := sourceSnapshot(repo, head.SHA)
+		if err != nil {
+			return err
+		}
+		snapshots = append(snapshots, source)
 		var diff comparison
-		if err = get(ctx, client, repo.Repository+"/compare/"+repo.Revision+"...main", &diff); err != nil {
+		if err = get(ctx, client, repo.Repository+"/compare/"+repo.Revision+"..."+head.SHA, &diff); err != nil {
 			return fmt.Errorf("%s comparison: %w", repo.Repository, err)
 		}
 		fmt.Printf("\n## %s\n\nlicense: %s; reviewed: %s\n\n[%s: %d commits](%s)\n", repo.Repository, repo.License, repo.Revision, diff.Status, diff.Total, diff.HTMLURL)
 		if diff.Status != "identical" {
 			changed = true
 		}
-		fmt.Println("\nRelevant files:")
-		for _, f := range diff.Files {
-			for _, prefix := range repo.Paths {
-				if strings.HasPrefix(f.Filename, prefix) {
-					fmt.Printf("- %s\n", f.Filename)
-					break
-				}
-			}
+		files, reason := reviewNeeded(repo, diff)
+		if reason != "" {
+			relevant = true
+			fmt.Printf("\n**review required:** %s\n", reason)
+		}
+		fmt.Printf("\n[reviewed source](%s) | [observed source](%s)\n", source.ReviewedURL, source.ObservedURL)
+		fmt.Println("\nRelevant files (includes renamed paths):")
+		for _, name := range files {
+			fmt.Printf("- %s\n", name)
 		}
 		fmt.Println("\nRecent commits (at most 20):")
 		for i, c := range diff.Commits {
@@ -117,7 +130,16 @@ func run() error {
 			fmt.Printf("- [#%d %s](%s)\n", pr.Number, pr.Title, pr.HTMLURL)
 		}
 	}
-	if *check && changed {
+	if *sources != "" {
+		data, err := json.MarshalIndent(snapshots, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(*sources, append(data, '\n'), 0600); err != nil {
+			return err
+		}
+	}
+	if (*check && changed) || (*important && relevant) {
 		return fmt.Errorf("upstream sources changed; review the report and run live canaries before advancing the lock")
 	}
 	return nil

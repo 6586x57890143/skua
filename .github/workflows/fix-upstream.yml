@@ -2,20 +2,25 @@ name: embed upstream review
 
 on:
   schedule:
-    - cron: '21 7 * * *'
+    - cron: '21 */6 * * *'
   workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/fix-upstream.yml
+      - tools/fix-upstream/**
+      - internal/modules/fix/upstreams.json
 
 permissions:
   contents: read
 
 concurrency:
-  group: fix-upstream
-  cancel-in-progress: true
+  group: fix-upstream-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   upstreams:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -24,14 +29,50 @@ jobs:
       - name: report commits and open contributions
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: go run ./tools/fix-upstream | tee upstream-review.md >> "$GITHUB_STEP_SUMMARY"
-      - name: test live API contracts and Reddit audio
-        env:
-          SKUA_FIX_LIVE: '1'
-        run: go test -count=1 -v -run TestLiveProviders ./internal/modules/fix
+        # pipefail preserves the review-required exit status through tee.
+        shell: bash
+        run: go run ./tools/fix-upstream -check-relevant -sources upstream-sources.json | tee upstream-review.md >> "$GITHUB_STEP_SUMMARY"
+      - name: preserve exact source revisions with original licenses
+        if: ${{ !cancelled() && hashFiles('upstream-sources.json') != '' }}
+        shell: bash
+        run: |
+          mkdir -p upstream-sources
+          jq -r '.[] | [.repository, .reviewed, .reviewed_url], [.repository, .observed, .observed_url] | @tsv' upstream-sources.json |
+          while IFS=$'\t' read -r repo sha url; do
+            file="upstream-sources/${repo//\//-}-$sha.tar.gz"
+            if [ ! -f "$file" ]; then
+              curl --fail --silent --show-error --proto '=https' --max-time 90 --max-filesize 134217728 "$url" --output "$file.part"
+              mv "$file.part" "$file"
+            fi
+          done
+          sha256sum upstream-sources/*.tar.gz > upstream-sources/SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: embed-upstream-review
-          path: upstream-review.md
+          path: |
+            upstream-review.md
+            upstream-sources.json
+            upstream-sources/
+          retention-days: 90
+
+  contracts:
+    # Independent of source review: drift or a GitHub outage cannot skip canaries.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: test live API contracts and Reddit audio
+        env:
+          SKUA_FIX_LIVE: '1'
+        shell: bash
+        run: go test -count=1 -v -run TestLiveProviders ./internal/modules/fix | tee live-contracts.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: embed-live-contracts
+          path: live-contracts.log
           retention-days: 30

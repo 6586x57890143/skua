@@ -61,7 +61,7 @@ JSON fields. It fetches at most 512 KiB of embed HTML within four seconds, allow
 only the exact packaged-media host and passes the signed URL through unchanged.
 
 If a combined rendition cannot be recovered, the card says the preview may be
-silent and keeps the original link. The daily live canary fetches a bounded MP4
+silent and keeps the original link. The six-hour live canary fetches a bounded MP4
 initialization range and checks both audio and video track handlers. Playback in
 Discord still needs a live Discord check; tests do not post to a server.
 
@@ -96,14 +96,55 @@ revisions used to review these contracts and NOTICE credits both projects.
 
 `go run ./tools/fix-upstream` reports commits since those revisions, relevant
 changed paths and open pull requests, with links and contributor commit history.
-It is read-only. `-check` exits nonzero on source drift. The daily **embed upstream
-review** workflow saves this report and runs live X, Bluesky and Reddit audio
-canaries. It imports no unreviewed code and grants no write permissions.
+It is read-only. `-check` exits nonzero on any source drift;
+`-check-relevant` fails for extraction, API, dependency or license changes. The
+watch paths in `upstreams.json` cover both source trees and dependency manifests.
+Renames out of watched paths, rewritten history and potentially truncated GitHub
+comparisons also require review. A green comparison means no watched file change
+was found, not proof that a platform's API is unchanged.
 
-When a contract changes, inspect that report, change the Go adapter, add a
-regression fixture, run the offline/race checks plus live canaries, then advance
-the reviewed revision in the lock. Do not advance it merely because a job ran.
-FixEmbed's AGPL source remains upstream; this module consumes its public API.
+The **embed upstream review** workflow runs every six hours and manually. Its two
+independent jobs separate **source changes needing review** from **live contract
+failures**. X text/video/GIF, Bluesky and Reddit audio canaries keep running even
+when GitHub comparison requests fail. A platform can break without an upstream
+commit, so both signals matter. Other supported platforms currently rely on source
+review and offline fixtures; they do not yet have live canaries.
+
+Each source review saves a 90-day artifact containing the report, a JSON manifest
+of exact reviewed/observed SHAs, complete source tarballs with their original
+licenses, and SHA-256 checksums. The source is never executed or added to Skua's
+binary. Both the comparison and archive use the same resolved SHA, so a new commit
+during the run cannot change what was reviewed. Open contributions remain linked
+in the report; unmerged patches require separate review. Live logs are retained
+for 30 days. Downloads are bounded to 128 MiB per archive and 90 seconds each.
+
+Enable GitHub Actions failure notifications for this repository to receive these
+signals; this workflow does not send Discord messages or open issues. Scheduled
+runs can be delayed by GitHub. Use **Run workflow** for an immediate check. Source
+drift keeps failing until a maintainer completes the review and updates the lock;
+successful canaries alone never advance it.
+
+When a signal fails:
+
+1. Read the failing job and download its artifact. A deleted canary post or service
+   outage can fail the contract check too; confirm the failure before changing code.
+2. Compare the retained sources and upstream commits. If the hosted service already
+   fixed extraction and Skua's contract still holds, no Go port is needed. Otherwise
+   adapt the Go parser or Reddit recovery and add a minimal regression fixture.
+3. Keep attribution in NOTICE and any applicable source license. FixEmbed's AGPL
+   implementation remains upstream; consuming its API is the existing design.
+4. Run race tests, the 85% per-internal-package coverage gate and live canaries.
+   For runtime changes, recheck the obs/perf targets and benchmarks below.
+5. Open a PR with the fix, fixture and exact reviewed SHA/date in `upstreams.json`.
+   Explain a no-code review when only the pin changes. Archive checksums establish
+   artifact integrity, not maintainer approval. Never advance a pin just to clear a
+   red job. Merge through the normal CI gate.
+
+For a local report and source manifest:
+
+```sh
+go run ./tools/fix-upstream -check-relevant -sources upstream-sources.json
+```
 
 ```powershell
 go test ./internal/modules/fix -race -cover
