@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 )
@@ -32,9 +33,10 @@ func sourceSnapshot(repo upstream, head string) (snapshot, error) {
 }
 
 func watched(name string, paths []string) bool {
-	for _, path := range paths {
-		path = strings.TrimSuffix(path, "/")
-		if name == path || strings.HasPrefix(name, path+"/") {
+	for _, pattern := range paths {
+		pattern = strings.TrimSuffix(pattern, "/")
+		match, _ := path.Match(pattern, name)
+		if match || strings.HasPrefix(name, pattern+"/") {
 			return true
 		}
 	}

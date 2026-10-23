@@ -98,7 +98,9 @@ revisions used to review these contracts and NOTICE credits both projects.
 changed paths and open pull requests, with links and contributor commit history.
 It is read-only. `-check` exits nonzero on any source drift;
 `-check-relevant` fails for extraction, API, dependency or license changes. The
-watch paths in `upstreams.json` cover both source trees and dependency manifests.
+watch paths in `upstreams.json` cover both source trees and dependency manifests. Paths match exact files,
+directory descendants or Go path globs; `*.py` watches all root Python extractors
+and shared helpers, including newly added platforms.
 Renames out of watched paths, rewritten history and potentially truncated GitHub
 comparisons also require review. A green comparison means no watched file change
 was found, not proof that a platform's API is unchanged.

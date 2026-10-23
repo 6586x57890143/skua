@@ -13,7 +13,7 @@ import (
 )
 
 func TestReviewNeeded(t *testing.T) {
-	repo := upstream{Paths: []string{"src", "reddit_embed.py"}}
+	repo := upstream{Paths: []string{"src", "*.py", "LICENSE.md"}}
 	cases := []struct {
 		name string
 		diff comparison
@@ -23,6 +23,10 @@ func TestReviewNeeded(t *testing.T) {
 		{"docs", comparison{Status: "ahead", Total: 1, Files: []changedFile{{Filename: "README.md"}}}, false},
 		{"prefix collision", comparison{Status: "ahead", Files: []changedFile{{Filename: "src-other/a.go"}}}, false},
 		{"extractor", comparison{Status: "ahead", Files: []changedFile{{Filename: "src/twitter.ts"}}}, true},
+		{"license", comparison{Status: "ahead", Files: []changedFile{{Filename: "LICENSE.md"}}}, true},
+		{"new extractor", comparison{Status: "ahead", Files: []changedFile{{Filename: "new_platform_embed.py"}}}, true},
+		{"renamed extractor", comparison{Status: "ahead", Files: []changedFile{{Filename: "other/parser.txt", Previous: "twitter_embed.py"}}}, true},
+		{"nested unrelated python", comparison{Status: "ahead", Files: []changedFile{{Filename: "scripts/tool.py"}}}, false},
 		{"exact file", comparison{Status: "ahead", Files: []changedFile{{Filename: "reddit_embed.py"}}}, true},
 		{"renamed away", comparison{Status: "ahead", Files: []changedFile{{Filename: "other/parser.ts", Previous: "src/parser.ts"}}}, true},
 		{"rewritten", comparison{Status: "diverged"}, true},

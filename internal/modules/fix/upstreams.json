@@ -17,7 +17,8 @@
         "package-lock.json",
         "wrangler.toml",
         "wrangler.jsonc",
-        "LICENSE"
+        "LICENSE",
+        "LICENSE.md"
       ]
     },
     {
@@ -27,13 +28,12 @@
       "paths": [
         "service",
         "conformance",
-        "reddit_embed.py",
-        "platform_embed.py",
         "requirements.txt",
         "pyproject.toml",
         "uv.lock",
         "poetry.lock",
-        "LICENSE"
+        "LICENSE",
+        "*.py"
       ]
     }
   ]
