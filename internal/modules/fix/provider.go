@@ -29,9 +29,10 @@ type Media struct {
 	Sensitive bool
 }
 type Section struct {
-	Title, Text, URL string
-	Media            []Media
-	Sensitive        bool
+	Kind, Author, Handle, AuthorURL string
+	Title, Text, URL                string
+	Media                           []Media
+	Sensitive                       bool
 }
 
 // Resolver may be shared with another module through constructor injection.
@@ -200,7 +201,7 @@ func (a *API) fix(ctx context.Context, l Link) (Post, error) {
 		if s.Kind == "quote" && s.Author != "" {
 			title = "quote · " + s.Author
 		}
-		p.Sections = append(p.Sections, Section{Title: title, Text: s.Body, URL: s.URL, Media: s.media(), Sensitive: p.Sensitive || s.Sensitive || len(s.Sensitivity) > 0})
+		p.Sections = append(p.Sections, Section{Kind: s.Kind, Author: s.Author, Handle: s.Handle, AuthorURL: s.AuthorURL, Title: title, Text: s.Body, URL: s.URL, Media: s.media(), Sensitive: p.Sensitive || s.Sensitive || len(s.Sensitivity) > 0})
 	}
 	if p.Text == "" && p.Title == "" && len(p.Media) == 0 {
 		return Post{}, errMetadata

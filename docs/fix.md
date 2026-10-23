@@ -216,3 +216,33 @@ with zero allocations, obs sampling in 31.7-32.3 ns with zero allocations and gu
 admission in 4.98-5.53 ns with zero allocations (three 300 ms runs each). These are
 local averages. Native-preview suppression adds one guarded Discord write after
 successful delivery and remains inside the existing end-to-end measurement.
+
+## compact presentation and loading
+
+Only fix changes in this revision; notify remains the visual reference. Reddit
+uses a linked post title with a smaller author/profile line. Other platforms use
+a linked author with a smaller handle/profile line where the provider supplies a
+valid X or Bluesky profile. Quote blocks keep their own identity and media.
+Engagement is ordered replies, reposts, likes, views, with notify-style counts
+such as 7.2k. Views are shown only when supplied. The footer reserves its share of
+the 4000 UTF-16 text budget and uses Discord relative time with the exact time
+available through the client.
+
+The container accent uses a muted platform colour when ready, slate while
+loading, amber for incomplete media, red when unavailable and grey for sensitive
+posts. Colours require no image download or palette extraction.
+
+A fix command immediately shows a tiny animated Skua, then replaces that same
+message with the result. This uses the same initial response and final update as
+the previous deferred response, without periodic edits or extra REST calls on successful requests. A failed final
+delivery gets one guarded, best-effort terminal error update with a fresh three
+second deadline; authentication, permission and missing-message refusals are not
+retried. The source animation also has a finite loop count.
+Private previews remain private. Automatic conversions have no loading message.
+The app emoji is generated from Skua's existing source art, loops gently in three
+frames and stays below the 10 KiB asset budget. Missing emoji sync falls back to
+a static module mark or text. Client animation settings control playback.
+
+Measured after the compact layout on the same Windows/amd64 host (three 300 ms
+runs): mixed-media rendering 4.97-5.81 us, 87 allocations; ordinary-message scanning
+249-250 ns, zero allocations. These are local averages, not production p99.

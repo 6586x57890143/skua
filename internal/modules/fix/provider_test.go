@@ -179,3 +179,19 @@ func TestFxLegacyMediaQuoteAndPoll(t *testing.T) {
 		t.Fatal("offline")
 	}
 }
+
+func TestFxOptionalViewsAndQuoteIdentity(t *testing.T) {
+	l, _ := Parse("https://x.com/a/status/123")
+	a := apiFor(t, func(*http.Request) (*http.Response, error) {
+		return response(`{"code":200,"status":{"id":"123","text":"text","views":12345,"author":{"name":"Author","screen_name":"author","url":"https://x.com/author"},"quote":{"id":"124","text":"quote","url":"https://x.com/quoted/status/124","author":{"name":"Quoted","screen_name":"quoted","url":"https://x.com/quoted"}}}}`), nil
+	})
+	p, err := a.Resolve(context.Background(), l)
+	if err != nil || !strings.Contains(p.Stats, "12345 views") || p.AuthorURL != "https://x.com/author" || p.Sections[0].Handle != "quoted" || p.Sections[0].AuthorURL != "https://x.com/quoted" || p.Sections[0].Kind != "quote" {
+		t.Fatalf("%+v %v", p, err)
+	}
+	a.c.Transport = transport(func(*http.Request) (*http.Response, error) { return response(fxFixture), nil })
+	p, err = a.Resolve(context.Background(), l)
+	if err != nil || strings.Contains(p.Stats, "views") {
+		t.Fatal("invented missing views", p, err)
+	}
+}

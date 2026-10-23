@@ -87,7 +87,11 @@ and videos together. Their compact header is a platform icon and an author name
 linked to the original post, with no large thumbnail or duplicate link button.
 For Reddit, the post title links to the post and the author links to their profile.
 The source text uses normal body contrast; only nested quoted posts use a quote
-block. Engagement icons and localized Discord timestamps finish the card.
+block. Group the primary headline with its smaller identity line. Quoted posts
+have their own identity and a small gap, without another avatar. Keep engagement
+in a consistent order and reserve space for attribution and a relative Discord
+timestamp. Compact state accents use the same semantic palette as other cards;
+loading feedback, when present, becomes the result in the same message.
 
 Both wear the bird's face and the rule, and are accented in the colour of their mood.
 

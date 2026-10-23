@@ -112,7 +112,11 @@ func (m *Module) command(ctx context.Context, e *events.ApplicationCommandIntera
 	if err := m.guard.Allow(*guild, guard.MessageSend); err != nil {
 		return core.Tell("too many cards here this hour; try again in a bit")
 	}
-	if err := e.DeferCreateMessage(!share); err != nil {
+	pending := loading()
+	if !share {
+		pending.Flags |= discord.MessageFlagEphemeral
+	}
+	if err := e.CreateMessage(pending); err != nil {
 		return err
 	}
 	delivered := false
@@ -133,6 +137,9 @@ func (m *Module) command(ctx context.Context, e *events.ApplicationCommandIntera
 	m.guard.Report(*guild, guard.Struggling(err))
 	if err != nil {
 		m.count(*guild, func(c *counts) { c.Failed++ })
+		if m.finishLoading(e, *guild, l, err) {
+			return nil
+		}
 		return errors.Join(core.Tell("the card couldn't be delivered; try again in a moment"), err)
 	}
 	m.count(*guild, func(c *counts) { c.Cards++ })

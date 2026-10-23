@@ -7,7 +7,6 @@ import (
 	"time"
 	"unicode/utf16"
 
-	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/disgoorg/disgo/discord"
 )
@@ -67,28 +66,9 @@ func card(l Link, p Post) discord.MessageCreate {
 	if platform == "twitter" {
 		platform = "x"
 	}
-	who := clean(p.Author, 120)
-	if who == "" {
-		who = "post on " + platform
-	}
-	authorLink := l.URL
-	if platform == "reddit" {
-		authorLink = redditProfile(p)
-	}
-	heading := "**" + who + "**"
-	if authorLink != "" {
-		heading = "**[" + who + "](<" + authorLink + ">)**"
-	}
-	if mark := brand.Mention("pf_" + platform); mark != "" {
-		heading = mark + " " + heading
-	} else {
-		heading = platform + " · " + heading
-	}
-	if p.Handle != "" {
-		heading += " · " + clean(p.Handle, 100)
-	}
+	heading := identity(l, p)
 	parts := []discord.ContainerSubComponent{}
-	remaining := 4000
+	remaining := 3500 // reserve footer room so long source text cannot hide time or attribution
 	addText := func(text string) {
 		if remaining < 4 || text == "" {
 			return
@@ -98,13 +78,7 @@ func card(l Link, p Post) discord.MessageCreate {
 		remaining -= len(utf16.Encode([]rune(text)))
 	}
 	addText(heading)
-	if platform == "reddit" {
-		title := p.Title
-		if title == "" {
-			title = "reddit post"
-		}
-		addText("**[" + clean(title, 200) + "](<" + l.URL + ">)**")
-	} else if p.Title != "" && p.Title != p.Text {
+	if platform != "reddit" && p.Title != "" && p.Title != p.Text {
 		addText("**" + clean(p.Title, 200) + "**")
 	}
 	if p.Text != "" && (platform != "reddit" || p.Text != p.Title) {
@@ -144,33 +118,34 @@ func card(l Link, p Post) discord.MessageCreate {
 		if i == 6 || left < 40 {
 			break
 		}
-		title := clean(s.Title, min(100, left/2))
-		if u := remoteURL(s.URL); u != "" && len(u) < 200 {
-			title = "[" + title + "](<" + u + ">)"
-		}
-		text := sourceText(s.Text, min(300, left))
-		block := clip("**"+title+"**\n"+quote(text), min(500, left))
+		block := sectionText(l, s, min(500, left))
+		parts = append(parts, discord.NewSmallSeparator().WithDivider(false))
 		addText(block)
 		left -= len(utf16.Encode([]rune(block)))
 		appendMedia(s.Media, p.Sensitive || s.Sensitive)
 	}
-	secondary := statLine(p.Stats)
 	if p.Context != "" {
-		secondary += "\n" + clean(p.Context, 160)
+		addText(clean(p.Context, 160))
 	}
-	if secondary != "" {
-		addText(secondary)
-	}
-	stamp := ""
-	if t, err := time.Parse(time.RFC3339, p.Timestamp); err == nil {
-		stamp = fmt.Sprintf(" · <t:%d:f>", t.Unix())
-	}
-
-	addText("-# " + clean(p.Provider, 30) + stamp)
 	if truncated {
 		addText("-# more media on the original post")
 	}
-	return discord.MessageCreate{Flags: discord.MessageFlagIsComponentsV2, Components: []discord.LayoutComponent{discord.NewContainer(parts...).WithAccentColor(brand.PlatformColor(platform))}, AllowedMentions: core.NoPings()}
+	// Compact footer: engagement and attribution share one text component.
+	parts = append(parts, discord.NewSmallSeparator())
+	stamp := ""
+	if t, err := time.Parse(time.RFC3339, p.Timestamp); err == nil {
+		stamp = fmt.Sprintf(" · <t:%d:R>", t.Unix())
+	}
+	meta := "-# " + clean(p.Provider, 30) + stamp
+	footer := clip(statLine(p.Stats), 500-len(utf16.Encode([]rune(meta)))-1)
+	if footer != "" {
+		footer += "\n"
+	}
+	footer += meta
+	// Footer is capped at 500 UTF-16 units, including custom emoji markup.
+	remaining += 500
+	addText(clip(footer, 500))
+	return discord.MessageCreate{Flags: discord.MessageFlagIsComponentsV2, Components: []discord.LayoutComponent{discord.NewContainer(parts...).WithAccentColor(accent(l, p))}, AllowedMentions: core.NoPings()}
 }
 
 func fallback(l Link) discord.MessageCreate {

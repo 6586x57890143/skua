@@ -140,11 +140,11 @@ var redditUserPath = regexp.MustCompile(`^/user/[A-Za-z0-9_-]+/?$`)
 var redditUserName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 func redditProfile(p Post) string {
-	if u, err := url.Parse(p.AuthorURL); err == nil && u.Scheme == "https" && u.User == nil && (u.Host == "reddit.com" || u.Host == "www.reddit.com") && redditUserPath.MatchString(u.Path) {
+	if u, err := url.Parse(p.AuthorURL); err == nil && u.Scheme == "https" && u.User == nil && (u.Host == "reddit.com" || u.Host == "www.reddit.com") && len(u.Path) <= 128 && redditUserPath.MatchString(u.Path) {
 		return "https://www.reddit.com" + u.Path
 	}
 	for _, name := range []string{p.Handle, p.Author} {
-		if strings.HasPrefix(name, "u/") && redditUserName.MatchString(name[2:]) {
+		if len(name) <= 66 && strings.HasPrefix(name, "u/") && redditUserName.MatchString(name[2:]) {
 			return "https://www.reddit.com/user/" + name[2:] + "/"
 		}
 	}

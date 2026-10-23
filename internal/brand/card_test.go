@@ -18,7 +18,7 @@ func TestCard(t *testing.T) {
 	if got := c.Components[0].(discord.TextDisplayComponent).Content; got != "**purge** · stop\n✓ done" {
 		t.Errorf("unsynced head %q", got)
 	}
-	ids := map[string]emojiRef{"mod_purge": {7, "mod_purge_ab"}}
+	ids := map[string]emojiRef{"mod_purge": {7, "mod_purge_ab", false}}
 	emojiIDs.Store(&ids)
 	if got := Card(ColorOK, "purge", "", "body").Components[0].(discord.TextDisplayComponent).Content; got != "<:mod_purge_ab:7> **purge**\nbody" {
 		t.Errorf("synced head %q", got)
