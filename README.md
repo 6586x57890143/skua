@@ -20,3 +20,5 @@ do. Built on [disgo](https://github.com/disgoorg/disgo) and
 - [Go live](docs/go-live.md): the token, the profile and the invite
 - [Deploy](docs/deploy.md): what a merge to `main` does
 - [Moving to another server](docs/moving.md)
+
+Social cards: [enable and maintain the fix module](docs/fix.md).

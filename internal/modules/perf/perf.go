@@ -1,6 +1,6 @@
 // Package perf is /perf: where skua spends her time, module by module and
 // stage by stage, from the Go runtime up to Discord's API. It reads what
-// internal/obs records and lays it out as facts, slowest first, so the
+// internal/obs records and lays it out as an aligned timing table, budget misses first, so the
 // outlier leads.
 //
 // The numbers are the whole process's, every server skua is in, so they say
@@ -11,6 +11,8 @@ package perf
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -46,8 +48,8 @@ func (*Module) Perms() discord.Permissions { return 0 }
 func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorInfo,
-		Line:  "where her time goes with the slowest first",
-		About: "/perf lists where her time goes in each module with the slowest first. every call is split four ways: in is the trip from discord's gateway to her, run is her own work, wait is time held back by discord's rate limits and http is the request itself. drop counts calls that gave up while waiting. the go runtime's own overhead is listed underneath. it covers every server she's in, so only her keeper can run it",
+		Line:  "where her time goes and what misses its target",
+		About: "/perf lists where her time goes in each module as a timing table. a target is a p99 budget; a warning marks one she missed, and those come first. every call is split four ways: in is the trip from discord's gateway to her, run is her own work, wait is time held back by discord's rate limits and http is the request itself. drop counts calls that gave up while waiting. the go runtime's own overhead is listed underneath. it covers every server she's in, so only her keeper can run it",
 	}
 }
 
@@ -61,29 +63,76 @@ func (m *Module) Commands() []core.Command {
 }
 
 func (m *Module) perf(_ context.Context, e *events.ApplicationCommandInteractionCreate) error {
-	embed, files := brand.Embed(brand.ColorInfo, "perf", m.readout())
+	text, over := m.readoutRows(m.rec.Rows())
+	color := brand.ColorInfo
+	if over {
+		color = brand.ColorWarn
+	}
 	return e.CreateMessage(discord.MessageCreate{
-		Embeds:          []discord.Embed{embed},
-		Files:           files,
-		Flags:           discord.MessageFlagEphemeral,
+		Components:      []discord.LayoutComponent{brand.Card(color, "perf", "timings", text)},
+		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	})
 }
 
-// readout is one fact per stage, slowest p99 first, then the runtime's own.
-func (m *Module) readout() string {
-	stages := m.rec.Rows()
-	var rows [][2]string
-	for _, r := range stages[:min(top, len(stages))] {
-		rows = append(rows, [2]string{r.Who + " " + r.Stage.String(), dur(r.P99) + " p99 · " + dur(r.P50) + " p50 · " + count(r.N)})
+func (m *Module) readout() string { text, _ := m.readoutRows(m.rec.Rows()); return text }
+
+// Fixed columns survive Discord markdown parsing and remain copyable. A row
+// over its explicit p99 budget leads even when a longer network wait is healthy.
+func (m *Module) readoutRows(stages []obs.Row) (string, bool) {
+	over := func(r obs.Row) bool { return r.Target > 0 && r.P99 > r.Target }
+	stages = slices.Clone(stages)
+	slices.SortStableFunc(stages, func(a, b obs.Row) int {
+		if over(a) != over(b) {
+			if over(a) {
+				return -1
+			}
+			return 1
+		}
+		return 0
+	})
+	breaches := 0
+	for _, row := range stages {
+		if over(row) {
+			breaches++
+		}
 	}
-	text := "nothing measured yet\n"
-	if len(rows) > 0 {
-		text = core.Readout(rows)
+	var b strings.Builder
+	if len(stages) == 0 {
+		b.WriteString("nothing measured yet\n")
+	}
+	b.WriteString("```text\n")
+	if len(stages) > 0 {
+		fmt.Fprintf(&b, "%-26s %8s %8s %8s %6s\n", "stage", "p50", "p99", "target", "n")
+		for _, row := range stages[:min(top, len(stages))] {
+			mark := " "
+			if over(row) {
+				mark = "!"
+			}
+			fmt.Fprintf(&b, "%s%-25s %8s %8s %8s %6s\n", mark, stageLabel(row.Who, row.Stage), dur(row.P50), dur(row.P99), dur(row.Target), count(row.N))
+		}
 	}
 	sched, gc := m.runtime()
-	text += core.Readout([][2]string{{"go sched", dur(sched)}, {"go gc pause", dur(gc)}})
-	return text + "-# since boot · in: gateway to dispatch · run: handler · wait: rate limit · http: round trip · build " + core.Revision()
+	fmt.Fprintf(&b, "%-26s %8s %8s %8s %6s\n%-26s %8s %8s %8s %6s\n", "go sched", "-", dur(sched), "-", "-", "go gc pause", "-", dur(gc), "-", "-")
+	b.WriteString("```\n")
+	if breaches > 0 {
+		fmt.Fprintf(&b, "! %d over target\n", breaches)
+	}
+	if len(stages) > top {
+		fmt.Fprintf(&b, "-# showing %d of %d stages\n", top, len(stages))
+	}
+	b.WriteString("-# since boot · target: p99 budget · !: over target · n: samples\n")
+	b.WriteString("-# in: gateway to dispatch · run: handler · wait: rate limit · http: round trip · drop: cancelled in queue\n")
+	b.WriteString("-# build " + stageName(core.Revision()))
+	return b.String(), breaches > 0
+}
+func stageName(s string) string {
+	s = strings.Join(strings.Fields(strings.ReplaceAll(s, "`", "'")), " ")
+	runes := []rune(s)
+	if len(runes) > 25 {
+		return string(runes[:22]) + "..."
+	}
+	return s
 }
 
 // dur is a duration the way UX.md writes numbers, down to microseconds.
@@ -111,4 +160,14 @@ func count(n uint64) string {
 		return fmt.Sprintf("%.1fk", float64(n)/1000)
 	}
 	return fmt.Sprintf("%dk", n/1000)
+}
+
+func stageLabel(who string, stage obs.Stage) string {
+	name := stageName(who)
+	n := 25 - 1 - len(stage.String())
+	runes := []rune(name)
+	if len(runes) > n {
+		name = string(runes[:n-3]) + "..."
+	}
+	return name + " " + stage.String()
 }

@@ -38,6 +38,7 @@ import (
 	"github.com/6586x57890143/skua/internal/intents"
 	"github.com/6586x57890143/skua/internal/modules/armada"
 	"github.com/6586x57890143/skua/internal/modules/bird"
+	"github.com/6586x57890143/skua/internal/modules/fix"
 	"github.com/6586x57890143/skua/internal/modules/help"
 	"github.com/6586x57890143/skua/internal/modules/notify"
 	"github.com/6586x57890143/skua/internal/modules/pace"
@@ -139,6 +140,7 @@ func run(log *slog.Logger) error {
 	// pace answers cygnet over the link, so it exists before the link does,
 	// and a server opts in to it.
 	toggles.OptIn(pace.Name)
+	toggles.OptIn(fix.Name)
 	pacer := pace.New(func(guild snowflake.ID) bool { return toggles.On(guild, pace.Name) })
 
 	// The link to cygnet, the fleet's hub, only where it is configured. It
@@ -233,6 +235,12 @@ func run(log *slog.Logger) error {
 		perf.New(obs.Default),
 		pacer,
 		help.New(func() []core.Module { return running }, func(i discord.Interaction) bool { return router.Admin(i) }, toggles),
+	}
+	// Embed metadata settings are optional; a bad endpoint only stops fix.
+	if api, err := fix.NewAPI(fix.FromEnv()); err != nil {
+		log.Error("fix is off: its metadata endpoints are invalid", "err", err)
+	} else {
+		all = append(all, fix.New(ctx, g, api, log))
 	}
 	// The Armada bridge runs only where it is configured. Its mappings share
 	// the purge pool: nil without a database, and then they live in memory.

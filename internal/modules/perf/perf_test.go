@@ -9,6 +9,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/core/coretest"
 	"github.com/6586x57890143/skua/internal/obs"
@@ -32,14 +33,19 @@ func TestReadout(t *testing.T) {
 		rec.Add("bird", obs.In, 40*time.Millisecond)
 	}
 	got := module(rec).readout()
-	if !strings.HasPrefix(got, "**preen fill run** 9.4s p99 · 9.4s p50 · 1\n") {
-		t.Errorf("readout doesn't lead with the slowest:\n%s", got)
+
+	if !strings.Contains(got, "```text\n") || !strings.Contains(got, "p50") || !strings.Contains(got, "p99") || !strings.Contains(got, "target") {
+		t.Fatal(got)
 	}
-	for _, s := range []string{"**get channels wait** 3.8s", "**put reactions/@me wait**", "**whisper run**", "· 1.5k", "**go sched** 40 µs", "**go gc pause** 300 µs", "build " + core.Revision()} {
+	if strings.Index(got, "preen fill run") > strings.Index(got, "get channels wait") {
+		t.Errorf("not slowest first:\n%s", got)
+	}
+	for _, s := range []string{"get channels wait", "put reactions/@me wait", "whisper run", "1.5k", "go sched", "40 µs", "go gc pause", "300 µs", "build " + core.Revision()} {
 		if !strings.Contains(got, s) {
-			t.Errorf("readout is missing %q:\n%s", s, got)
+			t.Errorf("missing %q:\n%s", s, got)
 		}
 	}
+
 }
 
 func TestEmptyReadout(t *testing.T) {
@@ -61,7 +67,7 @@ func TestPerfReplies(t *testing.T) {
 	if err := c[0].Run(t.Context(), e); err != nil {
 		t.Fatal(err)
 	}
-	if len(*sent) != 1 || !(*sent)[0].Flags.Has(discord.MessageFlagEphemeral) || (*sent)[0].Embeds[0].Title != "perf" {
+	if len(*sent) != 1 || !(*sent)[0].Flags.Has(discord.MessageFlagEphemeral) || !(*sent)[0].Flags.Has(discord.MessageFlagIsComponentsV2) || len((*sent)[0].Embeds) != 0 || !strings.Contains(coretest.Text((*sent)[0].Content, (*sent)[0].Components), "```text") {
 		t.Fatalf("sent %+v", *sent)
 	}
 }
@@ -100,5 +106,56 @@ func TestFormatting(t *testing.T) {
 		if got := count(n); got != want {
 			t.Errorf("count(%d) = %q, want %q", n, got, want)
 		}
+	}
+}
+
+func TestTargetsLeadAndUntrustedLabelsCannotBreakCodeBlocks(t *testing.T) {
+	rec := obs.New()
+	rec.SetTarget("fix build", obs.Run, 5*time.Millisecond)
+	rec.Add("fix build", obs.Run, 10*time.Millisecond)
+	for range 20 {
+		rec.Add("network", obs.HTTP, time.Second)
+	}
+	rec.Add("name\n```evil", obs.Run, time.Microsecond)
+	got := module(rec).readout()
+	if strings.Index(got, "fix build run") > strings.Index(got, "network http") || !strings.Contains(got, "!fix build run") || !strings.Contains(got, "! 1 over target") || strings.Count(got, "```") != 2 {
+		t.Fatal(got)
+	}
+	if stageName(strings.Repeat("a", 100)) != strings.Repeat("a", 22)+"..." {
+		t.Fatal("long label")
+	}
+	rows := make([]obs.Row, 30)
+	for i := range rows {
+		rows[i] = obs.Row{Who: "module", Stage: obs.Run}
+	}
+	text, _ := module(rec).readoutRows(rows)
+	if !strings.Contains(text, "showing 12 of 30") {
+		t.Fatal(text)
+	}
+	e, sent := coretest.Event(t, "perf", nil)
+	if err := module(rec).perf(t.Context(), e); err != nil {
+		t.Fatal(err)
+	}
+	box := (*sent)[0].Components[0].(discord.ContainerComponent)
+	if box.AccentColor != brand.ColorWarn {
+		t.Fatal(box.AccentColor)
+	}
+	if (*sent)[0].AllowedMentions == nil || len((*sent)[0].Files) != 0 {
+		t.Fatal("perf must be ping-free and attach nothing")
+	}
+}
+
+func TestRuntimeDurationsOccupyP99Column(t *testing.T) {
+	got := module(obs.New()).readout()
+	for _, line := range strings.Split(got, "\n") {
+		if strings.HasPrefix(line, "go sched ") {
+			fields := strings.Fields(line)
+			if strings.Join(fields, " ") != "go sched - 40 µs - -" {
+				t.Fatal(line)
+			}
+		}
+	}
+	if label := stageLabel(strings.Repeat("module", 20), obs.HTTP); len([]rune(label)) > 25 || !strings.HasSuffix(label, " http") {
+		t.Fatal(label)
 	}
 }

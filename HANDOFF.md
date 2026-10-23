@@ -8,6 +8,7 @@ Written 2026-10-02. Read this with `CLAUDE.md` and `SPEC.md`.
 |---|---|
 | `main` | Milestone 0, pushed to `github.com/6586x57890143/skua`. |
 | `ci/deploy-foundry` | The CI/CD pipeline and repo hygiene. PR #1. |
+| `feat/fix-embeds` | social Components V2 cards, Reddit audio/video recovery, upstream tracking and /perf timing tables with p99 budgets; reviewed by gpt-6 astra |
 | `feat/notify` | Milestone 8, `/notify`: creator alerts for youtube, x, tiktok, twitch and kick. Not yet run against Discord. |
 
 ## What M0 did

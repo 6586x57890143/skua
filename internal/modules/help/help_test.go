@@ -22,6 +22,7 @@ import (
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
 	"github.com/6586x57890143/skua/internal/modules/bird"
+	"github.com/6586x57890143/skua/internal/modules/fix"
 	"github.com/6586x57890143/skua/internal/modules/notify"
 	"github.com/6586x57890143/skua/internal/modules/perf"
 	"github.com/6586x57890143/skua/internal/modules/preen"
@@ -421,6 +422,7 @@ func TestEveryPageKeepsTheVoice(t *testing.T) {
 		t.Fatal(err)
 	}
 	mods := []core.Module{
+		fix.New(context.Background(), nil, nil, nil),
 		status.New(nil, nil, nil, nil),
 		whisper.New(nil, nil, nil),
 		bird.New(nil, nil, nil, ""),

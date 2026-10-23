@@ -1,0 +1,37 @@
+name: embed upstream review
+
+on:
+  schedule:
+    - cron: '21 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fix-upstream
+  cancel-in-progress: true
+
+jobs:
+  upstreams:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: report commits and open contributions
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: go run ./tools/fix-upstream | tee upstream-review.md >> "$GITHUB_STEP_SUMMARY"
+      - name: test live API contracts and Reddit audio
+        env:
+          SKUA_FIX_LIVE: '1'
+        run: go test -count=1 -v -run TestLiveProviders ./internal/modules/fix
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: embed-upstream-review
+          path: upstream-review.md
+          retention-days: 30
