@@ -182,3 +182,19 @@ beside their counts and Discord timestamps use the reader's timezone.
 This follows the owner's 2026-10-23 comparison of FixTweet and Skua screenshots:
 the large avatar crowded the header and the quoted body was too faint. Components
 V2 cannot place a small remote avatar inline, so the platform icon takes that place.
+
+The fix card keeps notify's compact headline, supporting identity and full-width
+media rhythm without changing notify. Reddit's linked title leads, with the
+profile below; other platforms lead with the linked author and a smaller linked
+handle. Quoted posts get a small gap and their own identity. Replies, reposts,
+likes and views stay in that order, abbreviated like notify, above one quiet
+relative-time and attribution footer. Footer space is reserved for long posts.
+
+Ready accents follow the platform in muted suite colours. Loading is slate,
+incomplete media is amber, unavailable previews are red and sensitive posts are
+quiet grey. Colour supplements the visible state and spoiler controls.
+
+Only fix commands show the small animated skua while fetching. It is an app emoji
+made from the existing bird art, not a fetched image or a timer-driven edit loop.
+The completed card replaces it in the same message. Automatic conversions still
+publish only the finished card. Before emoji sync, loading falls back to text.

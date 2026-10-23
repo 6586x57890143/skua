@@ -23,7 +23,7 @@ func TestFixLoadingAnimationBudgetAndSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(animation.Image) != 3 || animation.Config.Width != 128 || animation.Config.Height != 128 || animation.LoopCount != 0 {
+	if len(animation.Image) != 3 || animation.Config.Width != 128 || animation.Config.Height != 128 || animation.LoopCount != 20 {
 		t.Fatal("animation dimensions or loop changed")
 	}
 	for i, frame := range animation.Image {

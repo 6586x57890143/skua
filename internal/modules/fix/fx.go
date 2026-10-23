@@ -21,10 +21,12 @@ type fxStatus struct {
 		Name   string `json:"name"`
 		Handle string `json:"screen_name"`
 		Avatar string `json:"avatar_url"`
+		URL    string `json:"url"`
 	} `json:"author"`
-	Likes   int64 `json:"likes"`
-	Reposts int64 `json:"reposts"`
-	Replies int64 `json:"replies"`
+	Views   *int64 `json:"views"`
+	Likes   int64  `json:"likes"`
+	Reposts int64  `json:"reposts"`
+	Replies int64  `json:"replies"`
 	Media   struct {
 		All    []fxMedia `json:"all"`
 		Photos []fxMedia `json:"photos"`
@@ -91,7 +93,10 @@ func (a *API) fx(ctx context.Context, l Link) (Post, error) {
 	if body.Code != 200 || s == nil || s.ID != l.ID || (s.Text == "" && len(s.media()) == 0 && s.Poll == nil) {
 		return Post{}, errMetadata
 	}
-	p := Post{Text: s.Text, Author: s.Author.Name, Handle: s.Author.Handle, Avatar: s.Author.Avatar, Provider: "fxembed", Sensitive: s.Sensitive, Media: s.media(), Stats: fmt.Sprintf("%d likes · %d reposts · %d replies", s.Likes, s.Reposts, s.Replies)}
+	p := Post{Text: s.Text, Author: s.Author.Name, AuthorURL: s.Author.URL, Handle: s.Author.Handle, Avatar: s.Author.Avatar, Provider: "fxembed", Sensitive: s.Sensitive, Media: s.media(), Stats: fmt.Sprintf("%d likes · %d reposts · %d replies", s.Likes, s.Reposts, s.Replies)}
+	if s.Views != nil && *s.Views >= 0 {
+		p.Stats += fmt.Sprintf(" · %d views", *s.Views)
+	}
 	if s.Timestamp > 0 {
 		p.Timestamp = time.UnixMilli(int64(s.Timestamp * 1000)).UTC().Format(time.RFC3339)
 	}
@@ -108,7 +113,7 @@ func (a *API) fx(ctx context.Context, l Link) (Post, error) {
 				}
 			}
 		}
-		p.Sections = append(p.Sections, Section{Title: title, Text: text, URL: q.URL, Media: q.media(), Sensitive: s.Sensitive || q.Sensitive})
+		p.Sections = append(p.Sections, Section{Kind: "quote", Author: q.Author.Name, Handle: q.Author.Handle, AuthorURL: q.Author.URL, Title: title, Text: text, URL: q.URL, Media: q.media(), Sensitive: s.Sensitive || q.Sensitive})
 	}
 	if s.Poll != nil {
 		text := ""
@@ -118,10 +123,10 @@ func (a *API) fx(ctx context.Context, l Link) (Post, error) {
 			}
 			text += fmt.Sprintf("%s · %d votes · %.1f%%\n", c.Label, c.Count, c.Percentage)
 		}
-		p.Sections = append(p.Sections, Section{Title: "poll", Text: text})
+		p.Sections = append(p.Sections, Section{Kind: "poll", Title: "poll", Text: text})
 	}
 	if s.Note != nil && s.Note.Text != "" {
-		p.Sections = append(p.Sections, Section{Title: "community note", Text: s.Note.Text})
+		p.Sections = append(p.Sections, Section{Kind: "community-note", Title: "community note", Text: s.Note.Text})
 	}
 	return p, nil
 }

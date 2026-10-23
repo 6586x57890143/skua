@@ -58,3 +58,12 @@ func BenchmarkDecodeFxMetadata(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkRenderQuotedPost(b *testing.B) {
+	l, _ := Parse("https://x.com/author/status/123")
+	p := Post{Author: "Author", Handle: "author", AuthorURL: "https://x.com/author", Text: "A post with a source https://example.com/article", Stats: "7215 likes · 737 reposts · 135 replies · 31000 views", Timestamp: "2026-10-22T10:13:00Z", Provider: "fxembed", Sections: []Section{{Kind: "quote", Author: "Another", Handle: "another", URL: "https://x.com/another/status/124", AuthorURL: "https://x.com/another", Text: "Quoted text and https://example.com/context", Media: []Media{{URL: "https://video.twimg.com/example.mp4"}}}}}
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = card(l, p)
+	}
+}

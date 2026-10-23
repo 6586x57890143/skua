@@ -12,7 +12,7 @@ import (
 // A quiet two-pixel bob of skua's own source art. Three frames, no flashing,
 // no raster resampling. Discord animates this emoji; the bot sends it once.
 func writeFixLoading(out string, bird *image.NRGBA) {
-	animation := &gif.GIF{LoopCount: 0}
+	animation := &gif.GIF{LoopCount: 20}
 	for _, dy := range []int{0, -2, 0} {
 		frame := image.NewNRGBA(bird.Bounds())
 		draw.Draw(frame, frame.Bounds(), bird, image.Pt(0, -dy), draw.Src)

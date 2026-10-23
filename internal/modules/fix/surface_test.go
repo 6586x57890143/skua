@@ -53,7 +53,7 @@ func TestCompactLinkedCard(t *testing.T) {
 			all += d.Content + "\n"
 		}
 	}
-	for _, want := range []string{"<:pp_heart_", "<:stat_repost_", "<:stat_reply_", "<t:1792663980:f>", "[quote · Author](<https://x.com/author/status/100>)"} {
+	for _, want := range []string{"<:pp_heart_", "<:stat_repost_", "<:stat_reply_", "<t:1792663980:R>", "[Author](<https://x.com/author/status/100>)"} {
 		if !strings.Contains(all, want) {
 			t.Fatalf("missing %s: %s", want, all)
 		}
@@ -294,8 +294,8 @@ func TestRedditTitleAndProfileHaveDistinctDestinations(t *testing.T) {
 	} {
 		box := card(l, p).Components[0].(discord.ContainerComponent)
 		head := box.Components[0].(discord.TextDisplayComponent).Content
-		title := box.Components[1].(discord.TextDisplayComponent).Content
-		if !strings.Contains(head, "https://www.reddit.com/user/creator/") || strings.Contains(head, l.URL) || !strings.Contains(title, "[A video](<"+l.URL+">)") {
+		title := head
+		if !strings.Contains(head, "https://www.reddit.com/user/creator/") || !strings.Contains(title, "[A video](<"+l.URL+">)") {
 			t.Fatalf("%s / %s", head, title)
 		}
 	}
@@ -303,7 +303,7 @@ func TestRedditTitleAndProfileHaveDistinctDestinations(t *testing.T) {
 		t.Fatal("invalid profile")
 	}
 	box := card(l, Post{Author: "[deleted]"}).Components[0].(discord.ContainerComponent)
-	if !strings.Contains(box.Components[1].(discord.TextDisplayComponent).Content, l.URL) {
+	if !strings.Contains(box.Components[0].(discord.TextDisplayComponent).Content, l.URL) {
 		t.Fatal("missing fallback source link")
 	}
 }
@@ -340,5 +340,105 @@ func TestCommandUsesOneSkuaLoadingCardThenReplacesIt(t *testing.T) {
 	}
 	if (*sent)[0].Flags&discord.MessageFlagEphemeral == 0 || (*sent)[0].AllowedMentions == nil {
 		t.Fatal("loading privacy or mention policy changed")
+	}
+}
+
+func TestPresentationStateAndCompactCounts(t *testing.T) {
+	for _, tc := range []struct{ raw, want string }{{"950", "950"}, {"1200", "1.2k"}, {"7215", "7.2k"}, {"12000", "12k"}, {"1300000", "1.3m"}, {"2100000000", "2.1b"}, {"1.2K", "1.2K"}, {"9,500", "9.5k"}} {
+		if got := compactCount(tc.raw); got != tc.want {
+			t.Errorf("%s=%s want %s", tc.raw, got, tc.want)
+		}
+	}
+	for platform := range map[string]bool{"twitter": true, "bluesky": true, "reddit": true, "instagram": true, "threads": true, "pixiv": true, "bilibili": true, "pinterest": true, "tumblr": true, "deviantart": true, "tiktok": true, "twitch": true, "youtube": true} {
+		l := Link{Platform: platform}
+		if accent(l, Post{}) == 0 || accent(l, Post{Provider: "unavailable"}) != brand.ColorError || accent(l, Post{Incomplete: true}) != brand.ColorWarn || accent(l, Post{Sensitive: true}) != brand.ColorIdle {
+			t.Fatal(platform)
+		}
+	}
+	for _, tc := range []struct {
+		l                 Link
+		url, handle, want string
+	}{
+		{Link{Platform: "twitter"}, "https://x.com/author", "author", "https://x.com/author"},
+		{Link{Platform: "twitter"}, "https://evil.example/author", "author", "https://x.com/author"},
+		{Link{Platform: "twitter"}, "https://x.com/author/status/123", "bad name", ""},
+		{Link{Platform: "bluesky"}, "https://bsky.app/profile/example.com", "example.com", "https://bsky.app/profile/example.com"},
+		{Link{Platform: "bluesky"}, "https://evil.example/", "example.com", "https://bsky.app/profile/example.com"},
+		{Link{Platform: "bluesky"}, "https://%zz", "evil/name", ""},
+	} {
+		if got := profile(tc.l, tc.url, tc.handle); got != tc.want {
+			t.Errorf("%+v: %s", tc, got)
+		}
+	}
+}
+
+func TestFooterStaysVisibleAndQuoteHasOwnIdentity(t *testing.T) {
+	l, _ := Parse("https://x.com/author/status/123")
+	p := Post{Author: "author", Text: strings.Repeat("line\n", 2000), Stats: strings.Repeat("1 likes · 2 reposts · 3 replies · 4 views · unknown · ", 100), Provider: "fxembed", Timestamp: "2026-10-22T10:13:00Z", Sections: []Section{{Kind: "quote", Author: "another", Handle: "another", URL: "https://x.com/another/status/124", AuthorURL: "https://x.com/another", Text: "A quoted post"}}}
+	box := card(l, p).Components[0].(discord.ContainerComponent)
+	footer := box.Components[len(box.Components)-1].(discord.TextDisplayComponent).Content
+	if !strings.HasSuffix(footer, "fxembed · <t:1792663980:R>") {
+		t.Fatal(footer)
+	}
+	block := sectionText(l, p.Sections[0], 500)
+	if !strings.Contains(block, "quoted post") || !strings.Contains(block, "[another](<https://x.com/another/status/124>)") || !strings.Contains(block, "https://x.com/another>") {
+		t.Fatal(block)
+	}
+	for _, limit := range []int{20, 40, 100, 500} {
+		if got := sectionText(l, p.Sections[0], limit); len(utf16.Encode([]rune(got))) > limit {
+			t.Fatalf("section exceeded %d: %s", limit, got)
+		}
+	}
+}
+
+type finalDeliveryRest struct {
+	*recordingRest
+	failures int
+	errFirst error
+}
+
+func (r *finalDeliveryRest) UpdateInteractionResponse(app snowflake.ID, token string, msg discord.MessageUpdate, opts ...rest.RequestOpt) (*discord.Message, error) {
+	if r.failures > 0 {
+		r.failures--
+		return nil, r.errFirst
+	}
+	return r.recordingRest.UpdateInteractionResponse(app, token, msg, opts...)
+}
+func TestFailedDeliveryEndsLoadingWithoutAnotherPublicMessage(t *testing.T) {
+	for _, status := range []int{400, 401, 403, 404, 503} {
+		m := module()
+		e, sent := slash(t, "https://x.com/user/status/123", true)
+		r := &finalDeliveryRest{recordingRest: &recordingRest{}, failures: 1, errFirst: discordError(status)}
+		e.Client().Rest = r
+		err := m.command(context.Background(), e)
+		terminal := status == 400 || status == 503
+		if (err == nil) != terminal {
+			t.Fatalf("%d: %v", status, err)
+		}
+		if len(*sent) != 1 {
+			t.Fatal("created another message")
+		}
+		if terminal {
+			if len(r.updates) != 1 {
+				t.Fatal("loading card not replaced")
+			}
+			raw, _ := json.Marshal(r.updates[0])
+			if !strings.Contains(string(raw), "preview unavailable") || strings.Contains(string(raw), "fix_loading") {
+				t.Fatal(string(raw))
+			}
+		} else if len(r.updates) != 0 {
+			t.Fatal("retried permanent refusal")
+		}
+	}
+}
+
+func TestQuoteBudgetNeverCutsLinkDestinations(t *testing.T) {
+	l, _ := Parse("https://x.com/a/status/123")
+	s := Section{Kind: "quote", Author: "A quoted author", Handle: "author", URL: "https://x.com/author/status/1234567890", Text: "Words https://example.com/article\nMore words"}
+	for limit := 20; limit <= 500; limit++ {
+		got := sectionText(l, s, limit)
+		if len(utf16.Encode([]rune(got))) > limit || strings.Count(got, "](<") != strings.Count(got, ">)") {
+			t.Fatalf("limit%d: %s", limit, got)
+		}
 	}
 }
