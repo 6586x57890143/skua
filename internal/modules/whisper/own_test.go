@@ -56,7 +56,7 @@ func target(t *testing.T, name, content string, webhook int, app string) (*event
 }
 
 func TestDeleteWhisperRemovesOnlyTheMembersOwn(t *testing.T) {
-	mine := "hello" + marker("member")
+	mine := "hello" + marker("member", 5)
 	f := &fake{owned: []discord.Webhook{incoming("701", ctApp)}}
 	e, _ := target(t, "Delete whisper", mine, 701, ctApp)
 	e.Client().Rest = f
@@ -67,26 +67,16 @@ func TestDeleteWhisperRemovesOnlyTheMembersOwn(t *testing.T) {
 		t.Fatalf("removed %v, deferred replies deleted %d: want message 8 gone, silently", f.removed, f.deletes)
 	}
 
-	// Posted before the rename: the old marker still says whose it is, and
-	// only for that member.
-	legacy := func(user string) string { return "hello\n-# echoed through skua by @" + user }
-	if text, ok := byMember(discord.Message{Content: legacy("member")}, "member"); !ok || text != "hello" {
-		t.Errorf("a pre-rename post: %q, %v", text, ok)
-	}
-	if _, ok := byMember(discord.Message{Content: legacy("other")}, "member"); ok {
-		t.Error("someone else's pre-rename post counted as the member's")
-	}
-
 	for name, c := range map[string]struct {
 		content string
 		webhook int
 		app     string
 	}{
-		"someone else's whisper":   {"hello" + marker("other"), 701, ctApp},
-		"a member's own message":   {"hello" + marker("member"), 0, ""},
-		"another app's webhook":    {"hello" + marker("member"), 701, "999"},
-		"a marker in the middle":   {"x" + marker("member") + " and more", 701, ctApp},
-		"another member, prefixed": {"hello" + marker("amember"), 701, ctApp},
+		"someone else's whisper":   {"hello" + marker("other", 6), 701, ctApp},
+		"a member's own message":   {"hello" + marker("member", 5), 0, ""},
+		"another app's webhook":    {"hello" + marker("member", 5), 701, "999"},
+		"a marker in the middle":   {"x" + marker("member", 5) + " and more", 701, ctApp},
+		"another member, prefixed": {"hello" + marker("amember", 6), 701, ctApp},
 	} {
 		f := &fake{owned: []discord.Webhook{incoming("701", ctApp)}}
 		e, _ := target(t, "Delete whisper", c.content, c.webhook, c.app)
@@ -97,8 +87,50 @@ func TestDeleteWhisperRemovesOnlyTheMembersOwn(t *testing.T) {
 	}
 }
 
+func TestOwnershipSurvivesRenamesAndRefusesReusedNames(t *testing.T) {
+	for _, command := range []string{"Delete whisper", "Edit whisper"} {
+		for _, c := range []struct {
+			name, content string
+			known         snowflake.ID
+			want          bool
+		}{
+			{"renamed owner", "hello" + marker("old_name", 5), 0, true},
+			{"reused username", "hello" + marker("member", 42), 0, false},
+			{"known legacy owner", "hello\n-# whispered through skua by @old_name", 5, true},
+			{"known echoed owner", "hello\n-# echoed through skua by @old_name", 5, true},
+			{"unknown legacy owner", "hello\n-# whispered through skua by @member", 0, false},
+			{"reused legacy username", "hello\n-# whispered through skua by @member", 42, false},
+		} {
+			t.Run(command+"/"+c.name, func(t *testing.T) {
+				m := newWhisper()
+				if c.known != 0 {
+					m.writers.add(8, c.known)
+				}
+				e, _ := target(t, command, c.content, 701, ctApp)
+				f := &fake{owned: []discord.Webhook{incoming("701", ctApp)}}
+				e.Client().Rest = f
+				r := core.NewRouter(0, nil, slog.New(slog.DiscardHandler))
+				if err := r.Add(m); err != nil {
+					t.Fatal(err)
+				}
+				var denied bool
+				e.Respond = func(_ discord.InteractionResponseType, data discord.InteractionResponseData, _ ...rest.RequestOpt) error {
+					if msg, ok := data.(discord.MessageCreate); ok {
+						denied = strings.Contains(msg.Content, "you can only change your own whispers")
+					}
+					return nil
+				}
+				r.OnCommand(e)
+				if denied == c.want {
+					t.Fatalf("allowed = %v, want %v", !denied, c.want)
+				}
+			})
+		}
+	}
+}
+
 func TestEditWhisperOpensAPrefilledBox(t *testing.T) {
-	e, _ := target(t, "Edit whisper", `-\# my words`+marker("member"), 701, ctApp)
+	e, _ := target(t, "Edit whisper", `-\# my words`+marker("member", 5), 701, ctApp)
 	var modal discord.ModalCreate
 	e.Respond = func(_ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
 		modal = d.(discord.ModalCreate)
@@ -115,7 +147,7 @@ func TestEditWhisperOpensAPrefilledBox(t *testing.T) {
 		t.Errorf("text input %+v: want the whisper minus its marker, one line, capped", in)
 	}
 
-	e, _ = target(t, "Edit whisper", "hi"+marker("other"), 701, ctApp)
+	e, _ = target(t, "Edit whisper", "hi"+marker("other", 6), 701, ctApp)
 	if err := newWhisper().editWhisper(t.Context(), e); !errors.Is(err, errNotYours) {
 		t.Errorf("someone else's whisper: %v", err)
 	}
@@ -125,7 +157,7 @@ func TestSubmitEditRewritesThroughTheSameScreen(t *testing.T) {
 	sendAll := func(p map[string]any) { p["member"].(map[string]any)["permissions"] = "2048" }
 	f := &fake{
 		owned:   []discord.Webhook{incoming("701", ctApp)},
-		fetched: &discord.Message{Content: "old" + marker("member")},
+		fetched: &discord.Message{Content: "old" + marker("member", 5)},
 	}
 	e, _ := coretest.Modal(t, "whisper-edit:701:8", map[string]string{"message": "you f4ggot\nlook -# here"}, sendAll)
 	e.Client().Rest = f
@@ -137,7 +169,7 @@ func TestSubmitEditRewritesThroughTheSameScreen(t *testing.T) {
 	}
 	u := f.updates[0]
 	got := *u.Content
-	if !strings.HasPrefix(got, "you ") || !strings.HasSuffix(got, " look -# here"+marker("member")) || strings.Contains(got, "\n-# here") {
+	if !strings.HasPrefix(got, "you ") || !strings.HasSuffix(got, " look -# here"+marker("member", 5)) || strings.Contains(got, "\n-# here") {
 		t.Errorf("edited to %q: want one line, slur rewritten, marker last", got)
 	}
 	if u.Flags == nil || *u.Flags != discord.MessageFlagSuppressEmbeds || u.AllowedMentions == nil {
@@ -152,7 +184,7 @@ func TestSubmitEditRewritesThroughTheSameScreen(t *testing.T) {
 	}{
 		"a forged custom ID":     {"whisper-edit:nope", "x", nil, sendAll, "out of date"},
 		"a foreign webhook":      {"whisper-edit:999:8", "x", nil, sendAll, "your own"},
-		"someone else's whisper": {"whisper-edit:701:8", "x", &discord.Message{Content: "old" + marker("other")}, sendAll, "your own"},
+		"someone else's whisper": {"whisper-edit:701:8", "x", &discord.Message{Content: "old" + marker("other", 6)}, sendAll, "your own"},
 		"a vanished whisper":     {"whisper-edit:701:8", "x", nil, sendAll, "couldn't be found"},
 		"no Send Messages":       {"whisper-edit:701:8", "x", nil, nil, "can't send"},
 		"a grabber link":         {"whisper-edit:701:8", "https://grabify.link/x", nil, sendAll, "ip grabber"},

@@ -21,7 +21,7 @@ import (
 // when a whisper is right-clicked. There is no table of who wrote what. The
 // whisper says so itself: it came through one of skua's webhooks (Discord
 // stamps skua's application ID on it), and its last line is the marker with
-// the member's username, which no one else's whisper can end with.
+// the member's profile link, whose user ID survives a username change.
 
 // editModal is the custom ID prefix of the edit box; the webhook and the
 // message being edited follow it, "whisper-edit:<webhook>:<message>".
@@ -54,17 +54,27 @@ func ours(msg discord.Message, app snowflake.ID) bool {
 	return msg.WebhookID != nil && msg.ApplicationID != nil && *msg.ApplicationID == app
 }
 
-// byMember returns the text of a whisper whose marker names username, and
-// whether it does.
-//
-// ponytail: also takes the marker from before the rename to whisper
-// ("echoed through skua"), so members still own what they posted then.
-// Drop it once those are old enough that nobody edits them.
-func byMember(msg discord.Message, username string) (string, bool) {
-	if text, ok := strings.CutSuffix(msg.Content, marker(username)); ok {
-		return text, true
+// byMember uses the stable ID in the marker. Older whispers had only a
+// username, so they are editable only while their writer is still known.
+func (m *Module) byMember(msg discord.Message, user snowflake.ID) (string, bool) {
+	known := m.writers.of(msg.ID)
+	if user == 0 || known != 0 && known != user {
+		return "", false
 	}
-	return strings.CutSuffix(msg.Content, "\n-# echoed through skua by @"+markdown.Replace(username))
+	at := strings.LastIndex(msg.Content, "\n-# ")
+	if at < 0 {
+		return "", false
+	}
+	line := msg.Content[at:]
+	if strings.HasPrefix(line, "\n-# whispered through skua by [@") &&
+		strings.HasSuffix(line, "](<https://discord.com/users/"+user.String()+">)") {
+		return msg.Content[:at], true
+	}
+	if known == user && (strings.HasPrefix(line, "\n-# whispered through skua by @") ||
+		strings.HasPrefix(line, "\n-# echoed through skua by @")) {
+		return msg.Content[:at], true
+	}
+	return "", false
 }
 
 // Wrote reports whether user wrote the whisper message, from what skua
@@ -114,7 +124,7 @@ func (m *Module) deleteWhisper(ctx context.Context, e *events.ApplicationCommand
 	if member == nil || guild == nil {
 		return errNotServer
 	}
-	if _, mine := byMember(msg, member.User.Username); !mine || !ours(msg, e.ApplicationID()) {
+	if _, mine := m.byMember(msg, member.User.ID); !mine || !ours(msg, e.ApplicationID()) {
 		return errNotYours
 	}
 	if err := e.DeferCreateMessage(true); err != nil {
@@ -137,7 +147,7 @@ func (m *Module) editWhisper(_ context.Context, e *events.ApplicationCommandInte
 	if member == nil {
 		return errNotServer
 	}
-	text, mine := byMember(msg, member.User.Username)
+	text, mine := m.byMember(msg, member.User.ID)
 	if !mine || !ours(msg, e.ApplicationID()) {
 		return errNotYours
 	}
@@ -195,10 +205,10 @@ func (m *Module) submitEdit(ctx context.Context, e *events.ModalSubmitInteractio
 	}
 	// The webhook is skua's, or Get would have refused; the marker says
 	// whose whisper it is.
-	if _, mine := byMember(*msg, member.User.Username); !mine {
+	if _, mine := m.byMember(*msg, member.User.ID); !mine {
 		return errNotYours
 	}
-	content := v.Text + marker(member.User.Username)
+	content := v.Text + marker(member.User.Username, member.User.ID)
 	update := discord.WebhookMessageUpdate{Content: &content, AllowedMentions: core.NoPings()}
 	if !member.Permissions.Has(discord.PermissionEmbedLinks) {
 		update.Flags = new(discord.MessageFlagSuppressEmbeds)
