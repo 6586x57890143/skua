@@ -6,10 +6,21 @@
       "revision": "50fae965512cc488b773a94696f5a7c093cced2c",
       "license": "MIT",
       "paths": [
-        "packages/atmosphere/src/types",
-        "src/realms/twitter",
-        "src/realms/bluesky-api",
-        "docs/src/content/docs/api"
+        "src",
+        "packages",
+        "docs/src/content/docs/api",
+        "package.json",
+        "pnpm-lock.yaml",
+        "bun.lockb",
+        "bun.lock",
+        "yarn.lock",
+        "package-lock.json",
+        "wrangler.toml",
+        "wrangler.jsonc",
+        "LICENSE",
+        "LICENSE.md",
+        "wrangler.example.toml",
+        "esbuild.config.mjs"
       ]
     },
     {
@@ -17,12 +28,14 @@
       "revision": "2b3d49483cbedfb7f293ac26649e0a64ad5a55da",
       "license": "AGPL-3.0",
       "paths": [
-        "service/src/handlers",
-        "service/src/types.ts",
-        "service/src/index.ts",
+        "service",
         "conformance",
-        "reddit_embed.py",
-        "platform_embed.py"
+        "requirements.txt",
+        "pyproject.toml",
+        "uv.lock",
+        "poetry.lock",
+        "LICENSE",
+        "*.py"
       ]
     }
   ]
