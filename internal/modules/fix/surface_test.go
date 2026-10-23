@@ -307,3 +307,11 @@ func TestRedditTitleAndProfileHaveDistinctDestinations(t *testing.T) {
 		t.Fatal("missing fallback source link")
 	}
 }
+
+func TestRedditFallbackPointsToPostTitle(t *testing.T) {
+	l, _ := Parse("https://reddit.com/r/test/comments/abc/title/")
+	raw, _ := json.Marshal(fallback(l))
+	if !strings.Contains(string(raw), "follow the post title") || strings.Contains(string(raw), "follow the author link") {
+		t.Fatal(string(raw))
+	}
+}

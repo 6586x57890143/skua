@@ -43,9 +43,9 @@ func (a *API) reddit(ctx context.Context, l Link, d *fixData, p *Post) {
 	unavailable := func() {
 		if missing {
 			p.Incomplete = true
-			p.Context += "\nmedia couldn't be checked; follow the author link to view the original"
+			p.Context += "\nmedia couldn't be checked; follow the post title to view the original"
 		} else {
-			p.Context += "\nvideo preview may be silent; follow the author link for audio"
+			p.Context += "\nvideo preview may be silent; follow the post title for audio"
 		}
 	}
 	original, ok := Parse(d.SourceURL)

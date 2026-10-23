@@ -174,5 +174,9 @@ func card(l Link, p Post) discord.MessageCreate {
 }
 
 func fallback(l Link) discord.MessageCreate {
-	return card(l, Post{Title: "preview unavailable", Context: "she couldn't get this post's metadata; follow the author link to view the original", Provider: "unavailable"})
+	link := "author link"
+	if l.Platform == "reddit" {
+		link = "post title"
+	}
+	return card(l, Post{Title: "preview unavailable", Context: "she couldn't get this post's metadata; follow the " + link + " to view the original", Provider: "unavailable"})
 }
