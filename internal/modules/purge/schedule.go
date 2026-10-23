@@ -65,6 +65,8 @@ func (m *Module) start(r rest.Rest) {
 // ponytail: every due guild sweeps at once, all sharing the pacer. Cap
 // concurrent guilds if thousands come due in the same minute.
 func (m *Module) due(r rest.Rest) {
+	m.settings.Lock()
+	defer m.settings.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	rows, err := m.db.Query(ctx, `update purge_subs
@@ -191,6 +193,8 @@ func (m *Module) record(j *job, err error) {
 }
 
 func (m *Module) setEveryCmd(ctx context.Context, e *events.ApplicationCommandInteractionCreate, k target, every string, in scope) error {
+	m.settings.Lock()
+	defer m.settings.Unlock()
 	i := slices.IndexFunc(everyChoices, func(d delay) bool { return d.name == every })
 	if i < 0 {
 		return errNotAChoice
@@ -298,4 +302,35 @@ func choiceName(list []delay, secs *int32) string {
 		return list[i].name
 	}
 	return span(d)
+}
+
+// stopCmd withdraws the subscription before cancelling its current work.
+// due holds the same lock until each claimed job is registered, so a stop
+// cannot fall between claiming a subscription and starting its sweep.
+func (m *Module) stopCmd(ctx context.Context, e *events.ApplicationCommandInteractionCreate, k target) error {
+	m.settings.Lock()
+	defer m.settings.Unlock()
+	changed := false
+	if m.db != nil {
+		tag, err := m.db.Exec(ctx, `update purge_subs set live_delay_s = null, every_s = null,
+			next_run = null, claimed = false, now_since = null,
+			live_channels = '{}', every_channels = '{}'
+			where guild_id = $1 and user_id = $2`, int64(k.guild), int64(k.user))
+		if err != nil {
+			return err
+		}
+		changed = tag.RowsAffected() > 0
+	}
+	if _, ok := m.live.Load(k); ok {
+		changed = true
+	}
+	m.setLive(k, 0, nil)
+	if v, ok := m.running.Load(k); ok {
+		v.(*run).cancel()
+		changed = true
+	}
+	if !changed {
+		return core.Tell("no purge is running here")
+	}
+	return reply(e, brand.ColorOK, "stop", "✓ stopping; live and every are off, and what's already deleted stays deleted")
 }
