@@ -137,12 +137,12 @@ func card(l Link, p Post) discord.MessageCreate {
 	if t, err := time.Parse(time.RFC3339, p.Timestamp); err == nil {
 		stamp = fmt.Sprintf(" · <t:%d:R>", t.Unix())
 	}
-	meta := "-# " + clean(p.Provider, 30) + stamp
-	footer := clip(statLine(p.Stats), 500-len(utf16.Encode([]rune(meta)))-1)
+	meta := clean(p.Provider, 30) + stamp
+	footer := clip(statLine(p.Stats), 500-len(utf16.Encode([]rune(meta)))-8)
 	if footer != "" {
-		footer += "\n"
+		footer += " · "
 	}
-	footer += meta
+	footer = "-# " + footer + meta
 	// Footer is capped at 500 UTF-16 units, including custom emoji markup.
 	remaining += 500
 	addText(clip(footer, 500))
