@@ -151,7 +151,7 @@ func (m *Module) previewResult(ctx context.Context, g snowflake.ID, l Link) (dis
 		}
 		return fallback(l), false
 	}
-	return card(l, p), true
+	return card(l, p), !p.Incomplete
 }
 func (m *Module) OnEvent(ev bot.Event) {
 	switch e := ev.(type) {

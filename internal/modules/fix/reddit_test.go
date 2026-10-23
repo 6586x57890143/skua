@@ -101,3 +101,56 @@ func TestRedditVideoReplacesSilentStreamWithoutLosingSignature(t *testing.T) {
 	a.reddit(context.Background(), l, d, &p)
 
 }
+
+func TestRedditMissingUpstreamVideoIsRecovered(t *testing.T) {
+	l, _ := Parse("https://www.reddit.com/r/Destiny/comments/1x7ehs9/")
+	const metadata = `{"success":true,"platform":"reddit","data":{"title":"A video post","url":"https://www.reddit.com/r/Destiny/comments/1x7ehs9/","authorName":"u/creator"}}`
+	for _, which := range []string{"video", "text", "offline", "too large"} {
+		t.Run(which, func(t *testing.T) {
+			calls := 0
+			a := apiFor(t, func(req *http.Request) (*http.Response, error) {
+				calls++
+				if calls == 1 {
+					return response(metadata), nil
+				}
+				if req.URL.String() != "https://embed.reddit.com/r/Destiny/comments/1x7ehs9/" {
+					t.Fatal(req.URL)
+				}
+				if which == "offline" {
+					return nil, errors.New("offline")
+				}
+				body := `"source":{"dimensions":{"height":720,"width":1280},"url":"` + muxURL + `"}`
+				if which == "text" {
+					body = "a text-only post"
+				}
+				if which == "too large" {
+					body = strings.Repeat("x", 512*1024+1)
+				}
+				r := response(body)
+				r.Header.Set("Content-Type", "text/html")
+				return r, nil
+			})
+			p, err := a.Resolve(context.Background(), l)
+			if err != nil || calls != 2 {
+				t.Fatalf("%+v %v calls=%d", p, err, calls)
+			}
+			if which == "video" && (len(p.Media) != 1 || p.Media[0].URL != muxURL) {
+				t.Fatal("missing recovered video", p)
+			}
+			if p.Incomplete != (which == "offline" || which == "too large") {
+				t.Fatalf("incomplete=%v", p.Incomplete)
+			}
+		})
+	}
+}
+
+func TestIncompleteRecoveryDoesNotSuppressOriginal(t *testing.T) {
+	m := module()
+	m.api = resolverFunc(func(context.Context, Link) (Post, error) { return Post{Title: "post", Incomplete: true}, nil })
+	r := &suppressionRest{recordingRest: &recordingRest{}}
+	m.queue(r, source{3, 4, 10}, "https://reddit.com/r/test/comments/abc/", false)
+	idle(t, m)
+	if r.attempts != 0 {
+		t.Fatal("hid original with incomplete media")
+	}
+}

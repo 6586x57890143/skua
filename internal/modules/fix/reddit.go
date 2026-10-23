@@ -20,12 +20,29 @@ var redditSource = regexp.MustCompile(`"source"\s*:\s*\{`)
 // Upstream currently assumes URL precedes dimensions in JSON; Reddit serves
 // the reverse order too. Decode member names instead of matching their order.
 func (a *API) reddit(ctx context.Context, l Link, d *fixData, p *Post) {
-	if d.Video == nil || d.Video.MediaType == "gif" {
-		return
+	missing := d.Video == nil && len(p.Media) == 0
+	if missing {
+		for _, s := range p.Sections {
+			if len(s.Media) > 0 {
+				return
+			}
+		}
+	} else {
+		if d.Video == nil || d.Video.MediaType == "gif" {
+			return
+		}
+		video, err := url.Parse(d.Video.URL)
+		if err != nil || video.Hostname() != "v.redd.it" {
+			return
+		}
 	}
-	video, err := url.Parse(d.Video.URL)
-	if err != nil || video.Hostname() != "v.redd.it" {
-		return
+	unavailable := func() {
+		if missing {
+			p.Incomplete = true
+			p.Context += "\nmedia couldn't be checked; follow the author link to view the original"
+		} else {
+			p.Context += "\nvideo preview may be silent; follow the author link for audio"
+		}
 	}
 	original, ok := Parse(d.SourceURL)
 	if !ok || original.Platform != "reddit" {
@@ -34,7 +51,7 @@ func (a *API) reddit(ctx context.Context, l Link, d *fixData, p *Post) {
 	u, _ := url.Parse(original.URL)
 	path := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(path) < 4 || path[0] != "r" || path[2] != "comments" {
-		p.Context += "\nvideo preview may be silent; open original for audio"
+		unavailable()
 		return
 	}
 	start := time.Now()
@@ -55,6 +72,10 @@ func (a *API) reddit(ctx context.Context, l Link, d *fixData, p *Post) {
 			raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 512*1024+1))
 			if readErr == nil && len(raw) <= 512*1024 {
 				if muxed := redditMuxed(string(raw)); muxed != "" {
+					if missing {
+						p.Media = append(p.Media, Media{URL: muxed, Sensitive: p.Sensitive})
+						return
+					}
 					for i := range p.Media {
 						if p.Media[i].URL == d.Video.URL {
 							p.Media[i].URL = muxed
@@ -62,10 +83,16 @@ func (a *API) reddit(ctx context.Context, l Link, d *fixData, p *Post) {
 					}
 					return
 				}
+				if missing {
+					if strings.Contains(string(raw), "<shreddit-player") {
+						unavailable()
+					}
+					return
+				} // A successfully read text-only post needs no media.
 			}
 		}
 	}
-	p.Context += "\nvideo preview may be silent; open original for audio"
+	unavailable()
 }
 
 func redditMuxed(raw string) string {

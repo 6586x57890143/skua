@@ -19,6 +19,7 @@ import (
 type Post struct {
 	Title, Text, Author, Handle, Avatar, Stats, Context, Timestamp, Provider string
 	Sensitive                                                                bool
+	Incomplete                                                               bool // metadata could not establish whether source media is missing
 	Media                                                                    []Media
 	Sections                                                                 []Section
 }
