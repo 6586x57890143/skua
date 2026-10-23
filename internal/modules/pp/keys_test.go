@@ -11,6 +11,7 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -77,6 +78,16 @@ func keyFormFor(t *testing.T, form string, user snowflake.ID, values map[string]
 	return coretest.Modal(t, form, values, func(p map[string]any) {
 		p["member"].(map[string]any)["user"] = map[string]any{"id": user.String(), "username": "member"}
 	})
+}
+
+type redeemRest struct {
+	rest.Rest
+	updates []discord.MessageUpdate
+}
+
+func (r *redeemRest) UpdateInteractionResponse(_ snowflake.ID, _ string, update discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	r.updates = append(r.updates, update)
+	return &discord.Message{}, nil
 }
 
 // Admins issue keys on the help page, only with a beta role and a bird to
@@ -168,8 +179,10 @@ func TestRedeemKeys(t *testing.T) {
 	}
 	redeem := func(user snowflake.ID, k string) (string, error) {
 		e, sent := keyFormFor(t, redeemForm, user, map[string]string{"key": k})
+		r := &redeemRest{}
+		e.Client().Rest = r
 		err := m.submitRedeem(ctx, e)
-		return js(*sent), err
+		return js(*sent) + js(r.updates), err
 	}
 	for _, bad := range []string{used, old, other, "pp-nope"} {
 		if _, err := redeem(10, bad); !errors.Is(err, errBadKey) {
@@ -209,5 +222,65 @@ func TestRedeemKeys(t *testing.T) {
 	m.Admin = func(discord.Interaction) bool { return true }
 	if _, err := redeem(13, key); !errors.Is(err, errInAlready) {
 		t.Errorf("a player redeeming: %v", err)
+	}
+}
+
+func TestRedeemAcknowledgesBeforeGrantAndDetachesDeadline(t *testing.T) {
+	db := &keyDB{}
+	m := testModule(db)
+	m.Admin = func(discord.Interaction) bool { return false }
+	m.st.server(3).beta = 77
+	key := newKey()
+	db.keys = []*keyRow{{hash: keyHash(key), guild: 3, expires: t0.Add(time.Hour).Unix()}}
+	e, _ := keyFormFor(t, redeemForm, 5, map[string]string{"key": key})
+	r := &redeemRest{}
+	e.Client().Rest = r
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	ack := false
+	e.Respond = func(kind discord.InteractionResponseType, data discord.InteractionResponseData, _ ...rest.RequestOpt) error {
+		ack = kind == discord.InteractionResponseTypeDeferredCreateMessage && data.(discord.MessageCreate).Flags.Has(discord.MessageFlagEphemeral)
+		cancel() // Discord's initial-response window ends after the defer.
+		return nil
+	}
+	m.Grant = func(ctx context.Context, _, _, _ snowflake.ID) error {
+		if !ack || ctx.Err() != nil {
+			t.Fatal("grant ran before defer or under the expired initial deadline")
+		}
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) < 9*time.Second {
+			t.Fatal("grant did not get its own bounded deadline")
+		}
+		return nil
+	}
+	if err := m.submitRedeem(ctx, e); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.updates) != 1 || !strings.Contains(js(r.updates), "you're in the beta") {
+		t.Fatal("deferred response wasn't completed")
+	}
+}
+
+func TestRedeemFailedDeferDoesNotSpendKey(t *testing.T) {
+	db := &keyDB{}
+	m := testModule(db)
+	m.Admin = func(discord.Interaction) bool { return false }
+	m.st.server(3).beta = 77
+	key := newKey()
+	db.keys = []*keyRow{{hash: keyHash(key), guild: 3, expires: t0.Add(time.Hour).Unix()}}
+	e, _ := keyFormFor(t, redeemForm, 5, map[string]string{"key": key})
+	fail := errors.New("interaction expired")
+	e.Respond = func(discord.InteractionResponseType, discord.InteractionResponseData, ...rest.RequestOpt) error {
+		return fail
+	}
+	m.Grant = func(context.Context, snowflake.ID, snowflake.ID, snowflake.ID) error {
+		t.Fatal("grant after failed defer")
+		return nil
+	}
+	if err := m.submitRedeem(t.Context(), e); !errors.Is(err, fail) {
+		t.Fatal(err)
+	}
+	if db.keys[0].redeemed != 0 {
+		t.Fatal("failed defer consumed key")
 	}
 }

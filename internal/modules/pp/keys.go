@@ -13,6 +13,7 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/brand"
@@ -226,6 +227,11 @@ func (m *Module) submitRedeem(ctx context.Context, e *events.ModalSubmitInteract
 		return errTooMany
 	}
 	hash := keyHash(e.Data.Text("key"))
+	if err := e.DeferCreateMessage(true); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+	defer cancel()
 	tag, err := m.db.Exec(ctx, `update pp_key set redeemed_by = $1, redeemed_at = $2
 		where hash = $3 and guild_id = $4 and redeemed_by = 0 and expires > $2`, int64(user), now.Unix(), hash, int64(*guild))
 	if err != nil {
@@ -234,19 +240,21 @@ func (m *Module) submitRedeem(ctx context.Context, e *events.ModalSubmitInteract
 	if tag.RowsAffected() != 1 {
 		return errBadKey
 	}
-	gctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
+	gctx, gcancel := context.WithTimeout(ctx, 10*time.Second)
+	defer gcancel()
 	if err := m.Grant(gctx, *guild, user, role); err != nil {
-		if _, uerr := m.db.Exec(context.WithoutCancel(ctx), `update pp_key set redeemed_by = 0, redeemed_at = 0
+		if _, uerr := m.db.Exec(ctx, `update pp_key set redeemed_by = 0, redeemed_at = 0
 			where hash = $1 and redeemed_by = $2`, hash, int64(user)); uerr != nil {
 			m.log.Error("pp: handing a key back", "guild", *guild, "user", user, "err", uerr)
 		}
 		return fmt.Errorf("%w: %w", errNoRole, err)
 	}
 	m.log.Info("pp: beta key redeemed", "guild", *guild, "user", user)
-	return e.CreateMessage(discord.MessageCreate{
-		Components:      []discord.LayoutComponent{brand.Card(brand.ColorOK, "pp", "closed beta", "✓ you're in the beta: run /pp to begin")},
-		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
+	components := []discord.LayoutComponent{brand.Card(brand.ColorOK, "pp", "closed beta", "✓ you're in the beta: run /pp to begin")}
+	_, err = e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(), discord.MessageUpdate{
+		Components:      &components,
+		Flags:           new(discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2),
 		AllowedMentions: core.NoPings(),
-	})
+	}, rest.WithCtx(ctx))
+	return err
 }
