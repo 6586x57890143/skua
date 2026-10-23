@@ -362,10 +362,14 @@ func TestRemember(t *testing.T) {
 // takes.
 type restRec struct {
 	rest.Rest
-	updates   []discord.MessageUpdate
-	followups []discord.MessageCreate
-	posted    []sent
-	postErr   error
+	updates      []discord.MessageUpdate
+	followups    []discord.MessageCreate
+	posted       []sent
+	postErr      error
+	mentionPerms discord.Permissions
+	overwrite    string
+	readErr      error
+	channel      snowflake.ID
 }
 
 func (r *restRec) CreateMessage(channel snowflake.ID, m discord.MessageCreate, _ ...rest.RequestOpt) (*discord.Message, error) {
@@ -377,7 +381,18 @@ func (r *restRec) CreateMessage(channel snowflake.ID, m discord.MessageCreate, _
 }
 
 func (r *restRec) GetRoles(snowflake.ID, ...rest.RequestOpt) ([]discord.Role, error) {
-	return guildRoles(discord.PermissionManageRoles, 2, false), nil
+	return guildRoles(discord.PermissionManageRoles|r.mentionPerms, 2, false), r.readErr
+}
+
+func (r *restRec) GetChannel(id snowflake.ID, _ ...rest.RequestOpt) (discord.Channel, error) {
+	r.channel = id
+	ow := r.overwrite
+	if ow == "" {
+		ow = "[]"
+	}
+	var ch discord.UnmarshalChannel
+	err := json.Unmarshal([]byte(`{"id":"`+id.String()+`","type":0,"guild_id":"3","permission_overwrites":`+ow+`}`), &ch)
+	return ch.Channel, err
 }
 
 func (r *restRec) GetMember(_, user snowflake.ID, _ ...rest.RequestOpt) (*discord.Member, error) {
@@ -402,6 +417,7 @@ type panelTest struct {
 	m     *Module
 	r     *core.Router
 	admin bool
+	rest  *restRec
 }
 
 func newPanel(t *testing.T, src *fake) *panelTest {
@@ -478,6 +494,9 @@ func (pt *panelTest) submit(platform, account, channel, role string, resolved ma
 	var got []string
 	e.Respond = record(&got)
 	rr := &restRec{}
+	if pt.rest != nil {
+		rr = pt.rest
+	}
 	e.Client().Rest = rr
 	pt.r.OnModal(e)
 	return read(got, rr)
@@ -493,6 +512,67 @@ func roles(id string, mentionable bool) map[string]any {
 
 func channels(id string) map[string]any {
 	return map[string]any{"channels": map[string]any{id: map[string]any{"id": id, "type": 0, "name": "news", "permissions": "0"}}}
+}
+
+func TestFollowRoleMentionPermissions(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		perms       discord.Permissions
+		overwrite   string
+		channel     string
+		mentionable bool
+		role        string
+		readErr     error
+		want        string
+	}{
+		{name: "mention everyone", perms: discord.PermissionMentionEveryone},
+		{name: "administrator bypasses deny", perms: discord.PermissionAdministrator, overwrite: `[{"id":"3","type":0,"deny":"131072","allow":"0"}]`},
+		{name: "missing permission", want: "@fans can't be mentioned"},
+		{name: "public role", mentionable: true},
+		{name: "channel deny", perms: discord.PermissionMentionEveryone, overwrite: `[{"id":"3","type":0,"deny":"131072","allow":"0"}]`, want: "@fans can't be mentioned"},
+		{name: "role allow", overwrite: `[{"id":"5","type":0,"allow":"131072","deny":"0"}]`},
+		{name: "member deny", perms: discord.PermissionMentionEveryone, overwrite: `[{"id":"2","type":1,"deny":"131072","allow":"0"}]`, want: "@fans can't be mentioned"},
+		{name: "member allow overrides role deny", overwrite: `[{"id":"5","type":0,"deny":"131072","allow":"0"},{"id":"2","type":1,"allow":"131072","deny":"0"}]`},
+		{name: "explicit destination", perms: discord.PermissionMentionEveryone, channel: "12"},
+		{name: "everyone still refused", perms: discord.PermissionMentionEveryone, role: "3", want: "never pings everyone"},
+		{name: "read failure", readErr: errors.New("discord unavailable"), want: "couldn't check her mention permission"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			pt := newPanel(t, newFake())
+			pt.m.bound[3] = 9
+			pt.rest = &restRec{mentionPerms: c.perms, overwrite: c.overwrite, readErr: c.readErr}
+			role := c.role
+			if role == "" {
+				role = "7"
+			}
+			resolved := roles(role, c.mentionable)
+			if c.channel != "" {
+				resolved["channels"] = channels(c.channel)["channels"]
+			}
+			got := pt.submit("fake", "bird", c.channel, role, resolved)
+			want := c.want
+			if want == "" {
+				want = "✓ following Bird on fake"
+				if len(pt.m.follows) != 1 || pt.m.follows[0].role != 7 {
+					t.Fatalf("follow not saved with ping role: %+v; %s", pt.m.follows, got)
+				}
+			} else if len(pt.m.follows) != 0 {
+				t.Fatal("refused follow was saved")
+			}
+			if !strings.Contains(got, want) {
+				t.Fatalf("want %q, got %s", want, got)
+			}
+			if pt.rest.channel != 0 {
+				to := snowflake.ID(9)
+				if c.channel != "" {
+					to = 12
+				}
+				if pt.rest.channel != to {
+					t.Fatalf("checked channel %s, want %s", pt.rest.channel, to)
+				}
+			}
+		})
+	}
 }
 
 func TestPanel(t *testing.T) {
