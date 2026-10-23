@@ -228,8 +228,8 @@ func TestQuestRoll(t *testing.T) {
 		}
 		n[tier]++
 	}
-	if n != [3]uint64{1600, 300, 100} {
-		t.Errorf("2000 rolls fell %v; want 1600, 300, 100", n)
+	if n != [3]uint64{1800, 150, 50} {
+		t.Errorf("2000 rolls fell %v; want 1800, 150, 50", n)
 	}
 	for i := 1; i < len(b.QuestPP); i++ {
 		if b.QuestPP[i] <= b.QuestPP[i-1] || b.QuestOdds[i] >= b.QuestOdds[i-1] {
