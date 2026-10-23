@@ -144,7 +144,7 @@ func TestCardIsBoundedV2WithMixedMediaAndSpoilers(t *testing.T) {
 	if total > 4000 || count > 40 || media != 20 {
 		t.Fatalf("text=%d components=%d media=%d", total, count, media)
 	}
-	if !strings.Contains(string(raw), "Creator") || !strings.Contains(string(raw), "open original") {
+	if !strings.Contains(string(raw), "Creator") || !strings.Contains(string(raw), l.URL) {
 		t.Fatal(string(raw))
 	}
 	p.Sensitive = false
@@ -154,7 +154,7 @@ func TestCardIsBoundedV2WithMixedMediaAndSpoilers(t *testing.T) {
 	p.Media = []Media{{URL: "http://evil.test/x"}, {URL: "https://cdn.example/a.png"}, {URL: "https://cdn.example/a.png"}}
 	p.Sections = nil
 	raw, _ = json.Marshal(card(l, p))
-	if !strings.Contains(string(raw), `"type":9`) || strings.Contains(string(raw), "evil.test") {
+	if strings.Contains(string(raw), `"type":9`) || strings.Contains(string(raw), "evil.test") {
 		t.Fatal(string(raw))
 	}
 	p.Author = ""

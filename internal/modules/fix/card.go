@@ -1,6 +1,7 @@
 package fix
 
 import (
+	"fmt"
 	"github.com/6586x57890143/skua/internal/obs"
 	"strings"
 	"time"
@@ -66,32 +67,39 @@ func card(l Link, p Post) discord.MessageCreate {
 	if platform == "twitter" {
 		platform = "x"
 	}
-	heading := "**fix** · " + platform
-	if mark := brand.Mention("mod_fix"); mark != "" {
-		heading = mark + " " + heading
-	}
-	parts := []discord.ContainerSubComponent{discord.NewTextDisplay(heading)}
 	who := clean(p.Author, 120)
 	if who == "" {
 		who = "post on " + platform
 	}
-	if p.Handle != "" {
-		who += " · " + clean(p.Handle, 100)
-	}
-	if avatar := remoteURL(p.Avatar); avatar != "" && !p.Sensitive {
-		parts = append(parts, discord.NewSection(discord.NewTextDisplay("**"+who+"**")).WithAccessory(discord.NewThumbnail(avatar)))
+	heading := "**[" + who + "](<" + l.URL + ">)**"
+	if mark := brand.Mention("pf_" + platform); mark != "" {
+		heading = mark + " " + heading
 	} else {
-		parts = append(parts, discord.NewTextDisplay("**"+who+"**"))
+		heading = platform + " · " + heading
 	}
+	if p.Handle != "" {
+		heading += " · " + clean(p.Handle, 100)
+	}
+	parts := []discord.ContainerSubComponent{}
+	remaining := 4000
+	addText := func(text string) {
+		if remaining < 4 || text == "" {
+			return
+		}
+		text = clip(text, remaining)
+		parts = append(parts, discord.NewTextDisplay(text))
+		remaining -= len(utf16.Encode([]rune(text)))
+	}
+	addText(heading)
 	if p.Title != "" && p.Title != p.Text {
-		parts = append(parts, discord.NewTextDisplay("### "+clean(p.Title, 200)))
+		addText("**" + clean(p.Title, 200) + "**")
 	}
 	if p.Text != "" {
-		parts = append(parts, discord.NewTextDisplay(clip(quote(clean(p.Text, 1800)), 1800)))
+		addText(sourceText(p.Text, min(1800, remaining)))
 	}
 	// A whole message has a 4000-character text budget. Source sections share
 	// 900 units, so a carousel cannot crowd out provenance or the source link.
-	left := 900
+	left := min(900, remaining)
 	mediaLeft := 20
 	truncated := false
 	seen := map[string]bool{}
@@ -124,32 +132,34 @@ func card(l Link, p Post) discord.MessageCreate {
 			break
 		}
 		title := clean(s.Title, min(100, left/2))
-		text := clean(s.Text, min(400, left))
+		if u := remoteURL(s.URL); u != "" && len(u) < 200 {
+			title = "[" + title + "](<" + u + ">)"
+		}
+		text := sourceText(s.Text, min(300, left))
 		block := clip("**"+title+"**\n"+quote(text), min(500, left))
-		parts = append(parts, discord.NewTextDisplay(block))
+		addText(block)
 		left -= len(utf16.Encode([]rune(block)))
 		appendMedia(s.Media, p.Sensitive || s.Sensitive)
 	}
-	secondary := clean(p.Stats, 160)
+	secondary := statLine(p.Stats)
 	if p.Context != "" {
 		secondary += "\n" + clean(p.Context, 160)
 	}
 	if secondary != "" {
-		parts = append(parts, discord.NewTextDisplay("-# "+secondary))
+		addText(secondary)
 	}
 	stamp := ""
 	if t, err := time.Parse(time.RFC3339, p.Timestamp); err == nil {
-		stamp = " · " + t.UTC().Format("2006-01-02 15:04 utc")
+		stamp = fmt.Sprintf(" · <t:%d:f>", t.Unix())
 	}
 
-	parts = append(parts, discord.NewTextDisplay("-# metadata: "+clean(p.Provider, 30)+stamp))
+	addText("-# " + clean(p.Provider, 30) + stamp)
 	if truncated {
-		parts = append(parts, discord.NewTextDisplay("-# more media on the original post"))
+		addText("-# more media on the original post")
 	}
-	parts = append(parts, discord.NewActionRow(discord.NewLinkButton("open original", l.URL)))
 	return discord.MessageCreate{Flags: discord.MessageFlagIsComponentsV2, Components: []discord.LayoutComponent{discord.NewContainer(parts...).WithAccentColor(brand.PlatformColor(platform))}, AllowedMentions: core.NoPings()}
 }
 
 func fallback(l Link) discord.MessageCreate {
-	return card(l, Post{Title: "preview unavailable", Context: "she couldn't get this post's metadata; open the original to view it", Provider: "unavailable"})
+	return card(l, Post{Title: "preview unavailable", Context: "she couldn't get this post's metadata; follow the author link to view the original", Provider: "unavailable"})
 }

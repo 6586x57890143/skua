@@ -2,6 +2,7 @@ package fix
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"net"
 	"net/http"
@@ -26,19 +27,24 @@ type deletion struct {
 // Every tracking field belongs to Module.mu. No state lock spans network I/O.
 // Only validated links for the latest pending revision are retained, not text.
 type tracking struct {
-	version   uint64
-	gone      bool
-	forgotten bool
-	cancel    context.CancelFunc
-	replies   []snowflake.ID
-	published []string
-	completed int
-	cleanup   []deletion
-	touched   time.Time
-	pending   []Link
-	dirty     bool
-	running   bool
-	nextFetch time.Time
+	contentSum   [32]byte
+	sourceFlags  discord.MessageFlags
+	suppressible bool
+	fallback     bool
+	suppressed   bool
+	version      uint64
+	gone         bool
+	forgotten    bool
+	cancel       context.CancelFunc
+	replies      []snowflake.ID
+	published    []string
+	completed    int
+	cleanup      []deletion
+	touched      time.Time
+	pending      []Link
+	dirty        bool
+	running      bool
+	nextFetch    time.Time
 }
 
 func (t *tracking) retire(from int) {
@@ -52,11 +58,15 @@ func (t *tracking) retire(from int) {
 // Tracking is deliberately bounded. Edits/deletes follow up to 512 recent
 // source messages until restart. Pending work coalesces instead of being lost
 // when every fetch slot is occupied.
-func (m *Module) queue(r rest.Rest, key source, text string, edit bool) {
+func (m *Module) queue(r rest.Rest, key source, text string, edit bool, flags ...discord.MessageFlags) {
 	if !m.enabled(key.guild) || m.ctx.Err() != nil {
 		return
 	}
 	links := Links(text)
+	if len(links) == 0 && !edit {
+		return
+	}
+	sum := sha256.Sum256([]byte(text))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.rest = r
@@ -79,9 +89,16 @@ func (m *Module) queue(r rest.Rest, key source, text string, edit bool) {
 		}
 		t = &tracking{}
 		m.tracked[key] = t
-	} else if !edit || t.gone {
+	} else if !edit || t.gone || t.contentSum == sum {
 		return
 	}
+	t.contentSum = sum
+	t.suppressible = canSuppress(text, links)
+	t.fallback = false
+	if len(flags) > 0 {
+		t.sourceFlags = flags[0]
+	}
+	t.suppressed = t.sourceFlags.Has(discord.MessageFlagSuppressEmbeds)
 	t.touched = time.Now()
 	t.version++
 	if t.cancel != nil {
@@ -250,7 +267,7 @@ func (m *Module) convert(ctx context.Context, r rest.Rest, key source, t *tracki
 			m.mu.Unlock()
 			return
 		}
-		msg := m.preview(fetch, key.guild, l)
+		msg, resolved := m.previewResult(fetch, key.guild, l)
 		m.mu.Lock()
 		if !m.current(ctx, key, t, version) {
 			m.mu.Unlock()
@@ -293,10 +310,12 @@ func (m *Module) convert(ctx context.Context, r rest.Rest, key source, t *tracki
 		m.mu.Lock()
 		if m.current(ctx, key, t, version) {
 			t.completed = i + 1
+			t.fallback = t.fallback || !resolved
 		}
 		m.mu.Unlock()
 		m.countTracked(key, t, func(c *counts) { c.Cards++ })
 	}
+	m.suppressOriginal(ctx, r, key, t, version, len(links))
 }
 
 func (m *Module) remove(r rest.Rest, key source) {

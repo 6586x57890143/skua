@@ -358,6 +358,58 @@ var moduleGlyphs = map[string][]string{
 // same grid from each one's logo (2 cell strokes, so 12 by 12 at heart),
 // on slate like every other tile but in platformInk. Written as pf_<name>.
 var platformGlyphs = map[string][]string{
+	"bluesky": {
+		"........................",
+		"........................",
+		"..wwww............wwww..",
+		"..wwww............wwww..",
+		"wwwwwwww........wwwwwwww",
+		"wwwwwwww........wwwwwwww",
+		"wwwwwwwwww....wwwwwwwwww",
+		"wwwwwwwwww....wwwwwwwwww",
+		"..wwwwwwwwwwwwwwwwwwww..",
+		"..wwwwwwwwwwwwwwwwwwww..",
+		"....wwwwwwwwwwwwwwww....",
+		"....wwwwwwwwwwwwwwww....",
+		"......wwwwwwwwwwww......",
+		"......wwwwwwwwwwww......",
+		"....wwwwwwwwwwwwwwww....",
+		"....wwwwwwwwwwwwwwww....",
+		"..wwwwwwwwww..wwwwwwww..",
+		"..wwwwwwwwww..wwwwwwww..",
+		"..wwwwwwww....wwwwwwww..",
+		"..wwwwwwww....wwwwwwww..",
+		"....wwww........wwww....",
+		"....wwww........wwww....",
+		"........................",
+		"........................",
+	},
+	"reddit": {
+		"........................",
+		"........................",
+		"............wwwwww......",
+		"............wwwwww......",
+		"............ww....wwww..",
+		"............ww....wwww..",
+		"............ww....wwww..",
+		"............ww....wwww..",
+		"..........wwww..........",
+		"..........wwww..........",
+		"..wwwwwwwwwwwwwwwwwwww..",
+		"..wwwwwwwwwwwwwwwwwwww..",
+		"wwww................wwww",
+		"wwww................wwww",
+		"..ww....ww....ww....ww..",
+		"..ww....ww....ww....ww..",
+		"..ww................ww..",
+		"..ww................ww..",
+		"....ww....wwww....ww....",
+		"....ww....wwww....ww....",
+		"......wwwwwwwwwwww......",
+		"......wwwwwwwwwwww......",
+		"........................",
+		"........................",
+	},
 	"youtube": {
 		"........................",
 		"........................",
@@ -500,6 +552,8 @@ var platformInk = map[string]color.NRGBA{
 	"kick":    rgb(0x8FBF77), // brand 0x6F9A5B
 	"tiktok":  rgb(0xCF97AE), // brand 0xA8728A
 	"x":       bone[1],
+	"reddit":  rgb(0xD07A6C),
+	"bluesky": rgb(0x83A9C7),
 }
 
 // Emoji are 128px, the size Discord keeps an application emoji at. The
@@ -551,6 +605,8 @@ func writeEmoji(b *image.NRGBA) {
 	tiles(out, "mod_", moduleGlyphs, nil)
 	tiles(out, "pf_", platformGlyphs, platformInk)
 	bare(out, "btn_notify", moduleGlyphs["notify"])
+	bare(out, "stat_reply", socialGlyphs["reply"])
+	bare(out, "stat_repost", socialGlyphs["repost"])
 	gameIcons(out)
 }
 
@@ -589,4 +645,60 @@ func tiles(out, prefix string, glyphs map[string][]string, inks map[string]color
 		drawScaled(img, g, off, off, map[byte]color.NRGBA{'w': ink}, emojiCell)
 		mustWrite(filepath.Join(out, prefix+name+".png"), img)
 	}
+}
+
+// Social actions drawn on the same two-cell grid as the platform glyphs.
+var socialGlyphs = map[string][]string{
+	"repost": {
+		"........................",
+		"........................",
+		"......ww................",
+		"......ww................",
+		"....wwwwwwwwwwwwwwww....",
+		"....wwwwwwwwwwwwwwww....",
+		"..wwwwww..........wwww..",
+		"..wwwwww..........wwww..",
+		"....wwww............ww..",
+		"....wwww............ww..",
+		"......ww............ww..",
+		"......ww............ww..",
+		"..ww............ww......",
+		"..ww............ww......",
+		"..ww............wwww....",
+		"..ww............wwww....",
+		"..wwww..........wwwwww..",
+		"..wwww..........wwwwww..",
+		"....wwwwwwwwwwwwwwww....",
+		"....wwwwwwwwwwwwwwww....",
+		"................ww......",
+		"................ww......",
+		"........................",
+		"........................",
+	},
+	"reply": {
+		"........................",
+		"........................",
+		"........................",
+		"........................",
+		"....wwwwwwwwwwwwwwww....",
+		"....wwwwwwwwwwwwwwww....",
+		"..wwww............wwww..",
+		"..wwww............wwww..",
+		"..ww................ww..",
+		"..ww................ww..",
+		"..ww................ww..",
+		"..ww................ww..",
+		"..ww................ww..",
+		"..ww................ww..",
+		"..wwww............wwww..",
+		"..wwww............wwww..",
+		"....wwwwwwwwwwwwwwww....",
+		"....wwwwwwwwwwwwwwww....",
+		"....ww....ww............",
+		"....ww....ww............",
+		"....wwwwww..............",
+		"....wwwwww..............",
+		"........................",
+		"........................",
+	},
 }

@@ -51,10 +51,10 @@ func (*Module) Want() intents.Want {
 	return intents.Want{Required: gateway.IntentGuilds, Optional: gateway.IntentGuildMessages | gateway.IntentMessageContent}
 }
 func (*Module) Perms() discord.Permissions {
-	return discord.PermissionViewChannel | discord.PermissionSendMessages | discord.PermissionSendMessagesInThreads | discord.PermissionReadMessageHistory
+	return discord.PermissionViewChannel | discord.PermissionSendMessages | discord.PermissionSendMessagesInThreads | discord.PermissionReadMessageHistory | discord.PermissionManageMessages
 }
 func (*Module) Help() core.Help {
-	return core.Help{Color: brand.ColorInfo, Line: "social posts with their media intact", About: "she rebuilds social links as cards with their text and media. turn her on here to fix links automatically in this server or use /fix and the fix embed apps menu. she leaves messages in place and skips code and spoilers and links wrapped in angle brackets. automatic cards need the message content intent; commands work without it. previews use fxembed for x and bluesky. fixembed handles the other supported platforms"}
+	return core.Help{Color: brand.ColorInfo, Line: "social posts with their media intact", About: "she rebuilds social links as cards with their text and media. turn her on here to fix links automatically in this server or use /fix and the fix embed apps menu. she keeps the message text and hides its original previews after successful replacement when she has manage messages. she skips code and spoilers and links wrapped in angle brackets. automatic cards need the message content intent; commands work without it. previews use fxembed for x and bluesky. fixembed handles the other supported platforms"}
 }
 func (m *Module) Gate(on func(snowflake.ID) bool) { m.on = on }
 func (m *Module) enabled(g snowflake.ID) bool     { return m.on == nil || m.on(g) }
@@ -140,14 +140,18 @@ func (m *Module) command(ctx context.Context, e *events.ApplicationCommandIntera
 	return nil
 }
 func (m *Module) preview(ctx context.Context, g snowflake.ID, l Link) discord.MessageCreate {
+	msg, _ := m.previewResult(ctx, g, l)
+	return msg
+}
+func (m *Module) previewResult(ctx context.Context, g snowflake.ID, l Link) (discord.MessageCreate, bool) {
 	p, err := m.api.Resolve(ctx, l)
 	if err != nil {
 		if !errors.Is(ctx.Err(), context.Canceled) {
 			m.count(g, func(c *counts) { c.Fallbacks++ })
 		}
-		return fallback(l)
+		return fallback(l), false
 	}
-	return card(l, p)
+	return card(l, p), true
 }
 func (m *Module) OnEvent(ev bot.Event) {
 	switch e := ev.(type) {
@@ -155,13 +159,13 @@ func (m *Module) OnEvent(ev bot.Event) {
 		if e.Message.Author.Bot || e.Message.WebhookID != nil || (e.Message.Type != discord.MessageTypeDefault && e.Message.Type != discord.MessageTypeReply) {
 			return
 		}
-		m.queue(e.Client().Rest, source{e.GuildID, e.ChannelID, e.MessageID}, e.Message.Content, false)
+		m.queue(e.Client().Rest, source{e.GuildID, e.ChannelID, e.MessageID}, e.Message.Content, false, e.Message.Flags)
 	case *events.GuildMessageUpdate:
 		// Partial updates that carry only Discord's generated embeds aren't edits.
-		if e.Message.EditedTimestamp == nil {
+		if e.Message.EditedTimestamp == nil || e.Message.Author.ID == 0 {
 			return
 		}
-		m.queue(e.Client().Rest, source{e.GuildID, e.ChannelID, e.MessageID}, e.Message.Content, true)
+		m.queue(e.Client().Rest, source{e.GuildID, e.ChannelID, e.MessageID}, e.Message.Content, true, e.Message.Flags)
 	case *events.GuildMessageDelete:
 		m.remove(e.Client().Rest, source{e.GuildID, e.ChannelID, e.MessageID})
 	case *events.GuildLeave:
