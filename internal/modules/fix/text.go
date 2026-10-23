@@ -2,6 +2,7 @@ package fix
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf16"
 
@@ -50,32 +51,63 @@ func sourceText(text string, limit int) string {
 
 var engagement = regexp.MustCompile(`(?i)^([0-9][0-9.,]*[kmb]?)\s+(likes?|reposts?|retweets?|replies|comments?|views?|votes?|upvotes?)$`)
 
+func compactCount(raw string) string {
+	// Preserve upstream abbreviations; only format exact nonnegative integers.
+	n, err := strconv.ParseUint(strings.ReplaceAll(raw, ",", ""), 10, 64)
+	if err != nil {
+		return clean(raw, 30)
+	}
+	switch {
+	case n < 1000:
+		return strconv.FormatUint(n, 10)
+	case n < 10_000:
+		return strings.TrimSuffix(strconv.FormatFloat(float64(n/100)/10, 'f', 1, 64), ".0") + "k"
+	case n < 1_000_000:
+		return strconv.FormatUint(n/1000, 10) + "k"
+	case n < 1_000_000_000:
+		return strings.TrimSuffix(strconv.FormatFloat(float64(n/100_000)/10, 'f', 1, 64), ".0") + "m"
+	default:
+		return strings.TrimSuffix(strconv.FormatFloat(float64(n/100_000_000)/10, 'f', 1, 64), ".0") + "b"
+	}
+}
+
 func statLine(stats string) string {
-	var out []string
+	var ordered [4]string
+	var extra []string
 	for _, part := range strings.SplitN(clip(stats, 500), "·", 6) {
 		fields := engagement.FindStringSubmatch(strings.TrimSpace(part))
 		if fields == nil {
-			out = append(out, clean(part, 160))
+			if strings.TrimSpace(part) != "" {
+				extra = append(extra, clean(strings.TrimSpace(part), 100))
+			}
 			continue
 		}
-		label := strings.ToLower(fields[2])
-		key, fallback := "", ""
-		switch label {
-		case "like", "likes":
-			key, fallback = "pp_heart", "♥"
-		case "repost", "reposts", "retweet", "retweets":
-			key, fallback = "stat_repost", "↻"
+		key, fallback, index := "", "", 0
+		switch strings.ToLower(fields[2]) {
 		case "replies", "comment", "comments":
-			key, fallback = "stat_reply", "↩"
+			key, fallback, index = "stat_reply", "↩", 0
+		case "repost", "reposts", "retweet", "retweets":
+			key, fallback, index = "stat_repost", "↻", 1
+		case "like", "likes":
+			key, fallback, index = "pp_heart", "♥", 2
+		case "view", "views":
+			key, fallback, index = "stat_views", "views", 3
 		default:
-			out = append(out, clean(part, 160))
+			extra = append(extra, compactCount(fields[1])+" "+clean(fields[2], 20))
 			continue
 		}
 		mark := brand.Mention(key)
 		if mark == "" {
 			mark = fallback
 		}
-		out = append(out, mark+" **"+fields[1]+"**")
+		ordered[index] = mark + " **" + compactCount(fields[1]) + "**"
 	}
-	return clip(strings.Join(out, "   "), 500)
+	out := make([]string, 0, 4+len(extra))
+	for _, s := range ordered {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	out = append(out, extra...)
+	return clip(strings.Join(out, "  "), 500)
 }

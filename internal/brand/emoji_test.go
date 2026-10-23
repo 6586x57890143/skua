@@ -30,7 +30,7 @@ func (f *fakeEmoji) CreateApplicationEmoji(_ snowflake.ID, c discord.EmojiCreate
 	if err := f.fail[c.Name]; err != nil {
 		return nil, err
 	}
-	if c.Image.Type != discord.IconTypePNG || len(c.Image.Data) == 0 {
+	if (c.Image.Type != discord.IconTypePNG && c.Image.Type != discord.IconTypeGIF) || len(c.Image.Data) == 0 {
 		return nil, errors.New("no image")
 	}
 	e := discord.Emoji{ID: snowflake.ID(1000 + len(f.have)), Name: c.Name}

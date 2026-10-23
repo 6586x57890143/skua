@@ -796,6 +796,8 @@ func writeEmoji(b *image.NRGBA) {
 	bare(out, "btn_notify", moduleGlyphs["notify"])
 	bare(out, "stat_reply", socialGlyphs["reply"])
 	bare(out, "stat_repost", socialGlyphs["repost"])
+	bare(out, "stat_views", socialGlyphs["views"])
+	writeFixLoading(out, bird)
 	gameIcons(out)
 }
 
@@ -838,6 +840,32 @@ func tiles(out, prefix string, glyphs map[string][]string, inks map[string]color
 
 // Social actions drawn on the same two-cell grid as the platform glyphs.
 var socialGlyphs = map[string][]string{
+	"views": {
+		"........................",
+		"........................",
+		"........................",
+		"........................",
+		"......wwwwwwwwwwww......",
+		"......wwwwwwwwwwww......",
+		"....wwww........wwww....",
+		"....wwww........wwww....",
+		"..wwww....wwww....wwww..",
+		"..wwww....wwww....wwww..",
+		"wwww....wwwwwwww....wwww",
+		"wwww....wwwwwwww....wwww",
+		"wwww....wwwwwwww....wwww",
+		"wwww....wwwwwwww....wwww",
+		"..wwww....wwww....wwww..",
+		"..wwww....wwww....wwww..",
+		"....wwww........wwww....",
+		"....wwww........wwww....",
+		"......wwwwwwwwwwww......",
+		"......wwwwwwwwwwww......",
+		"........................",
+		"........................",
+		"........................",
+		"........................",
+	},
 	"repost": {
 		"........................",
 		"........................",

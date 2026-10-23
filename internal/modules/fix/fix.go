@@ -112,7 +112,11 @@ func (m *Module) command(ctx context.Context, e *events.ApplicationCommandIntera
 	if err := m.guard.Allow(*guild, guard.MessageSend); err != nil {
 		return core.Tell("too many cards here this hour; try again in a bit")
 	}
-	if err := e.DeferCreateMessage(!share); err != nil {
+	pending := loading()
+	if !share {
+		pending.Flags |= discord.MessageFlagEphemeral
+	}
+	if err := e.CreateMessage(pending); err != nil {
 		return err
 	}
 	delivered := false

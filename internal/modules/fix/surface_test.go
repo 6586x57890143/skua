@@ -77,7 +77,7 @@ func TestLinkedTextCannotInjectMarkdown(t *testing.T) {
 			t.Fatalf("%d: %q", limit, got)
 		}
 	}
-	if got := statLine("3 votes · 1.2K likes · 5 views · unknown"); !strings.Contains(got, "3 votes") || !strings.Contains(got, "1.2K") || !strings.Contains(got, "5 views") {
+	if got := statLine("3 votes · 1.2K likes · 5 views · unknown"); !strings.Contains(got, "3 votes") || !strings.Contains(got, "1.2K") || !strings.Contains(got, "5") {
 		t.Fatal(got)
 	}
 }
@@ -313,5 +313,32 @@ func TestRedditFallbackPointsToPostTitle(t *testing.T) {
 	raw, _ := json.Marshal(fallback(l))
 	if !strings.Contains(string(raw), "follow the post title") || strings.Contains(string(raw), "follow the author link") {
 		t.Fatal(string(raw))
+	}
+}
+
+func TestCommandUsesOneSkuaLoadingCardThenReplacesIt(t *testing.T) {
+	if err := brand.Sync(context.Background(), iconRest{}, 9, guard.New()); err != nil {
+		t.Fatal(err)
+	}
+	m := module()
+	e, sent := slash(t, "https://x.com/user/status/123", false)
+	r := &recordingRest{}
+	e.Client().Rest = r
+	if err := m.command(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	if len(*sent) != 1 || len(r.updates) != 1 {
+		t.Fatal("loading added extra messages or edits")
+	}
+	raw, _ := json.Marshal((*sent)[0])
+	if !strings.Contains(string(raw), "<a:fix_loading_") && !strings.Contains(string(raw), `\u003ca:fix_loading_`) {
+		t.Fatal(string(raw))
+	}
+	done, _ := json.Marshal(r.updates[0])
+	if strings.Contains(string(done), "fetching post") || strings.Contains(string(done), "fix_loading") {
+		t.Fatal("loading indicator persisted")
+	}
+	if (*sent)[0].Flags&discord.MessageFlagEphemeral == 0 || (*sent)[0].AllowedMentions == nil {
+		t.Fatal("loading privacy or mention policy changed")
 	}
 }

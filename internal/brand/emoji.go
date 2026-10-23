@@ -17,7 +17,7 @@ import (
 	"github.com/6586x57890143/skua/internal/guard"
 )
 
-//go:embed emoji/*.png
+//go:embed emoji/*
 var emojiArt embed.FS
 
 // Emoji is one of skua's application emoji. Key is what code asks for
@@ -26,7 +26,8 @@ var emojiArt embed.FS
 // unchanged one is never uploaded twice.
 type Emoji struct {
 	Key, Name string
-	PNG       []byte
+	PNG       []byte // encoded asset bytes; GIF when Animated
+	Animated  bool
 }
 
 // Emojis is every emoji skua uploads, read from the embedded art.
@@ -36,8 +37,9 @@ func Emojis() []Emoji {
 	for _, e := range entries {
 		png, _ := emojiArt.ReadFile("emoji/" + e.Name())
 		sum := sha256.Sum256(png)
-		key := strings.TrimSuffix(e.Name(), ".png")
-		out = append(out, Emoji{Key: key, Name: key + "_" + hex.EncodeToString(sum[:3]), PNG: png})
+		animated := strings.HasSuffix(e.Name(), ".gif")
+		key := strings.TrimSuffix(strings.TrimSuffix(e.Name(), ".png"), ".gif")
+		out = append(out, Emoji{Key: key, Name: key + "_" + hex.EncodeToString(sum[:3]), PNG: png, Animated: animated})
 	}
 	return out
 }
@@ -49,8 +51,9 @@ func Emojis() []Emoji {
 var emojiIDs atomic.Pointer[map[string]emojiRef]
 
 type emojiRef struct {
-	id   snowflake.ID
-	name string
+	id       snowflake.ID
+	name     string
+	animated bool
 }
 
 // emoji is the emoji for key and whether the sync has one.
@@ -70,7 +73,11 @@ func Mention(key string) string {
 	if !ok {
 		return ""
 	}
-	return "<:" + r.name + ":" + r.id.String() + ">"
+	prefix := "<:"
+	if r.animated {
+		prefix = "<a:"
+	}
+	return prefix + r.name + ":" + r.id.String() + ">"
 }
 
 // ComponentEmoji is key's emoji for a select option or a button, or nil
@@ -80,7 +87,7 @@ func ComponentEmoji(key string) *discord.ComponentEmoji {
 	if !ok {
 		return nil
 	}
-	return &discord.ComponentEmoji{ID: r.id, Name: r.name}
+	return &discord.ComponentEmoji{ID: r.id, Name: r.name, Animated: r.animated}
 }
 
 // emojiURL is the CDN address of key's emoji, for a thumbnail. PNG, not
@@ -120,7 +127,7 @@ func Sync(ctx context.Context, r EmojiRest, app snowflake.ID, g *guard.Guard) er
 	var errs []error
 	for _, e := range Emojis() {
 		if id, ok := byName[e.Name]; ok {
-			ids[e.Key] = emojiRef{id, e.Name}
+			ids[e.Key] = emojiRef{id, e.Name, e.Animated}
 			continue
 		}
 		// Application emoji belong to no guild: they share guild 0's budget.
@@ -128,15 +135,19 @@ func Sync(ctx context.Context, r EmojiRest, app snowflake.ID, g *guard.Guard) er
 			errs = append(errs, fmt.Errorf("%s: %w", e.Name, err))
 			continue
 		}
+		kind := discord.IconTypePNG
+		if e.Animated {
+			kind = discord.IconTypeGIF
+		}
 		made, err := r.CreateApplicationEmoji(app, discord.EmojiCreate{
-			Name: e.Name, Image: *discord.NewIconRaw(discord.IconTypePNG, e.PNG),
+			Name: e.Name, Image: *discord.NewIconRaw(kind, e.PNG),
 		}, rest.WithCtx(ctx))
 		g.Report(0, struggling(err))
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", e.Name, err))
 			continue
 		}
-		ids[e.Key] = emojiRef{made.ID, e.Name}
+		ids[e.Key] = emojiRef{made.ID, e.Name, e.Animated}
 	}
 	emojiIDs.Store(&ids)
 	return errors.Join(errs...)

@@ -103,16 +103,14 @@ func TestModuleContractAndCommandDelivery(t *testing.T) {
 		}
 		_, updates, _ := rr.totals()
 		expected := 1
-		if share {
-			expected = 0
-		}
+
 		if updates != 1 || len(*sent) != expected {
 			t.Fatalf("%d %+v", updates, *sent)
 		}
 		if !share && (*sent)[0].Flags&discord.MessageFlagEphemeral == 0 {
 			t.Fatal("private default")
 		}
-		if share && len(*sent) != 0 {
+		if share && (*sent)[0].Flags&discord.MessageFlagEphemeral != 0 {
 			t.Fatal("not shared")
 		}
 		if rr.updates[0].AllowedMentions == nil {
