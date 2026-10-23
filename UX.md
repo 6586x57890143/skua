@@ -173,7 +173,8 @@ missed p99 target; those rows lead, then the slowest remaining stages.
 ## social previews
 
 Social previews keep Components V2 media galleries. The platform's existing app
-icon sits beside the author name, linked to the original post. No large author
+icon sits beside the author name, linked to the original post. Reddit links the
+post title to the post and the author name to their profile instead. No large author
 thumbnail or duplicate open button. Source text keeps its case and uses normal
 body contrast; quoted posts are separate, linked sections. Engagement icons sit
 beside their counts and Discord timestamps use the reader's timezone.

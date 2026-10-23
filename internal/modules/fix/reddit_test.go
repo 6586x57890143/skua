@@ -105,13 +105,17 @@ func TestRedditVideoReplacesSilentStreamWithoutLosingSignature(t *testing.T) {
 func TestRedditMissingUpstreamVideoIsRecovered(t *testing.T) {
 	l, _ := Parse("https://www.reddit.com/r/Destiny/comments/1x7ehs9/")
 	const metadata = `{"success":true,"platform":"reddit","data":{"title":"A video post","url":"https://www.reddit.com/r/Destiny/comments/1x7ehs9/","authorName":"u/creator"}}`
-	for _, which := range []string{"video", "text", "offline", "too large"} {
+	for _, which := range []string{"video", "sensitive", "text", "offline", "too large"} {
 		t.Run(which, func(t *testing.T) {
 			calls := 0
 			a := apiFor(t, func(req *http.Request) (*http.Response, error) {
 				calls++
 				if calls == 1 {
-					return response(metadata), nil
+					body := metadata
+					if which == "sensitive" {
+						body = strings.Replace(body, `"authorName"`, `"sensitive":true,"authorName"`, 1)
+					}
+					return response(body), nil
 				}
 				if req.URL.String() != "https://embed.reddit.com/r/Destiny/comments/1x7ehs9/" {
 					t.Fatal(req.URL)
@@ -134,10 +138,13 @@ func TestRedditMissingUpstreamVideoIsRecovered(t *testing.T) {
 			if err != nil || calls != 2 {
 				t.Fatalf("%+v %v calls=%d", p, err, calls)
 			}
-			if which == "video" && (len(p.Media) != 1 || p.Media[0].URL != muxURL) {
+			if (which == "video" || which == "sensitive") && (len(p.Media) != 1 || p.Media[0].URL != muxURL) {
 				t.Fatal("missing recovered video", p)
 			}
-			if p.Incomplete != (which != "video") {
+			if which == "sensitive" && !p.Media[0].Sensitive {
+				t.Fatal("recovered sensitive video exposed")
+			}
+			if p.Incomplete != (which != "video" && which != "sensitive") {
 				t.Fatalf("incomplete=%v", p.Incomplete)
 			}
 		})

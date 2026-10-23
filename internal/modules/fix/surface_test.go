@@ -284,3 +284,26 @@ func TestStaleSuccessfulSuppressionIsRestored(t *testing.T) {
 		t.Fatal("lost stale successful side effect")
 	}
 }
+
+func TestRedditTitleAndProfileHaveDistinctDestinations(t *testing.T) {
+	l, _ := Parse("https://reddit.com/r/test/comments/abc/title/")
+	for _, p := range []Post{
+		{Author: "u/creator", Title: "A video", AuthorURL: "https://www.reddit.com/user/creator/"},
+		{Author: "u/creator", Title: "A video"},
+		{Handle: "u/creator", Title: "A video", AuthorURL: "https://evil.example/user/creator/"},
+	} {
+		box := card(l, p).Components[0].(discord.ContainerComponent)
+		head := box.Components[0].(discord.TextDisplayComponent).Content
+		title := box.Components[1].(discord.TextDisplayComponent).Content
+		if !strings.Contains(head, "https://www.reddit.com/user/creator/") || strings.Contains(head, l.URL) || !strings.Contains(title, "[A video](<"+l.URL+">)") {
+			t.Fatalf("%s / %s", head, title)
+		}
+	}
+	if redditProfile(Post{Author: "[deleted]", AuthorURL: "https://reddit.com.evil.example/user/a"}) != "" {
+		t.Fatal("invalid profile")
+	}
+	box := card(l, Post{Author: "[deleted]"}).Components[0].(discord.ContainerComponent)
+	if !strings.Contains(box.Components[1].(discord.TextDisplayComponent).Content, l.URL) {
+		t.Fatal("missing fallback source link")
+	}
+}

@@ -18,6 +18,7 @@ import (
 // its case; skua's labels and controls follow the suite's lowercase voice.
 type Post struct {
 	Title, Text, Author, Handle, Avatar, Stats, Context, Timestamp, Provider string
+	AuthorURL                                                                string
 	Sensitive                                                                bool
 	Incomplete                                                               bool // metadata could not establish whether source media is missing
 	Media                                                                    []Media
@@ -126,6 +127,7 @@ type fixData struct {
 	Description  string   `json:"description"`
 	Caption      string   `json:"caption"`
 	Author       string   `json:"authorName"`
+	AuthorURL    string   `json:"authorUrl"`
 	Handle       string   `json:"authorHandle"`
 	Avatar       string   `json:"authorAvatar"`
 	Stats        string   `json:"stats"`
@@ -186,7 +188,7 @@ func (a *API) fix(ctx context.Context, l Link) (Post, error) {
 	if text == "" {
 		text = d.Description
 	}
-	p := Post{Title: d.Title, Text: text, Author: d.Author, Handle: d.Handle, Avatar: d.Avatar, Stats: d.Stats, Context: d.Context, Timestamp: d.Timestamp, Provider: "fixembed", Sensitive: d.Sensitive || len(d.Sensitivity) > 0}
+	p := Post{Title: d.Title, Text: text, Author: d.Author, AuthorURL: d.AuthorURL, Handle: d.Handle, Avatar: d.Avatar, Stats: d.Stats, Context: d.Context, Timestamp: d.Timestamp, Provider: "fixembed", Sensitive: d.Sensitive || len(d.Sensitivity) > 0}
 	if d.MediaOrigin != "quote" {
 		p.Media = d.media()
 	}

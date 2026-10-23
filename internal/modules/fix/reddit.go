@@ -135,3 +135,18 @@ func redditComment(raw string) bool {
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	return (len(parts) > 5 && parts[0] == "r" && parts[2] == "comments") || (len(parts) > 3 && parts[0] == "comments")
 }
+
+var redditUserPath = regexp.MustCompile(`^/user/[A-Za-z0-9_-]+/?$`)
+var redditUserName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+func redditProfile(p Post) string {
+	if u, err := url.Parse(p.AuthorURL); err == nil && u.Scheme == "https" && u.User == nil && (u.Host == "reddit.com" || u.Host == "www.reddit.com") && redditUserPath.MatchString(u.Path) {
+		return "https://www.reddit.com" + u.Path
+	}
+	for _, name := range []string{p.Handle, p.Author} {
+		if strings.HasPrefix(name, "u/") && redditUserName.MatchString(name[2:]) {
+			return "https://www.reddit.com/user/" + name[2:] + "/"
+		}
+	}
+	return ""
+}

@@ -71,7 +71,14 @@ func card(l Link, p Post) discord.MessageCreate {
 	if who == "" {
 		who = "post on " + platform
 	}
-	heading := "**[" + who + "](<" + l.URL + ">)**"
+	authorLink := l.URL
+	if platform == "reddit" {
+		authorLink = redditProfile(p)
+	}
+	heading := "**" + who + "**"
+	if authorLink != "" {
+		heading = "**[" + who + "](<" + authorLink + ">)**"
+	}
 	if mark := brand.Mention("pf_" + platform); mark != "" {
 		heading = mark + " " + heading
 	} else {
@@ -91,10 +98,16 @@ func card(l Link, p Post) discord.MessageCreate {
 		remaining -= len(utf16.Encode([]rune(text)))
 	}
 	addText(heading)
-	if p.Title != "" && p.Title != p.Text {
+	if platform == "reddit" {
+		title := p.Title
+		if title == "" {
+			title = "reddit post"
+		}
+		addText("**[" + clean(title, 200) + "](<" + l.URL + ">)**")
+	} else if p.Title != "" && p.Title != p.Text {
 		addText("**" + clean(p.Title, 200) + "**")
 	}
-	if p.Text != "" {
+	if p.Text != "" && (platform != "reddit" || p.Text != p.Title) {
 		addText(sourceText(p.Text, min(1800, remaining)))
 	}
 	// A whole message has a 4000-character text budget. Source sections share

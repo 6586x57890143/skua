@@ -29,7 +29,8 @@ preexisting author suppression is preserved. Transient restore failures use the
 bounded retry queue. This follows the same 512-message tracking window as card
 edits: restart or eviction ends automatic preview-flag restoration.
 Cards cannot ping anyone. The platform icon sits beside the author's name, which
-links to the original post; there is no oversized avatar or open button. Body URLs
+links to the original post; Reddit instead links the post title to the post and
+the author to their Reddit profile. There is no oversized avatar or open button. Body URLs
 and quote sources are clickable, engagement uses app icons, and Discord renders
 the timestamp in each reader's timezone. Creator names, captions and alt text keep their original
 case, while Skua's own labels follow the shared lowercase voice.
@@ -75,7 +76,9 @@ only the exact packaged-media host and passes the signed URL through unchanged.
 
 A successful metadata response can still omit the video entirely, as happened on
 `r/Destiny/comments/1x7ehs9`. Missing media now triggers the same bounded recovery.
-Existing image galleries and quoted media stay intact. If this check cannot be
+Existing image galleries and quoted media stay intact. Comment URLs never inherit
+the parent post's video. A readable page without a recognized rendition remains
+inconclusive, so a challenge page or a changed payload cannot hide native media. If this check cannot be
 completed, the card says so and automatic replacement keeps the native preview.
 The reported post is a live audio/video canary alongside the original Reddit test.
 
