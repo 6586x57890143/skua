@@ -162,3 +162,10 @@ taken from the environment, is said out loud before it is used.
   every mark at least a pixel inside it, so a new screen comes with its fixtures
   there.
 - Edit `art/source` or `tools/sprites` and rerun the generator, never the output PNGs.
+
+## performance readout
+
+`/perf` uses a Components V2 card with an aligned, copyable code-block timing
+table. Columns keep p50, p99, targets and counts aligned when the timing report is
+copied into an issue or compared with another run. A `!` marks a
+missed p99 target; those rows lead, then the slowest remaining stages.

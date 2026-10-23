@@ -192,3 +192,29 @@ func BenchmarkAddParallel(b *testing.B) {
 		}
 	})
 }
+
+func TestTargetsDoNotAlterSamples(t *testing.T) {
+	r := New()
+	r.SetTarget("fix build", Run, 5*time.Millisecond)
+	r.Add("fix build", Run, time.Millisecond)
+	r.Add("fix", In, 10*time.Millisecond)
+	found := map[string]Row{}
+	for _, row := range r.Rows() {
+		found[row.Who] = row
+	}
+	if found["fix build"].Target != 5*time.Millisecond || found["fix"].Target != 500*time.Millisecond || found["fix build"].N != 1 {
+		t.Fatal(found)
+	}
+	r.SetTarget("fix build", Run, 0)
+	r.SetTarget("*", In, -1)
+	for _, row := range r.Rows() {
+		if row.Target != 0 {
+			t.Fatal(row)
+		}
+	}
+	r.SetTarget("fix build", Run, time.Second)
+	r.Add("fix build", Run, time.Millisecond)
+	if n := testing.AllocsPerRun(1000, func() { r.Add("fix build", Run, time.Millisecond) }); n != 0 {
+		t.Fatalf("targets added %.0f sample allocations", n)
+	}
+}

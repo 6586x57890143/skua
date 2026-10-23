@@ -1,0 +1,29 @@
+{
+  "reviewed": "2026-10-23",
+  "repositories": [
+    {
+      "repository": "FxEmbed/FxEmbed",
+      "revision": "50fae965512cc488b773a94696f5a7c093cced2c",
+      "license": "MIT",
+      "paths": [
+        "packages/atmosphere/src/types",
+        "src/realms/twitter",
+        "src/realms/bluesky-api",
+        "docs/src/content/docs/api"
+      ]
+    },
+    {
+      "repository": "kenhendricks00/FixEmbed",
+      "revision": "2b3d49483cbedfb7f293ac26649e0a64ad5a55da",
+      "license": "AGPL-3.0",
+      "paths": [
+        "service/src/handlers",
+        "service/src/types.ts",
+        "service/src/index.ts",
+        "conformance",
+        "reddit_embed.py",
+        "platform_embed.py"
+      ]
+    }
+  ]
+}

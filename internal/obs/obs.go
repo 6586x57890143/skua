@@ -103,11 +103,14 @@ type key struct {
 
 // Recorder is safe for concurrent use. The zero value is not; use New.
 type Recorder struct {
-	mu sync.RWMutex
-	h  map[key]*hist
+	mu      sync.RWMutex
+	h       map[key]*hist
+	targets map[key]time.Duration
 }
 
-func New() *Recorder { return &Recorder{h: map[key]*hist{}} }
+func New() *Recorder {
+	return &Recorder{h: map[key]*hist{}, targets: map[key]time.Duration{{who: "*", stage: In}: 500 * time.Millisecond}}
+}
 
 // Default is the process's recorder.
 var Default = New()
@@ -129,6 +132,19 @@ func (r *Recorder) Add(who string, s Stage, d time.Duration) {
 	h.add(d)
 }
 
+// SetTarget sets a soft p99 budget for a metric. A zero or negative duration
+// removes it. "*" applies to a stage unless that metric has its own target.
+// Targets are read only by Rows, so recording a sample costs nothing extra.
+func (r *Recorder) SetTarget(who string, stage Stage, target time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if target <= 0 {
+		delete(r.targets, key{who, stage})
+		return
+	}
+	r.targets[key{who, stage}] = target
+}
+
 // Row is one module or route's stage since boot.
 type Row struct {
 	Who      string
@@ -136,6 +152,7 @@ type Row struct {
 	N        uint64
 	P50, P99 time.Duration
 	Max      time.Duration
+	Target   time.Duration
 }
 
 // Rows is every stage seen, slowest p99 first.
@@ -143,7 +160,11 @@ func (r *Recorder) Rows() []Row {
 	r.mu.RLock()
 	rows := make([]Row, 0, len(r.h))
 	for k, h := range r.h {
-		rows = append(rows, Row{k.who, k.stage, h.n.Load(), h.quantile(0.5), h.quantile(0.99), time.Duration(h.max.Load())})
+		target := r.targets[k]
+		if target == 0 {
+			target = r.targets[key{who: "*", stage: k.stage}]
+		}
+		rows = append(rows, Row{Who: k.who, Stage: k.stage, N: h.n.Load(), P50: h.quantile(0.5), P99: h.quantile(0.99), Max: time.Duration(h.max.Load()), Target: target})
 	}
 	r.mu.RUnlock()
 	slices.SortFunc(rows, func(a, b Row) int {

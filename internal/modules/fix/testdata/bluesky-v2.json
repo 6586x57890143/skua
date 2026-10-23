@@ -1,0 +1,29 @@
+{
+  "code": 200,
+  "status": {
+    "id": "3mqafridzgk2e",
+    "text": "Bluesky caption with fractional seconds",
+    "created_at": "2026-07-09T19:50:16.599Z",
+    "created_timestamp": 1783626616.599,
+    "author": {
+      "name": "Bluesky",
+      "screen_name": "bsky.app",
+      "avatar_url": "https://cdn.bsky.app/img/avatar/plain/did:plc:example/avatar"
+    },
+    "likes": 3480,
+    "reposts": 576,
+    "replies": 254,
+    "provider": "bluesky",
+    "media": {
+      "all": [
+        {
+          "type": "photo",
+          "url": "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:example/image",
+          "width": 2140,
+          "height": 2000,
+          "altText": "A rendering of the filters menu"
+        }
+      ]
+    }
+  }
+}
