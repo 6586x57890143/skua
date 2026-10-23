@@ -22,6 +22,10 @@ var redditSource = regexp.MustCompile(`"source"\s*:\s*\{`)
 func (a *API) reddit(ctx context.Context, l Link, d *fixData, p *Post) {
 	missing := d.Video == nil && len(p.Media) == 0
 	if missing {
+		if redditComment(l.URL) || redditComment(d.SourceURL) {
+			p.Incomplete = true
+			return
+		}
 		for _, s := range p.Sections {
 			if len(s.Media) > 0 {
 				return
@@ -84,11 +88,9 @@ func (a *API) reddit(ctx context.Context, l Link, d *fixData, p *Post) {
 					return
 				}
 				if missing {
-					if strings.Contains(string(raw), "<shreddit-player") {
-						unavailable()
-					}
+					p.Incomplete = true
 					return
-				} // A successfully read text-only post needs no media.
+				} // HTML alone cannot prove a text-only source.
 			}
 		}
 	}
@@ -118,4 +120,18 @@ func redditMuxed(raw string) string {
 		}
 	}
 	return best
+}
+
+// A comment is not its parent post. Never recover the parent video for a
+// comment URL whose own metadata intentionally has no media.
+func redditComment(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	if u.Query().Get("comment") != "" {
+		return true
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	return (len(parts) > 5 && parts[0] == "r" && parts[2] == "comments") || (len(parts) > 3 && parts[0] == "comments")
 }

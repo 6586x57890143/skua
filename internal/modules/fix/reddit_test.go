@@ -137,7 +137,7 @@ func TestRedditMissingUpstreamVideoIsRecovered(t *testing.T) {
 			if which == "video" && (len(p.Media) != 1 || p.Media[0].URL != muxURL) {
 				t.Fatal("missing recovered video", p)
 			}
-			if p.Incomplete != (which == "offline" || which == "too large") {
+			if p.Incomplete != (which != "video") {
 				t.Fatalf("incomplete=%v", p.Incomplete)
 			}
 		})
@@ -152,5 +152,23 @@ func TestIncompleteRecoveryDoesNotSuppressOriginal(t *testing.T) {
 	idle(t, m)
 	if r.attempts != 0 {
 		t.Fatal("hid original with incomplete media")
+	}
+}
+
+func TestMissingCommentMediaDoesNotBecomeParentVideo(t *testing.T) {
+	for _, raw := range []string{"https://reddit.com/r/test/comments/abc/title/def/", "https://reddit.com/r/test/comments/abc/title/?comment=def", "https://reddit.com/comments/abc/title/def/"} {
+		l, _ := Parse(raw)
+		a := apiFor(t, func(*http.Request) (*http.Response, error) {
+			t.Fatal("fetched parent media for comment")
+			return nil, nil
+		})
+		p := Post{Text: "comment"}
+		a.reddit(context.Background(), l, &fixData{SourceURL: "https://reddit.com/r/test/comments/abc/title/"}, &p)
+		if len(p.Media) != 0 || !p.Incomplete {
+			t.Fatal(p)
+		}
+	}
+	if redditComment("https://%zz") {
+		t.Fatal("invalid URL")
 	}
 }
