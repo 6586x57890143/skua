@@ -136,18 +136,17 @@ func (m *Module) submit(ctx context.Context, e *events.ModalSubmitInteractionCre
 		return core.Tell("skua isn't set up for " + line(platform, 20) + " here")
 	}
 	f := follow{guild: *guild, platform: platform}
+	var ping *discord.Role
 	if ch, _ := e.Data.OptChannels("channel"); len(ch) == 1 {
 		f.channel = ch[0].ID
 	}
 	if roles, _ := e.Data.OptRoles("role"); len(roles) == 1 {
 		r := roles[0]
-		switch {
-		case r.ID == *guild:
+		if r.ID == *guild {
 			return core.Tell("skua never pings everyone; pick a role")
-		case !r.Mentionable:
-			return core.Tell("@" + r.Name + " can't be mentioned; turn on allow anyone to @mention this role, or pick another")
 		}
 		f.role = r.ID
+		ping = &r
 	}
 	m.mu.Lock()
 	n := 0
@@ -170,6 +169,18 @@ func (m *Module) submit(ctx context.Context, e *events.ModalSubmitInteractionCre
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 	defer cancel()
+	if ping != nil && !ping.Mentionable {
+		m.mu.Lock()
+		to := m.dest(f)
+		m.mu.Unlock()
+		can, err := canMention(ctx, e.Client().Rest, *guild, to, e.ApplicationID())
+		if err != nil {
+			return fmt.Errorf("%w: %w", core.Tell("skua couldn't check her mention permission; try again in a moment"), err)
+		}
+		if !can {
+			return core.Tell("@" + ping.Name + " can't be mentioned; give skua mention everyone permission in the cards' channel, turn on allow anyone to @mention this role, or pick another")
+		}
+	}
 	typed := e.Data.Text("account")
 	acct, name, err := src.resolve(ctx, typed)
 	switch {

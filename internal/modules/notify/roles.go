@@ -60,6 +60,52 @@ type roleReader interface {
 	GetMember(guild, user snowflake.ID, opts ...rest.RequestOpt) (*discord.Member, error)
 }
 
+// canMention checks skua's permissions where the cards will be posted,
+// rather than in the channel where an admin opened the panel.
+func canMention(ctx context.Context, p rest.Rest, guild, channel, self snowflake.ID) (bool, error) {
+	roles, err := p.GetRoles(guild, rest.WithCtx(ctx))
+	if err != nil {
+		return false, err
+	}
+	me, err := p.GetMember(guild, self, rest.WithCtx(ctx))
+	if err != nil {
+		return false, err
+	}
+	var perms discord.Permissions
+	for _, r := range roles {
+		if r.ID == guild || slices.Contains(me.RoleIDs, r.ID) {
+			perms |= r.Permissions
+		}
+	}
+	if perms.Has(discord.PermissionAdministrator) {
+		return true, nil
+	}
+	ch, err := p.GetChannel(channel, rest.WithCtx(ctx))
+	if err != nil {
+		return false, err
+	}
+	gc, ok := ch.(discord.GuildChannel)
+	if !ok || gc.GuildID() != guild {
+		return false, errors.New("notify: destination isn't a channel in this server")
+	}
+	ow := gc.PermissionOverwrites()
+	if everyone, ok := ow.Role(guild); ok {
+		perms = perms.Remove(everyone.Deny).Add(everyone.Allow)
+	}
+	var allow, deny discord.Permissions
+	for _, role := range me.RoleIDs {
+		if overwrite, ok := ow.Role(role); ok {
+			allow |= overwrite.Allow
+			deny |= overwrite.Deny
+		}
+	}
+	perms = perms.Remove(deny).Add(allow)
+	if member, ok := ow.Member(self); ok {
+		perms = perms.Remove(member.Deny).Add(member.Allow)
+	}
+	return perms.Has(discord.PermissionMentionEveryone), nil
+}
+
 // canGrant asks Discord whether role may be handed out in guild, as it is
 // now. Any failure is a no: the card goes out without the button, and a
 // press is refused.
