@@ -78,6 +78,8 @@ const responseLimit = 2 << 20
 
 var errMetadata = errors.New("fix: metadata unavailable")
 
+var mediaOnly = map[string]bool{"instagram": true, "tiktok": true, "pixiv": true, "pinterest": true, "deviantart": true}
+
 func (a *API) get(ctx context.Context, endpoint string, out any) error {
 	start := time.Now()
 	defer func() { obs.Default.Add("fix source", obs.HTTP, time.Since(start)) }()
@@ -211,6 +213,11 @@ func (a *API) fix(ctx context.Context, l Link) (Post, error) {
 	}
 	if p.Text == "" && p.Title == "" && len(p.Media) == 0 {
 		return Post{}, errMetadata
+	}
+	// These platforms never post without media, so a bare answer means the
+	// source's own embed knows more than the card does.
+	if len(p.Media) == 0 && mediaOnly[l.Platform] {
+		p.Incomplete = true
 	}
 	if l.Platform == "reddit" {
 		if redditComment(l.URL) || redditComment(d.SourceURL) {

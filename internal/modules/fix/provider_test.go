@@ -124,6 +124,13 @@ func TestFixMetadataAndValidation(t *testing.T) {
 	if err != nil || p.Text != "Description" || len(p.Media) != 0 || len(p.Sections[0].Media) != 1 {
 		t.Fatalf("%+v %v", p, err)
 	}
+	ig, _ := Parse("https://www.instagram.com/p/DcMTpTeCVTk")
+	a.c.Transport = transport(func(*http.Request) (*http.Response, error) {
+		return response(`{"success":true,"platform":"instagram","data":{"title":"Post","description":""}}`), nil
+	})
+	if p, err = a.Resolve(context.Background(), ig); err != nil || !p.Incomplete {
+		t.Fatalf("a bare instagram answer is complete: %+v %v", p, err)
+	}
 	var d fixData
 	d.Image = "https://cdn.example/a.png"
 	if len(d.media()) != 1 {
