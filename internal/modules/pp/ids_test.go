@@ -18,11 +18,15 @@ func TestScreensKeepIDsApart(t *testing.T) {
 	mem := m.st.member(s, 3, 5, today)
 	mem.classSeason = 0
 	tallow, _ := dyeOf("tallow")
+	who := &discord.ResolvedMember{Member: discord.Member{User: discord.User{ID: 5, Username: "member"}}}
+	mem.quests = []heldQuest{{tier: 0, kind: 0}}
 	screens := map[string]func() (discord.MessageCreate, error){
 		"shop":     func() (discord.MessageCreate, error) { return m.st.shopMessage(s, mem, true) },
 		"trades":   func() (discord.MessageCreate, error) { return m.st.yardMessage(s, 5, mem, tradesPage, today) },
 		"factions": func() (discord.MessageCreate, error) { return m.st.yardMessage(s, 5, mem, factionsPage, today) },
 		"card":     func() (discord.MessageCreate, error) { return m.st.dyeMessage(mem, tallow, today) },
+		"quests":   func() (discord.MessageCreate, error) { return m.questsMessage(3, who) },
+		"notices":  func() (discord.MessageCreate, error) { return m.noticesMessage(3, who) },
 		"own": func() (discord.MessageCreate, error) {
 			return m.st.ownMessage(mem, &draft{name: "x", style: ownStyles[0], colors: []uint32{1}}, ownState{drafted: true, wearing: true, days: 7, ahead: 28})
 		},

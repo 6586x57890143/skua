@@ -61,24 +61,14 @@ type Posted struct {
 
 // NoticesScreen draws the notices screen: the notice held, its signers
 // lined up like a party, or the board when none is held, and the board's
-// count along the foot. It moves: the hand nudges toward the open place,
-// or the first notice up, as a cursor waits in an old game's menu.
+// count along the foot. It's still for now: the moving one didn't show in
+// an ephemeral reply.
 func NoticesScreen(name string, held *Notice, board []Posted) ([]byte, error) {
-	var frames []*pixel.Canvas
-	for _, bob := range cursorBob {
-		frames = append(frames, noticesCanvas(name, held, board, bob))
-	}
-	return pixel.SoftLoop(frames, screenScale, cursorBeat)
+	return noticesCanvas(name, held, board, 0).Soft(screenScale)
 }
 
-// cursorBob is the hand's nudge a frame, and cursorBeat how long each
-// frame shows, in milliseconds.
-var cursorBob = []int{0, 1, 2, 1}
-
-const cursorBeat = 160
-
-// loopName is the file an animated screen goes out as.
-const loopName = "pp.webp"
+// loopName is the file the notices screen goes out as.
+const loopName = "pp.jpg"
 
 // noticeSlot is one signer's column on the party window.
 const noticeSlot = 92

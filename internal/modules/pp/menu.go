@@ -145,7 +145,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		msg, err = m.treasuryMessage(ctx, *guild)
 	case id == "pp:quests":
 		msg, err = m.questsMessage(*guild, e.Member())
-	case id == "pp:notices":
+	case id == "pp:notices", id == "pp:company":
+		id = "pp:notices"
 		msg, err = m.noticesMessage(*guild, e.Member())
 	case id == "pp:buffs":
 		msg, err = m.buffsMessage(*guild, e.Member())
