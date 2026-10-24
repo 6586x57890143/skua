@@ -1,6 +1,7 @@
 package pp
 
 import (
+	"fmt"
 	"image"
 	"strings"
 
@@ -21,6 +22,10 @@ type Own struct {
 	Letter  string
 	Wearing bool
 	Left    int64
+	// Filled and Slots are how full the heralds' roll is, and Term how
+	// long a lease runs, "week" or "season".
+	Filled, Slots int64
+	Term          string
 }
 
 // The two themes a name is shown on: Discord's dark member list and its
@@ -67,6 +72,8 @@ func ownCanvas(o Own) *pixel.Canvas {
 			ink = pixel.Red
 		}
 		c.FitIn(pixel.Light, 18, foot, "the heralds: "+o.Letter, ink, 230)
+	} else if o.Slots > 0 {
+		label(c, 18, foot, fmt.Sprintf("the heralds' roll: %d of %d names", o.Filled, o.Slots))
 	}
 	if o.Wearing {
 		right(c, 368, foot, "worn · "+leftWords(o.Left), pixel.Green)
@@ -94,7 +101,7 @@ func ownCanvas(o Own) *pixel.Canvas {
 	c.Window(price)
 	c.Tab(price, "price")
 	y = paneTop(price)
-	label(c, 208, y, "a week")
+	label(c, 208, y, "a "+or(o.Term, "week"))
 	week := "-"
 	if o.Week > 0 {
 		week = grouped(o.Week/unit) + " pp"

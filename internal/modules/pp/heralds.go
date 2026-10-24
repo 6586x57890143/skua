@@ -183,7 +183,8 @@ func (m *Module) sendPetition(ctx context.Context, guild, user snowflake.ID) err
 		p.name, p.style, p.colors, p.icon = d.name, d.style, d.colors, d.icon
 		p.held = m.st.pot() * heraldsFee / 100
 		if !p.change {
-			p.held += m.st.weekly(d)
+			lease, _, _ := m.st.ownLease(s, user, ownWeek(d.style, d.icon != nil), mem.rung)
+			p.held += lease
 		}
 		if mem.purse < p.held {
 			err = errOwnShort
@@ -489,7 +490,8 @@ func (m *Module) grantPetition(ctx context.Context, guild snowflake.ID, n int64,
 	s.seasonBurn += p.held
 	s.dirty = true
 	if !p.change {
-		mem.livery, mem.liveryUntil = ownKey, today+leaseDays
+		days, _, _ := term(mem.rung)
+		mem.livery, mem.liveryUntil = ownKey, today+days
 	}
 	s.wearOwn(p.user, role, ownWeek(p.style, p.icon != nil), uint32(p.roleColors().PrimaryColor))
 	s.ask(p.user, 0)
@@ -620,44 +622,44 @@ func (m *Module) deferred(ctx context.Context, guild snowflake.ID, e *events.Com
 	return err
 }
 
-// leaseOwn leases user another week of the livery of their own they wear,
-// dressing them again in case its role came off.
+// leaseOwn leases user another lease of the livery of their own they
+// wear, dressing them again in case its role came off.
 func (m *Module) leaseOwn(ctx context.Context, guild, user snowflake.ID) error {
 	today := DayOf(m.now())
 	s := m.st.server(guild)
 	s.leasing.Lock()
 	defer s.leasing.Unlock()
-	check := func(mem *member, worn ownWorn) (int64, error) {
-		price := m.st.pot() * worn.week / 100
+	check := func(mem *member, worn ownWorn) (price, days int64, err error) {
+		price, days, ahead := m.st.ownLease(s, user, worn.week, mem.rung)
 		switch {
 		case worn.role == 0 || mem.livery != ownKey:
-			return 0, errOwnNone
+			return 0, 0, errOwnNone
 		case mem.purse < price:
-			return 0, errDyeShort
-		case mem.liveryUntil+leaseDays > today+leaseCap:
-			return 0, errDyeAhead
+			return 0, 0, errDyeShort
+		case mem.liveryUntil+days > today+ahead:
+			return 0, 0, errDyeAhead
 		}
-		return price, nil
+		return price, days, nil
 	}
 	s.mu.Lock()
 	worn := s.own[user]
-	_, err := check(m.st.member(s, guild, user, today), worn)
+	_, _, err := check(m.st.member(s, guild, user, today), worn)
 	s.mu.Unlock()
 	if err != nil {
 		return err
 	}
-	if err := m.dress(ctx, guild, user, worn.role, true, "another week of a livery"); err != nil {
+	if err := m.dress(ctx, guild, user, worn.role, true, "a livery's lease renewed"); err != nil {
 		return dyeErr(err)
 	}
 	s.mu.Lock()
 	mem := m.st.member(s, guild, user, today)
-	price, err := check(mem, s.own[user])
+	price, days, err := check(mem, s.own[user])
 	if err != nil {
 		s.mu.Unlock()
 		return err
 	}
 	mem.purse -= price
-	mem.liveryUntil = max(today, mem.liveryUntil) + leaseDays
+	mem.liveryUntil = max(today, mem.liveryUntil) + days
 	m.st.burn(s, user, today, reasonLease, price, []int64{-1, mem.liveryUntil})
 	mem.dirty = true
 	s.mu.Unlock()
@@ -727,3 +729,52 @@ func (m *Module) repost(ctx context.Context, guild snowflake.ID, e *events.Compo
 		said(fmt.Sprintf("%d of %d petitions posted to <#%s> again", posted, len(ps), ch)), rest.WithCtx(ctx))
 	return err
 }
+
+// rollSlots is the roll's room until an admin sets it.
+const rollSlots = 40
+
+// room is how many names the roll holds. s.mu held.
+func (s *server) room() int64 {
+	if s.slots <= 0 {
+		return rollSlots
+	}
+	return s.slots
+}
+
+// rolled is how many names the heralds' roll holds with user on it:
+// liveries of one's own worn and petitions waiting, a member once. s.mu
+// held.
+func (s *server) rolled(user snowflake.ID) int64 {
+	names := map[snowflake.ID]bool{user: true}
+	for u := range s.own {
+		names[u] = true
+	}
+	for u := range s.asked {
+		names[u] = true
+	}
+	if user == 0 {
+		delete(names, 0)
+	}
+	return int64(len(names))
+}
+
+// rollFactor is a livery of one's own's price for user as the roll fills,
+// in hundredths: Rules.RollRise percent dearer at full, with the square of
+// how full, and dearer still past it. user counts on the roll whether
+// they're on it yet or petitioning, so their price doesn't jump once
+// they're granted. s.mu held.
+func (s *server) rollFactor(user snowflake.ID) int64 {
+	filled, room := s.rolled(user), s.room()
+	return 100 + Rules.RollRise*filled*filled/(room*room)
+}
+
+// ownLease is what a lease of a livery of one's own costs user on rung
+// with a week's base of week hundredths of a pot day, its days, and how
+// far ahead leases may run. s.mu held.
+func (st *state) ownLease(s *server, user snowflake.ID, week, rung int64) (price, days, ahead int64) {
+	days, weeks, ahead := term(rung)
+	return st.pot() * week / 100 * s.rollFactor(user) / 100 * weeks, days, ahead
+}
+
+// rollChoices are the room an admin may give the roll.
+var rollChoices = []int64{10, 20, 30, 40, 60, 80, 120, 160}

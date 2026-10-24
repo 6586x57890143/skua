@@ -67,7 +67,7 @@ func main() {
 		"quests-empty": func() ([]byte, error) { return pp.QuestScreen("steve", nil, 0) },
 		"own-empty":    func() ([]byte, error) { return pp.OwnScreen(pp.Own{Fee: 20350, Purse: 9000 * 100}) },
 		"own-plain": func() ([]byte, error) {
-			return pp.OwnScreen(pp.Own{Name: "the lamplighter", Style: "plain dye", Colors: []uint32{0xa2803e}, Week: 40700, Fee: 20350, Purse: 9000 * 100})
+			return pp.OwnScreen(pp.Own{Name: "the lamplighter", Style: "plain dye", Colors: []uint32{0xa2803e}, Week: 40700, Fee: 20350, Purse: 9000 * 100, Filled: 12, Slots: 40})
 		},
 		"own-silk": func() ([]byte, error) {
 			return pp.OwnScreen(pp.Own{Name: "heavywinds of the sump", Style: "shot silk", Colors: []uint32{0xc66e34, 0x6286c3}, Week: 101750, Fee: 20350, Purse: 9000 * 100})
@@ -84,7 +84,7 @@ func main() {
 				{Name: "gin lane juniper", Color: 0x5c916a, Price: 20350},
 				{Name: "ferrymen's tidewater", Color: 0x5f8aa6, Price: 20350},
 				{Name: "fish market pewter", Color: 0x81868b, Price: 20350},
-			}, 1234*100, pp.Livery{Name: "tanners' hide", Color: 0xbe715d, Left: 5})
+			}, 1234*100, pp.Livery{Name: "tanners' hide", Color: 0xbe715d, Left: 5}, "week")
 		},
 		"yard-factions": func() ([]byte, error) {
 			return pp.YardScreen("the factions", []pp.YardRow{
@@ -96,7 +96,7 @@ func main() {
 				{Name: "choir rose", Color: 0xb1738a, Price: 40700, From: "shale perch"},
 				{Name: "wardens' moss", Color: 0x818b42, Price: 40700, From: "shale perch"},
 				{Name: "kiln glass", Color: 0x618c92, Price: 40700, From: "shale perch"},
-			}, 312*100, pp.Livery{})
+			}, 312*100, pp.Livery{}, "season")
 		},
 		"item-livery": func() ([]byte, error) {
 			return pp.ItemScreen(pp.Item{Kind: "livery", Name: "hearth ember", What: "a scarf the colour of a banked fire",

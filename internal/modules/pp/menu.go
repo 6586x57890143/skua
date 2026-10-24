@@ -72,7 +72,7 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.setLog(ctx, *guild, e)
 	case id == "pp:selfies":
 		return m.setSelfies(ctx, *guild, e)
-	case id == "pp:anchor", id == "pp:heralds":
+	case id == "pp:anchor", id == "pp:heralds", id == "pp:slots":
 		return m.setLivery(ctx, *guild, e)
 	case id == "pp:liveries":
 		return m.liveryPanel(*guild, e)

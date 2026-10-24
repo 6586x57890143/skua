@@ -21,7 +21,11 @@ import "strconv"
 //     GrantSeason pot days a season to anyone, never to an admin, a second
 //     admin above GrantSecond pot days, every one posted
 //   - spending is burned; members never trade pp; nothing pp buys is
-//     scarce; prices are set in pot days
+//     scarce but a livery of one's own: a server's roll has room for so
+//     many, and their price rises with how full it is, by RollRise percent
+//     at full and with the square of how full; prices are set in pot days
+//   - a petition's price is held while the heralds decide, and given back
+//     if they refuse it
 //   - nothing a member holds is ever taken
 //   - the backstop: if the shop burns under SinkFloor of what's minted two
 //     seasons running, a purse past Line pot days keeps Keep of new earning
@@ -42,6 +46,10 @@ type Charter struct {
 
 	SinkFloor, Line, Keep int64
 
+	// RollRise is how much dearer, in percent, a livery of one's own is
+	// when the heralds' roll is full.
+	RollRise int64
+
 	// A pot day is what this day earns under the live Balance, unbuffed and
 	// unrested: Voice minutes with the mic open, Messages at the mean pay,
 	// and a quest, rerolled when plain. It is a core member's median day on
@@ -51,7 +59,7 @@ type Charter struct {
 
 // Rules is the charter in force.
 var Rules = Charter{
-	Version:       "3",
+	Version:       "4",
 	Levy:          350,
 	TreasuryWeeks: 8,
 	FundShare:     300,
@@ -62,6 +70,7 @@ var Rules = Charter{
 	SinkFloor:     5,
 	Line:          45,
 	Keep:          10,
+	RollRise:      200,
 	RefVoice:      4,
 	RefMessages:   27,
 }
