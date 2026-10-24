@@ -106,9 +106,6 @@ func ownStyleOf(key string) (ownStyle, bool) {
 	return ownStyles[i], true
 }
 
-// weekly is what a week of d costs at st's pot day.
-func (st *state) weekly(d *draft) int64 { return st.pot() * ownWeek(d.style, d.icon != nil) / 100 }
-
 // shown is the colours d is drawn in: nacre's own, or the dyer's.
 func (d *draft) shown() []uint32 {
 	if d.style.key == "nacre" {
