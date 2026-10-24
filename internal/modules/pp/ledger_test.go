@@ -168,7 +168,8 @@ func TestLedgerConserves(t *testing.T) {
 	if err := (&Module{st: st, now: func() time.Time { return next.Add(24 * time.Hour) }}).pick(guild, a, "knight"); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&Module{st: st, now: func() time.Time { return next.Add(24 * time.Hour) }}).pick(guild, a, "monk"); err != nil {
+	// Past the grace, so it's paid for.
+	if err := (&Module{st: st, now: func() time.Time { return next.Add(72 * time.Hour) }}).pick(guild, a, "monk"); err != nil {
 		t.Fatal(err)
 	}
 	if last := s.pending[len(s.pending)-1]; last.reason != reasonClass || last.delta >= 0 {
