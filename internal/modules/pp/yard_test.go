@@ -13,6 +13,7 @@ import (
 
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/core/coretest"
+	"github.com/6586x57890143/skua/internal/pixel"
 )
 
 // yardRest is a server's roles that also takes an interaction's edits and
@@ -335,5 +336,35 @@ func TestLeaseUndone(t *testing.T) {
 	}
 	if got := strings.Join(y.writes, ", "); got != "add 98, remove 30, remove 98, add 30" || mem.livery != "tallow" {
 		t.Errorf("not undone: %s, %q", got, mem.livery)
+	}
+}
+
+// Every livery has a garment, 16 cells square, drawn only in the icons'
+// inks and the three dye cells.
+func TestGarments(t *testing.T) {
+	for _, d := range dyes {
+		g := Garment(d.key)
+		if len(g) != pixel.IconCells {
+			t.Errorf("%s has %d rows", d.key, len(g))
+		}
+		dyed := false
+		for _, row := range g {
+			if len(row) != pixel.IconCells {
+				t.Errorf("%s: row %q", d.key, row)
+			}
+			for i := range len(row) {
+				_, ink := pixel.IconInks[row[i]]
+				dyed = dyed || strings.IndexByte("123", row[i]) >= 0
+				if !ink && strings.IndexByte(".123", row[i]) < 0 {
+					t.Errorf("%s: %q isn't an ink", d.key, row[i])
+				}
+			}
+		}
+		if !dyed {
+			t.Errorf("%s takes no dye", d.key)
+		}
+	}
+	if len(garments) != len(dyes) {
+		t.Errorf("%d garments for %d liveries", len(garments), len(dyes))
 	}
 }

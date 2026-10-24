@@ -90,7 +90,18 @@ func main() {
 		"item-livery": func() ([]byte, error) {
 			return pp.ItemScreen(pp.Item{Kind: "livery", Name: "hearth ember", What: "a scarf the colour of a banked fire",
 				Story:  "the herons tie an ember scarf on every bird they feed through a hard winter, and the sump remembers who wore one. the dyers sell the colour on the herons' terms: the lease pays for a bowl at the hearth on a cold night",
-				Effect: "your name wears ember in the server for a week", Price: 40700, You: "heavywinds", Dye: 0xc66e34})
+				Effect: "your name wears ember in the server for a week", Price: 40700, You: "heavywinds", Dye: 0xc66e34, Garment: pp.Garment("ember")})
+		},
+		"garments": func() ([]byte, error) {
+			keys := []string{"tallow", "hide", "bruise", "juniper", "tidewater", "pewter", "ink", "stair", "thorn", "sea", "ember", "rose", "moss", "glass"}
+			colors := []uint32{0xa2803e, 0xbe715d, 0x9d78a9, 0x5c916a, 0x5f8aa6, 0x81868b, 0x887fb2, 0x6286c3, 0x708e5b, 0x4a9183, 0xc66e34, 0xb1738a, 0x818b42, 0x618c92}
+			c := pixel.New(7*56+8, 2*80+8)
+			c.Window(c.Rect)
+			for i, k := range keys {
+				c.DyedGrid(pp.Garment(k), image.Pt(8+i%7*56, 8+i/7*80), 3, colors[i])
+				c.Text(8+i%7*56, 64+i/7*80, k, pixel.Ink, 52)
+			}
+			return c.PNG(2)
 		},
 		"icons": iconSheet,
 		"type":  typeSheet,

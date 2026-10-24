@@ -214,6 +214,8 @@ type Item struct {
 	// Dye is a livery's colour: the card shows its cloth for a picture and
 	// the member's name in it, and Climbed reads as worn.
 	Dye uint32
+	// Garment is the livery's garment, drawn in Dye, or nil for its cloth.
+	Garment []string
 }
 
 // ItemScreen draws an item's card: on the left its picture, the member's
@@ -228,7 +230,11 @@ func itemCanvas(it Item) *pixel.Canvas {
 	const scale = 4
 	side := pixel.IconCells * scale
 	top := pic.Min.Y + pixel.TabDrop
-	if it.Dye != 0 {
+	if it.Garment != nil {
+		const big = 5
+		at := image.Pt((pic.Min.X+pic.Max.X-pixel.IconCells*big)/2, top+(pic.Max.Y-4-top-pixel.IconCells*big)/2)
+		c.DyedGrid(it.Garment, at, big, it.Dye)
+	} else if it.Dye != 0 {
 		cloth := image.Rect(0, 0, 64, 52)
 		swatch(c, cloth.Add(image.Pt((pic.Min.X+pic.Max.X-cloth.Dx())/2, top+(pic.Max.Y-4-top-cloth.Dy())/2)), it.Dye)
 	} else {
