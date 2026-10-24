@@ -11,7 +11,6 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
-	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/brand"
@@ -227,23 +226,11 @@ func (m *Module) yard(ctx context.Context, guild snowflake.ID, e *events.Compone
 		}
 		// Making a role and dressing a member are a few calls to Discord,
 		// longer than an interaction may wait.
-		if err := e.DeferUpdateMessage(); err != nil {
+		var msg discord.MessageCreate
+		return m.deferred(ctx, guild, e, func() (err error) {
+			msg, err = m.leased(ctx, guild, user, d)
 			return err
-		}
-		msg, err := m.leased(ctx, guild, user, d)
-		if err != nil {
-			if _, isTell := errors.AsType[core.Tell](err); !isTell {
-				m.log.Warn("pp: a lease", "guild", guild, "livery", d.key, "err", err)
-				err = core.Tell("the dyers couldn't dress you just now; try again in a while")
-			}
-			_, ferr := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), discord.MessageCreate{
-				Content: err.Error(), Flags: discord.MessageFlagEphemeral, AllowedMentions: core.NoPings()}, rest.WithCtx(ctx))
-			return ferr
-		}
-		msg = m.withMenu(guild, user, m.Admin != nil && m.Admin(e), msg, "pp:shop")
-		_, err = e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(),
-			core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...), rest.WithCtx(ctx))
-		return err
+		}, func() (discord.MessageCreate, error) { return msg, nil })
 	case id == "pp:dye":
 		data, ok := e.Data.(discord.StringSelectMenuInteractionData)
 		if !ok || len(data.Values) != 1 {
@@ -308,7 +295,7 @@ func (m *Module) leased(ctx context.Context, guild, user snowflake.ID, d dye) (d
 	s.mu.Lock()
 	mem := m.st.member(s, guild, user, today)
 	err := check(mem)
-	old, was := mem.livery, s.dyeRoles[mem.livery]
+	old, was := mem.livery, wornRole(s, user, mem)
 	s.mu.Unlock()
 	if err != nil {
 		return discord.MessageCreate{}, err
@@ -351,11 +338,30 @@ func (m *Module) leased(ctx context.Context, guild, user snowflake.ID, d dye) (d
 	mem.livery, mem.liveryUntil = d.key, from+leaseDays
 	m.st.burn(s, user, today, reasonLease, price, []int64{int64(dyeIndex(d.key)), mem.liveryUntil})
 	mem.dirty = true
+	if old == ownKey {
+		delete(s.own, user)
+	}
 	msg, err := m.st.dyeMessage(mem, d, today)
 	s.mu.Unlock()
 	// What was paid lands with its ledger row now, not at the minute.
 	m.Save()
+	// A livery of one's own given up for a trade's or a faction's goes as
+	// it would have faded: its role and its petition with it.
+	if old == ownKey && was != 0 {
+		m.retireOwn(ctx, guild, was)
+	}
 	return msg, err
+}
+
+// retireOwn deletes a livery of one's own's role and lapses its petition.
+func (m *Module) retireOwn(ctx context.Context, guild, role snowflake.ID) {
+	if err := m.dropRole(ctx, guild, role, "a livery of their own given up"); err != nil && !errors.Is(err, errNotLivery) {
+		m.log.Warn("pp: deleting a livery given up", "guild", guild, "err", err)
+	}
+	if _, err := m.db.Exec(ctx, `update pp_petition set state = 'lapsed' where guild_id = $1 and role_id = $2 and state = 'granted'`,
+		int64(guild), int64(role)); err != nil {
+		m.log.Warn("pp: lapsing a petition", "guild", guild, "err", err)
+	}
 }
 
 // undress takes role back off user after a lease that didn't go through,

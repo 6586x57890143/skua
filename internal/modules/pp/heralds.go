@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
@@ -55,7 +55,8 @@ type petition struct {
 	colors []uint32
 	icon   []byte
 	held   int64
-	change bool // to a livery already worn
+	change bool         // to a livery already worn
+	role   snowflake.ID // made by a grant that didn't finish, else 0
 }
 
 // roleColors is how p's colours go to Discord: one, a gradient's two, or
@@ -92,8 +93,13 @@ func ownWeek(style ownStyle, device bool) int64 {
 // loadPetitions reads the petitions still with the heralds and the
 // liveries of one's own worn now.
 func (st *state) loadPetitions(ctx context.Context, db DB) error {
+	// A grant a crash cut short never reached its record, so it waits
+	// again; the role it made is on the row for the next grant to reuse.
+	if _, err := db.Exec(ctx, `update pp_petition set state = 'asked', decided_by = 0 where state = 'granting'`); err != nil {
+		return err
+	}
 	rows, err := db.Query(ctx, `select guild_id, user_id, id, state, role_id, style, icon is not null, colors
-		from pp_petition where state in ('asked', 'granting', 'granted')`)
+		from pp_petition where state in ('asked', 'granted')`)
 	if err != nil {
 		return err
 	}
@@ -377,32 +383,49 @@ type settled struct {
 	line string
 }
 
-// claim reads petition n of guild, still asked, and marks it state, so
-// nobody else acts on it.
-func (m *Module) claim(ctx context.Context, guild snowflake.ID, n int64, by snowflake.ID, state string) (petition, error) {
+// petitionCols are the columns scanPetition reads, in its order.
+const petitionCols = `id, user_id, name, style, colors, icon, held, change, role_id`
+
+// scanPetition reads one row of petitionCols.
+func scanPetition(scan func(dest ...any) error) (petition, error) {
 	var p petition
-	var user, held int64
+	var user, role int64
 	var style string
 	var colors []int64
-	err := queryOne(ctx, m.db, `select user_id, name, style, colors, icon, held, change from pp_petition
-		where id = $1 and guild_id = $2 and state = 'asked'`, []any{n, int64(guild)},
-		&user, &p.name, &style, &colors, &p.icon, &held, &p.change)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return p, errHeraldGone
-	}
-	if err != nil {
+	if err := scan(&p.id, &user, &p.name, &style, &colors, &p.icon, &p.held, &p.change, &role); err != nil {
 		return p, err
 	}
-	p.id, p.user, p.held = n, snowflake.ID(user), held
+	p.user, p.role = snowflake.ID(user), snowflake.ID(role)
 	p.style, _ = ownStyleOf(style)
 	for _, c := range colors {
 		p.colors = append(p.colors, uint32(c))
 	}
-	if p.user == by {
+	return p, nil
+}
+
+// claim reads petition n of guild, still asked, and marks it state with
+// reason, so nobody else acts on it.
+func (m *Module) claim(ctx context.Context, guild snowflake.ID, n int64, by snowflake.ID, state, reason string) (petition, error) {
+	rows, err := m.db.Query(ctx, `select `+petitionCols+` from pp_petition where id = $1 and guild_id = $2 and state = 'asked'`, n, int64(guild))
+	if err != nil {
+		return petition{}, err
+	}
+	var p petition
+	found := rows.Next()
+	if found {
+		p, err = scanPetition(rows.Scan)
+	}
+	rows.Close()
+	switch {
+	case err != nil:
+		return p, err
+	case !found:
+		return p, errHeraldGone
+	case p.user == by:
 		return p, errHeraldSelf
 	}
-	tag, err := m.db.Exec(ctx, `update pp_petition set state = $3, decided_by = $4 where id = $1 and guild_id = $2 and state = 'asked'`,
-		n, int64(guild), state, int64(by))
+	tag, err := m.db.Exec(ctx, `update pp_petition set state = $3, decided_by = $4, reason = $5 where id = $1 and guild_id = $2 and state = 'asked'`,
+		n, int64(guild), state, int64(by), reason)
 	if err != nil {
 		return p, err
 	}
@@ -413,64 +436,105 @@ func (m *Module) claim(ctx context.Context, guild snowflake.ID, n int64, by snow
 }
 
 // grantPetition grants petition n: the member's role made or changed and
-// put on them, the hold spent.
+// put on them, the hold spent. A change to a livery that has faded since
+// it was sent can't be granted: its fee goes back.
 func (m *Module) grantPetition(ctx context.Context, guild snowflake.ID, n int64, by snowflake.ID) (settled, error) {
-	p, err := m.claim(ctx, guild, n, by, "granting")
+	p, err := m.claim(ctx, guild, n, by, "granting", "")
 	if err != nil {
 		return settled{}, err
 	}
 	s := m.st.server(guild)
 	s.leasing.Lock()
 	defer s.leasing.Unlock()
-	role, err := m.dressOwn(ctx, guild, p)
-	if err != nil {
-		// Not granted, so it waits again.
-		_, _ = m.db.Exec(ctx, `update pp_petition set state = 'asked', decided_by = 0 where id = $1 and state = 'granting'`, n)
-		return settled{}, dyeErr(err)
-	}
 	today := DayOf(m.now())
 	s.mu.Lock()
 	mem := m.st.member(s, guild, p.user, today)
+	worn := s.own[p.user].role != 0 && mem.livery == ownKey
+	before := wornRole(s, p.user, mem)
+	s.mu.Unlock()
+	if p.change && !worn {
+		const why = "the livery it changes has faded since"
+		if _, err := m.db.Exec(ctx, `update pp_petition set state = 'refused', reason = $2 where id = $1`, n, why); err != nil {
+			return settled{}, err
+		}
+		m.release(guild, p.user, p.held, n)
+		return settled{p, "✗ not granted: " + why + "; the fee went back"}, nil
+	}
+	role, err := m.dressOwn(ctx, guild, p)
+	if err != nil {
+		// Not granted, so it waits again, keeping a role already made.
+		_, _ = m.db.Exec(ctx, `update pp_petition set state = 'asked', decided_by = 0, role_id = $2 where id = $1 and state = 'granting'`, n, int64(role))
+		return settled{}, dyeErr(err)
+	}
+	// The record first: once it says granted, a boot finds the livery worn.
+	if _, err := m.db.Exec(ctx, `update pp_petition set state = 'granted', role_id = $2 where id = $1`, n, int64(role)); err != nil {
+		_, _ = m.db.Exec(ctx, `update pp_petition set state = 'asked', decided_by = 0, role_id = $2 where id = $1 and state = 'granting'`, n, int64(role))
+		return settled{}, err
+	}
+	// A livery changed retires the petition it was granted from.
+	if _, err := m.db.Exec(ctx, `update pp_petition set state = 'changed' where guild_id = $1 and user_id = $2 and state = 'granted' and id <> $3`,
+		int64(guild), int64(p.user), n); err != nil {
+		m.log.Warn("pp: retiring a changed petition", "guild", guild, "err", err)
+	}
+	// A trade or faction livery worn before comes off.
+	if before != 0 && before != role {
+		if err := m.dress(ctx, guild, p.user, before, false, "a livery of their own granted"); err != nil && !errors.Is(err, errNotLivery) {
+			m.log.Warn("pp: taking off a livery", "guild", guild, "err", err)
+		}
+	}
+	s.mu.Lock()
+	mem = m.st.member(s, guild, p.user, today)
 	// The hold was taken from the purse when it was sent; granted, it's
 	// spent.
 	s.seasonBurn += p.held
 	s.dirty = true
 	if !p.change {
-		from := today
-		if mem.livery == ownKey {
-			from = max(today, mem.liveryUntil)
-		}
-		mem.livery, mem.liveryUntil = ownKey, from+leaseDays
+		mem.livery, mem.liveryUntil = ownKey, today+leaseDays
 	}
 	s.wearOwn(p.user, role, ownWeek(p.style, p.icon != nil), uint32(p.roleColors().PrimaryColor))
 	s.ask(p.user, 0)
 	delete(s.drafts, p.user)
 	mem.dirty = true
 	s.mu.Unlock()
+	// ponytail: a crash between the record and this save leaves the member
+	// with the role granted but no lease to fade it; a boot that squares
+	// granted petitions with members would close it.
 	m.Save()
-	if _, err := m.db.Exec(ctx, `update pp_petition set state = 'granted', role_id = $2 where id = $1`, n, int64(role)); err != nil {
-		return settled{}, err
-	}
-	// A livery changed retires the petition it was granted from.
-	if _, err := m.db.Exec(ctx, `update pp_petition set state = 'changed' where guild_id = $1 and user_id = $2 and state = 'granted' and id <> $3`,
-		int64(guild), int64(p.user), n); err != nil {
-		return settled{}, err
-	}
 	return settled{p, fmt.Sprintf("✓ granted by <@%s>", by)}, nil
 }
 
-// dressOwn makes p's role, or changes the one its member wears, and puts
-// it on them. s.leasing held.
+// wornRole is the role of the livery mem wears, 0 for none. s.mu held.
+func wornRole(s *server, user snowflake.ID, mem *member) snowflake.ID {
+	if mem.livery == ownKey {
+		return s.own[user].role
+	}
+	return s.dyeRoles[mem.livery]
+}
+
+// dressOwn makes p's role, or changes the one its member wears or a
+// grant that failed already made, and puts it on them; one deleted by
+// hand is made again. It gives the role even with an error, so a role
+// made is never lost. s.leasing held.
 func (m *Module) dressOwn(ctx context.Context, guild snowflake.ID, p petition) (snowflake.ID, error) {
+	roles, _, err := m.standing(ctx, guild)
+	if err != nil {
+		return p.role, err
+	}
 	s := m.st.server(guild)
 	s.mu.Lock()
 	role := s.own[p.user].role
 	s.mu.Unlock()
+	if role == 0 {
+		role = p.role
+	}
+	if role != 0 && !slices.ContainsFunc(roles, func(r discord.Role) bool { return r.ID == role }) {
+		role = 0
+	}
 	l := look{name: p.name, colors: p.roleColors(), icon: p.icon}
 	why := "a livery granted by the heralds"
 	if role != 0 {
 		if err := m.editRole(ctx, guild, role, l, why); err != nil {
-			return 0, err
+			return role, err
 		}
 	} else {
 		made, err := m.makeRole(ctx, guild, l, why)
@@ -481,6 +545,11 @@ func (m *Module) dressOwn(ctx context.Context, guild snowflake.ID, p petition) (
 			m.log.Warn("pp: moving a livery under the anchor", "guild", guild, "err", err)
 		}
 		role = made
+		// Kept on the petition at once, so a grant that fails from here
+		// reuses it rather than making another.
+		if _, err := m.db.Exec(ctx, `update pp_petition set role_id = $2 where id = $1`, p.id, int64(role)); err != nil {
+			m.log.Warn("pp: keeping a livery's role", "guild", guild, "err", err)
+		}
 	}
 	return role, m.dress(ctx, guild, p.user, role, true, why)
 }
@@ -498,11 +567,8 @@ func (m *Module) refusePetition(ctx context.Context, e *events.ModalSubmitIntera
 		return errHeraldGone
 	}
 	reason := line(e.Data.Text("reason"))
-	p, err := m.claim(ctx, *guild, n, e.User().ID, "refused")
+	p, err := m.claim(ctx, *guild, n, e.User().ID, "refused", reason)
 	if err != nil {
-		return err
-	}
-	if _, err := m.db.Exec(ctx, `update pp_petition set reason = $2 where id = $1`, n, reason); err != nil {
 		return err
 	}
 	m.release(*guild, p.user, p.held, n)
@@ -616,7 +682,7 @@ func (m *Module) waiting(guild snowflake.ID) []discord.ContainerSubComponent {
 }
 
 // repost posts every petition still with the heralds to their channel
-// again.
+// again, going on past one that fails.
 func (m *Module) repost(ctx context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate) error {
 	if m.Admin == nil || !m.Admin(e) {
 		return errNotAdmin
@@ -628,24 +694,20 @@ func (m *Module) repost(ctx context.Context, guild snowflake.ID, e *events.Compo
 	if ch == 0 {
 		return errNoHeralds
 	}
-	rows, err := m.db.Query(ctx, `select id, user_id, name, style, colors, icon, held, change from pp_petition
-		where guild_id = $1 and state = 'asked' order by id`, int64(guild))
+	// Each post may upload a device: more than an interaction may wait.
+	if err := e.DeferCreateMessage(true); err != nil {
+		return err
+	}
+	rows, err := m.db.Query(ctx, `select `+petitionCols+` from pp_petition where guild_id = $1 and state = 'asked' order by id`, int64(guild))
 	if err != nil {
 		return err
 	}
 	var ps []petition
 	for rows.Next() {
-		var p petition
-		var user int64
-		var style string
-		var colors []int64
-		if err := rows.Scan(&p.id, &user, &p.name, &style, &colors, &p.icon, &p.held, &p.change); err != nil {
+		p, err := scanPetition(rows.Scan)
+		if err != nil {
 			rows.Close()
 			return err
-		}
-		p.user, p.style = snowflake.ID(user), func() ownStyle { st, _ := ownStyleOf(style); return st }()
-		for _, c := range colors {
-			p.colors = append(p.colors, uint32(c))
 		}
 		ps = append(ps, p)
 	}
@@ -653,10 +715,15 @@ func (m *Module) repost(ctx context.Context, guild snowflake.ID, e *events.Compo
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	posted := 0
 	for _, p := range ps {
 		if err := m.postPetition(ctx, guild, ch, p); err != nil {
-			return err
+			m.log.Warn("pp: posting a petition again", "guild", guild, "err", err)
+			continue
 		}
+		posted++
 	}
-	return e.CreateMessage(said(fmt.Sprintf("%d petitions posted to <#%s> again", len(ps), ch)))
+	_, err = e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(),
+		said(fmt.Sprintf("%d of %d petitions posted to <#%s> again", posted, len(ps), ch)), rest.WithCtx(ctx))
+	return err
 }

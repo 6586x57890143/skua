@@ -271,3 +271,88 @@ func TestPetitionEdges(t *testing.T) {
 }
 
 func itoa(n int64) string { return snowflake.ID(n).String() }
+
+// From review: swapping between one's own livery and the yard's takes the
+// other off (and one's own goes for good); a change granted after the
+// livery faded goes back; a grant a crash cut short waits again and reuses
+// the role it made; and a livery only worn offers nothing to send.
+func TestPetitionReviewed(t *testing.T) {
+	ctx := context.Background()
+	m, d := desk(t, 4, 10000)
+	s := m.st.server(3)
+	mem := s.members[5]
+	s.setDye("hide", 30)
+
+	// A trade livery, then one's own granted over it: the trade's role
+	// comes off.
+	hide, _ := dyeOf("hide")
+	if _, err := m.leased(ctx, 3, 5, hide); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.press(t, m, "pp:ownsend", "5", 0); err != nil {
+		t.Fatal(err)
+	}
+	d.writes = nil
+	if err := d.press(t, m, "pp:herald:yes:"+itoa(s.asked[5]), "6", discord.PermissionManageRoles); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(d.writes, ","); !strings.Contains(got, "add 99") || !strings.Contains(got, "remove 30") || mem.livery != ownKey {
+		t.Fatalf("one's own over a trade's: %s, %q", got, mem.livery)
+	}
+	if got, _ := m.ownPage(ctx, 3, 5); strings.Contains(js(got), "pp:ownsend") {
+		t.Error("a livery only worn offers to be sent")
+	}
+
+	// Back to the trade's: one's own comes off and is deleted.
+	d.writes = nil
+	if _, err := m.leased(ctx, 3, 5, hide); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(d.writes, ","); got != "add 30,remove 99,delete 99" || s.own[5].role != 0 || mem.livery != "hide" {
+		t.Fatalf("a trade's over one's own: %s, own %+v", got, s.own[5])
+	}
+
+	// A change sent while worn, granted after it faded: the fee goes back.
+	m2, d2 := desk(t, 4, 10000)
+	s2 := m2.st.server(3)
+	if err := d2.press(t, m2, "pp:ownsend", "5", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := d2.press(t, m2, "pp:herald:yes:"+itoa(s2.asked[5]), "6", discord.PermissionManageRoles); err != nil {
+		t.Fatal(err)
+	}
+	s2.drafts[5] = &draft{name: "a change", style: ownStyles[0], colors: []uint32{0xa2803e}}
+	if err := d2.press(t, m2, "pp:ownsend", "5", 0); err != nil {
+		t.Fatal(err)
+	}
+	change := s2.asked[5]
+	before := s2.members[5].purse
+	m2.fade(ctx, s2.members[5].liveryUntil+fadeDays)
+	if err := d2.press(t, m2, "pp:herald:yes:"+itoa(change), "6", discord.PermissionManageRoles); err != nil {
+		t.Fatal(err)
+	}
+	if mem2 := s2.members[5]; mem2.livery != "" || mem2.purse != before+m2.st.pot()*heraldsFee/100 || s2.asked[5] != 0 {
+		t.Errorf("a change granted after a fade: %q, purse %d of %d", mem2.livery, mem2.purse, before)
+	}
+
+	// A grant a crash cut short.
+	m3, d3 := desk(t, 4, 10000)
+	if _, err := m3.db.Exec(ctx, `insert into pp_petition (guild_id, user_id, name, style, colors, state, held, asked, role_id)
+		values (3, 5, 'cut short', 'plain', '{10649406}', 'granting', 1, 1, 30)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := m3.st.loadPetitions(ctx, m3.db); err != nil {
+		t.Fatal(err)
+	}
+	id := m3.st.server(3).asked[5]
+	if id == 0 {
+		t.Fatal("a cut short grant doesn't wait again")
+	}
+	d3.writes = nil
+	if err := d3.press(t, m3, "pp:herald:yes:"+itoa(id), "6", discord.PermissionManageRoles); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(d3.writes, ","); !strings.HasPrefix(got, "edit 30,add 30") {
+		t.Errorf("the role made before wasn't reused: %s", got)
+	}
+}

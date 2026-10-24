@@ -107,13 +107,7 @@ func ownStyleOf(key string) (ownStyle, bool) {
 }
 
 // weekly is what a week of d costs at st's pot day.
-func (st *state) weekly(d *draft) int64 {
-	p := d.style.price
-	if d.icon != nil {
-		p += devicePrice
-	}
-	return st.pot() * p / 100
-}
+func (st *state) weekly(d *draft) int64 { return st.pot() * ownWeek(d.style, d.icon != nil) / 100 }
 
 // shown is the colours d is drawn in: nacre's own, or the dyer's.
 func (d *draft) shown() []uint32 {
@@ -462,6 +456,7 @@ func redrawIcon(raw []byte) ([]byte, error) {
 // heralds' last word, and the livery worn now.
 type ownState struct {
 	letter  string
+	drafted bool // a petition written, not only the livery worn
 	asked   bool
 	wearing bool
 	left    int64 // days on the lease of the livery worn
@@ -505,7 +500,7 @@ func (st *state) ownMessage(mem *member, d *draft, o ownState) (discord.MessageC
 		alt += ". the heralds: " + o.letter
 	}
 	row := discord.NewActionRow(discord.NewSecondaryButton("◂ the yard", "pp:yard"), withIcon(discord.NewSecondaryButton(write, "pp:ownwrite"), "quill"))
-	if d != nil && !o.asked {
+	if d != nil && o.drafted && !o.asked {
 		b := withIcon(discord.NewPrimaryButton("send to the heralds · "+grouped(send/unit)+" pp", "pp:ownsend"), "envelope")
 		if mem.purse < send {
 			b = b.AsDisabled()
@@ -556,12 +551,12 @@ func (m *Module) ownPage(ctx context.Context, guild, user snowflake.ID) (discord
 	s := m.st.server(guild)
 	s.mu.Lock()
 	mem := *m.st.member(s, guild, user, today)
-	worn, asked := s.own[user], s.asked[user] != 0
+	worn, asked, drafted := s.own[user], s.asked[user] != 0, s.drafts[user] != nil
 	s.mu.Unlock()
 	if mem.rung < ownStyles[0].rung {
 		return discord.MessageCreate{}, errOwnPerch
 	}
-	o := ownState{letter: letter, asked: asked, wearing: worn.role != 0 && mem.livery == ownKey}
+	o := ownState{letter: letter, asked: asked, drafted: drafted, wearing: worn.role != 0 && mem.livery == ownKey}
 	if o.wearing {
 		o.left, o.week = mem.liveryUntil-today, m.st.pot()*worn.week/100
 	}

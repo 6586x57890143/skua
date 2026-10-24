@@ -155,7 +155,8 @@ func (m *Module) editRole(ctx context.Context, guild, role snowflake.ID, l look,
 	if !bare(roles, guild, role, at) {
 		return errNotLivery
 	}
-	update := discord.RoleUpdate{Name: &l.name, Colors: omit.NewPtr(l.colors)}
+	// The icon is always sent: none clears one the role had.
+	update := discord.RoleUpdate{Name: &l.name, Colors: omit.NewPtr(l.colors), Icon: omit.New[*discord.Icon](nil)}
 	if l.icon != nil {
 		update.Icon = omit.New(discord.NewIconRaw(discord.IconTypePNG, l.icon))
 	}
