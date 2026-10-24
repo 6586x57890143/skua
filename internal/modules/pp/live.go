@@ -132,6 +132,9 @@ type server struct {
 	// admins, and dyeRoles each livery's role here once it's made.
 	yardOpen bool
 	dyeRoles map[string]snowflake.ID
+	// drafts are petitions for a livery of one's own being written, by
+	// member; only in memory until they're sent.
+	drafts map[snowflake.ID]*draft
 }
 
 func newServer(id snowflake.ID) *server {

@@ -138,7 +138,7 @@ func (st *state) yardMessage(mem *member, page int, today int64) (discord.Messag
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
 			discord.NewActionRow(discord.NewStringSelectMenu("pp:dye", "look closer at a livery", look...)),
-			discord.NewActionRow(discord.NewSecondaryButton("◂ the stair", "pp:shop"), discord.NewSecondaryButton(other, otherID)))},
+			yardRow(discord.NewSecondaryButton("◂ the stair", "pp:shop"), discord.NewSecondaryButton(other, otherID), mem.rung >= ownStyles[0].rung))},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
@@ -200,6 +200,22 @@ func (m *Module) yard(ctx context.Context, guild snowflake.ID, e *events.Compone
 	id := e.Data.CustomID()
 	user := e.User().ID
 	switch {
+	case id == "pp:ownwrite":
+		return m.openOwn(guild, e)
+	case id == "pp:own":
+		today := DayOf(m.now())
+		s := m.st.server(guild)
+		s.mu.Lock()
+		mem, d := *m.st.member(s, guild, user, today), s.drafts[user]
+		s.mu.Unlock()
+		if mem.rung < ownStyles[0].rung {
+			return errOwnPerch
+		}
+		msg, err := m.st.ownMessage(&mem, d)
+		if err != nil {
+			return err
+		}
+		return m.answer(guild, e, msg, "pp:shop")
 	case strings.HasPrefix(id, "pp:lease:"):
 		d, ok := dyeOf(strings.TrimPrefix(id, "pp:lease:"))
 		if !ok {
@@ -491,4 +507,14 @@ func (m *Module) openYard(ctx context.Context, guild snowflake.ID, e *events.Com
 	s.mu.Unlock()
 	return e.CreateMessage(discord.MessageCreate{Content: "the dyers' yard is open: everyone can lease a livery from the shop now",
 		Flags: discord.MessageFlagEphemeral, AllowedMentions: core.NoPings()})
+}
+
+// yardRow is the yard's buttons: back to the stair, the other page and,
+// from the chitin perch, a livery of one's own.
+func yardRow(back, other discord.ButtonComponent, own bool) discord.ActionRowComponent {
+	row := discord.NewActionRow(back, other)
+	if own {
+		row = row.AddComponents(withIcon(discord.NewPrimaryButton("a livery of your own", "pp:own"), "quill"))
+	}
+	return row
 }

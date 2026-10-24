@@ -170,7 +170,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 
 // Modals are the grant, key and redeem forms.
 func (m *Module) Modals() []core.Modal {
-	return []core.Modal{{ID: grantForm, Run: m.submitGrant}, {ID: keyForm, Run: m.submitKeys}, {ID: redeemForm, Run: m.submitRedeem}}
+	return []core.Modal{{ID: grantForm, Run: m.submitGrant}, {ID: keyForm, Run: m.submitKeys}, {ID: redeemForm, Run: m.submitRedeem}, {ID: ownForm, Run: m.submitOwn}}
 }
 
 // savings is how much the server's active members (seen in the last 28
