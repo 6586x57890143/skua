@@ -494,7 +494,7 @@ func TestCleanupRetainsFailedIDsAndRetriesTransientFailure(t *testing.T) {
 	}
 }
 
-func TestCleanupTreats404AsSuccessAndDoesNotRetry403(t *testing.T) {
+func TestCleanupDropsPermanentFailuresWithoutRetry(t *testing.T) {
 	for _, status := range []int{404, 403} {
 		m := module()
 		r := &recordingRest{}
@@ -509,11 +509,9 @@ func TestCleanupTreats404AsSuccessAndDoesNotRetry403(t *testing.T) {
 		entry := m.tracked[key]
 		m.kickLocked()
 		m.mu.Unlock()
-		if status == 404 && entry != nil {
-			t.Fatal("404 retained a missing reply")
-		}
-		if status == 403 && (entry == nil || len(entry.cleanup) != 1 || !entry.cleanup[0].stopped) {
-			t.Fatal("403 must retain the ID without retrying")
+		// A retained 403 would wedge the source: work waits for empty cleanup.
+		if entry != nil {
+			t.Fatal("permanent failure retained", status)
 		}
 		if _, _, d := r.totals(); d != 1 {
 			t.Fatal("permanent failure retried")
@@ -532,7 +530,7 @@ func TestCleanupGuardDeferralAndCanceledScheduler(t *testing.T) {
 	m.tracked[key] = entry
 	m.rest = r
 	m.cleanReplies(r, key, entry)
-	if len(entry.cleanup) != 1 || entry.cleanup[0].stopped || !entry.cleanup[0].next.After(time.Now()) {
+	if len(entry.cleanup) != 1 || !entry.cleanup[0].next.After(time.Now()) {
 		t.Fatal("guard denial lost cleanup or stopped retries")
 	}
 	m.mu.Lock()
