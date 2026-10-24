@@ -110,6 +110,98 @@ work poured in at the rim, and leave the notices on the board out of the
 count. The fire has three heights, and once lit it isn't let down until the
 next day is out, whatever the city does after.
 
+### Indentures and round robins
+
+Most notices on the board are one bird's work. Some are taken in company,
+and the rookery has two ways of signing for that.
+
+An **indenture** is a notice taken by two. The board's clerk writes it out
+twice on one sheet and cuts the sheet apart along a wavy line, the indent,
+and each bird keeps a half. When the work is done they bring both halves to
+the pot's rim, and a raven of the counting house fits them together. If the
+teeth match, the pot pays each of them a little over what the notice is
+worth. The ravens enter the extra as **the joinder** and have never agreed
+on why the pot pays it. The sump says the pot likes company.
+
+A **round robin** is a notice signed by three or four birds in a ring, so
+that no name stands first. The ferrymen and the pit crews sign their
+petitions that way, because the tally board can't hang a ringleader it
+can't find. A round robin pays a little more again, and the ravens record
+it without trying to say who led.
+
+The work of either is the same: time spent together, where the city can
+see it. What differs is how each bird signs. Every bird brings the mark of
+what they came from, and the clerks at the rim have learned to read them
+all:
+
+- **The wanderer** writes a navigator's fix, the latitude and longitude of
+  where they stand, the way every entry in the kittiwake's log began.
+- **The fighter** presses a thumb of pale clay, the hedge company's face
+  paint. A squad signs for its rations that way, so nobody can say which
+  shrike ate twice.
+- **The ranger** writes a number. The wardens count every tree in the last
+  wood and they count their company the same way.
+- **The sorcerer** can't sign with the counting house's mark any more, so
+  they press the brand on their quill hand into the wax. The house can't
+  refuse a mark it made itself.
+- **The thief** presses a ring brought up from the low town, never the same
+  ring twice. The wet guild keeps a book of whose rings they were.
+- **The bard** writes a bar of music. Anyone in the choir can read who wrote
+  it, and the clerks have learned to hum.
+- **The monk** leaves a grey ring of hearth ash and water. They walked out
+  of the hearthkeepers, and they still carry the ash.
+- **The knight** writes their name and their rung in order blue, as the
+  order requires on every writ, and dates it by the drowned bell.
+
+Signing in company teaches a bird things about their own kind that nobody
+says out loud. Each class learns three, one at a time: the first time they
+sign an indenture, at their tenth signature, and the first time they close a
+round robin with all four places filled.
+
+- **Wanderer.** first: the board's clerk is an albatross too, and asks the
+  same question at the rim that everyone from the grey north asks. tenth:
+  the north sea company buys up indentures signed by albatrosses, because a
+  bird who signs in company can be found again. a full ring: the kittiwake
+  sailed with a round robin pinned under her mast. nobody at the company
+  will say what it asked for.
+- **Fighter.** first: the clay is from the mire's edge, and it only sets on
+  a shrike's thumb. tenth: the hedge company pays a widow's portion on every
+  thumb it can match to a squad roll, and the kiln keepers pay more for the
+  same rolls. a full ring: the squad that held the eastern hedge in the
+  rising signed a round robin the night before. four thumbs. one came back.
+- **Ranger.** first: the wardens number birds from the north gate inward,
+  and the rookery has passed nine thousand. tenth: the last wood has one
+  more tree in the count than in the wood, and every warden knows which.
+  a full ring: wardens on a cold trail sign in fours, one at each point of
+  the compass, so whatever comes can't come from behind.
+- **Sorcerer.** first: the brand is the house's eye over a ledger line, and
+  the line is a real entry in a real book. tenth: the ravens who fit the
+  halves together are the reckoners who struck them off. they say nothing.
+  they pay. a full ring: the counting house was founded on a round robin,
+  and the founding ledger has four signatures and five hands.
+- **Thief.** first: the rings are the drowned's, and the wet guild returns
+  any a family asks for, for a fee. tenth: one ring has come back from the
+  board three times with a different magpie's name on it. a full ring: the
+  chapel bell was brought up under a round robin. the fourth signature was
+  the bell ringer's, and he went down with the low town.
+- **Bard.** first: the bar is from the song the choir sang through the
+  first winter, a note longer for every name. tenth: the tally board has
+  fined a bard for a bar of music signed under someone else's notice. the
+  bard paid in verse. a full ring: four nightingales signing together
+  make a chord, and the choir won't say which.
+- **Monk.** first: the ash is from the hearth, and the hearthkeepers know
+  it on sight. tenth: the herons sign nothing in their order. they sign the
+  board's notices because the board feeds the sump. a full ring: in the
+  rising, four herons stood in the water at the four corners of the hedge
+  and didn't sign anything. the notice they were answering is still on the
+  board.
+- **Knight.** first: every writ the order serves is dated by the bell, and
+  so is every knight's vigil. tenth: a knight who signs in company has to
+  enter it at the chapter house, and the chapter house reads every entry.
+  a full ring: the order's founding oath was a round robin of four cranes.
+  three of the names are on the chapter house wall, among those who didn't
+  come down.
+
 ### Liveries
 
 A **livery** is the colour a bird wears in the street, and in the rookery it
@@ -249,6 +341,8 @@ more as it fills.
 | the hearth | the herons' public fire, lit on a day the city earns it |
 | laurels | the choir's monday names |
 | quests | notices on the board at the pot's rim |
+| two players on one quest | an indenture, cut in two and fitted back together |
+| three or four players on one quest | a round robin, signed in a ring |
 | classes | who you are in the city, and what you came from |
 | seasons | the city's years, counted in tides |
 | colour roles | liveries, leased from the dyers' yard by the week |
