@@ -732,3 +732,22 @@ func TestReason(t *testing.T) {
 		t.Errorf("a hundred authors: %d characters, %q", len(got), got)
 	}
 }
+
+// A member who stops a shared sweep keeps their messages; nothing else is
+// cancelled by it.
+func TestStoppedAuthorIsSkipped(t *testing.T) {
+	now := time.Now()
+	f := server(t, now)
+	s := newPass(f, now, newMemIndex())
+	s.sw.stopped.Store(me, struct{}{})
+	if err := s.run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, msgs := range f.msgs {
+		for _, msg := range msgs {
+			if msg.Author.ID == me && f.gone[msg.ID] {
+				t.Fatal("deleted a stopped author's message")
+			}
+		}
+	}
+}
