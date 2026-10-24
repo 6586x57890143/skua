@@ -28,6 +28,7 @@ func (c *Canvas) Soft(scale int) ([]byte, error) {
 
 // SoftImage is the canvas softened as Soft has it, before it's encoded.
 func (c *Canvas) SoftImage(scale int) *image.RGBA {
+	c = c.frame(0)
 	w, h := c.Rect.Dx(), c.Rect.Dy()
 	// The canvas's colours as floats, a cell each, cut to 5 bits a channel
 	// under the ordered dither: its grain is the console's.

@@ -160,10 +160,10 @@ func (st *state) yardMessage(s *server, user snowflake.ID, mem *member, page int
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
+			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: alt}),
 			discord.NewActionRow(discord.NewStringSelectMenu("pp:dye", "look closer at a livery", look...)),
 			yardRow(discord.NewSecondaryButton("◂ the stair", "pp:back"), discord.NewSecondaryButton(other, otherID), mem.rung >= ownStyles[0].rung))},
-		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
+		Files:           []*discord.File{discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
@@ -213,9 +213,9 @@ func (st *state) dyeMessage(mem *member, d dye, today int64) (discord.MessageCre
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
+			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: alt}),
 			discord.NewActionRow(discord.NewSecondaryButton("◂ the yard", "pp:yard:"+strconv.Itoa(d.page())), lease))},
-		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
+		Files:           []*discord.File{discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil

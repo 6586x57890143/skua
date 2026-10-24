@@ -76,7 +76,7 @@ func TestTitleUntilAPick(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := js((*sent)[0])
-	for _, want := range []string{"melting pot", "pick a class", "pp:class", "attachment://pp.jpg"} {
+	for _, want := range []string{"melting pot", "pick a class", "pp:class", "attachment://pp.webp"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the title lacks %q: %s", want, got)
 		}
@@ -117,12 +117,12 @@ func TestStatusCommand(t *testing.T) {
 	// js escapes < and > the way encoding/json does, so the want is too.
 	esc, _ := json.Marshal(fmt.Sprintf("the pot turns over <t:%d:t>", next.Unix()))
 	turn := strings.Trim(string(esc), `"`)
-	for _, want := range []string{"attachment://pp.jpg", "pp:class", "pp:show", `"parse":[]`, turn} {
+	for _, want := range []string{"attachment://pp.webp", "pp:class", "pp:show", `"parse":[]`, turn} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the reply lacks %q: %s", want, got)
 		}
 	}
-	if len(msg.Files) != 1 || msg.Files[0].Name != screenName {
+	if len(msg.Files) != 1 || msg.Files[0].Name != "pp.webp" {
 		t.Errorf("files %v", msg.Files)
 	}
 	if !msg.Flags.Has(discord.MessageFlagEphemeral) || !msg.Flags.Has(discord.MessageFlagIsComponentsV2) {
@@ -170,7 +170,7 @@ func TestPickListsTheScreen(t *testing.T) {
 	if err := m.press(context.Background(), e); err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Files) != 1 || got.Files[0].Name != screenName || got.Attachments == nil || len(*got.Attachments) != 1 {
+	if len(got.Files) != 1 || got.Files[0].Name != "pp.webp" || got.Attachments == nil || len(*got.Attachments) != 1 {
 		t.Fatalf("the edit brings %d files and lists %v", len(got.Files), got.Attachments)
 	}
 	if a, ok := (*got.Attachments)[0].(discord.AttachmentCreate); !ok || a.ID != 0 {

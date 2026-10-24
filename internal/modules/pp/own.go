@@ -513,9 +513,9 @@ func (st *state) ownMessage(mem *member, d *draft, o ownState) (discord.MessageC
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: clip(alt, altLimit)}),
+			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: clip(alt, altLimit)}),
 			row)},
-		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
+		Files:           []*discord.File{discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil

@@ -88,8 +88,8 @@ func (m *Module) buffsMessage(guild snowflake.ID, who *discord.ResolvedMember) (
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorInfo, "pp", "buffs", "",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}))},
-		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
+			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: alt}))},
+		Files:           []*discord.File{discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil

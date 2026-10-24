@@ -30,7 +30,7 @@ type Livery struct {
 // whether it's worn or which perch it waits on; under it the purse and
 // what the member wears now.
 func YardScreen(title string, rows []YardRow, purse int64, wear Livery, lease string) ([]byte, error) {
-	return yardCanvas(title, rows, purse, wear, lease).Soft(screenScale)
+	return yardCanvas(title, rows, purse, wear, lease).Screen(screenScale)
 }
 
 func yardCanvas(title string, rows []YardRow, purse int64, wear Livery, lease string) *pixel.Canvas {
@@ -42,9 +42,18 @@ func yardCanvas(title string, rows []YardRow, purse int64, wear Livery, lease st
 	if len(rows) > 0 {
 		step = min(step, (yard.Max.Y-6-paneTop(yard))/len(rows))
 	}
-	x, r := 18, 368
+	x, r := 34, 368
+	point := 0
+	for i, row := range rows {
+		if row.Worn {
+			point = i
+		}
+	}
 	for i, row := range rows {
 		y := paneTop(yard) + i*step
+		if i == point {
+			c.Cursor(x-4, y+6)
+		}
 		swatch(c, image.Rect(x, y, x+14, y+11), row.Color)
 		var at int
 		switch {

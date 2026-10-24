@@ -99,7 +99,7 @@ var boardStrip = image.Rect(4, 180, 380, 212)
 // right; or before the first season, the levels board across the screen
 // and under it a line on when the first season starts.
 func BoardScreen(levels, season []BoardRow, seasonTab, starts string) ([]byte, error) {
-	return boardCanvas(levels, season, seasonTab, starts).Soft(screenScale)
+	return boardCanvas(levels, season, seasonTab, starts).Screen(screenScale)
 }
 
 func boardCanvas(levels, season []BoardRow, seasonTab, starts string) *pixel.Canvas {
@@ -131,7 +131,7 @@ type Rung struct {
 // it's climbed, the hand on the next; and under it the purse and the
 // perch the member sits on.
 func ShopScreen(rungs []Rung, purse, nextPP int64, heldIcon, held string) ([]byte, error) {
-	return shopCanvas(rungs, purse, nextPP, heldIcon, held).Soft(screenScale)
+	return shopCanvas(rungs, purse, nextPP, heldIcon, held).Screen(screenScale)
 }
 
 func shopCanvas(rungs []Rung, purse, nextPP int64, heldIcon, held string) *pixel.Canvas {
@@ -232,7 +232,7 @@ func discordPreview(c *pixel.Canvas, row image.Rectangle, name string, rgb uint3
 
 // ItemScreen draws an item's card: on the left its picture, the member's
 // name as it will look and the price; on the right its name and its text.
-func ItemScreen(it Item) ([]byte, error) { return itemCanvas(it).Soft(screenScale) }
+func ItemScreen(it Item) ([]byte, error) { return itemCanvas(it).Screen(screenScale) }
 
 func itemCanvas(it Item) *pixel.Canvas {
 	c := pixel.New(screenW, screenH)
@@ -341,7 +341,7 @@ type BuffInfo struct {
 // gold while worn and what it adds; under them how it's come by and
 // whether it's worn now, or how long it has left.
 func BuffScreen(name string, buffs []BuffInfo) ([]byte, error) {
-	return buffCanvas(name, buffs).Soft(screenScale)
+	return buffCanvas(name, buffs).Screen(screenScale)
 }
 
 func buffCanvas(name string, buffs []BuffInfo) *pixel.Canvas {
@@ -350,10 +350,13 @@ func buffCanvas(name string, buffs []BuffInfo) *pixel.Canvas {
 	c.Window(r)
 	c.Tab(r, "buffs")
 	tabName(c, r, name)
-	x, rx := 16, 368
+	x, rx := 28, 368
 	step := min(44, (r.Max.Y-8-paneTop(r))/max(len(buffs), 1))
 	for i, b := range buffs {
 		y := paneTop(r) + i*step
+		if i == 0 {
+			c.Cursor(x-4, y+6)
+		}
 		c.Icon(b.Icon, image.Pt(x, y-iconLift))
 		ink := pixel.Dim
 		if b.On {
@@ -385,7 +388,7 @@ type JournalRow struct {
 // JournalScreen draws a member's journal: what came in and went out, a
 // line each, newest first, under the day still open.
 func JournalScreen(name string, rows []JournalRow, open int64) ([]byte, error) {
-	return journalCanvas(name, rows, open).Soft(screenScale)
+	return journalCanvas(name, rows, open).Screen(screenScale)
 }
 
 func journalCanvas(name string, rows []JournalRow, open int64) *pixel.Canvas {
@@ -393,11 +396,14 @@ func journalCanvas(name string, rows []JournalRow, open int64) *pixel.Canvas {
 	r := image.Rect(4, 4, 380, 212)
 	c.Window(r)
 	c.Tab(r, "journal")
-	x, rx := 16, 368
+	x, rx := 34, 368
 	tabName(c, r, name)
 	y := paneTop(r)
 	whatX := x + pixel.Light.Width("2026-10-16") + pixel.Advance
 	line := func(day, icon, what string, pp int64, ink uint8) {
+		if y == paneTop(r) {
+			c.Cursor(x-4, y+6)
+		}
 		label(c, x, y, day)
 		value := grouped(pp/unit) + " pp"
 		if pp >= 0 {
@@ -446,7 +452,7 @@ type Treasury struct {
 // TreasuryScreen draws the treasury: what it holds and whether it's
 // taking, what came in and went out this season, what members hold, and
 // how the shop and the ledger stand.
-func TreasuryScreen(t Treasury) ([]byte, error) { return treasuryCanvas(t).Soft(screenScale) }
+func TreasuryScreen(t Treasury) ([]byte, error) { return treasuryCanvas(t).Screen(screenScale) }
 
 func treasuryCanvas(t Treasury) *pixel.Canvas {
 	c := pixel.New(screenW, screenH)

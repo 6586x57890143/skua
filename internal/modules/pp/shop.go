@@ -165,10 +165,10 @@ func (st *state) shopMessage(s *server, m *member, yard bool) (discord.MessageCr
 	alt := fmt.Sprintf("the rookery stair: you sit on %s, the %s costs %s pp and you hold %s pp", or(heldName, "the ground"), next, grouped(price/unit), grouped(m.purse/unit))
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
+			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: alt}),
 			discord.NewActionRow(discord.NewStringSelectMenu("pp:look", "look closer at a rung", look...)),
 			stairRow(climbButton("climb to the "+next, m.purse >= price), yard))},
-		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
+		Files:           []*discord.File{discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
@@ -215,9 +215,9 @@ func (st *state) itemMessage(m *member, n int64) (discord.MessageCreate, error) 
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
+			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: alt}),
 			row)},
-		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
+		Files:           []*discord.File{discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil

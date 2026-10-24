@@ -140,7 +140,7 @@ func fitPair(left string, lf *pixel.Face, right string, rf *pixel.Face, width in
 // its frame, who they are and how far along with the gauges under it, and
 // two named panels, what they wear and where they stand. It returns the
 // picture.
-func StatusScreen(s Sheet) ([]byte, error) { return statusCanvas(s).Soft(screenScale) }
+func StatusScreen(s Sheet) ([]byte, error) { return statusCanvas(s).Screen(screenScale) }
 
 func statusCanvas(s Sheet) *pixel.Canvas {
 	c := pixel.New(screenW, screenH)
@@ -267,7 +267,7 @@ type TaskLine struct {
 // it every thing it asks with a gauge of how far along, over how many of
 // their rerolls are left today.
 func QuestScreen(name string, quests []QuestLine, rerolls int) ([]byte, error) {
-	return questCanvas(name, quests, rerolls).Soft(screenScale)
+	return questCanvas(name, quests, rerolls).Screen(screenScale)
 }
 
 // questHead, questTask and questGap are a quest's line, each of its
