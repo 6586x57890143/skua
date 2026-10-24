@@ -329,12 +329,6 @@ func (b *Balance) Prize(place int) int64 {
 	return b.Prizes[place-1]
 }
 
-// ClassCost is what changing class costs at level l with paid changes
-// already made this season.
-func (b *Balance) ClassCost(l int, paid int64) int64 {
-	return (b.ClassBase + b.ClassPerLevel*int64(l)) << min(paid, 20)
-}
-
 // QuestTiers names the tiers, as members see them.
 var QuestTiers = [3]string{"good", "great", "golden"}
 
