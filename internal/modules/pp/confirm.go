@@ -99,8 +99,7 @@ func (m *Module) confirm(guild snowflake.ID, e *events.ComponentInteractionCreat
 
 // labelOf is the label of the button id in cs, "" for none.
 func labelOf(cs []discord.LayoutComponent, id string) string {
-	var row func(r discord.ActionRowComponent) string
-	row = func(r discord.ActionRowComponent) string {
+	row := func(r discord.ActionRowComponent) string {
 		for _, c := range r.Components {
 			if b, ok := c.(discord.ButtonComponent); ok && b.CustomID == id {
 				return b.Label
