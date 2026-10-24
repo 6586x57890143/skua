@@ -35,6 +35,7 @@ type Module struct {
 	guard   *guard.Guard
 	log     *slog.Logger
 	slots   chan struct{}
+	inline  bool
 	on      func(snowflake.ID) bool
 	mu      sync.Mutex
 	stats   map[snowflake.ID]counts
@@ -110,12 +111,12 @@ func (m *Module) command(ctx context.Context, e *events.ApplicationCommandIntera
 	}
 	select {
 	case m.slots <- struct{}{}:
-		defer m.release()
 	default:
 		m.count(*guild, func(c *counts) { c.Busy++ })
 		return core.Tell("she's already fetching eight posts; try again in a moment")
 	}
 	if err := m.guard.Allow(*guild, guard.FixCard); err != nil {
+		m.release()
 		return core.Tell("too many cards here this hour; try again in a bit")
 	}
 	pending := loading()
@@ -123,8 +124,26 @@ func (m *Module) command(ctx context.Context, e *events.ApplicationCommandIntera
 		pending.Flags |= discord.MessageFlagEphemeral
 	}
 	if err := e.CreateMessage(pending); err != nil {
+		m.release()
 		return err
 	}
+	// The router dispatches on the gateway's goroutine, so the fetch runs off
+	// it and every other event keeps flowing. Tests deliver in place.
+	if m.inline {
+		defer m.release()
+		return m.deliver(ctx, e, *guild, l, started)
+	}
+	go func() {
+		defer m.release()
+		if err := m.deliver(ctx, e, *guild, l, started); err != nil {
+			m.log.Warn("fix: card not delivered", "guild", *guild, "err", err)
+		}
+	}()
+	return nil
+}
+
+// deliver fetches the post and replaces the loading card with it.
+func (m *Module) deliver(ctx context.Context, e *events.ApplicationCommandInteractionCreate, g snowflake.ID, l Link, started time.Time) error {
 	delivered := false
 	defer func() {
 		if delivered {
@@ -137,18 +156,18 @@ func (m *Module) command(ctx context.Context, e *events.ApplicationCommandIntera
 	stop := context.AfterFunc(m.ctx, cancel)
 	defer stop()
 	fetch, stopFetch := context.WithTimeout(ctx, 12*time.Second)
-	msg := m.preview(fetch, *guild, l)
+	msg := m.preview(fetch, g, l)
 	stopFetch()
 	_, err := e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(), discord.NewMessageUpdateV2(msg.Components...).WithAllowedMentions(core.NoPings()), rest.WithCtx(ctx))
-	m.guard.Report(*guild, guard.Struggling(err))
+	m.guard.Report(g, guard.Struggling(err))
 	if err != nil {
-		m.count(*guild, func(c *counts) { c.Failed++ })
-		if m.finishLoading(e, *guild, l, err) {
+		m.count(g, func(c *counts) { c.Failed++ })
+		if m.finishLoading(e, g, l, err) {
 			return nil
 		}
 		return errors.Join(core.Tell("the card couldn't be delivered; try again in a moment"), err)
 	}
-	m.count(*guild, func(c *counts) { c.Cards++ })
+	m.count(g, func(c *counts) { c.Cards++ })
 	delivered = true
 	return nil
 }
