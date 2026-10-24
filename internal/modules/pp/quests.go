@@ -406,8 +406,9 @@ func (m *Module) questsMessage(guild snowflake.ID, who *discord.ResolvedMember) 
 		}
 		extra = append(extra, row)
 	}
-	// Quests done together pay a joinder on top: the way to the notices.
-	extra = append(extra, discord.NewActionRow(withIcon(discord.NewSecondaryButton("do them in company", "pp:notices"), "envelope")))
+	// Quests done together pay a joinder on top: the way to the notices,
+	// under its own ID, since the menu under the screen has notices too.
+	extra = append(extra, discord.NewActionRow(withIcon(discord.NewSecondaryButton("do them in company", "pp:company"), "envelope")))
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(color, "pp", "quests", "", extra...)},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
