@@ -3,6 +3,7 @@ package fix
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/h264"
@@ -22,7 +23,7 @@ type timedSample struct {
 func remuxClip(ctx context.Context, src io.Reader) ([]byte, error) {
 	r := &mpegts.Reader{R: src}
 	if err := r.Initialize(); err != nil {
-		return nil, errMetadata
+		return nil, fmt.Errorf("fix mux initialize: %w", err)
 	}
 	var video, audio []timedSample
 	vc := &mp4codecs.H264{}
@@ -57,7 +58,10 @@ func remuxClip(ctx context.Context, src io.Reader) ([]byte, error) {
 				if payload > mediaLimit || len(video) > 12000 {
 					return errMetadata
 				}
-				video = append(video, timedSample{dts, &fmp4.Sample{PTSOffset: int32(pts - dts), IsNonSyncSample: !sync, Payload: data}})
+				if len(video) > 0 {
+					dts = video[0].dts + timestampDelta(dts, video[0].dts)
+				}
+				video = append(video, timedSample{dts, &fmp4.Sample{PTSOffset: int32(timestampDelta(pts, dts)), IsNonSyncSample: !sync, Payload: data}})
 				return nil
 			})
 		case *tscodecs.MPEG4Audio:
@@ -79,7 +83,7 @@ func remuxClip(ctx context.Context, src io.Reader) ([]byte, error) {
 				return nil
 			})
 		default:
-			return nil, errMetadata
+			continue // timed metadata tracks are not audio or video
 		}
 	}
 	for {
@@ -88,13 +92,16 @@ func remuxClip(ctx context.Context, src io.Reader) ([]byte, error) {
 			break
 		}
 		if err != nil {
-			return nil, errMetadata
+			return nil, fmt.Errorf("fix mux read: %w", err)
 		}
 	}
 	if len(video) < 2 || len(audio) < 2 || len(vc.SPS) == 0 || len(vc.PPS) == 0 || ac == nil {
-		return nil, errMetadata
+		return nil, fmt.Errorf("fix mux tracks: video=%d audio=%d sps=%d pps=%d", len(video), len(audio), len(vc.SPS), len(vc.PPS))
 	}
 	origin := video[0].dts
+	for i := range audio {
+		audio[i].dts = origin + timestampDelta(audio[i].dts, origin)
+	}
 	for len(audio) > 0 && audio[0].dts < origin {
 		audio = audio[1:]
 	}
@@ -112,7 +119,7 @@ func remuxClip(ctx context.Context, src io.Reader) ([]byte, error) {
 				next = s.dts - samples[j-1].dts
 			}
 			if next <= 0 || next > 90000 || s.dts-origin > 181*90000 || s.dts < origin {
-				return nil, errMetadata
+				return nil, fmt.Errorf("fix mux timing: track=%d next=%d dts=%d origin=%d", i, next, s.dts, origin)
 			}
 			s.sample.Duration = uint32(next)
 			pt.Samples = append(pt.Samples, s.sample)
@@ -129,4 +136,10 @@ func remuxClip(ctx context.Context, src io.Reader) ([]byte, error) {
 		return nil, errMetadata
 	}
 	return dst.Bytes(), nil
+}
+
+// PES timestamps use a 33-bit clock; a clip can cross the wrap boundary.
+func timestampDelta(value, origin int64) int64 {
+	const half = int64(1) << 32
+	return ((value - origin + half) & ((int64(1) << 33) - 1)) - half
 }

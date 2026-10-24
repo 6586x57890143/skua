@@ -22,3 +22,13 @@ signed MP4 without copying upstream's parser or running a media transcoder.
 
 upstreams.json records source revisions reviewed by a person. The maintenance
 workflow reports later commits and open contributions but never executes them.
+
+Kick clip support queries Kick's first-party public website API. URL shapes and
+field names were cross-checked against yt-dlp's Kick extractor at the revision
+in upstreams.json (Unlicense). No yt-dlp runtime or extractor code is copied.
+
+HLS audio/video is repackaged by bluenviron/mediacommon v2.9.6 (MIT), using its
+MPEG-TS reader and fragmented MP4 writer. Its original license is preserved in
+LICENSE-mediacommon. Synthetic H.264 test parameters are from that project's
+MIT-licensed test cases; source-authored clip content is not kept in fixtures.
+The existing upstream watcher tracks both Kick extraction and media libraries.

@@ -21,7 +21,11 @@ func (a *API) redditLinked(ctx context.Context, d *fixData, p *Post) {
 		if !ok || l.Platform == "reddit" {
 			continue
 		}
-		childCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		deadline := 4 * time.Second
+		if l.Platform == "kick" {
+			deadline = 10 * time.Second
+		}
+		childCtx, cancel := context.WithTimeout(ctx, deadline)
 		child, err := a.Resolve(childCtx, l)
 		cancel()
 		if err != nil || child.Incomplete || len(child.Media) == 0 {

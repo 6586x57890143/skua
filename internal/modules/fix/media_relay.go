@@ -20,6 +20,7 @@ type mediaRelay struct {
 	api          *API
 	base, secret string
 	slot         chan struct{}
+	serving      chan struct{}
 	cachedID     string
 	cached       []byte
 	until        time.Time
@@ -30,7 +31,7 @@ func newMediaRelay(a *API, base, secret string) *mediaRelay {
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(secret) < 16 {
 		return nil
 	}
-	return &mediaRelay{api: a, base: strings.TrimRight(base, "/"), secret: secret, slot: make(chan struct{}, 1)}
+	return &mediaRelay{api: a, base: strings.TrimRight(base, "/"), secret: secret, slot: make(chan struct{}, 1), serving: make(chan struct{}, 2)}
 }
 func (m *mediaRelay) signature(id string) string {
 	h := hmac.New(sha256.New, []byte(m.secret))
@@ -51,6 +52,8 @@ func (a *API) MediaHandler() http.Handler {
 }
 func (a *API) ServesMedia() bool { return a.media != nil }
 func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	controller := http.NewResponseController(w)
+	_ = controller.SetWriteDeadline(time.Now().Add(20 * time.Second))
 	p := strings.Split(strings.TrimPrefix(r.URL.Path, "/fix/media/kick/"), "/")
 	if !strings.HasPrefix(r.URL.Path, "/fix/media/kick/") || len(p) != 2 || !kickClipID.MatchString(p[0]) || !hmac.Equal([]byte(p[1]), []byte(m.signature(p[0])+".mp4")) {
 		http.NotFound(w, r)
@@ -64,32 +67,50 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	select {
-	case m.slot <- struct{}{}:
+	case m.serving <- struct{}{}:
 	case <-ctx.Done():
 		http.Error(w, "media busy", http.StatusServiceUnavailable)
 		return
 	}
-	defer func() { <-m.slot }()
-	if m.cachedID != p[0] || time.Now().After(m.until) {
-		started := time.Now()
-		raw, err := m.prepare(ctx, p[0])
-		obs.Default.Add("fix media", obs.HTTP, time.Since(started))
-		if err != nil {
-			http.Error(w, "media unavailable", http.StatusBadGateway)
-			return
-		}
-		m.cachedID, m.cached, m.until = p[0], raw, time.Now().Add(15*time.Minute)
+	defer func() { <-m.serving }()
+	raw, err := m.ready(ctx, p[0], nil)
+	if err != nil {
+		http.Error(w, "media unavailable", http.StatusBadGateway)
+		return
 	}
+	_ = controller.SetWriteDeadline(time.Now().Add(20 * time.Second))
 	// ServeContent handles HEAD and byte ranges with the same encoded MP4.
 	w.Header().Set("Content-Type", "video/mp4")
 	w.Header().Set("Cache-Control", "public, max-age=900")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	http.ServeContent(w, r, "clip.mp4", time.Time{}, bytes.NewReader(m.cached))
+	http.ServeContent(w, r, "clip.mp4", time.Time{}, bytes.NewReader(raw))
 }
-func (m *mediaRelay) prepare(ctx context.Context, id string) ([]byte, error) {
-	d, err := m.api.kickMetadata(ctx, id)
+func (m *mediaRelay) ready(ctx context.Context, id string, d *kickData) ([]byte, error) {
+	select {
+	case m.slot <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-m.slot }()
+	if m.cachedID == id && time.Now().Before(m.until) {
+		return m.cached, nil
+	}
+	started := time.Now()
+	raw, err := m.prepare(ctx, id, d)
+	obs.Default.Add("fix media", obs.HTTP, time.Since(started))
 	if err != nil {
 		return nil, err
+	}
+	m.cachedID, m.cached, m.until = id, raw, time.Now().Add(15*time.Minute)
+	return raw, nil
+}
+func (m *mediaRelay) prepare(ctx context.Context, id string, d *kickData) ([]byte, error) {
+	if d == nil {
+		var err error
+		d, err = m.api.kickMetadata(ctx, id)
+		if err != nil {
+			return nil, err
+		}
 	}
 	for _, raw := range []string{d.PlaybackURL, d.ClipURL, d.VideoURL} {
 		if !kickMediaURL(raw) {
