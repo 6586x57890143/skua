@@ -25,8 +25,25 @@ var (
 	errNotAdmin  = core.Tell("only this server's admins change how /pp runs here")
 )
 
-// screenName is the status screen's file on its message.
-const screenName = "pp.jpg"
+// screenFile is a screen's file on its message: a moving screen is a WebP,
+// a still one a JPEG.
+func screenFile(pic []byte) string {
+	if bytes.HasPrefix(pic, []byte("RIFF")) {
+		return "pp.webp"
+	}
+	return "pp.jpg"
+}
+
+// screenItem is pic in a message's gallery, described for a reader that
+// can't see it, and screenAttachment the file it names: the two always
+// agree on the file.
+func screenItem(pic []byte, desc string) discord.MediaGalleryItem {
+	return discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: desc}
+}
+
+func screenAttachment(pic []byte, alt string) *discord.File {
+	return discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))
+}
 
 func (m *Module) Commands() []core.Command {
 	return []core.Command{{
@@ -316,8 +333,8 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	alt := fmt.Sprintf("%s, %s, level %d, %s pp to spend", pixel.Plain(sh.Name), sh.Class.Name(), sh.Level, grouped(sh.Purse/unit))
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", turnsOver(today),
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}))},
-		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
+			discord.NewMediaGallery(screenItem(pic, alt)))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
@@ -374,14 +391,14 @@ func titleMessage(buttons bool) (discord.MessageCreate, error) {
 	}
 	const alt = "melting pot, a pot point journey: every class's bird in a row, and pick a class"
 	extra := []discord.ContainerSubComponent{discord.NewMediaGallery(discord.MediaGalleryItem{
-		Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt,
+		Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: alt,
 	})}
 	if buttons {
 		extra = append(extra, discord.NewActionRow(withIcon(discord.NewPrimaryButton("pick a class", "pp:class"), "lantern")))
 	}
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "melting pot", "", extra...)},
-		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil

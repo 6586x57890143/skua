@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"slices"
 	"sync"
 
 	"github.com/HugoSmits86/nativewebp"
@@ -28,6 +29,13 @@ func (c *Canvas) Soft(scale int) ([]byte, error) {
 
 // SoftImage is the canvas softened as Soft has it, before it's encoded.
 func (c *Canvas) SoftImage(scale int) *image.RGBA {
+	c = c.frame(0)
+	return c.softIn(scale, image.Rect(0, 0, c.Rect.Dx()*scale, c.Rect.Dy()*scale))
+}
+
+// softIn is the canvas softened as SoftImage has it, but only the box out
+// of the output, which is all a frame that moves a little needs.
+func (c *Canvas) softIn(scale int, out image.Rectangle) *image.RGBA {
 	w, h := c.Rect.Dx(), c.Rect.Dy()
 	// The canvas's colours as floats, a cell each, cut to 5 bits a channel
 	// under the ordered dither: its grain is the console's.
@@ -47,17 +55,19 @@ func (c *Canvas) SoftImage(scale int) *image.RGBA {
 	at := func(x, y int) [3]float32 {
 		return src[min(max(y, 0), h-1)*w+min(max(x, 0), w-1)]
 	}
-	// Bilinear: every output pixel samples between the cell centres.
+	// Bilinear: every output pixel samples between the cell centres, out
+	// to where the softening below reads.
 	W, H := w*scale, h*scale
-	up := make([][3]float32, W*H)
-	for Y := range H {
+	reach := out.Inset(-3).Intersect(image.Rect(0, 0, W, H))
+	up := make([][3]float32, reach.Dx()*reach.Dy())
+	for Y := reach.Min.Y; Y < reach.Max.Y; Y++ {
 		fy := (float32(Y)+0.5)/float32(scale) - 0.5
 		y0 := int(fy)
 		if fy < 0 {
 			y0 = -1
 		}
 		ty := fy - float32(y0)
-		for X := range W {
+		for X := reach.Min.X; X < reach.Max.X; X++ {
 			fx := (float32(X)+0.5)/float32(scale) - 0.5
 			x0 := int(fx)
 			if fx < 0 {
@@ -71,17 +81,17 @@ func (c *Canvas) SoftImage(scale int) *image.RGBA {
 				bot := cc[k] + (d[k]-cc[k])*tx
 				p[k] = top + (bot-top)*ty
 			}
-			up[Y*W+X] = p
+			up[(Y-reach.Min.Y)*reach.Dx()+X-reach.Min.X] = p
 		}
 	}
 	// Softened across (a composite signal smears sideways) and less down,
 	// with red read a pixel to the left so it lands a pixel right.
 	pix := func(x, y, k int) float32 {
-		return up[min(max(y, 0), H-1)*W+min(max(x, 0), W-1)][k]
+		return up[(min(max(y, 0), H-1)-reach.Min.Y)*reach.Dx()+min(max(x, 0), W-1)-reach.Min.X][k]
 	}
-	out := image.NewRGBA(image.Rect(0, 0, W, H))
-	for Y := range H {
-		for X := range W {
+	img := image.NewRGBA(out)
+	for Y := out.Min.Y; Y < out.Max.Y; Y++ {
+		for X := out.Min.X; X < out.Max.X; X++ {
 			var v [3]uint8
 			for k := range 3 {
 				x := X
@@ -96,10 +106,10 @@ func (c *Canvas) SoftImage(scale int) *image.RGBA {
 				s = (s + crisp[(Y/scale)*w+X/scale][k]) / 2
 				v[k] = uint8(min(max(s+0.5, 0), 255))
 			}
-			out.SetRGBA(X, Y, color.RGBA{v[0], v[1], v[2], 0xFF})
+			img.SetRGBA(X, Y, color.RGBA{v[0], v[1], v[2], 0xFF})
 		}
 	}
-	return out
+	return img
 }
 
 // bayer is the PlayStation's 4 by 4 ordered dither, thresholds of 16.
@@ -110,30 +120,51 @@ var bayer = [4][4]uint8{
 	{15, 7, 13, 5},
 }
 
-// SoftLoop is frames softened as Soft has them, looped as an animated WebP
-// that shows each for ms milliseconds. The first frame goes whole and the
-// rest as only the box that changes anywhere in the loop, so a loop of a
-// screen that barely moves costs about one frame to encode and to send.
-func SoftLoop(frames []*Canvas, scale int, ms uint) ([]byte, error) {
-	soft := make([]*image.RGBA, len(frames))
+// Screen is the canvas as a screen goes out: still, as Soft has it, or
+// when a hand is on it, an animated WebP of the hand nudging Bob toward
+// what it points at. The first frame goes whole; the rest are only the box
+// round the hands, softened on their own, so a moving screen costs about
+// one frame to make and to send.
+func (c *Canvas) Screen(scale int) ([]byte, error) {
+	if len(c.hands) == 0 {
+		return c.Soft(scale)
+	}
+	var box image.Rectangle
+	for _, at := range c.hands {
+		box = box.Union(image.Rect(at.X-len(hand[0]), at.Y-len(hand)/2, at.X+slices.Max(Bob), at.Y-len(hand)/2+len(hand)))
+	}
+	// A cell round it for the smoothing, and a frame's place is stored
+	// halved, so the box starts on even pixels.
+	box = box.Inset(-1)
+	out := image.Rect(box.Min.X*scale&^1, box.Min.Y*scale&^1, box.Max.X*scale, box.Max.Y*scale).Intersect(image.Rect(0, 0, c.Rect.Dx()*scale, c.Rect.Dy()*scale))
+	// Each nudge is softened once, side by side: the first whole, the rest
+	// only in the box.
+	var nudges []int
+	for _, b := range Bob {
+		if !slices.Contains(nudges, b) {
+			nudges = append(nudges, b)
+		}
+	}
+	soft := make([]*image.RGBA, len(nudges))
 	var wg sync.WaitGroup
-	for i, f := range frames {
-		wg.Go(func() { soft[i] = f.SoftImage(scale) })
+	for k, b := range nudges {
+		wg.Go(func() {
+			if k == 0 {
+				soft[k] = c.frame(b).softIn(scale, image.Rect(0, 0, c.Rect.Dx()*scale, c.Rect.Dy()*scale))
+			} else {
+				soft[k] = c.frame(b).softIn(scale, out)
+			}
+		})
 	}
 	wg.Wait()
-	var moved image.Rectangle
-	for _, f := range soft[1:] {
-		moved = moved.Union(changed(soft[0], f))
-	}
-	// A frame's place is stored halved, so its box starts on even pixels.
-	moved.Min.X, moved.Min.Y = moved.Min.X&^1, moved.Min.Y&^1
-	ani := nativewebp.Animation{Images: []image.Image{soft[0]}, Durations: []uint{ms}, Disposals: []uint{0}}
-	for _, f := range soft[1:] {
-		if moved.Empty() {
-			break
+	ani := nativewebp.Animation{}
+	for i, b := range Bob {
+		var img image.Image = soft[slices.Index(nudges, b)]
+		if i > 0 && b == Bob[0] {
+			img = soft[0].SubImage(out)
 		}
-		ani.Images = append(ani.Images, f.SubImage(moved))
-		ani.Durations = append(ani.Durations, ms)
+		ani.Images = append(ani.Images, img)
+		ani.Durations = append(ani.Durations, Beat)
 		ani.Disposals = append(ani.Disposals, 0)
 	}
 	var buf bytes.Buffer
@@ -141,19 +172,4 @@ func SoftLoop(frames []*Canvas, scale int, ms uint) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
-}
-
-// changed is the box round every pixel a and b differ in.
-func changed(a, b *image.RGBA) image.Rectangle {
-	var r image.Rectangle
-	for y := a.Rect.Min.Y; y < a.Rect.Max.Y; y++ {
-		row := a.PixOffset(a.Rect.Min.X, y)
-		for x := range a.Rect.Dx() {
-			o := row + x*4
-			if a.Pix[o] != b.Pix[o] || a.Pix[o+1] != b.Pix[o+1] || a.Pix[o+2] != b.Pix[o+2] {
-				r = r.Union(image.Rect(a.Rect.Min.X+x, y, a.Rect.Min.X+x+1, y+1))
-			}
-		}
-	}
-	return r
 }

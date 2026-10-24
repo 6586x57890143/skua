@@ -344,6 +344,7 @@ func (m *Module) tick(ctx context.Context, last *int64) {
 		*last = day
 	}
 	m.postCheckpoints()
+	m.postJoinders()
 	m.checkSelfies(ctx)
 	m.seasonTick(ctx, now)
 }

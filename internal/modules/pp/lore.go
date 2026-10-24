@@ -1,7 +1,6 @@
 package pp
 
 import (
-	"bytes"
 	"fmt"
 	"image"
 	"strconv"
@@ -195,9 +194,9 @@ func loreMessage(i, page int, mine string, cost, purse, wait int64, know [3]bool
 		walk)
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "lore", "",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
+			discord.NewMediaGallery(screenItem(pic, alt)),
 			row)},
-		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
@@ -234,7 +233,7 @@ func classIndex(key string) int {
 // LoreScreen draws c's lore card at page, know what of its signing lore
 // the member has learned.
 func LoreScreen(c Class, page int, know [3]bool) ([]byte, error) {
-	return loreCanvas(c, page, know).Soft(screenScale)
+	return loreCanvas(c, page, know).Screen(screenScale)
 }
 
 // signingLines is c's signing lore as its card shows it: a piece learned,

@@ -1,7 +1,6 @@
 package pp
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 
@@ -88,8 +87,8 @@ func (m *Module) buffsMessage(guild snowflake.ID, who *discord.ResolvedMember) (
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorInfo, "pp", "buffs", "",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}))},
-		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
+			discord.NewMediaGallery(screenItem(pic, alt)))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil

@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/disgoorg/snowflake/v2"
+
+	"github.com/6586x57890143/skua/internal/brand"
 )
 
 // The weekly checkpoint: when a server's week turns, the top places on each
@@ -134,6 +136,41 @@ func (m *Module) postCheckpoints() {
 		}
 		for _, n := range news {
 			m.post(g, "checkpoint", checkpointText(n))
+		}
+	}
+}
+
+// postJoinders tells each finished pact's channel who was paid, once the
+// rows that paid them are saved.
+func (m *Module) postJoinders() {
+	if m.rest == nil {
+		return
+	}
+	for g, s := range m.st.servers() {
+		s.mu.Lock()
+		news, ready := s.joinders, len(s.pending) == 0
+		if ready {
+			s.joinders = nil
+		}
+		s.mu.Unlock()
+		if !ready || !m.enabled(g) {
+			continue
+		}
+		var later []joinderNews
+		for _, n := range news {
+			again, err := m.sendCard(g, n.channel, brand.ColorNotice, pactName(n.ring), joinderText(n))
+			if err != nil {
+				m.log.Warn("pp: telling a finished notice", "guild", g, "channel", n.channel, "err", err, "again", again)
+			}
+			if again {
+				later = append(later, n)
+			}
+		}
+		// What the guard or a busy Discord held back goes on the next tick.
+		if len(later) > 0 {
+			s.mu.Lock()
+			s.joinders = append(later, s.joinders...)
+			s.mu.Unlock()
 		}
 	}
 }

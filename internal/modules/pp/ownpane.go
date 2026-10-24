@@ -35,7 +35,7 @@ const darkTheme, lightTheme = 0x2b2d31, 0xf2f3f5
 // OwnScreen draws a petition: the name as Discord will show it, on the
 // dark theme and the light, with its device; what it's woven as; and what
 // it costs.
-func OwnScreen(o Own) ([]byte, error) { return ownCanvas(o).Soft(screenScale) }
+func OwnScreen(o Own) ([]byte, error) { return ownCanvas(o).Screen(screenScale) }
 
 func ownCanvas(o Own) *pixel.Canvas {
 	c := pixel.New(screenW, screenH)
