@@ -92,10 +92,10 @@ type Balance struct {
 	// something odd instead.
 	QuestKinds [3][]QuestKind
 
-	// Classes: the first pick of a season is free. Each change after it
-	// costs ClassBase plus ClassPerLevel a level, doubled for every change
-	// already paid for that season.
-	ClassBase, ClassPerLevel int64
+	// Classes: the first pick of a season is free, and so is changing it
+	// within ClassGrace days. After that a change costs ClassFee pot days
+	// and the next can't come for ClassWait days.
+	ClassGrace, ClassWait, ClassFee int64
 
 	// Seasons: SeasonWeeks long, the first starting on day SeasonStart (a
 	// Monday). Each week ends in a checkpoint paying the top places on each
@@ -107,7 +107,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.8.2",
+	Version: "0.8.3",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -166,8 +166,9 @@ var Default = Balance{
 		},
 	},
 
-	ClassBase:     200 * unit,
-	ClassPerLevel: 50 * unit,
+	ClassGrace:    2,
+	ClassWait:     7,
+	ClassFee:      1,
 
 	SeasonStart: DayOf(time.Date(2026, 11, 2, 5, 30, 0, 0, time.UTC)),
 	SeasonWeeks: 4,

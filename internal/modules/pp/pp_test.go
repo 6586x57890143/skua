@@ -198,30 +198,46 @@ func TestClassChanges(t *testing.T) {
 		t.Fatalf("the free pick: class %q purse %d", mem.class, mem.purse)
 	}
 
-	// A second change this season costs, and they can't pay.
-	if _, err := press(pick(t, "bard")); err == nil || !strings.Contains(err.Error(), "costs 200 pp and you have 0") {
+	// Changing their mind within the grace is free.
+	if _, err := press(pick(t, "bard")); err != nil || mem.class != "bard" || mem.purse != 0 || mem.classChanges != 0 {
+		t.Fatalf("a change of mind in the grace: %v, %q, purse %d", err, mem.class, mem.purse)
+	}
+
+	// Past it a change costs a pot day, and they can't pay.
+	day := 24 * time.Hour
+	m.now = func() time.Time { return t0.Add(2 * day) }
+	fee := Default.ClassFee * m.st.pot()
+	if _, err := press(pick(t, "thief")); err == nil || !strings.Contains(err.Error(), "costs "+grouped(fee/unit)+" pp and you have 0") {
 		t.Fatalf("an unaffordable change: %v", err)
 	}
 	mem.purse, mem.total = 5000*unit, 2000*unit
-	l, _, _ := Default.Level(mem.total)
-	first := Default.ClassCost(l, 0)
-	if got, _ := press(coretest.Button(t, loreID(classIndex("bard"), 0), nil)); !strings.Contains(got, "walk this path · "+grouped(first/unit)+" pp") {
+	if got, _ := press(coretest.Button(t, loreID(classIndex("knight"), 0), nil)); !strings.Contains(got, "walk this path · "+grouped(fee/unit)+" pp") {
 		t.Errorf("the picker doesn't say the price: %s", got)
 	}
-	if _, err := press(pick(t, "bard")); err != nil || mem.class != "bard" || mem.purse != 5000*unit-first || mem.classChanges != 1 {
-		t.Fatalf("a paid change: %v, %q, purse %d", err, mem.class, mem.purse)
+	if _, err := press(pick(t, "knight")); err != nil || mem.class != "knight" || mem.purse != 5000*unit-fee || mem.classChanges != 1 || mem.total != 2000*unit {
+		t.Fatalf("a paid change: %v, %q, purse %d total %d", err, mem.class, mem.purse, mem.total)
 	}
-	if _, err := press(pick(t, "knight")); err != nil || mem.purse != 5000*unit-3*first || mem.total != 2000*unit {
-		t.Errorf("the next change didn't double, or spending touched the total: purse %d total %d", mem.purse, mem.total)
+
+	// The next waits out the cooldown, and the picker says how long.
+	m.now = func() time.Time { return t0.Add(3 * day) }
+	if got, _ := press(coretest.Button(t, loreID(classIndex("monk"), 0), nil)); !strings.Contains(got, "walk this path · in 6 days") {
+		t.Errorf("the picker doesn't say the wait: %s", got)
+	}
+	if _, err := press(pick(t, "monk")); err == nil || !strings.Contains(err.Error(), "change again") || mem.class != "knight" {
+		t.Fatalf("a change in the cooldown: %v, %q", err, mem.class)
+	}
+	m.now = func() time.Time { return t0.Add(9 * day) }
+	if _, err := press(pick(t, "monk")); err != nil || mem.class != "monk" || mem.purse != 5000*unit-2*fee || mem.classChanges != 2 {
+		t.Fatalf("a change after the cooldown: %v, %q, purse %d", err, mem.class, mem.purse)
 	}
 	before := mem.purse
-	if _, err := press(pick(t, "knight")); err != nil || mem.purse != before {
+	if _, err := press(pick(t, "monk")); err != nil || mem.purse != before {
 		t.Error("picking the class they have cost something")
 	}
 
 	// A new season's first pick is free again.
 	m.now = func() time.Time { return t0.Add(28 * 24 * time.Hour) }
-	if _, err := press(pick(t, "monk")); err != nil || mem.class != "monk" || mem.purse != before || mem.classChanges != 0 {
+	if _, err := press(pick(t, "ranger")); err != nil || mem.class != "ranger" || mem.purse != before || mem.classChanges != 0 {
 		t.Errorf("a new season's pick: %v, %q, purse %d, changes %d", err, mem.class, mem.purse, mem.classChanges)
 	}
 	for _, bad := range []func() (*events.ComponentInteractionCreate, *[]discord.MessageCreate){

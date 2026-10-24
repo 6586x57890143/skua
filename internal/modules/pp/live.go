@@ -31,8 +31,10 @@ type member struct {
 	class        string
 	classSeason  int64
 	classChanges int64
-	voiceMin     int64
-	messages     int64
+	// classDay is the day they last picked or changed class.
+	classDay int64
+	voiceMin int64
+	messages int64
 	// dayGot is what the open day has paid into the purse, not yet in the
 	// ledger, dayLevy what it paid the treasury, and buffLo and buffHi the
 	// lowest and highest buff it paid under.

@@ -70,7 +70,7 @@ func TestLorePress(t *testing.T) {
 // past altLimit it refuses the whole message.
 func TestLoreAltFits(t *testing.T) {
 	for i, cl := range Classes {
-		msg, err := loreMessage(i, 0, "", 0, 0)
+		msg, err := loreMessage(i, 0, "", 0, 0, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
