@@ -258,7 +258,7 @@ func (m *Module) convert(ctx context.Context, r rest.Rest, key source, t *tracki
 		if i < completed {
 			continue
 		}
-		if !current {
+		if !current || m.refused(refusal{channel: key.channel}) {
 			return
 		}
 		if err := m.guard.Allow(key.guild, guard.FixCard); err != nil {
@@ -305,6 +305,7 @@ func (m *Module) convert(ctx context.Context, r rest.Rest, key source, t *tracki
 			}
 		}
 		m.guard.Report(key.guild, guard.Struggling(err))
+		m.noteRefusal(refusal{channel: key.channel}, err)
 		if err != nil {
 			m.countTracked(key, t, func(c *counts) { c.Failed++ })
 			m.log.Warn("fix: card delivery failed", "guild", key.guild)

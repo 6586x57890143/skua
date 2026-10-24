@@ -38,13 +38,15 @@ type Module struct {
 	on      func(snowflake.ID) bool
 	mu      sync.Mutex
 	stats   map[snowflake.ID]counts
-	tracked map[source]*tracking
-	rest    rest.Rest
-	wake    *time.Timer
+	// refusals is under statsMu: channels that answered 403, until when.
+	refusals map[refusal]time.Time
+	tracked  map[source]*tracking
+	rest     rest.Rest
+	wake     *time.Timer
 }
 
 func New(ctx context.Context, g *guard.Guard, api Resolver, log *slog.Logger) *Module {
-	return &Module{ctx: ctx, api: api, guard: g, log: log, slots: make(chan struct{}, 8), stats: map[snowflake.ID]counts{}, tracked: map[source]*tracking{}}
+	return &Module{ctx: ctx, api: api, guard: g, log: log, slots: make(chan struct{}, 8), stats: map[snowflake.ID]counts{}, refusals: map[refusal]time.Time{}, tracked: map[source]*tracking{}}
 }
 func (*Module) Name() string { return "fix" }
 func (*Module) Want() intents.Want {
