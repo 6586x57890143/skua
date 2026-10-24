@@ -110,6 +110,63 @@ work poured in at the rim, and leave the notices on the board out of the
 count. The fire has three heights, and once lit it isn't let down until the
 next day is out, whatever the city does after.
 
+### Liveries
+
+A **livery** is the colour a bird wears in the street, and in the rookery it
+says what you belong to before you open your beak. Anyone may wear a trade's
+or a faction's colours. It shows where your custom goes, not an oath, and
+they are glad of the advertising.
+
+Colour comes from **the dyers' yard** in the sump, where the vats boil day and
+night and the run-off turns the gutters three colours at once. Dye fades in
+the sea air, so the yard doesn't sell a colour, it leases it: a livery is paid
+by the week, and one that isn't paid for fades in three days and is gone.
+
+The sump's own trades wear cheap, fast colours the yard boils by the barrel:
+
+- **The chandlers**, who render the yards' fat into candles and still pour
+  the tallow perches, wear tallow yellow.
+- **The tanners** wear hide red, the colour of what comes out of the pits
+  behind the rendering yards.
+- **The pits**, the fighting rings under the gin cellars, wear bruise.
+  Nobody who fights there chose the colour.
+- **The gin lanes** wear juniper, after the berries the stills burn through
+  by the cartload.
+- **The ferrymen**, who row the sump's flooded streets and the low town's
+  roofs at low tide, wear tidewater.
+- **The fish market** wears pewter, the grey of the scales on every board
+  and the coins that change hands over them.
+
+The great factions' colours are dearer, because the yard pays the factions
+for the right to sell them: counting house ink, order of the stair blue,
+hedge company thorn, wet guild sea green, hearthkeepers ember, choir rose,
+wardens' moss and kiln keepers' pale glass.
+
+What a bird may wear is set by **the sumptuary roll**, which the order of the
+stair keeps and enforces with writs. Height decides it:
+
+- From the tallow perch, a sump trade's colours.
+- From the shale perch, any faction's colours.
+- From the chitin perch, a **plain dye** of your own.
+- From the pale-glass perch, **shot silk**, a weave of two colours that turns
+  from one to the other as the bird moves.
+- From the drowned-bell perch, **nacre**, scraped from shells the wet guild
+  brings up from the low town. The dyers can't colour it: it shows every
+  colour the shell held, and nobody asks whose shells they were. The same
+  perch may sew on a **device**, the small badge worn at the shoulder.
+- Past the bell, where the stair runs out, a livery doesn't fade. The yard
+  leases it by the season instead of the week, and nobody up there has ever
+  said why the dye holds.
+
+A livery of your own needs a name, and the name and any device are granted
+by **the college of heralds**. A bird petitions with the fee, and the heralds
+read every petition. They refuse a name that mocks a family, copies another
+bird's arms or says what shouldn't be said in the bellward, and they return
+the fee of anyone they refuse. A granted livery is entered in the college's
+roll, and the name is the bird's to wear for as long as the lease is paid.
+The roll has room for only so many names at once, and the heralds charge
+more as it fills.
+
 ## Beyond the hedge
 
 - **The mire.** A drowned country of reed, peat and black water to the south
@@ -149,6 +206,9 @@ next day is out, whatever the city does after.
   named wear a **laurel**.
 - **The wardens of the wood** (goshawks). Rangers of the last wood, hunters
   of the mire and the city's least welcome visitors.
+- **The college of heralds** (jays). Keepers of the roll of liveries and
+  devices. They grant a bird a colour and a name of its own, and refuse
+  what would shame the bellward. Every refusal is entered too.
 - **The kiln keepers.** The glassmakers' guild of the mire's edge, rich from
   the bellward's windows, and the glass perches that let the gilt be seen.
 - **The tally board.** The debt court and the keepers of the tally mines.
@@ -191,6 +251,10 @@ next day is out, whatever the city does after.
 | quests | notices on the board at the pot's rim |
 | classes | who you are in the city, and what you came from |
 | seasons | the city's years, counted in tides |
+| colour roles | liveries, leased from the dyers' yard by the week |
+| a shared colour role | a sump trade's or a faction's livery |
+| your own role (name, style, colours, icon) | a livery of your own: plain dye, shot silk or nacre, with a device |
+| the mods approving a role | the college of heralds granting a petition |
 
 ## Still to come
 
