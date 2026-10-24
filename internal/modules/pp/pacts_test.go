@@ -471,7 +471,9 @@ func TestWithdraw(t *testing.T) {
 	if s.members[d].signs.signatures != 0 || s.members[a].signs.signatures != 1 {
 		t.Errorf("one who left was paid, or the rest weren't: %+v %+v", s.members[d].signs, s.members[a].signs)
 	}
-	p, _ = st.post(s, guild, d, false, next)
+	if _, err := st.post(s, guild, d, false, next); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := st.sign(s, guild, d, next, old(5), next); err != nil {
 		t.Fatal(err)
 	}
