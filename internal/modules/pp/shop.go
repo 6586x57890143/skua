@@ -87,7 +87,7 @@ var perches = []perchKind{
 		"your name turns chitin red, in bold beside your perch"},
 	{"pale-glass perch", pixel.Perches[3], "a perch of cloudy glass from the mire kilns",
 		"the kiln keepers blew it from ash and lamp smoke in the year the mire rose. look down through it and the ground seems further off than it is. a bird on glass can be seen from anywhere in the rookery, which was always the point, and the kiln keepers charged for it",
-		"a pale glass plate behind your line, under your red name and perch"},
+		"your name in smalt blue on a pale glass plate, beside your perch"},
 	{"drowned-bell perch", pixel.Perches[4], "a perch cast from a drowned bell",
 		"the chapel bell went under with the rest of the low town. divers brought it up in pieces over three summers, and the bronze was cast into perches for those who had climbed this far. at the hour the water came in it still rings, faintly, and the birds below look up",
 		"the plate turns bronze and your name is set in the book hand, beside your perch"},
