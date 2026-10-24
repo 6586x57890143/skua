@@ -87,7 +87,17 @@ func route(t *testing.T, m *Module) *core.Router {
 func slash(t *testing.T, link string, share bool) (*events.ApplicationCommandInteractionCreate, *[]discord.MessageCreate) {
 	return coretest.Event(t, "fix", func(p map[string]any) {
 		p["data"].(map[string]any)["options"] = []any{map[string]any{"name": "link", "type": 3, "value": link}, map[string]any{"name": "share", "type": 5, "value": share}}
+		p["member"].(map[string]any)["permissions"] = "18432"
 	})
+}
+func TestShareNeedsEmbedLinks(t *testing.T) {
+	e, sent := coretest.Event(t, "fix", func(p map[string]any) {
+		p["data"].(map[string]any)["options"] = []any{map[string]any{"name": "link", "type": 3, "value": "https://x.com/user/status/123"}, map[string]any{"name": "share", "type": 5, "value": true}}
+		p["member"].(map[string]any)["permissions"] = "2048"
+	})
+	if err := module().command(context.Background(), e); err == nil || len(*sent) != 0 {
+		t.Fatal("shared without embed links", err)
+	}
 }
 func TestModuleContractAndCommandDelivery(t *testing.T) {
 	m := module()
