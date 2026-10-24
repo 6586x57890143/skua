@@ -73,8 +73,8 @@ type perchKind struct {
 	what, story, effect string
 }
 
-// perches are the rookery stair's rungs; past the last, every rung is the
-// perch touched by the great nothing, counted.
+// perches are the rookery stair's rungs. Past the last, each rung is a
+// perch out in the nothing itself: see paragon.
 var perches = []perchKind{
 	{"tallow perch", pixel.Perches[0], "a perch poured from rendered fat",
 		"in the first winter of the rookery there was no timber and no stone, only what the flock could spare. they burned their lamps low for a month to pour this one. the birds who sat on it through that dark were the ones who stayed, and it still smells faintly of smoke",
@@ -100,7 +100,29 @@ var perches = []perchKind{
 }
 
 // perchOf is rung n's perch, from 1.
-func perchOf(n int64) perchKind { return perches[min(max(n, 1), int64(len(perches)))-1] }
+func perchOf(n int64) perchKind {
+	if n > int64(len(perches)) {
+		return paragon(n)
+	}
+	return perches[max(n, 1)-1]
+}
+
+// paragonNames are the perches past the great nothing, the order of the
+// stair naming each rung for what it lacks. Past the last name they come
+// round again, the rung's count beside each telling them apart.
+var paragonNames = []string{
+	"hushed", "unlit", "unsung", "uncounted", "unwritten", "weightless",
+	"starless", "breathless", "unrung", "sunless", "boundless", "nameless",
+}
+
+// paragon is rung n's perch past the great nothing: each with a name of
+// its own, the same story, and the nothing's own icon.
+func paragon(n int64) perchKind {
+	name := paragonNames[(n-int64(len(perches))-1)%int64(len(paragonNames))] + " perch"
+	return perchKind{name, pixel.Perches[len(pixel.Perches)-1], "a perch out in the nothing itself",
+		"past the gilded rung there is no stair. a few have climbed on anyway, and the nothing has held them a rung higher each time. the order of the stair names each such perch for what it lacks",
+		"gilt framed, on this rung's own shade, your rung counted beside your name"}
+}
 
 // perch is rung n's name and icon, from 1.
 func perch(n int64) (name, icon string) {
