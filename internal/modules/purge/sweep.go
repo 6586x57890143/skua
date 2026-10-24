@@ -367,6 +367,15 @@ type sweep struct {
 
 	mu          sync.Mutex
 	unreachable []snowflake.ID
+
+	// stopped holds authors who left a shared scheduled sweep mid-run;
+	// their messages are skipped while the others' go on.
+	stopped sync.Map // author ID -> struct{}
+}
+
+func (s *sweep) halted(author snowflake.ID) bool {
+	_, ok := s.stopped.Load(author)
+	return ok
 }
 
 // posting is one author's blocks in one channel.
@@ -507,6 +516,7 @@ func (s *sweep) settle(ch snowflake.ID, ps []posting) error {
 }
 
 func (s *sweep) bulk(ctx context.Context, ch snowflake.ID, ms []msg) error {
+	ms = slices.DeleteFunc(ms, func(m msg) bool { return s.halted(m.author) })
 	switch len(ms) {
 	case 0:
 		return nil
@@ -546,6 +556,9 @@ func (s *sweep) bulk(ctx context.Context, ch snowflake.ID, ms []msg) error {
 }
 
 func (s *sweep) one(ctx context.Context, ch snowflake.ID, m msg) error {
+	if s.halted(m.author) {
+		return nil
+	}
 	if err := s.spend(ctx); err != nil {
 		return err
 	}
