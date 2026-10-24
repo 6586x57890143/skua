@@ -137,32 +137,31 @@ func (c *Canvas) Screen(scale int) ([]byte, error) {
 	// halved, so the box starts on even pixels.
 	box = box.Inset(-1)
 	out := image.Rect(box.Min.X*scale&^1, box.Min.Y*scale&^1, box.Max.X*scale, box.Max.Y*scale).Intersect(image.Rect(0, 0, c.Rect.Dx()*scale, c.Rect.Dy()*scale))
-	soft := map[int]image.Image{}
-	var mu sync.Mutex
-	var wg sync.WaitGroup
+	// Each nudge is softened once, side by side: the first whole, the rest
+	// only in the box.
+	var nudges []int
 	for _, b := range Bob {
-		if _, ok := soft[b]; ok {
-			continue
+		if !slices.Contains(nudges, b) {
+			nudges = append(nudges, b)
 		}
-		soft[b] = nil
+	}
+	soft := make([]*image.RGBA, len(nudges))
+	var wg sync.WaitGroup
+	for k, b := range nudges {
 		wg.Go(func() {
-			var img image.Image
-			if b == Bob[0] {
-				img = c.frame(b).softIn(scale, image.Rect(0, 0, c.Rect.Dx()*scale, c.Rect.Dy()*scale))
+			if k == 0 {
+				soft[k] = c.frame(b).softIn(scale, image.Rect(0, 0, c.Rect.Dx()*scale, c.Rect.Dy()*scale))
 			} else {
-				img = c.frame(b).softIn(scale, out)
+				soft[k] = c.frame(b).softIn(scale, out)
 			}
-			mu.Lock()
-			soft[b] = img
-			mu.Unlock()
 		})
 	}
 	wg.Wait()
 	ani := nativewebp.Animation{}
 	for i, b := range Bob {
-		img := soft[b]
+		var img image.Image = soft[slices.Index(nudges, b)]
 		if i > 0 && b == Bob[0] {
-			img = img.(*image.RGBA).SubImage(out)
+			img = soft[0].SubImage(out)
 		}
 		ani.Images = append(ani.Images, img)
 		ani.Durations = append(ani.Durations, Beat)
