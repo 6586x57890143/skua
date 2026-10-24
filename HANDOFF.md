@@ -109,4 +109,47 @@ Not done yet:
   never on the nose.
 - **Lore first.** Each class's background lore is to be written before the shop art.
 - **Repricing.** Shop repricing by unique buyers lands with the first catalogue items.
-- **Laurels.** They're counted on the status sheet but no longer awarded.
+
+## /pp: company and moving screens (2026-10-24)
+
+Quests in company and animated screens. Lore for all of it is in LORE.md (chirographs
+and round robins) and was read by the owner before it shipped.
+
+Merged, in order:
+
+| PR | What |
+|---|---|
+| #119 | New quests at every tier: crowds (3+ in the room, company only), replies to other birds, streams, cameras |
+| #120 | Lore: chirographs, round robins, each class's mark and three signing lore pieces |
+| #122 | Chirographs (2) and round robins (3 or 4): time together in voice pays a joinder (60/90/120 pp), the notices screen, `pixel.SoftLoop` |
+| #123 | Laurels: every place at a weekly checkpoint wears one for the season |
+| #125 | A class's lore card ends on what signing in company teaches |
+| #126 | Hotfix: quests' duplicate custom ID; notices still until the WebP break was understood |
+| #124 | Every screen with a hand moves: `Canvas.Screen`, the hand drawn last, a box per later frame |
+| #127 | A finished pact tells its channel who was paid and who learned a page |
+
+Things to know:
+
+- **A pact is saved on every signer's row** (`pp_member.pact`) and joined back into one
+  on load (`joinPacts`). Its key is opener and day; a bird posts one a day, so a key is
+  only ever one notice. One joinder a day each.
+- **Joinders are in the sim.** A5 holds them under 8% of what's minted; at the generous
+  participation the sim assumes they're about 3%.
+- **Moving screens are animated WebP**, lossless, from nativewebp (pure Go). The first
+  frame goes whole, the rest only the box round the hands. Discord shows a one frame
+  animated WebP as a broken image, so a canvas with no hand goes out as JPEG and one
+  with a hand always has `len(pixel.Bob)` frames. A screen costs about 170 ms to make,
+  nearly all the first frame's encode.
+- **Test a new picture format with the test bot first** (`flightless.skua`, see Live
+  benchmarks in CLAUDE.md): post it, edit to it and answer an interaction with it
+  ephemerally. disgo sends every file as `application/octet-stream`; Discord sniffs it.
+- **Every screen's message builds its picture with `screenItem` and `screenAttachment`**,
+  so the gallery and the file can't name different files. `TestScreensKeepIDsApart`
+  covers quests and notices: Discord refuses a whole message that repeats a custom ID.
+
+Not done yet:
+
+- **The economy report** (economyreport.melting.lol) doesn't know the `joinder`, `lease`,
+  `hold` and `release` ledger reasons yet.
+- **Still screens**: lore pages, item cards, the treasury and the livery draft have no
+  hand and don't move.
