@@ -149,7 +149,7 @@ func TestKickRelayRangesAndCache(t *testing.T) {
 		return response(string(ts)), nil
 	})
 	for i, method := range []string{"GET", "HEAD", "GET"} {
-		req := httptest.NewRequest(method, a.media.link(testClip), nil)
+		req := httptest.NewRequest(method, a.media.link("kick", testClip), nil)
 		req.Header.Set("Range", "bytes=0-31")
 		rec := httptest.NewRecorder()
 		a.MediaHandler().ServeHTTP(rec, req)
@@ -171,14 +171,14 @@ func TestKickRelayRangesAndCache(t *testing.T) {
 		}
 	}
 	r := httptest.NewRecorder()
-	a.MediaHandler().ServeHTTP(r, httptest.NewRequest("POST", a.media.link(testClip), nil))
+	a.MediaHandler().ServeHTTP(r, httptest.NewRequest("POST", a.media.link("kick", testClip), nil))
 	if r.Code != 405 {
 		t.Fatal(r.Code)
 	}
 	a.media.until = time.Time{}
 	a.c.Transport = transport(func(*http.Request) (*http.Response, error) { return nil, io.EOF })
 	r = httptest.NewRecorder()
-	a.MediaHandler().ServeHTTP(r, httptest.NewRequest("GET", a.media.link(testClip), nil))
+	a.MediaHandler().ServeHTTP(r, httptest.NewRequest("GET", a.media.link("kick", testClip), nil))
 	if r.Code != 502 {
 		t.Fatal(r.Code)
 	}
