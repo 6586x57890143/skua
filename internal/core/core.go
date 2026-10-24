@@ -295,10 +295,12 @@ func (r *Router) OnComponent(e *events.ComponentInteractionCreate) {
 	if err == nil {
 		err = r.run("component:"+id, e.ID(), func(ctx context.Context) error { return c.Run(ctx, e) })
 	}
+	// Which component, and how long since Discord made the interaction:
+	// a press that timed out is told apart from one that arrived late.
 	r.report(id, err, *responded, e.CreateMessage, func(m discord.MessageCreate) error {
 		_, err := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), m)
 		return err
-	})
+	}, "custom_id", e.Data.CustomID(), "age", time.Since(e.ID().Time()).Round(time.Millisecond))
 }
 
 func (r *Router) recover(what string) {
@@ -344,7 +346,7 @@ func track(respond *events.InteractionResponderFunc) *bool {
 }
 
 // report tells the member what went wrong, where they will see it.
-func (r *Router) report(what string, err error, responded bool, create func(discord.MessageCreate, ...rest.RequestOpt) error, followup func(discord.MessageCreate) error) {
+func (r *Router) report(what string, err error, responded bool, create func(discord.MessageCreate, ...rest.RequestOpt) error, followup func(discord.MessageCreate) error, attrs ...any) {
 	if err == nil {
 		return
 	}
@@ -356,14 +358,14 @@ func (r *Router) report(what string, err error, responded bool, create func(disc
 		// A Tell wrapping a cause (fmt.Errorf("%w: %w", tell, err)) still
 		// shows the member only the Tell; the cause is for the log.
 		if err.Error() != text {
-			r.log.Warn("interaction failed", "handler", what, "err", err)
+			r.log.Warn("interaction failed", append([]any{"handler", what, "err", err}, attrs...)...)
 		}
 	case errors.Is(err, errDenied):
 		text = "only this server's admins can use /" + what
 	case errors.Is(err, errKeeper):
 		text = "only skua's keeper can use /" + what
 	default:
-		r.log.Warn("interaction failed", "handler", what, "err", err)
+		r.log.Warn("interaction failed", append([]any{"handler", what, "err", err}, attrs...)...)
 	}
 	msg := discord.MessageCreate{Content: "✗ " + text, Flags: discord.MessageFlagEphemeral, AllowedMentions: NoPings()}
 	if responded {

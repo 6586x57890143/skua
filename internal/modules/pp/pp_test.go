@@ -60,7 +60,8 @@ func testModule(db DB) *Module {
 		info: func(snowflake.ID) (snowflake.ID, string) { return afkCh, "melted" },
 		now:  func() time.Time { return t0 },
 		// The tests play as an admin; TestBetaGate plays as everyone else.
-		Admin: func(discord.Interaction) bool { return true },
+		Admin:  func(discord.Interaction) bool { return true },
+		inline: true,
 	}
 }
 
