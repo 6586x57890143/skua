@@ -69,7 +69,7 @@ jobs:
         env:
           SKUA_FIX_LIVE: '1'
         shell: bash
-        run: go test -count=1 -v -run TestLiveProviders ./internal/modules/fix | tee live-contracts.log
+        run: go test -count=1 -v -run 'TestLive(Providers|KickClip)$' ./internal/modules/fix | tee live-contracts.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

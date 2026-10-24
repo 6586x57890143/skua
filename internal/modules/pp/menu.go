@@ -188,15 +188,23 @@ func (m *Module) withMenu(guild, user snowflake.ID, admin bool, msg discord.Mess
 	return msg
 }
 
-// price is what changing class costs mem now: nothing for the first pick
-// of a season, then more with their level and with each change already
-// paid for. s.mu held.
-func (m *Module) cost(mem *member, season int64) int64 {
-	if mem.classSeason != season {
-		return 0
+// cost is what changing class costs mem today and the first day they may:
+// nothing for the season's first pick or for changing it within ClassGrace
+// days, then ClassFee pot days, each paid change starting a wait of
+// ClassWait days. s.mu held.
+func (m *Module) cost(mem *member, season, today int64) (cost, from int64) {
+	b := m.st.bal()
+	switch {
+	case mem.classSeason != season:
+		return 0, today
+	case mem.classChanges == 0 && today < mem.classDay+b.ClassGrace:
+		return 0, today
+	case mem.classChanges > 0:
+		from = max(today, mem.classDay+b.ClassWait)
+	default:
+		from = today
 	}
-	l, _, _ := m.st.bal().Level(mem.total)
-	return m.st.bal().ClassCost(l, mem.classChanges)
+	return b.ClassFee * m.st.pot(), from
 }
 
 // pick makes user a key: the season's first pick free, every change after
@@ -216,16 +224,21 @@ func (m *Module) pick(guild, user snowflake.ID, key string) error {
 	if mem.class == key && mem.classSeason != -1 {
 		return nil
 	}
-	cost := m.cost(mem, season)
+	cost, from := m.cost(mem, season, today)
+	if from > today {
+		return core.Tell(fmt.Sprintf("you changed class lately; you can change again <t:%d:R>, or free when a new season starts", dayStart(from).Unix()))
+	}
 	if cost > mem.purse {
-		return core.Tell(fmt.Sprintf("changing class now costs %s pp and you have %s; it gets cheaper when a new season starts",
+		return core.Tell(fmt.Sprintf("changing class now costs %s pp and you have %s; it's free again when a new season starts",
 			grouped(cost/unit), grouped(mem.purse/unit)))
 	}
-	if cost == 0 {
-		mem.classSeason, mem.classChanges = season, 0
-	} else {
+	switch {
+	case mem.classSeason != season:
+		mem.classSeason, mem.classChanges, mem.classDay = season, 0, today
+	case cost > 0:
 		mem.purse -= cost
 		mem.classChanges++
+		mem.classDay = today
 		m.st.burn(s, user, today, reasonClass, cost, nil)
 	}
 	mem.class, mem.dirty = key, true
@@ -240,7 +253,8 @@ func (m *Module) lore(guild, user snowflake.ID, i, page int) (discord.MessageCre
 	s := m.st.server(guild)
 	s.mu.Lock()
 	mem := m.st.member(s, guild, user, today)
-	cost, purse := m.cost(mem, season), mem.purse
+	cost, from := m.cost(mem, season, today)
+	purse := mem.purse
 	mine := ""
 	if mem.classSeason != -1 {
 		mine = mem.class
@@ -249,7 +263,7 @@ func (m *Module) lore(guild, user snowflake.ID, i, page int) (discord.MessageCre
 	if i < 0 {
 		i = classIndex(mine)
 	}
-	return loreMessage(i, page, mine, cost, purse)
+	return loreMessage(i, page, mine, cost, purse, from-today)
 }
 
 // status is who's screen as a message: the card, the picture and, on their

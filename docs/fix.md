@@ -44,6 +44,7 @@ case, while Skua's own labels follow the shared lowercase voice.
 | reddit, instagram, threads, pixiv | FixEmbed |
 | bilibili, youtube community posts, pinterest | FixEmbed |
 | tiktok, tumblr, twitch, deviantart / sta.sh | FixEmbed |
+| kick clips | Kick website API; signed MP4 relay for HLS |
 
 The defaults need no API secrets. The source URL is sent to the selected service;
 Discord fetches the resulting remote media. Credentials from notify are therefore
@@ -254,3 +255,40 @@ and author remain the card identity. Unsupported article URLs stay links, and
 Reddit crossposts are not followed recursively. Failed linked-media extraction
 keeps the source preview visible. The linked Twitch clip regression is part of
 the live audio/video canaries. Masked username links preserve literal underscores.
+
+
+### Kick clips and the one-line footer
+
+Kick clip paths and channel URLs with a `clip` query resolve directly, including
+when linked from a Reddit post. Direct MP4s stay on Kick's CDN. HLS clips are
+repackaged as MP4 in Go without re-encoding H.264 video or AAC audio. Skua finishes
+preparation before treating the card as a complete replacement. A failed fetch,
+unsupported stream or exceeded limit keeps the native preview visible.
+
+The signed `/fix/media/kick/` route shares the configured `SKUA_HOOKS_URL` listener
+and `SKUA_HOOKS_SECRET`, using a separate signature namespace. Only Kick clip IDs
+issued by Skua are accepted. Every fetched segment stays in the exact clip CDN
+directory; redirects, encrypted/live playlists and external playlist URLs are
+rejected. Limits: 64 MiB input/output, 181 seconds, 128 segments, one preparation,
+two concurrent responses, a one-clip 15-minute memory cache and 20-second response
+write deadlines. HLS preparation requires the existing public hooks configuration;
+direct MP4 clips need none. Metadata contains no credential or secret.
+
+Kick child preparation has a ten-second cancellation deadline inside the existing
+12-second fetch deadline. The separate `fix media` HTTP soft p99 target is eight
+seconds; normal metadata and card-building targets remain in place. Playback
+serves HEAD and byte ranges. The reported Reddit-to-Kick regression and actual
+MP4 audio/video tracks run in the six-hour live contract workflow.
+
+The footer uses one subtext row: stats, provider attribution, relative timestamp.
+Components V2 text has no independent right-alignment column; Discord may wrap the
+row on narrow clients. No whitespace padding or new action buttons are inserted.
+
+### Reddit uploads without a packaged MP4
+
+Newer Reddit uploads list only CMAF video and audio files in their HLS master
+playlist. Skua picks the largest rendition up to 720p and the audio group it
+names, then joins the two fragmented MP4s into one file on the signed
+`/fix/media/reddit/` route, copying samples without re-encoding. Without the
+relay, or when joining fails, the video track plays alone with a silent note.
+Uploads without an audio group play the video file directly.

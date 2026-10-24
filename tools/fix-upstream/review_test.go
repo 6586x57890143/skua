@@ -175,3 +175,9 @@ func TestRun(t *testing.T) {
 		})
 	}
 }
+
+func TestReviewBranch(t *testing.T) {
+	if reviewBranch(upstream{}) != "main" || reviewBranch(upstream{Branch: "master"}) != "master" {
+		t.Fatal("branch selection")
+	}
+}

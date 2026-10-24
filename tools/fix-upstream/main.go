@@ -16,8 +16,8 @@ import (
 )
 
 type upstream struct {
-	Repository, Revision, License string
-	Paths                         []string
+	Repository, Revision, License, Branch string
+	Paths                                 []string
 }
 type lock struct {
 	Reviewed     string
@@ -89,7 +89,7 @@ func run() error {
 	fmt.Printf("# embed upstream review\n\nreviewed: %s\n\nMetadata services update independently. Review API and renderer changes before advancing upstreams.json. No upstream code is imported automatically.\n", pinned.Reviewed)
 	for _, repo := range pinned.Repositories {
 		var head struct{ SHA string }
-		if err = get(ctx, client, repo.Repository+"/commits/main", &head); err != nil {
+		if err = get(ctx, client, repo.Repository+"/commits/"+reviewBranch(repo), &head); err != nil {
 			failures = append(failures, fmt.Errorf("%s head: %w", repo.Repository, err))
 			continue
 		}
@@ -155,4 +155,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func reviewBranch(repo upstream) string {
+	if repo.Branch != "" {
+		return repo.Branch
+	}
+	return "main"
 }

@@ -20,7 +20,7 @@ type DB interface {
 // kept into st.
 func (st *state) load(ctx context.Context, db DB) error {
 	rows, err := db.Query(ctx, `select guild_id, user_id, total, purse, season, season_pp, week, week_voice, week_chat,
-		day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, voice_min, messages,
+		day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, class_day, voice_min, messages,
 		day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld, quests, quest_day, quests_done, name from pp_member`)
 	if err != nil {
 		return err
@@ -30,7 +30,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		var quests string
 		m := &member{}
 		if err := rows.Scan(&guild, &user, &m.total, &m.purse, &m.season, &m.seasonPP, &m.week, &m.weekAct[BoardVoice], &m.weekAct[BoardChat],
-			&m.dayN, &m.day.Voice, &m.day.Chat, &m.day.Talk, &m.day.Rested, &m.class, &m.classSeason, &m.classChanges, &m.voiceMin, &m.messages,
+			&m.dayN, &m.day.Voice, &m.day.Chat, &m.day.Talk, &m.day.Rested, &m.class, &m.classSeason, &m.classChanges, &m.classDay, &m.voiceMin, &m.messages,
 			&m.dayGot, &m.buffLo, &m.buffHi, &m.day.Minutes, &m.day.Paid, &m.dayLevy, &m.granted, &m.grantSeason, &m.rung, &m.dayWithheld, &quests, &m.questDay, &m.questsDone, &m.name); err != nil {
 			rows.Close()
 			return err
@@ -83,7 +83,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 type memberRows struct {
 	guild, user, total, purse, season, seasonPP, week, weekVoice []int64
 	weekChat, day, dayVoice, dayChat, dayTalk, rested            []int64
-	classSeason, classChanges                                    []int64
+	classSeason, classChanges, classDay                          []int64
 	voiceMin, messages                                           []int64
 	dayGot, buffLo, buffHi, dayMinutes, dayPaid, dayLevy         []int64
 	granted, grantSeason, rung, dayWithheld                      []int64
@@ -110,6 +110,7 @@ func (r *memberRows) add(guild, user snowflake.ID, m *member) {
 	r.class = append(r.class, m.class)
 	r.classSeason = append(r.classSeason, m.classSeason)
 	r.classChanges = append(r.classChanges, m.classChanges)
+	r.classDay = append(r.classDay, m.classDay)
 	r.voiceMin = append(r.voiceMin, m.voiceMin)
 	r.messages = append(r.messages, m.messages)
 	r.dayGot = append(r.dayGot, m.dayGot)
@@ -231,11 +232,11 @@ func writeFlush(ctx context.Context, tx pgx.Tx, rows *memberRows, ledger *ledger
 			)
 			insert into pp_member (guild_id, user_id, total, purse, season, season_pp, week, week_voice,
 				week_chat, day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, voice_min, messages,
-				day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld, quests, quest_day, quests_done, name)
+				day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld, quests, quest_day, quests_done, name, class_day)
 			select * from unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[], $5::bigint[], $6::bigint[], $7::bigint[],
 				$8::bigint[], $9::bigint[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[], $15::text[],
 				$16::bigint[], $17::bigint[], $18::bigint[], $19::bigint[],
-				$30::bigint[], $31::bigint[], $32::bigint[], $33::bigint[], $34::bigint[], $35::bigint[], $36::bigint[], $37::bigint[], $38::bigint[], $39::bigint[], $40::text[], $41::bigint[], $42::bigint[], $43::text[])
+				$30::bigint[], $31::bigint[], $32::bigint[], $33::bigint[], $34::bigint[], $35::bigint[], $36::bigint[], $37::bigint[], $38::bigint[], $39::bigint[], $40::text[], $41::bigint[], $42::bigint[], $43::text[], $44::bigint[])
 			on conflict (guild_id, user_id) do update set total = excluded.total, purse = excluded.purse, season = excluded.season,
 				season_pp = excluded.season_pp, week = excluded.week, week_voice = excluded.week_voice,
 				week_chat = excluded.week_chat, day = excluded.day, day_voice = excluded.day_voice,
@@ -246,13 +247,13 @@ func writeFlush(ctx context.Context, tx pgx.Tx, rows *memberRows, ledger *ledger
 				day_minutes = excluded.day_minutes, day_paid = excluded.day_paid, day_levy = excluded.day_levy,
 				granted = excluded.granted, grant_season = excluded.grant_season, rung = excluded.rung, day_withheld = excluded.day_withheld,
 				quests = excluded.quests, quest_day = excluded.quest_day, quests_done = excluded.quests_done,
-				name = excluded.name`,
+				name = excluded.name, class_day = excluded.class_day`,
 			rows.guild, rows.user, rows.total, rows.purse, rows.season, rows.seasonPP, rows.week, rows.weekVoice,
 			rows.weekChat, rows.day, rows.dayVoice, rows.dayChat, rows.dayTalk, rows.rested, rows.class, rows.classSeason,
 			rows.classChanges, rows.voiceMin, rows.messages,
 			ledger.guild, ledger.seq, ledger.user, ledger.day, ledger.reason, ledger.delta, ledger.hash, ledger.inputs,
 			ledger.off, ledger.n,
-			rows.dayGot, rows.buffLo, rows.buffHi, rows.dayMinutes, rows.dayPaid, rows.dayLevy, rows.granted, rows.grantSeason, rows.rung, rows.dayWithheld, rows.quests, rows.questDay, rows.questsDone, rows.name)
+			rows.dayGot, rows.buffLo, rows.buffHi, rows.dayMinutes, rows.dayPaid, rows.dayLevy, rows.granted, rows.grantSeason, rows.rung, rows.dayWithheld, rows.quests, rows.questDay, rows.questsDone, rows.name, rows.classDay)
 		if err != nil {
 			return err
 		}

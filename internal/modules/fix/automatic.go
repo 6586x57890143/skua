@@ -21,7 +21,6 @@ type deletion struct {
 	id      snowflake.ID
 	next    time.Time
 	attempt int
-	stopped bool
 }
 
 // Every tracking field belongs to Module.mu. No state lock spans network I/O.
@@ -170,9 +169,6 @@ func (m *Module) kickLocked() {
 			}
 			cleanupReady := false
 			for _, d := range t.cleanup {
-				if d.stopped {
-					continue
-				}
 				if !d.next.After(now) {
 					cleanupReady = true
 				} else if next.IsZero() || d.next.Before(next) {
@@ -371,7 +367,7 @@ func (m *Module) cleanReplies(r rest.Rest, key source, t *tracking) {
 	batch := append([]deletion(nil), t.cleanup...)
 	m.mu.Unlock()
 	for _, d := range batch {
-		if d.stopped || d.next.After(time.Now()) || m.ctx.Err() != nil {
+		if d.next.After(time.Now()) || m.ctx.Err() != nil {
 			continue
 		}
 		err := m.guard.Allow(key.guild, guard.MessageDelete)
@@ -387,11 +383,12 @@ func (m *Module) cleanReplies(r rest.Rest, key source, t *tracking) {
 			if t.cleanup[i].id != d.id {
 				continue
 			}
-			if err == nil || absent {
+			// A permanent refusal is dropped like a missing reply: kept, it
+			// would block every later card for this source.
+			if err == nil || absent || (!denied && !retryDelete(err)) {
 				t.cleanup = append(t.cleanup[:i], t.cleanup[i+1:]...)
 			} else {
 				d.attempt++
-				d.stopped = !denied && !retryDelete(err)
 				d.next = time.Now().Add(time.Second * time.Duration(min(30, 1<<min(d.attempt-1, 5))))
 				if denied {
 					d.next = time.Now().Add(30 * time.Second)
