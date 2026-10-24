@@ -220,6 +220,9 @@ func TestLeaseButton(t *testing.T) {
 	m, y := yardServer(1, 10000)
 	m.st.server(3).yardOpen = true
 	press := func(id string) error {
+		if strings.HasPrefix(id, "pp:lease:") {
+			id = confirmOf(t, m, strings.TrimSuffix(id, ":sure"), nil)
+		}
 		e, _ := coretest.Button(t, id, nil)
 		e.Client().Rest = y
 		return m.press(context.Background(), e)

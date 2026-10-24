@@ -24,8 +24,11 @@ import (
 // pact is one chirograph or round robin. Each signer's member holds the
 // same pointer, and every signer's row saves it whole.
 type pact struct {
-	opener  snowflake.ID
-	day     int64 // the day it was posted
+	opener snowflake.ID
+	day    int64 // the day it was posted
+	// at is when it was posted, unix milliseconds, so a bird's two posts
+	// in a day never share a key. Saved in pact_at; 0 on one from before.
+	at      int64
 	ring    bool  // a round robin, not a chirograph
 	minutes int64 // minutes together so far
 	signers []signer
@@ -170,6 +173,7 @@ func joinPacts(s *server) {
 		if p, ok := one[k]; ok {
 			p.channel = max(p.channel, m.pact.channel)
 			p.started = p.started || m.pact.started
+			p.at = max(p.at, m.pact.at)
 			m.pact = p
 		} else {
 			one[k] = m.pact
@@ -224,22 +228,51 @@ func (st *state) post(s *server, guild, user snowflake.ID, ring bool, today int6
 	if err := st.mayPost(m, user, today); err != nil {
 		return nil, err
 	}
-	m.pact = &pact{opener: user, day: today, ring: ring, signers: []signer{{user: user}}}
+	// Each post a moment after the bird's last, so two never share a key.
+	m.lastPost = max(time.Now().UnixMilli(), m.lastPost+1)
+	m.pact = &pact{opener: user, day: today, at: m.lastPost, ring: ring, signers: []signer{{user: user}}}
 	m.signs.postedDay, m.dirty = today, true
 	s.count(today, statPosted, ringBit(ring), 0)
 	return m.pact, nil
 }
 
-// key names p in a button: its opener and the day it was posted, so an
-// old post never signs a newer notice by the same bird.
-func (p *pact) key() string { return p.opener.String() + ":" + strconv.FormatInt(p.day, 10) }
+// key names p in a button: its opener, the day and the moment it was
+// posted, so an old post never signs or starts a newer notice by the same
+// bird.
+func (p *pact) key() string {
+	return p.opener.String() + ":" + strconv.FormatInt(p.day, 10) + ":" + strconv.FormatInt(p.at, 10)
+}
+
+// pactKey is a key read back; at is 0 on a post from before keys had it.
+type pactKey struct {
+	opener  snowflake.ID
+	day, at int64
+}
 
 // parseKey reads a key back.
-func parseKey(k string) (snowflake.ID, int64, bool) {
-	o, d, ok := strings.Cut(k, ":")
-	opener, err := strconv.ParseUint(o, 10, 64)
-	day, err2 := strconv.ParseInt(d, 10, 64)
-	return snowflake.ID(opener), day, ok && err == nil && err2 == nil
+func parseKey(k string) (pactKey, bool) {
+	f := strings.Split(k, ":")
+	if len(f) != 2 && len(f) != 3 {
+		return pactKey{}, false
+	}
+	opener, err := strconv.ParseUint(f[0], 10, 64)
+	day, err2 := strconv.ParseInt(f[1], 10, 64)
+	var at int64
+	var err3 error
+	if len(f) == 3 {
+		at, err3 = strconv.ParseInt(f[2], 10, 64)
+	}
+	return pactKey{snowflake.ID(opener), day, at}, err == nil && err2 == nil && err3 == nil
+}
+
+// pactOf is the pact k names, nil when it's gone or another has taken its
+// opener's place. s.mu held.
+func pactOf(s *server, k pactKey) *pact {
+	o, ok := s.members[k.opener]
+	if !ok || o.pact == nil || o.pact.opener != k.opener || o.pact.day != k.day || k.at != 0 && o.pact.at != k.at {
+		return nil
+	}
+	return o.pact
 }
 
 // sign puts user's name to the pact opener posted on day. s.mu held.
@@ -270,9 +303,9 @@ func (st *state) sign(s *server, guild, opener snowflake.ID, day int64, user sno
 	return p, nil
 }
 
-// freeWithdraws is how many withdrawals a day leave a bird's day as it
-// was: the poster's withdrawal gives back the day's post. Past them a bird
-// may still withdraw, but the post stays spent.
+// freeWithdraws is how many times a day a poster taking their notice down
+// before its work gets the day's post back. Past them a bird may still
+// withdraw, but the post stays spent.
 const freeWithdraws = 2
 
 // withdraw takes user's name off the pact they hold: tearing up their half
@@ -290,10 +323,12 @@ func (st *state) withdraw(s *server, user snowflake.ID, today int64) error {
 	if m.withdrawDay != today {
 		m.withdrawDay, m.withdrawn = today, 0
 	}
-	if m.withdrawn < freeWithdraws && p.opener == user && p.day == today {
+	// The poster taking down today's notice before its work gets the post
+	// back, freeWithdraws times a day.
+	if !p.started && p.opener == user && p.day == today && m.withdrawn < freeWithdraws {
 		m.signs.postedDay = 0
+		m.withdrawn++
 	}
-	m.withdrawn++
 	p.signers = slices.DeleteFunc(p.signers, func(g signer) bool { return g.user == user })
 	m.pact, m.dirty = nil, true
 	if !p.started && p.opener == user || p.started && len(p.signers) < p.need() {

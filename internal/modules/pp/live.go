@@ -60,8 +60,11 @@ type member struct {
 	// its other signers, and signs what signing in company has taught them.
 	pact  *pact
 	signs signs
-	// withdrawn is how many pacts they've withdrawn from on withdrawDay.
+	// withdrawn is how many times they've taken down their own notice for
+	// the post back on withdrawDay, and lastPost when they last posted one
+	// (in memory: a restart moves the clock past it anyway).
 	withdrawn, withdrawDay int64
+	lastPost               int64
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, a fingerprint of their last message, when they last showed a

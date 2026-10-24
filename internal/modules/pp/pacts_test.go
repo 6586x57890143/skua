@@ -247,16 +247,16 @@ func TestNoticeButtons(t *testing.T) {
 		t.Fatalf("the notices with nothing up: %v", err)
 	}
 	sent, _, err = press("pp:pact:4", "")
-	if err != nil || (*sent)[0].Flags.Has(discord.MessageFlagEphemeral) || !strings.Contains(js((*sent)[0]), "pp:sign:5:"+strconv.FormatInt(DayOf(t0), 10)) || len((*sent)[0].Files) != 1 {
+	if err != nil || (*sent)[0].Flags.Has(discord.MessageFlagEphemeral) || !strings.Contains(js((*sent)[0]), s.members[5].pact.key()) || len((*sent)[0].Files) != 1 {
 		t.Fatalf("the posted round robin: %v", err)
 	}
 	s.mu.Lock()
 	m.st.member(s, 3, 6, DayOf(t0)).class = "fighter"
 	s.mu.Unlock()
-	if _, updated, err := press("pp:sign:5:"+strconv.FormatInt(DayOf(t0), 10), "6"); err != nil || !strings.Contains(updated, "pale clay") {
+	if _, updated, err := press("pp:sign:"+s.members[5].pact.key(), "6"); err != nil || !strings.Contains(updated, "pale clay") {
 		t.Fatalf("signing on the post: %v %s", err, updated)
 	}
-	if _, _, err := press("pp:sign:5:"+strconv.FormatInt(DayOf(t0), 10), "6"); !errors.Is(err, errPactHeld) {
+	if _, _, err := press("pp:sign:"+s.members[5].pact.key(), "6"); !errors.Is(err, errPactHeld) {
 		t.Errorf("signed twice: %v", err)
 	}
 	if _, _, err := press("pp:sign:x:1", "7"); !errors.Is(err, errPactGone) {
@@ -279,7 +279,7 @@ func TestNoticeButtons(t *testing.T) {
 		t.Errorf("put up again straight away: %v", err)
 	}
 	m.now = func() time.Time { return t0.Add(rallyWait) }
-	if sent, _, err := press("pp:rally", ""); err != nil || !strings.Contains(js((*sent)[0]), "pp:sign:5:"+strconv.FormatInt(DayOf(t0), 10)) {
+	if sent, _, err := press("pp:rally", ""); err != nil || !strings.Contains(js((*sent)[0]), s.members[5].pact.key()) {
 		t.Fatalf("putting it up again: %v", err)
 	}
 	// A post from an older notice by the same bird signs nothing.
@@ -589,5 +589,33 @@ func TestStartButton(t *testing.T) {
 	}
 	if err := m.press(context.Background(), firstOf(coretest.Button(t, "pp:start", nil))); !errors.Is(err, errPactStart) {
 		t.Errorf("started twice: %v", err)
+	}
+}
+
+// A bird's second post in a day has its own key: the first one's post
+// signs and starts nothing.
+func TestKeysApart(t *testing.T) {
+	st := newState(&Default, 42)
+	s := st.server(guild)
+	today := DayOf(t0)
+	a := old(1)
+	first, _ := st.post(s, guild, a, false, today)
+	old := first.key()
+	if err := st.withdraw(s, a, today); err != nil {
+		t.Fatal(err)
+	}
+	second, err := st.post(s, guild, a, true, today)
+	if err != nil {
+		t.Fatalf("posting again after taking one down: %v", err)
+	}
+	k, _ := parseKey(old)
+	if second.key() == old || pactOf(s, k) != nil {
+		t.Error("an old post's key names the new notice")
+	}
+	if k, ok := parseKey(second.key()); !ok || pactOf(s, k) != second {
+		t.Error("a key doesn't name its own notice")
+	}
+	if k, ok := parseKey(a.String() + ":" + strconv.FormatInt(today, 10)); !ok || pactOf(s, k) != second {
+		t.Error("a post from before keys had a time doesn't name its notice")
 	}
 }

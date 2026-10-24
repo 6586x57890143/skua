@@ -130,9 +130,11 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 	case id == "pp:start", strings.HasPrefix(id, "pp:start:"):
 		return m.startPact(*guild, e)
 	case buys(id):
-		return m.confirm(e)
+		return m.confirm(*guild, e)
+	case m.stale(*guild, e):
+		return errStale
 	}
-	id = strings.TrimSuffix(id, sure)
+	id = pressed(e)
 	var msg discord.MessageCreate
 	var err error
 	switch {

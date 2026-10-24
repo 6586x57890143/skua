@@ -296,8 +296,15 @@ func (m *Module) noticesAlt(held *Notice, board []Posted) string {
 		for _, g := range held.Signers {
 			names = append(names, g.Name+" with "+g.Mark)
 		}
-		parts = append(parts, fmt.Sprintf("your %s, signed by %s, %d of %d minutes together, pays %s",
-			pactName(held.Ring), strings.Join(names, " and "), min(held.Together, held.Goal), held.Goal, held.Pays))
+		state := fmt.Sprintf("%d of %d minutes together", min(held.Together, held.Goal), held.Goal)
+		if !held.Started {
+			state = fmt.Sprintf("waiting to start, %d of %d places signed", len(held.Signers), held.Places)
+			if held.Ring && len(held.Signers) >= 3 {
+				state += ", for its poster to start it or a fourth to fill it"
+			}
+		}
+		parts = append(parts, fmt.Sprintf("your %s, signed by %s, %s, pays %s",
+			pactName(held.Ring), strings.Join(names, " and "), state, held.Pays))
 	}
 	var up []string
 	for _, p := range board {
@@ -419,15 +426,19 @@ func (m *Module) signPact(guild snowflake.ID, e *events.ComponentInteractionCrea
 		}
 		id = data.Values[0]
 	}
-	opener, day, ok := parseKey(id)
+	k, ok := parseKey(id)
 	if !ok {
 		return errPactGone
 	}
 	s := m.st.server(guild)
 	s.mu.Lock()
-	p, err := m.st.sign(s, guild, opener, day, e.User().ID, DayOf(m.now()))
+	if pactOf(s, k) == nil {
+		s.mu.Unlock()
+		return errPactGone
+	}
+	p, err := m.st.sign(s, guild, k.opener, k.day, e.User().ID, DayOf(m.now()))
 	if !picked && (errors.Is(err, errPactFull) || errors.Is(err, errPactActive)) {
-		p, err = s.members[opener].pact, nil
+		p, err = pactOf(s, k), nil
 	}
 	if err != nil {
 		s.mu.Unlock()
@@ -472,12 +483,36 @@ func (m *Module) withdrawPact(guild snowflake.ID, e *events.ComponentInteraction
 func (m *Module) startPact(guild snowflake.ID, e *events.ComponentInteractionCreate) error {
 	s := m.st.server(guild)
 	s.mu.Lock()
+	onPost := e.Data.CustomID() != "pp:start"
+	var p *pact
+	if onPost {
+		// The post names its notice: one gone is gone, and one already
+		// started is only redrawn.
+		k, ok := parseKey(strings.TrimPrefix(e.Data.CustomID(), "pp:start:"))
+		if p = pactOf(s, k); !ok || p == nil {
+			s.mu.Unlock()
+			return errPactGone
+		}
+		if p.started {
+			v := m.viewPost(s, p)
+			s.mu.Unlock()
+			msg, err := m.postMessage(v)
+			if err != nil {
+				return err
+			}
+			return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...))
+		}
+		if p.opener != e.User().ID {
+			s.mu.Unlock()
+			return errPactStart
+		}
+	}
 	p, err := m.st.start(s, e.User().ID)
 	if err != nil {
 		s.mu.Unlock()
 		return err
 	}
-	if e.Data.CustomID() == "pp:start" {
+	if !onPost {
 		s.mu.Unlock()
 		msg, err := m.noticesMessage(guild, e.Member())
 		if err != nil {

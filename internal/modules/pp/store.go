@@ -21,19 +21,19 @@ type DB interface {
 func (st *state) load(ctx context.Context, db DB) error {
 	rows, err := db.Query(ctx, `select guild_id, user_id, total, purse, season, season_pp, week, week_voice, week_chat,
 		day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, class_day, livery, livery_until, voice_min, messages,
-		day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld, quests, quest_day, quests_done, name, pact, signs, laurels, pact_channel, pact_started, withdraws from pp_member`)
+		day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld, quests, quest_day, quests_done, name, pact, signs, laurels, pact_channel, pact_started, withdraws, pact_at from pp_member`)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
 		var guild, user int64
 		var quests, pact, signs string
-		var pactChannel, withdraws int64
+		var pactChannel, withdraws, pactAt int64
 		var started bool
 		m := &member{}
 		if err := rows.Scan(&guild, &user, &m.total, &m.purse, &m.season, &m.seasonPP, &m.week, &m.weekAct[BoardVoice], &m.weekAct[BoardChat],
 			&m.dayN, &m.day.Voice, &m.day.Chat, &m.day.Talk, &m.day.Rested, &m.class, &m.classSeason, &m.classChanges, &m.classDay, &m.livery, &m.liveryUntil, &m.voiceMin, &m.messages,
-			&m.dayGot, &m.buffLo, &m.buffHi, &m.day.Minutes, &m.day.Paid, &m.dayLevy, &m.granted, &m.grantSeason, &m.rung, &m.dayWithheld, &quests, &m.questDay, &m.questsDone, &m.name, &pact, &signs, &m.laurels, &pactChannel, &started, &withdraws); err != nil {
+			&m.dayGot, &m.buffLo, &m.buffHi, &m.day.Minutes, &m.day.Paid, &m.dayLevy, &m.granted, &m.grantSeason, &m.rung, &m.dayWithheld, &quests, &m.questDay, &m.questsDone, &m.name, &pact, &signs, &m.laurels, &pactChannel, &started, &withdraws, &pactAt); err != nil {
 			rows.Close()
 			return err
 		}
@@ -42,7 +42,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		if m.pact != nil {
 			// One saved before pacts kept this had started if it had
 			// minutes, or was full.
-			m.pact.channel = snowflake.ID(pactChannel)
+			m.pact.channel, m.pact.at = snowflake.ID(pactChannel), pactAt
 			m.pact.started = started || m.pact.minutes > 0 || len(m.pact.signers) == m.pact.size()
 		}
 		m.withdrawDay, m.withdrawn = withdraws/8, withdraws%8
@@ -104,16 +104,16 @@ func (st *state) load(ctx context.Context, db DB) error {
 
 // memberRows is a batch of members as columns, for one unnest.
 type memberRows struct {
-	guild, user, total, purse, season, seasonPP, week, weekVoice []int64
-	weekChat, day, dayVoice, dayChat, dayTalk, rested            []int64
-	classSeason, classChanges, classDay, liveryUntil             []int64
-	voiceMin, messages                                           []int64
-	dayGot, buffLo, buffHi, dayMinutes, dayPaid, dayLevy         []int64
-	granted, grantSeason, rung, dayWithheld                      []int64
-	questDay, questsDone, laurels, pactChannel, withdraws        []int64
-	pactStarted                                                  []bool
-	quests, name, livery, pact, signs                            []string
-	class                                                        []string
+	guild, user, total, purse, season, seasonPP, week, weekVoice  []int64
+	weekChat, day, dayVoice, dayChat, dayTalk, rested             []int64
+	classSeason, classChanges, classDay, liveryUntil              []int64
+	voiceMin, messages                                            []int64
+	dayGot, buffLo, buffHi, dayMinutes, dayPaid, dayLevy          []int64
+	granted, grantSeason, rung, dayWithheld                       []int64
+	questDay, questsDone, laurels, pactChannel, withdraws, pactAt []int64
+	pactStarted                                                   []bool
+	quests, name, livery, pact, signs                             []string
+	class                                                         []string
 }
 
 func (r *memberRows) add(guild, user snowflake.ID, m *member) {
@@ -157,10 +157,12 @@ func (r *memberRows) add(guild, user snowflake.ID, m *member) {
 	r.signs = append(r.signs, encodeSigns(m.signs))
 	r.laurels = append(r.laurels, m.laurels)
 	var ch snowflake.ID
+	var at int64
 	started := false
 	if m.pact != nil {
-		ch, started = m.pact.channel, m.pact.started
+		ch, started, at = m.pact.channel, m.pact.started, m.pact.at
 	}
+	r.pactAt = append(r.pactAt, at)
 	r.pactChannel = append(r.pactChannel, int64(ch))
 	r.pactStarted = append(r.pactStarted, started)
 	// A day and a count under 8, in one column.
@@ -305,11 +307,11 @@ func writeFlush(ctx context.Context, tx pgx.Tx, rows *memberRows, ledger *ledger
 			)
 			insert into pp_member (guild_id, user_id, total, purse, season, season_pp, week, week_voice,
 				week_chat, day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, voice_min, messages,
-				day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld, quests, quest_day, quests_done, name, class_day, livery, livery_until, pact, signs, laurels, pact_channel, pact_started, withdraws)
+				day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld, quests, quest_day, quests_done, name, class_day, livery, livery_until, pact, signs, laurels, pact_channel, pact_started, withdraws, pact_at)
 			select * from unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[], $5::bigint[], $6::bigint[], $7::bigint[],
 				$8::bigint[], $9::bigint[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[], $15::text[],
 				$16::bigint[], $17::bigint[], $18::bigint[], $19::bigint[],
-				$30::bigint[], $31::bigint[], $32::bigint[], $33::bigint[], $34::bigint[], $35::bigint[], $36::bigint[], $37::bigint[], $38::bigint[], $39::bigint[], $40::text[], $41::bigint[], $42::bigint[], $43::text[], $44::bigint[], $45::text[], $46::bigint[], $47::text[], $48::text[], $49::bigint[], $50::bigint[], $51::boolean[], $52::bigint[])
+				$30::bigint[], $31::bigint[], $32::bigint[], $33::bigint[], $34::bigint[], $35::bigint[], $36::bigint[], $37::bigint[], $38::bigint[], $39::bigint[], $40::text[], $41::bigint[], $42::bigint[], $43::text[], $44::bigint[], $45::text[], $46::bigint[], $47::text[], $48::text[], $49::bigint[], $50::bigint[], $51::boolean[], $52::bigint[], $53::bigint[])
 			on conflict (guild_id, user_id) do update set total = excluded.total, purse = excluded.purse, season = excluded.season,
 				season_pp = excluded.season_pp, week = excluded.week, week_voice = excluded.week_voice,
 				week_chat = excluded.week_chat, day = excluded.day, day_voice = excluded.day_voice,
@@ -324,13 +326,13 @@ func writeFlush(ctx context.Context, tx pgx.Tx, rows *memberRows, ledger *ledger
 				livery = excluded.livery, livery_until = excluded.livery_until,
 				pact = excluded.pact, signs = excluded.signs, laurels = excluded.laurels,
 				pact_channel = excluded.pact_channel, pact_started = excluded.pact_started,
-				withdraws = excluded.withdraws`,
+				withdraws = excluded.withdraws, pact_at = excluded.pact_at`,
 			rows.guild, rows.user, rows.total, rows.purse, rows.season, rows.seasonPP, rows.week, rows.weekVoice,
 			rows.weekChat, rows.day, rows.dayVoice, rows.dayChat, rows.dayTalk, rows.rested, rows.class, rows.classSeason,
 			rows.classChanges, rows.voiceMin, rows.messages,
 			ledger.guild, ledger.seq, ledger.user, ledger.day, ledger.reason, ledger.delta, ledger.hash, ledger.inputs,
 			ledger.off, ledger.n,
-			rows.dayGot, rows.buffLo, rows.buffHi, rows.dayMinutes, rows.dayPaid, rows.dayLevy, rows.granted, rows.grantSeason, rows.rung, rows.dayWithheld, rows.quests, rows.questDay, rows.questsDone, rows.name, rows.classDay, rows.livery, rows.liveryUntil, rows.pact, rows.signs, rows.laurels, rows.pactChannel, rows.pactStarted, rows.withdraws)
+			rows.dayGot, rows.buffLo, rows.buffHi, rows.dayMinutes, rows.dayPaid, rows.dayLevy, rows.granted, rows.grantSeason, rows.rung, rows.dayWithheld, rows.quests, rows.questDay, rows.questsDone, rows.name, rows.classDay, rows.livery, rows.liveryUntil, rows.pact, rows.signs, rows.laurels, rows.pactChannel, rows.pactStarted, rows.withdraws, rows.pactAt)
 		if err != nil {
 			return err
 		}
