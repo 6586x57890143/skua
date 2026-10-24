@@ -229,10 +229,9 @@ func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.Component
 		look = n
 	}
 	today := DayOf(m.now())
-	admin := m.Admin != nil && m.Admin(e)
+	yard := m.sees(guild, e)
 	s := m.st.server(guild)
 	s.mu.Lock()
-	yardOpen := s.yardOpen
 	var err error
 	climbed := false
 	if id == "pp:climb" {
@@ -250,7 +249,7 @@ func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.Component
 	if look > 0 {
 		msg, drawn = m.st.itemMessage(mem, look)
 	} else {
-		msg, drawn = m.st.shopMessage(s, mem, yardOpen || admin)
+		msg, drawn = m.st.shopMessage(s, mem, yard)
 	}
 	s.mu.Unlock()
 	if err != nil {

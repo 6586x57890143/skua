@@ -5,9 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -41,9 +41,6 @@ var (
 	errDyeAhead  = core.Tell("your lease already runs four weeks ahead; the yard won't take more")
 	errYardOpens = core.Tell("only admins open the dyers' yard")
 )
-
-// dyeing makes sure two first leases of the same livery make one role.
-var dyeing sync.Mutex
 
 // sees is whether i may see the yard: it's open, or i is an admin.
 func (m *Module) sees(guild snowflake.ID, i discord.Interaction) bool {
@@ -267,7 +264,10 @@ func (m *Module) dyeCard(guild snowflake.ID, e *events.ComponentInteractionCreat
 }
 
 // leased leases user a week of d, dressing them in its role and taking off
-// the one they wore before, and gives back d's card as it reads now.
+// the one they wore before, and gives back d's card as it reads now. The
+// server's lease lock is held throughout, so a double press or a fade
+// can't interleave with it, and if the purse can no longer pay once the
+// member is dressed, the dressing is undone.
 func (m *Module) leased(ctx context.Context, guild, user snowflake.ID, d dye) (discord.MessageCreate, error) {
 	today := DayOf(m.now())
 	s := m.st.server(guild)
@@ -283,30 +283,31 @@ func (m *Module) leased(ctx context.Context, guild, user snowflake.ID, d dye) (d
 		}
 		return nil
 	}
+	s.leasing.Lock()
+	defer s.leasing.Unlock()
 	s.mu.Lock()
 	mem := m.st.member(s, guild, user, today)
 	err := check(mem)
-	old := mem.livery
+	old, was := mem.livery, s.dyeRoles[mem.livery]
 	s.mu.Unlock()
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
 
-	role, err := m.dyeRole(ctx, guild, d)
+	roles, at, role, err := m.dyeRole(ctx, guild, d)
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
-	if old != d.key {
-		if err := m.dress(ctx, guild, user, role, true, "leased "+d.name); err != nil {
+	// Dressed even when it's the livery they lease already: the role may
+	// have come off by hand, or with a leave and a return.
+	if err := m.dressIn(ctx, guild, roles, at, user, role, true, "leased "+d.name); err != nil {
+		return discord.MessageCreate{}, dyeErr(err)
+	}
+	swapped := old != d.key && was != 0
+	if swapped {
+		if err := m.dressIn(ctx, guild, roles, at, user, was, false, "changed livery"); err != nil && !errors.Is(err, errNotLivery) {
+			m.undress(ctx, guild, roles, at, user, role)
 			return discord.MessageCreate{}, err
-		}
-		s.mu.Lock()
-		was := s.dyeRoles[old]
-		s.mu.Unlock()
-		if was != 0 {
-			if err := m.dress(ctx, guild, user, was, false, "changed livery"); err != nil {
-				m.log.Warn("pp: taking off a livery", "guild", guild, "err", err)
-			}
 		}
 	}
 
@@ -314,6 +315,12 @@ func (m *Module) leased(ctx context.Context, guild, user snowflake.ID, d dye) (d
 	mem = m.st.member(s, guild, user, today)
 	if err := check(mem); err != nil {
 		s.mu.Unlock()
+		if old != d.key {
+			m.undress(ctx, guild, roles, at, user, role)
+			if swapped {
+				_ = m.dressIn(ctx, guild, roles, at, user, was, true, "a livery change undone")
+			}
+		}
 		return discord.MessageCreate{}, err
 	}
 	from := today
@@ -322,13 +329,33 @@ func (m *Module) leased(ctx context.Context, guild, user snowflake.ID, d dye) (d
 	}
 	mem.purse -= price
 	mem.livery, mem.liveryUntil = d.key, from+leaseDays
-	m.st.burn(s, user, today, reasonShop, price, []int64{int64(dyeIndex(d.key)), mem.liveryUntil})
+	m.st.burn(s, user, today, reasonLease, price, []int64{int64(dyeIndex(d.key)), mem.liveryUntil})
 	mem.dirty = true
 	msg, err := m.st.dyeMessage(mem, d, today)
 	s.mu.Unlock()
 	// What was paid lands with its ledger row now, not at the minute.
 	m.Save()
 	return msg, err
+}
+
+// undress takes role back off user after a lease that didn't go through,
+// saying so if even that fails.
+func (m *Module) undress(ctx context.Context, guild snowflake.ID, roles []discord.Role, at int, user, role snowflake.ID) {
+	if err := m.dressIn(ctx, guild, roles, at, user, role, false, "a lease that didn't go through"); err != nil {
+		m.log.Warn("pp: undoing a livery", "guild", guild, "err", err)
+	}
+}
+
+// errDyeMoved is a livery whose role an admin has since changed so that
+// skua won't touch it.
+var errDyeMoved = core.Tell("this livery's role was changed by hand: an admin has to move it back under the livery anchor, with no permissions")
+
+// dyeErr is err as a member leasing reads it.
+func dyeErr(err error) error {
+	if errors.Is(err, errNotLivery) {
+		return errDyeMoved
+	}
+	return err
 }
 
 // dyeIndex is key's place in dyes, the ledger's record of what was leased.
@@ -341,65 +368,90 @@ func dyeIndex(key string) int {
 	return -1
 }
 
-// dyeRole is d's role in guild, made the first time anyone leases it.
-func (m *Module) dyeRole(ctx context.Context, guild snowflake.ID, d dye) (snowflake.ID, error) {
-	dyeing.Lock()
-	defer dyeing.Unlock()
+// dyeRole is d's role in guild with guild's roles and the anchor's
+// position, read once for the whole lease. A role that was never made, or
+// that an admin deleted, is made now. s.leasing held.
+func (m *Module) dyeRole(ctx context.Context, guild snowflake.ID, d dye) ([]discord.Role, int, snowflake.ID, error) {
+	roles, at, err := m.standing(ctx, guild)
+	if err != nil {
+		return nil, 0, 0, err
+	}
 	s := m.st.server(guild)
 	s.mu.Lock()
 	role := s.dyeRoles[d.key]
 	s.mu.Unlock()
-	if role != 0 {
-		return role, nil
+	if role != 0 && slices.ContainsFunc(roles, func(r discord.Role) bool { return r.ID == role }) {
+		return roles, at, role, nil
 	}
-	role, err := m.makeRole(ctx, guild, look{name: d.name, colors: discord.RoleColors{PrimaryColor: int(d.color)}}, d.name+" first leased")
+	role, err = m.makeRole(ctx, guild, look{name: d.name, colors: discord.RoleColors{PrimaryColor: int(d.color)}}, d.name+" first leased")
 	if role == 0 {
-		return 0, err
+		return nil, 0, 0, err
 	}
-	// A role made but not moved under the anchor is still a livery, and
-	// kept so a retry doesn't make another.
+	// A role made but not moved under the anchor is still a livery.
 	if err != nil {
 		m.log.Warn("pp: moving a livery under the anchor", "guild", guild, "err", err)
 	}
-	if _, err := m.db.Exec(ctx, `insert into pp_dye (guild_id, key, role_id) values ($1, $2, $3)
-		on conflict (guild_id, key) do update set role_id = excluded.role_id`, int64(guild), d.key, int64(role)); err != nil {
-		return 0, err
-	}
+	// Kept in memory first, so a database that fails now doesn't make the
+	// next lease make another.
 	s.mu.Lock()
 	s.setDye(d.key, role)
 	s.mu.Unlock()
-	return role, nil
+	if _, err := m.db.Exec(ctx, `insert into pp_dye (guild_id, key, role_id) values ($1, $2, $3)
+		on conflict (guild_id, key) do update set role_id = excluded.role_id`, int64(guild), d.key, int64(role)); err != nil {
+		m.log.Warn("pp: keeping a livery's role", "guild", guild, "livery", d.key, "err", err)
+	}
+	roles, at, err = m.standing(ctx, guild)
+	return roles, at, role, err
 }
 
 // fade takes off every livery whose lease ran out more than fadeDays ago,
-// on the day turning. One that can't come off yet is tried again the next.
+// on the day turning, reading each server's roles once. One that can't
+// come off yet is tried again the next turn.
 func (m *Module) fade(ctx context.Context, today int64) {
-	type due struct {
-		guild, user, role snowflake.ID
-	}
-	var dues []due
 	for g, s := range m.st.servers() {
 		s.mu.Lock()
-		for u, mem := range s.members {
-			if mem.livery != "" && today >= mem.liveryUntil+fadeDays {
-				dues = append(dues, due{g, u, s.dyeRoles[mem.livery]})
-			}
+		due := false
+		for _, mem := range s.members {
+			due = due || mem.livery != "" && today >= mem.liveryUntil+fadeDays
 		}
 		s.mu.Unlock()
+		if due {
+			m.fadeIn(ctx, g, s, today)
+		}
 	}
+}
+
+// fadeIn is fade in one server.
+func (m *Module) fadeIn(ctx context.Context, guild snowflake.ID, s *server, today int64) {
+	s.leasing.Lock()
+	defer s.leasing.Unlock()
+	roles, at, err := m.standing(ctx, guild)
+	if err != nil {
+		if _, isTell := errors.AsType[core.Tell](err); !isTell {
+			m.log.Warn("pp: fading liveries", "guild", guild, "err", err)
+		}
+		return
+	}
+	type due struct{ user, role snowflake.ID }
+	var dues []due
+	s.mu.Lock()
+	for u, mem := range s.members {
+		if mem.livery != "" && today >= mem.liveryUntil+fadeDays {
+			dues = append(dues, due{u, s.dyeRoles[mem.livery]})
+		}
+	}
+	s.mu.Unlock()
 	for _, d := range dues {
-		if d.role != 0 {
-			err := m.dress(ctx, d.guild, d.user, d.role, false, "a livery's lease ran out")
-			// A role an admin since gave a permission is no livery to take
-			// off; only a failure worth retrying keeps the lease on the book.
+		// A role an admin since gave a permission, or deleted, is no
+		// livery to take off; only a failure worth retrying keeps the
+		// lease on the book.
+		if d.role != 0 && slices.ContainsFunc(roles, func(r discord.Role) bool { return r.ID == d.role }) {
+			err := m.dressIn(ctx, guild, roles, at, d.user, d.role, false, "a livery's lease ran out")
 			if err != nil && !errors.Is(err, errNotLivery) {
-				if _, isTell := errors.AsType[core.Tell](err); !isTell {
-					m.log.Warn("pp: fading a livery", "guild", d.guild, "err", err)
-				}
+				m.log.Warn("pp: fading a livery", "guild", guild, "err", err)
 				continue
 			}
 		}
-		s := m.st.server(d.guild)
 		s.mu.Lock()
 		if mem := s.members[d.user]; mem != nil && today >= mem.liveryUntil+fadeDays {
 			mem.livery, mem.liveryUntil, mem.dirty = "", 0, true

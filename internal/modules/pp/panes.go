@@ -235,19 +235,16 @@ func itemCanvas(it Item) *pixel.Canvas {
 		c.BigIcon(it.Icon, image.Pt((pic.Min.X+pic.Max.X-side)/2, top+(pic.Max.Y-4-top-side)/2), scale)
 	}
 
-	if it.Dye != 0 {
+	if it.Look != nil || it.Dye != 0 {
 		you := image.Rect(4, 116, 112, 164)
 		c.Window(you)
 		c.Tab(you, "you")
 		y := you.Min.Y + pixel.TabDrop + 6
-		c.FitIn(pixel.Bold, 14, y, it.You, c.Dye(it.Dye), 104-14)
-	}
-	if it.Look != nil {
-		you := image.Rect(4, 116, 112, 164)
-		c.Window(you)
-		c.Tab(you, "you")
-		y := you.Min.Y + pixel.TabDrop + 6
-		setName(c, *it.Look, 14, y, it.You, 104-14, image.Rect(10, y-3, 106, y+15))
+		if it.Dye != 0 {
+			c.FitIn(pixel.Bold, 14, y, it.You, c.Dye(it.Dye), 104-14)
+		} else {
+			setName(c, *it.Look, 14, y, it.You, 104-14, image.Rect(10, y-3, 106, y+15))
+		}
 	}
 
 	price := image.Rect(4, 168, 112, 212)

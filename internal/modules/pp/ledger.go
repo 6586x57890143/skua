@@ -28,6 +28,7 @@ const (
 	reasonPrize  = "prize"  // a weekly checkpoint's prize, the same way
 	reasonShop   = "shop"   // something bought, burned
 	reasonQuest  = "quest"  // a finished quest, as labour
+	reasonLease  = "lease"  // a week of a livery, burned; inputs its dye and the day it runs to
 )
 
 // entry is one ledger row.

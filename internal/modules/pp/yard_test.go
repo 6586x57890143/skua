@@ -171,12 +171,13 @@ func TestLease(t *testing.T) {
 		t.Errorf("the lease wasn't saved: %d pending, dirty %v", len(s.pending), mem.dirty)
 	}
 
-	// Another week runs on from the last, and makes no new role.
+	// Another week runs on from the last, makes no new role and dresses
+	// them again, in case the role came off by hand.
 	y.writes = nil
 	if _, err := m.leased(ctx, 3, 5, tallow); err != nil {
 		t.Fatal(err)
 	}
-	if mem.liveryUntil != today+2*leaseDays || len(y.writes) != 0 {
+	if mem.liveryUntil != today+2*leaseDays || strings.Join(y.writes, ", ") != "add 99" {
 		t.Errorf("a second week: until %d, writes %v", mem.liveryUntil, y.writes)
 	}
 	// Up to four weeks ahead.
@@ -285,5 +286,54 @@ func TestYardTells(t *testing.T) {
 		if _, ok := errors.AsType[core.Tell](err); !ok {
 			t.Errorf("%v isn't a Tell", err)
 		}
+	}
+}
+
+// A role an admin deleted is made again; one they gave a permission is
+// refused with a word for the admins; and the journal names a lease.
+func TestLeaseRoleChangedByHand(t *testing.T) {
+	ctx := context.Background()
+	m, y := yardServer(2, 10000)
+	s := m.st.server(3)
+	s.setDye("ink", 404)
+	ink, _ := dyeOf("ink")
+	if _, err := m.leased(ctx, 3, 5, ink); err != nil {
+		t.Fatal(err)
+	}
+	if s.dyeRoles["ink"] != 99 || !strings.HasPrefix(strings.Join(y.writes, ", "), "create, move, add 99") {
+		t.Errorf("a deleted role wasn't made again: %d %v", s.dyeRoles["ink"], y.writes)
+	}
+	s.setDye("stair", 31) // carries Administrator
+	stair, _ := dyeOf("stair")
+	if _, err := m.leased(ctx, 3, 5, stair); !errors.Is(err, errDyeMoved) {
+		t.Errorf("a role with a permission: %v", err)
+	}
+	if icon, what := journalLine(reasonLease, []int64{int64(dyeIndex("ink")), 20800}); icon != "scales" || what != "counting house ink" {
+		t.Errorf("the journal reads a lease as %s %q", icon, what)
+	}
+	if _, what := journalLine(reasonLease, []int64{99}); what != "a livery" {
+		t.Errorf("an unknown lease reads %q", what)
+	}
+}
+
+// If the purse can't pay once the member is dressed, the dressing is
+// undone and their old livery put back.
+func TestLeaseUndone(t *testing.T) {
+	ctx := context.Background()
+	m, y := yardServer(1, 10000)
+	s := m.st.server(3)
+	s.setDye("tallow", 30)
+	s.setDye("hide", 98)
+	y.roles = append(y.roles, discord.Role{ID: 98, Position: 4})
+	mem := s.members[5]
+	mem.livery, mem.liveryUntil = "tallow", DayOf(m.now())+2
+	// The purse empties between the checks, the way a climb would.
+	y.onAdd = func() { s.mu.Lock(); mem.purse = 0; s.mu.Unlock() }
+	hide, _ := dyeOf("hide")
+	if _, err := m.leased(ctx, 3, 5, hide); !errors.Is(err, errDyeShort) {
+		t.Fatalf("a lease the purse emptied under: %v", err)
+	}
+	if got := strings.Join(y.writes, ", "); got != "add 98, remove 30, remove 98, add 30" || mem.livery != "tallow" {
+		t.Errorf("not undone: %s, %q", got, mem.livery)
 	}
 }

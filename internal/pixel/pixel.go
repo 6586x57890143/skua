@@ -110,7 +110,9 @@ type Mark struct {
 
 // New is a w by h canvas over the dark backdrop.
 func New(w, h int) *Canvas {
-	c := &Canvas{Paletted: image.NewPaletted(image.Rect(0, 0, w, h), Palette)}
+	// Clipped, so a colour a canvas adds goes into a copy of its own and
+	// never into the shared Palette's spare room.
+	c := &Canvas{Paletted: image.NewPaletted(image.Rect(0, 0, w, h), slices.Clip(Palette))}
 	c.Fill(c.Rect, Line)
 	return c
 }
@@ -340,7 +342,6 @@ func (c *Canvas) Portrait(img image.Image, p image.Point, scale int) {
 // and past that takes the nearest ink there.
 func (c *Canvas) Picture(img image.Image, p image.Point, scale int) {
 	b := img.Bounds()
-	c.Palette = slices.Clip(c.Palette)
 	known := map[[4]uint32]uint8{}
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
@@ -348,15 +349,7 @@ func (c *Canvas) Picture(img image.Image, p image.Point, scale int) {
 			r, g, bl, a := col.RGBA()
 			i, ok := known[[4]uint32{r, g, bl, a}]
 			if !ok {
-				at := slices.IndexFunc(c.Palette, func(have color.Color) bool { return same(have, col) })
-				if at < 0 && len(c.Palette) < 256 {
-					c.Palette = append(c.Palette, col)
-					at = len(c.Palette) - 1
-				}
-				if at < 0 {
-					at = c.Palette.Index(col)
-				}
-				i = uint8(at)
+				i = c.ink(col)
 				known[[4]uint32{r, g, bl, a}] = i
 			}
 			q := p.Add(image.Pt(x-b.Min.X, y-b.Min.Y).Mul(scale))
@@ -369,8 +362,12 @@ func (c *Canvas) Picture(img image.Image, p image.Point, scale int) {
 // there's room, like a Picture's colours, and past that the nearest ink:
 // a colour only this canvas needs, such as a livery's.
 func (c *Canvas) Dye(rgb uint32) uint8 {
-	col := color.RGBA{uint8(rgb >> 16), uint8(rgb >> 8), uint8(rgb), 255}
-	c.Palette = slices.Clip(c.Palette)
+	return c.ink(color.RGBA{uint8(rgb >> 16), uint8(rgb >> 8), uint8(rgb), 255})
+}
+
+// ink is col's index in c's palette, joining it while there's room, and
+// past that the nearest ink there.
+func (c *Canvas) ink(col color.Color) uint8 {
 	if at := slices.IndexFunc(c.Palette, func(have color.Color) bool { return same(have, col) }); at >= 0 {
 		return uint8(at)
 	}

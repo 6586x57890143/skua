@@ -74,7 +74,10 @@ type seat struct {
 
 // server is one guild's state, behind its own lock.
 type server struct {
-	mu      sync.Mutex
+	mu sync.Mutex
+	// leasing is held through a lease or a fade, round its Discord calls,
+	// so one member's liveries change one at a time.
+	leasing sync.Mutex
 	members map[snowflake.ID]*member
 	seats   map[snowflake.ID]*seat
 	// banners are those wearing the server's invite in their custom
