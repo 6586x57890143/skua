@@ -116,13 +116,14 @@ Most notices on the board are one bird's work. Some are taken in company,
 and the rookery has two ways of signing for that.
 
 A **chirograph** is a notice taken by two. The board's clerk writes it out
-twice on one sheet, writes a word across the gap between the copies and
-cuts the sheet through the word along a wavy line, and each bird keeps a
-half. Nobody but the clerk knows the word. When the work is done they bring both halves to
-the pot's rim, and a raven of the counting house fits them together. If the
-word and the teeth match, the pot pays each of them a little over what the notice is
-worth. The ravens enter the extra as **the joinder** and have never agreed
-on why the pot pays it. The sump says the pot likes company.
+twice on one sheet, writes a word across the gap between the copies and cuts
+the sheet through the word along a wavy line, and each bird keeps a half.
+Nobody but the clerk knows the word. When the work is done they bring both
+halves to the pot's rim, and a raven of the counting house fits them
+together. If the word and the teeth match, the pot pays each of them a
+little over what the notice is worth. The ravens enter the extra as **the
+joinder** and have never agreed on why the pot pays it. The sump says the
+pot likes company.
 
 A **round robin** is a notice signed by three or four birds in a ring, so
 that no name stands first. The ferrymen and the pit crews sign their
