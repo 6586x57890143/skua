@@ -54,6 +54,8 @@ type member struct {
 	// questsDone how many ever finished.
 	quests               []heldQuest
 	questDay, questsDone int64
+	// laurels are the weekly checkpoints they've placed at this season.
+	laurels int64
 	// pact is the chirograph or round robin they've signed, shared with
 	// its other signers, and signs what signing in company has taught them.
 	pact  *pact
@@ -246,7 +248,7 @@ func (st *state) roll(s *server, m *member, guild, user snowflake.ID, today int6
 		m.week, m.weekAct, m.dirty = w, [Boards]int64{}, true
 	}
 	if season, _ := st.bal().Season(today); m.season != season {
-		m.season, m.seasonPP, m.dirty = season, 0, true
+		m.season, m.seasonPP, m.laurels, m.dirty = season, 0, 0, true
 	}
 	st.deal(s, m, guild, user, today)
 }

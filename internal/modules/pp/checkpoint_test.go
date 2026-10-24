@@ -66,6 +66,16 @@ func TestCheckpoint(t *testing.T) {
 	if prizes != 10 {
 		t.Errorf("%d prize rows; want two for each of five places", prizes)
 	}
+	// Each place wears a laurel, the sixth none.
+	for i := range 6 {
+		want := int64(1)
+		if i == 0 {
+			want = 0
+		}
+		if got := s.members[old(i+1)].laurels; got != want {
+			t.Errorf("place %d has %d laurels; want %d", 6-i, got, want)
+		}
+	}
 
 	last := DayOf(monday)
 	m.now = func() time.Time { return monday.Add(time.Minute) }
