@@ -154,7 +154,7 @@ stair keeps and enforces with writs. Height decides it:
   brings up from the low town. The dyers can't colour it: it shows every
   colour the shell held, and nobody asks whose shells they were. The same
   perch may sew on a **device**, the small badge worn at the shoulder.
-- Past the bell, where the stair runs out, a livery doesn't fade. The yard
+- Past the bell a livery doesn't fade. The yard
   leases it by the season instead of the week, and nobody up there has ever
   said why the dye holds.
 

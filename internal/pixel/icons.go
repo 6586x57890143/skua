@@ -483,12 +483,12 @@ var screenIcons = map[string][]string{}
 // Perches are the rookery stair's rungs in order, the perch in each one's
 // material: tallow, shale, chitin, pale glass, a drowned bell's bronze,
 // and past them one nobody made.
-var Perches = []string{"perch_tallow", "perch_shale", "perch_chitin", "perch_glass", "perch_bell", "perch_nameless"}
+var Perches = []string{"perch_tallow", "perch_shale", "perch_chitin", "perch_glass", "perch_bell", "perch_whalebone", "perch_nameless"}
 
 // perchInks is the wood each perch's material takes the place of.
 var perchInks = map[string]string{
 	"perch_tallow": "pqrw", "perch_shale": "EFGH", "perch_chitin": "LMNO",
-	"perch_glass": "TUVW", "perch_bell": "PQRS", "perch_nameless": "ABCD",
+	"perch_glass": "TUVW", "perch_bell": "PQRS", "perch_whalebone": "FGHw", "perch_nameless": "ABCD",
 }
 
 func init() {

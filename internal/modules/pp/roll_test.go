@@ -51,7 +51,7 @@ func TestSeasonLease(t *testing.T) {
 	if d, w, a := term(5); d != leaseDays || w != 1 || a != leaseCap {
 		t.Errorf("the bell: %d %d %d", d, w, a)
 	}
-	top := int64(len(perches))
+	top := int64(pastTheBell)
 	if d, w, a := term(top); d != seasonDays || w != seasonWeeks || a != 2*seasonDays {
 		t.Errorf("past the bell: %d %d %d", d, w, a)
 	}

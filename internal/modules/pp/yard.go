@@ -35,10 +35,13 @@ const (
 	seasonDays, seasonWeeks = 28, 3
 )
 
+// pastTheBell is the first rung above the drowned bell.
+const pastTheBell = 6
+
 // term is a lease as a member on rung leases it: its days, the weeks it
 // costs, and how far ahead leases may run.
 func term(rung int64) (days, weeks, ahead int64) {
-	if rung >= int64(len(perches)) {
+	if rung >= pastTheBell {
 		return seasonDays, seasonWeeks, 2 * seasonDays
 	}
 	return leaseDays, 1, leaseCap

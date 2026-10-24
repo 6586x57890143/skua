@@ -24,8 +24,8 @@ type Look struct {
 
 // lookOf is the look rung buys: bold with the perch beside it, so the
 // first rung already shows, then slate, then chitin red, then a pale glass
-// plate, then a bronze plate under the book hand, then gilt on a dark plate
-// in a gilt frame.
+// plate, then a bronze plate under the book hand, then gilt on a dark
+// plate, and at the top that plate in a gilt frame.
 func lookOf(rung int64) Look {
 	l := Look{Face: pixel.Regular, Ink: pixel.Ink}
 	if rung >= 1 {
@@ -44,7 +44,10 @@ func lookOf(rung int64) Look {
 		l.Plate, l.Face, l.Ink = pixel.Bronze, pixel.Serif, pixel.Ink
 	}
 	if rung >= 6 {
-		l.Plate, l.Ink, l.Frame = pixel.Line, pixel.Gilt, true
+		l.Plate, l.Ink = pixel.Line, pixel.Gilt
+	}
+	if rung >= 7 {
+		l.Frame = true
 	}
 	if rung > int64(len(perches)) {
 		l.Count = rung
