@@ -298,7 +298,7 @@ func kindOf(t *testing.T, tier int, metric string) int {
 	return 0
 }
 
-// A crowd counts a voice minute with two or more others, a stream or a
+// A crowd counts a voice minute with three or more in the room, a stream or a
 // camera counts only its own, and only a bird earning is counted.
 func TestVoiceQuests(t *testing.T) {
 	st := newState(&Default, 42)
