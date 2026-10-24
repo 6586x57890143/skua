@@ -72,6 +72,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.setLog(ctx, *guild, e)
 	case id == "pp:selfies":
 		return m.setSelfies(ctx, *guild, e)
+	case id == "pp:anchor", id == "pp:heralds":
+		return m.setLivery(ctx, *guild, e)
 	case id == "pp:keys":
 		return m.openKeys(e)
 	case id == "pp:redeem":

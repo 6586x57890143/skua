@@ -57,6 +57,8 @@ type Module struct {
 	// draws drand's randomness for the season seeds.
 	rest   rest.Rest
 	beacon Beacon
+	// self is skua's own user, once she is up.
+	self snowflake.ID
 }
 
 // New loads what /pp has kept. seed keeps each member's daily pool from
@@ -85,9 +87,10 @@ func (*Module) Want() intents.Want {
 	}
 }
 
-// Perms: the herald posts the ledger in a channel the server picks.
+// Perms: the herald posts the ledger in a channel the server picks, and
+// liveries are roles she makes and hands out.
 func (*Module) Perms() discord.Permissions {
-	return discord.PermissionViewChannel | discord.PermissionSendMessages
+	return discord.PermissionViewChannel | discord.PermissionSendMessages | discord.PermissionManageRoles
 }
 
 // Gate is how the minute's work skips a server that switched /pp off.
@@ -162,7 +165,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"sinks", sinks},
 		{"banners", strconv.Itoa(banners)},
 		{"presences", presence},
-	}, Controls: slices.Concat(m.betaControls(guild), m.keyControls(), m.logControls(guild), m.selfieControls(guild), m.grantControls())}
+	}, Controls: slices.Concat(m.betaControls(guild), m.keyControls(), m.logControls(guild), m.selfieControls(guild), m.liveryControls(guild), m.grantControls())}
 }
 
 // Modals are the grant, key and redeem forms.
@@ -205,6 +208,7 @@ func (m *Module) OnEvent(ev bot.Event) {
 	case *events.Ready:
 		m.boot.Do(func() {
 			m.rest = e.Client().Rest
+			m.self = e.User.ID
 			go m.loop(context.Background())
 		})
 	case *events.GuildReady:

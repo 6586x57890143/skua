@@ -118,6 +118,9 @@ type server struct {
 	heavy                            bool
 	// selfies is the channel selfie quests count pictures in, 0 none.
 	selfies snowflake.ID
+	// anchor is the role liveries sit directly under, and heralds the
+	// channel livery petitions are posted in for review; 0 none.
+	anchor, heralds snowflake.ID
 }
 
 func newServer(id snowflake.ID) *server {
