@@ -27,9 +27,9 @@ var (
 	// the windows and a tab's ground; Glove is the cursor's white and a
 	// tab's letters.
 	Line, Glove uint8
-	// Slate, Glass, Bronze, Sea and Gilt are the rookery stair's: a name's
-	// ink and the plates set behind a line.
-	Slate, Glass, Bronze, Sea, Gilt uint8
+	// Slate, Smalt, Glass, Bronze, Sea and Gilt are the rookery stair's: a
+	// name's ink and the plates set behind a line.
+	Slate, Smalt, Glass, Bronze, Sea, Gilt uint8
 	// Yellow, Blue and Crimson are the gauges, after Tactics Ogre's, each
 	// lit along its top row and shaded along its foot.
 	Yellow, Blue, Crimson uint8
@@ -71,7 +71,8 @@ func init() {
 	Line = add(rgb(0x4D4B3C))
 	Glove = add(rgb(0xF2EEE2))
 	Slate = add(rgb(0x4A5666))
-	Glass = add(rgb(0xE4E8DE))
+	Smalt = add(rgb(0x2B4C86)) // blue glass, the glass rung's letters
+	Glass = add(rgb(0xCCDCE4)) // cloudy with ash and lamp smoke
 	Bronze = add(rgb(0xC49A5C))
 	Sea = add(rgb(0x1F3A42)) // cold and deep, for the whalebone rung
 	Gilt = add(rgb(0xF0C35A))

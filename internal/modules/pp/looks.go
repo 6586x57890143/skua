@@ -29,9 +29,10 @@ type Look struct {
 var paragonTints = []uint32{0x2a2433, 0x1f2d2e, 0x2e2620, 0x24262e, 0x2b2028, 0x232b22}
 
 // lookOf is the look rung buys: bold with the perch beside it, so the
-// first rung already shows, then slate, then chitin red, then a pale glass
-// plate, then a bronze plate under the book hand, then bone white on a
-// cold sea, and at the top gilt on a dark plate in a gilt frame.
+// first rung already shows, then slate, then chitin red, then smalt blue
+// on a pale glass plate, then a bronze plate under the book hand, then
+// bone white on a cold sea, and at the top gilt on a dark plate in a gilt
+// frame.
 func lookOf(rung int64) Look {
 	l := Look{Face: pixel.Regular, Ink: pixel.Ink}
 	if rung >= 1 {
@@ -44,7 +45,7 @@ func lookOf(rung int64) Look {
 		l.Ink = pixel.Red
 	}
 	if rung >= 4 {
-		l.Plate = pixel.Glass
+		l.Plate, l.Ink = pixel.Glass, pixel.Smalt
 	}
 	if rung >= 5 {
 		l.Plate, l.Face, l.Ink = pixel.Bronze, pixel.Serif, pixel.Ink
