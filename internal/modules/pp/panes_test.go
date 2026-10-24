@@ -67,6 +67,16 @@ func TestPanes(t *testing.T) {
 		save("livery_"+d.key+".jpg", itemCanvas(Item{Kind: "livery", Name: d.name, What: d.what, Story: d.story, Effect: d.effect, Price: 407 * unit,
 			You: names[d.color%3*3], Dye: d.color, Garment: garments[d.key]}))
 	}
+	// The notices: the board with nothing held, a chirograph half signed
+	// and a round robin under way.
+	board := []Posted{{Ring: true, By: "steve", Places: 2}, {By: "tester", Places: 1}, {Ring: true, By: names[3], Places: 1}}
+	save("notices_board.jpg", noticesCanvas("heavywinds", nil, board))
+	save("notices_empty.jpg", noticesCanvas("heavywinds", nil, nil))
+	sig := func(i int, min int64) NoticeSigner {
+		return NoticeSigner{Name: names[i%len(names)], Portrait: Portrait(Classes[i%len(Classes)]), Minutes: min}
+	}
+	save("notices_pair.jpg", noticesCanvas("heavywinds", &Notice{Signers: []NoticeSigner{sig(0, 0)}, Places: 2, Goal: 30, Pays: "60 pp each"}, board))
+	save("notices_ring.jpg", noticesCanvas("heavywinds", &Notice{Ring: true, Signers: []NoticeSigner{sig(1, 17), sig(3, 17), sig(6, 12)}, Places: 4, Together: 17, Goal: 30, Pays: "90 / 120 pp each"}, nil))
 	var named []BoardRow
 	for n := range int64(10) {
 		named = append(named, BoardRow{Place: int(n) + 1, Icon: icons[n], Name: names[n], Rung: n, Class: Classes[n%8].Name(), Value: "lv 9", You: n == 4})

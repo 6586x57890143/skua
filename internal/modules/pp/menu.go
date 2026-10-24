@@ -99,8 +99,15 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return errBeta
 	}
 	id := e.Data.CustomID()
-	if strings.HasPrefix(id, "pp:reroll:") {
+	switch {
+	case strings.HasPrefix(id, "pp:reroll:"):
 		return m.rerollPicked(*guild, e)
+	case id == "pp:pact:2", id == "pp:pact:4":
+		return m.postPact(*guild, e, id == "pp:pact:4")
+	case strings.HasPrefix(id, "pp:sign:"), id == "pp:signpick":
+		return m.signPact(*guild, e)
+	case id == "pp:rally":
+		return m.rally(*guild, e)
 	}
 	var msg discord.MessageCreate
 	var err error
@@ -138,6 +145,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		msg, err = m.treasuryMessage(ctx, *guild)
 	case id == "pp:quests":
 		msg, err = m.questsMessage(*guild, e.Member())
+	case id == "pp:notices":
+		msg, err = m.noticesMessage(*guild, e.Member())
 	case id == "pp:buffs":
 		msg, err = m.buffsMessage(*guild, e.Member())
 	case id == "pp:shop", id == "pp:climb", id == "pp:look", id == "pp:back":
@@ -335,15 +344,15 @@ func menuRows(class string, admin bool, current string) []discord.ContainerSubCo
 	if current == "pp:status" {
 		home = btn("share", "pp:show", "bell")
 	}
-	act := discord.NewActionRow(home, btn("lore", "pp:class", classIcons[class]), btn("buffs", "pp:buffs", "hearth"))
+	rows := []discord.ContainerSubComponent{
+		discord.NewActionRow(btn("quests", "pp:quests", "compass"), btn("notices", "pp:notices", "envelope"),
+			btn("board", "pp:board", "laurel"), btn("shop", "pp:shop", "scales")),
+		discord.NewActionRow(home, btn("lore", "pp:class", classIcons[class]), btn("buffs", "pp:buffs", "hearth"), btn("journal", "pp:ledger", "quill")),
+	}
 	if admin {
-		act = act.AddComponents(btn("treasury", "pp:treasury", "pot"))
+		rows = append(rows, discord.NewActionRow(btn("treasury", "pp:treasury", "pot")))
 	}
-	return []discord.ContainerSubComponent{
-		discord.NewActionRow(btn("quests", "pp:quests", "compass"), btn("board", "pp:board", "laurel"),
-			btn("shop", "pp:shop", "scales"), btn("journal", "pp:ledger", "quill")),
-		act,
-	}
+	return rows
 }
 
 // withIcon is b wearing the pp_<icon> emoji, once the emoji have synced.
