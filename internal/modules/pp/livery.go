@@ -155,7 +155,8 @@ func (m *Module) editRole(ctx context.Context, guild, role snowflake.ID, l look,
 	if !bare(roles, guild, role, at) {
 		return errNotLivery
 	}
-	update := discord.RoleUpdate{Name: &l.name, Colors: omit.NewPtr(l.colors)}
+	// The icon is always sent: none clears one the role had.
+	update := discord.RoleUpdate{Name: &l.name, Colors: omit.NewPtr(l.colors), Icon: omit.New[*discord.Icon](nil)}
 	if l.icon != nil {
 		update.Icon = omit.New(discord.NewIconRaw(discord.IconTypePNG, l.icon))
 	}
@@ -261,7 +262,7 @@ func (m *Module) liverySettings(guild snowflake.ID) []discord.ContainerSubCompon
 		discord.NewTextDisplay("### liveries\n-# roles bought in the shop sit directly under the anchor, so put it above the server's other colour roles and below staff; skua's own role must be above it. petitions for a livery of one's own go to the heralds' channel for a moderator to grant or refuse"),
 		discord.NewActionRow(role),
 		discord.NewActionRow(ch),
-	}, m.yardControls(guild)...)
+	}, append(m.yardControls(guild), m.waiting(guild)...)...)
 }
 
 // setLivery keeps the anchor or the heralds' channel an admin picked, or

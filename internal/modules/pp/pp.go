@@ -87,10 +87,11 @@ func (*Module) Want() intents.Want {
 	}
 }
 
-// Perms: the herald posts the ledger in a channel the server picks, and
-// liveries are roles she makes and hands out.
+// Perms: the herald posts the ledger in a channel the server picks, the
+// heralds' desk posts petitions with their devices, and liveries are roles
+// she makes and hands out.
 func (*Module) Perms() discord.Permissions {
-	return discord.PermissionViewChannel | discord.PermissionSendMessages | discord.PermissionManageRoles
+	return discord.PermissionViewChannel | discord.PermissionSendMessages | discord.PermissionAttachFiles | discord.PermissionManageRoles
 }
 
 // Gate is how the minute's work skips a server that switched /pp off.
@@ -170,7 +171,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 
 // Modals are the grant, key and redeem forms.
 func (m *Module) Modals() []core.Modal {
-	return []core.Modal{{ID: grantForm, Run: m.submitGrant}, {ID: keyForm, Run: m.submitKeys}, {ID: redeemForm, Run: m.submitRedeem}, {ID: ownForm, Run: m.submitOwn}}
+	return []core.Modal{{ID: grantForm, Run: m.submitGrant}, {ID: keyForm, Run: m.submitKeys}, {ID: redeemForm, Run: m.submitRedeem}, {ID: ownForm, Run: m.submitOwn}, {ID: heraldForm, Run: m.refusePetition}}
 }
 
 // savings is how much the server's active members (seen in the last 28

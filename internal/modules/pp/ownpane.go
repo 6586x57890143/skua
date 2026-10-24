@@ -2,6 +2,7 @@ package pp
 
 import (
 	"image"
+	"strings"
 
 	"github.com/6586x57890143/skua/internal/pixel"
 )
@@ -15,6 +16,11 @@ type Own struct {
 	Week   int64 // pp hundredths
 	Fee    int64
 	Purse  int64
+	// Letter is the heralds' last word, "" for none; Wearing is whether the
+	// member wears a livery of their own now, with Left days on its lease.
+	Letter  string
+	Wearing bool
+	Left    int64
 }
 
 // The two themes a name is shown on: Discord's dark member list and its
@@ -52,6 +58,18 @@ func ownCanvas(o Own) *pixel.Canvas {
 				c.Picture(shrink(o.Icon, 16, theme), image.Pt(22, paneTop(show)+i*40+5), 1)
 			}
 		}
+	}
+	// Under the plates: the heralds' word and the lease on what's worn.
+	foot := show.Max.Y - 19
+	if o.Letter != "" {
+		ink := pixel.Dim
+		if strings.HasPrefix(o.Letter, "refused") {
+			ink = pixel.Red
+		}
+		c.FitIn(pixel.Light, 18, foot, "the heralds: "+o.Letter, ink, 230)
+	}
+	if o.Wearing {
+		right(c, 368, foot, "worn · "+leftWords(o.Left), pixel.Green)
 	}
 
 	weave := image.Rect(4, 124, 192, 212)

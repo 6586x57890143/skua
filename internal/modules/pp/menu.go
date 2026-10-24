@@ -90,6 +90,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 			return errNotAdmin
 		}
 		return e.Modal(grantModal())
+	case strings.HasPrefix(id, "pp:herald:"):
+		return m.herald(ctx, *guild, e)
 	case strings.HasPrefix(id, "pp:approve:"), strings.HasPrefix(id, "pp:refuse:"):
 		return m.settle(ctx, *guild, e, strings.HasPrefix(id, "pp:approve:"))
 	}

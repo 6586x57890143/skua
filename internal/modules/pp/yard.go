@@ -11,7 +11,6 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
-	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/brand"
@@ -84,7 +83,7 @@ func (s *server) setDye(key string, role snowflake.ID) {
 func (st *state) leasePrice(d dye) int64 { return st.pot() * d.price / 100 }
 
 // yardMessage is page of the yard as mem sees it. s.mu held.
-func (st *state) yardMessage(mem *member, page int, today int64) (discord.MessageCreate, error) {
+func (st *state) yardMessage(s *server, user snowflake.ID, mem *member, page int, today int64) (discord.MessageCreate, error) {
 	title := "the sump's trades"
 	if page == factionsPage {
 		title = "the factions"
@@ -110,7 +109,7 @@ func (st *state) yardMessage(mem *member, page int, today int64) (discord.Messag
 		}
 		look = append(look, o)
 	}
-	wear := st.wearing(mem, today)
+	wear := st.wearing(s, user, mem, today)
 	pic, err := YardScreen(title, rows, mem.purse, wear)
 	if err != nil {
 		return discord.MessageCreate{}, err
@@ -146,7 +145,10 @@ func (st *state) yardMessage(mem *member, page int, today int64) (discord.Messag
 }
 
 // wearing is the livery mem wears, for a screen's corner. s.mu held.
-func (st *state) wearing(mem *member, today int64) Livery {
+func (st *state) wearing(s *server, user snowflake.ID, mem *member, today int64) Livery {
+	if mem.livery == ownKey {
+		return Livery{Name: "your own livery", Color: s.own[user].color, Left: mem.liveryUntil - today}
+	}
 	d, ok := dyeOf(mem.livery)
 	if !ok {
 		return Livery{}
@@ -203,19 +205,20 @@ func (m *Module) yard(ctx context.Context, guild snowflake.ID, e *events.Compone
 	case id == "pp:ownwrite":
 		return m.openOwn(guild, e)
 	case id == "pp:own":
-		today := DayOf(m.now())
-		s := m.st.server(guild)
-		s.mu.Lock()
-		mem, d := *m.st.member(s, guild, user, today), s.drafts[user]
-		s.mu.Unlock()
-		if mem.rung < ownStyles[0].rung {
-			return errOwnPerch
-		}
-		msg, err := m.st.ownMessage(&mem, d)
+		msg, err := m.ownPage(ctx, guild, user)
 		if err != nil {
 			return err
 		}
 		return m.answer(guild, e, msg, "pp:shop")
+	case id == "pp:ownsend", id == "pp:ownweek":
+		// A send posts to the heralds and a week dresses the member: both
+		// longer than an interaction may wait.
+		return m.deferred(ctx, guild, e, func() error {
+			if id == "pp:ownsend" {
+				return m.sendPetition(ctx, guild, user)
+			}
+			return m.leaseOwn(ctx, guild, user)
+		}, func() (discord.MessageCreate, error) { return m.ownPage(ctx, guild, user) })
 	case strings.HasPrefix(id, "pp:lease:"):
 		d, ok := dyeOf(strings.TrimPrefix(id, "pp:lease:"))
 		if !ok {
@@ -223,23 +226,11 @@ func (m *Module) yard(ctx context.Context, guild snowflake.ID, e *events.Compone
 		}
 		// Making a role and dressing a member are a few calls to Discord,
 		// longer than an interaction may wait.
-		if err := e.DeferUpdateMessage(); err != nil {
+		var msg discord.MessageCreate
+		return m.deferred(ctx, guild, e, func() (err error) {
+			msg, err = m.leased(ctx, guild, user, d)
 			return err
-		}
-		msg, err := m.leased(ctx, guild, user, d)
-		if err != nil {
-			if _, isTell := errors.AsType[core.Tell](err); !isTell {
-				m.log.Warn("pp: a lease", "guild", guild, "livery", d.key, "err", err)
-				err = core.Tell("the dyers couldn't dress you just now; try again in a while")
-			}
-			_, ferr := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), discord.MessageCreate{
-				Content: err.Error(), Flags: discord.MessageFlagEphemeral, AllowedMentions: core.NoPings()}, rest.WithCtx(ctx))
-			return ferr
-		}
-		msg = m.withMenu(guild, user, m.Admin != nil && m.Admin(e), msg, "pp:shop")
-		_, err = e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(),
-			core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...), rest.WithCtx(ctx))
-		return err
+		}, func() (discord.MessageCreate, error) { return msg, nil })
 	case id == "pp:dye":
 		data, ok := e.Data.(discord.StringSelectMenuInteractionData)
 		if !ok || len(data.Values) != 1 {
@@ -258,7 +249,7 @@ func (m *Module) yard(ctx context.Context, guild snowflake.ID, e *events.Compone
 	today := DayOf(m.now())
 	s := m.st.server(guild)
 	s.mu.Lock()
-	msg, err := m.st.yardMessage(m.st.member(s, guild, user, today), page, today)
+	msg, err := m.st.yardMessage(s, user, m.st.member(s, guild, user, today), page, today)
 	s.mu.Unlock()
 	if err != nil {
 		return err
@@ -304,7 +295,7 @@ func (m *Module) leased(ctx context.Context, guild, user snowflake.ID, d dye) (d
 	s.mu.Lock()
 	mem := m.st.member(s, guild, user, today)
 	err := check(mem)
-	old, was := mem.livery, s.dyeRoles[mem.livery]
+	old, was := mem.livery, wornRole(s, user, mem)
 	s.mu.Unlock()
 	if err != nil {
 		return discord.MessageCreate{}, err
@@ -347,11 +338,30 @@ func (m *Module) leased(ctx context.Context, guild, user snowflake.ID, d dye) (d
 	mem.livery, mem.liveryUntil = d.key, from+leaseDays
 	m.st.burn(s, user, today, reasonLease, price, []int64{int64(dyeIndex(d.key)), mem.liveryUntil})
 	mem.dirty = true
+	if old == ownKey {
+		delete(s.own, user)
+	}
 	msg, err := m.st.dyeMessage(mem, d, today)
 	s.mu.Unlock()
 	// What was paid lands with its ledger row now, not at the minute.
 	m.Save()
+	// A livery of one's own given up for a trade's or a faction's goes as
+	// it would have faded: its role and its petition with it.
+	if old == ownKey && was != 0 {
+		m.retireOwn(ctx, guild, was)
+	}
 	return msg, err
+}
+
+// retireOwn deletes a livery of one's own's role and lapses its petition.
+func (m *Module) retireOwn(ctx context.Context, guild, role snowflake.ID) {
+	if err := m.dropRole(ctx, guild, role, "a livery of their own given up"); err != nil && !errors.Is(err, errNotLivery) {
+		m.log.Warn("pp: deleting a livery given up", "guild", guild, "err", err)
+	}
+	if _, err := m.db.Exec(ctx, `update pp_petition set state = 'lapsed' where guild_id = $1 and role_id = $2 and state = 'granted'`,
+		int64(guild), int64(role)); err != nil {
+		m.log.Warn("pp: lapsing a petition", "guild", guild, "err", err)
+	}
 }
 
 // undress takes role back off user after a lease that didn't go through,
@@ -448,12 +458,19 @@ func (m *Module) fadeIn(ctx context.Context, guild snowflake.ID, s *server, toda
 		}
 		return
 	}
-	type due struct{ user, role snowflake.ID }
+	type due struct {
+		user, role snowflake.ID
+		own        bool
+	}
 	var dues []due
 	s.mu.Lock()
 	for u, mem := range s.members {
 		if mem.livery != "" && today >= mem.liveryUntil+fadeDays {
-			dues = append(dues, due{u, s.dyeRoles[mem.livery]})
+			d := due{u, s.dyeRoles[mem.livery], mem.livery == ownKey}
+			if d.own {
+				d.role = s.own[u].role
+			}
+			dues = append(dues, d)
 		}
 	}
 	s.mu.Unlock()
@@ -468,9 +485,25 @@ func (m *Module) fadeIn(ctx context.Context, guild snowflake.ID, s *server, toda
 				continue
 			}
 		}
+		// A livery of one's own is its member's alone: its role goes with
+		// it, and its petition lapses.
+		if d.own && d.role != 0 {
+			if err := m.dropRole(ctx, guild, d.role, "a livery's lease ran out"); err != nil && !errors.Is(err, errNotLivery) {
+				m.log.Warn("pp: deleting a faded livery", "guild", guild, "err", err)
+				continue
+			}
+			if _, err := m.db.Exec(ctx, `update pp_petition set state = 'lapsed' where guild_id = $1 and role_id = $2 and state = 'granted'`,
+				int64(guild), int64(d.role)); err != nil {
+				m.log.Warn("pp: lapsing a petition", "guild", guild, "err", err)
+				continue
+			}
+		}
 		s.mu.Lock()
 		if mem := s.members[d.user]; mem != nil && today >= mem.liveryUntil+fadeDays {
 			mem.livery, mem.liveryUntil, mem.dirty = "", 0, true
+			if d.own {
+				delete(s.own, d.user)
+			}
 		}
 		s.mu.Unlock()
 	}

@@ -197,7 +197,7 @@ func TestLiveryFence(t *testing.T) {
 	if err := m.editRole(ctx, 3, 30, look{name: "renamed", colors: discord.RoleColors{PrimaryColor: 7}}, "x"); err != nil {
 		t.Fatal(err)
 	}
-	if *r.updated.Name != "renamed" || !strings.Contains(js(r.updated), `"primary_color":7`) || strings.Contains(js(r.updated), "icon") {
+	if *r.updated.Name != "renamed" || !strings.Contains(js(r.updated), `"primary_color":7`) || !strings.Contains(js(r.updated), `"icon":null`) {
 		t.Errorf("the edit: %s", js(r.updated))
 	}
 	if err := m.dress(ctx, 3, 5, 30, true, "x"); err != nil {
