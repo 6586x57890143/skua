@@ -4,6 +4,7 @@ go 1.27.2
 
 require (
 	github.com/6586x57890143/cygnet/link v0.9.0
+	github.com/bluenviron/mediacommon/v2 v2.9.6
 	github.com/btcsuite/btcd/btcec/v2 v2.5.0
 	github.com/disgoorg/disgo v0.19.6
 	github.com/disgoorg/omit v1.0.0
@@ -18,6 +19,9 @@ require (
 
 require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
+	github.com/abema/go-mp4 v1.7.3 // indirect
+	github.com/asticode/go-astikit v0.30.0 // indirect
+	github.com/asticode/go-astits v1.16.0 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.5 // indirect
 	github.com/btcsuite/btcd/chainhash/v2 v2.0.0 // indirect
 	github.com/bytedance/sonic v1.13.1 // indirect
@@ -28,6 +32,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/disgoorg/godave v0.1.0 // indirect
 	github.com/disgoorg/json/v2 v2.0.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect

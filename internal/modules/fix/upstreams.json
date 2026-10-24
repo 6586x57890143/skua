@@ -37,6 +37,16 @@
         "LICENSE",
         "*.py"
       ]
+    },
+    {
+      "repository": "yt-dlp/yt-dlp",
+      "revision": "fa9886678eb65103303c627b8e013f13f8999b41",
+      "license": "Unlicense",
+      "branch": "master",
+      "paths": [
+        "yt_dlp/extractor/kick.py",
+        "yt_dlp/extractor/common.py"
+      ]
     }
   ]
 }

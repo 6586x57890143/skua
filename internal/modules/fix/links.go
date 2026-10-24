@@ -13,7 +13,9 @@ import (
 type Link struct{ Platform, URL, ID, Account string }
 
 var (
-	platformHosts  = map[string]string{"instagram.com": "instagram", "reddit.com": "reddit", "old.reddit.com": "reddit", "threads.net": "threads", "threads.com": "threads", "pixiv.net": "pixiv", "youtube.com": "youtube", "bilibili.com": "bilibili", "pinterest.com": "pinterest", "tiktok.com": "tiktok", "tumblr.com": "tumblr", "twitch.tv": "twitch", "deviantart.com": "deviantart"}
+	kickAccount    = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	kickClipID     = regexp.MustCompile(`^clip_[A-Za-z0-9_-]{1,96}$`)
+	platformHosts  = map[string]string{"instagram.com": "instagram", "reddit.com": "reddit", "old.reddit.com": "reddit", "threads.net": "threads", "threads.com": "threads", "pixiv.net": "pixiv", "youtube.com": "youtube", "bilibili.com": "bilibili", "pinterest.com": "pinterest", "tiktok.com": "tiktok", "tumblr.com": "tumblr", "twitch.tv": "twitch", "kick.com": "kick", "deviantart.com": "deviantart"}
 	shortHosts     = map[string]string{"redd.it": "reddit", "b23.tv": "bilibili", "pin.it": "pinterest", "vm.tiktok.com": "tiktok", "vt.tiktok.com": "tiktok", "clips.twitch.tv": "twitch", "sta.sh": "deviantart"}
 	twitchReserved = map[string]bool{"directory": true, "downloads": true, "inventory": true, "jobs": true, "p": true, "search": true, "settings": true, "subscriptions": true, "videos": true, "wallet": true}
 	shortPath      = regexp.MustCompile(`^/[A-Za-z0-9_-]+/?$`)
@@ -46,9 +48,22 @@ func Parse(raw string) (Link, bool) {
 		return Link{}, false
 	}
 	comment := u.Query().Get("comment")
+	kickClip := u.Query().Get("clip")
 	u.Host, u.RawQuery, u.Fragment, u.ForceQuery = host, "", "", false
 	l := Link{}
 	switch host {
+	case "kick.com":
+		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+		if len(parts) == 3 && parts[1] == "clips" {
+			kickClip = parts[2]
+		} else if len(parts) != 1 {
+			return Link{}, false
+		}
+		if !kickAccount.MatchString(parts[0]) || !kickClipID.MatchString(kickClip) {
+			return Link{}, false
+		}
+		l.Platform, l.ID, l.Account = "kick", kickClip, parts[0]
+		u.Path = "/" + parts[0] + "/clips/" + kickClip
 	case "x.com", "twitter.com", "fxtwitter.com", "fixupx.com", "vxtwitter.com":
 		p := xPost.FindStringSubmatch(u.Path)
 		if p == nil {

@@ -188,7 +188,7 @@ media rhythm without changing notify. Reddit's linked title leads, with the
 profile below; other platforms lead with the linked author and a smaller linked
 handle. Quoted posts get a small gap and their own identity. Replies, reposts,
 likes and views stay in that order, abbreviated like notify, above one quiet
-relative-time and attribution footer. Footer space is reserved for long posts.
+single-row stats, attribution and relative-time footer. Footer space is reserved for long posts.
 
 Ready accents follow the platform in muted suite colours. Loading is slate,
 incomplete media is amber, unavailable previews are red and sensitive posts are
