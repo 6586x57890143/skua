@@ -138,7 +138,7 @@ func (m *Module) treasuryMessage(ctx context.Context, guild snowflake.ID) (disco
 		from, period = DayOf(b.seasonStart(season)), fmt.Sprintf("season %d", season)
 	}
 	rows, err := m.db.Query(ctx, `select reason, user_id = 0, sum(delta)::bigint from pp_ledger
-		where guild_id = $1 and day >= $2 and (user_id = 0 or reason = 'quest') group by 1, 2`, int64(guild), from)
+		where guild_id = $1 and day >= $2 and (user_id = 0 or reason in ('quest', 'joinder')) group by 1, 2`, int64(guild), from)
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
@@ -158,8 +158,8 @@ func (m *Module) treasuryMessage(ctx context.Context, guild snowflake.ID) (disco
 			t.Prizes = -sum
 		case treasury && reason == reasonGrant:
 			t.Granted = -sum
-		case !treasury && reason == reasonQuest:
-			t.Quest = sum
+		case !treasury && (reason == reasonQuest || reason == reasonJoinder):
+			t.Quest += sum
 		}
 	}
 	rows.Close()

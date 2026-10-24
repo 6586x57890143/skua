@@ -3,6 +3,7 @@ package pp
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -46,16 +47,16 @@ func TestChirograph(t *testing.T) {
 	if _, err := st.post(s, guild, a, true, today); !errors.Is(err, errPactHeld) {
 		t.Errorf("a second notice: %v", err)
 	}
-	if _, err := st.sign(s, guild, a, a, today); !errors.Is(err, errPactYours) {
+	if _, err := st.sign(s, guild, a, today, a, today); !errors.Is(err, errPactYours) {
 		t.Errorf("signing your own: %v", err)
 	}
-	if _, err := st.sign(s, guild, a, snowflake.New(t0), today); !errors.Is(err, errPactYoung) {
+	if _, err := st.sign(s, guild, a, today, snowflake.New(t0), today); !errors.Is(err, errPactYoung) {
 		t.Errorf("a fresh account: %v", err)
 	}
-	if _, err := st.sign(s, guild, a, b, today); err != nil {
+	if _, err := st.sign(s, guild, a, today, b, today); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.sign(s, guild, a, c, today); !errors.Is(err, errPactHeld) && !errors.Is(err, errPactFull) {
+	if _, err := st.sign(s, guild, a, today, c, today); !errors.Is(err, errPactHeld) && !errors.Is(err, errPactFull) {
 		t.Errorf("a third signature: %v", err)
 	}
 	before := s.members[a].purse
@@ -90,7 +91,7 @@ func TestRoundRobin(t *testing.T) {
 	a, b, c, d, e := old(1), old(2), old(3), old(4), old(5)
 	p, _ := st.post(s, guild, a, true, today)
 	for _, u := range []snowflake.ID{b, c} {
-		if _, err := st.sign(s, guild, a, u, today); err != nil {
+		if _, err := st.sign(s, guild, a, today, u, today); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -99,7 +100,7 @@ func TestRoundRobin(t *testing.T) {
 		t.Fatal("two of a round robin counted")
 	}
 	at = together(st, s, at, 1, a, b, c)
-	if _, err := st.sign(s, guild, a, d, today); !errors.Is(err, errPactActive) {
+	if _, err := st.sign(s, guild, a, today, d, today); !errors.Is(err, errPactActive) {
 		t.Errorf("a signature once work started: %v", err)
 	}
 	together(st, s, at, int(Default.PactGoal)-1, a, b, c, e)
@@ -125,7 +126,7 @@ func TestFullRing(t *testing.T) {
 	us := []snowflake.ID{old(1), old(2), old(3), old(4), old(5)}
 	st.post(s, guild, us[0], true, today)
 	for _, u := range us[1:4] {
-		st.sign(s, guild, us[0], u, today)
+		st.sign(s, guild, us[0], today, u, today)
 	}
 	together(st, s, t0, int(Default.PactGoal), us[:4]...)
 	for _, u := range us[:4] {
@@ -141,7 +142,7 @@ func TestFullRing(t *testing.T) {
 	next := t0.Add(24 * time.Hour)
 	st.post(s, guild, us[0], true, DayOf(next))
 	for _, u := range us[1:4] {
-		st.sign(s, guild, us[0], u, DayOf(next))
+		st.sign(s, guild, us[0], DayOf(next), u, DayOf(next))
 	}
 	together(st, s, next, int(Default.PactGoal), us[:3]...)
 	if s.members[us[3]].signs.signatures != 1 || s.members[us[3]].pact != nil {
@@ -223,19 +224,19 @@ func TestNoticeButtons(t *testing.T) {
 		t.Fatalf("the notices with nothing up: %v", err)
 	}
 	sent, _, err = press("pp:pact:4", "")
-	if err != nil || (*sent)[0].Flags.Has(discord.MessageFlagEphemeral) || !strings.Contains(js((*sent)[0]), "pp:sign:5") || len((*sent)[0].Files) != 1 {
+	if err != nil || (*sent)[0].Flags.Has(discord.MessageFlagEphemeral) || !strings.Contains(js((*sent)[0]), "pp:sign:5:"+strconv.FormatInt(DayOf(t0), 10)) || len((*sent)[0].Files) != 1 {
 		t.Fatalf("the posted round robin: %v", err)
 	}
 	s.mu.Lock()
 	m.st.member(s, 3, 6, DayOf(t0)).class = "fighter"
 	s.mu.Unlock()
-	if _, updated, err := press("pp:sign:5", "6"); err != nil || !strings.Contains(updated, "pale clay") {
+	if _, updated, err := press("pp:sign:5:"+strconv.FormatInt(DayOf(t0), 10), "6"); err != nil || !strings.Contains(updated, "pale clay") {
 		t.Fatalf("signing on the post: %v %s", err, updated)
 	}
-	if _, _, err := press("pp:sign:5", "6"); !errors.Is(err, errPactHeld) {
+	if _, _, err := press("pp:sign:5:"+strconv.FormatInt(DayOf(t0), 10), "6"); !errors.Is(err, errPactHeld) {
 		t.Errorf("signed twice: %v", err)
 	}
-	if _, _, err := press("pp:sign:x", "7"); !errors.Is(err, errPactGone) {
+	if _, _, err := press("pp:sign:x:1", "7"); !errors.Is(err, errPactGone) {
 		t.Errorf("a sign button naming nobody: %v", err)
 	}
 	if sent, _, err := press("pp:notices", "7"); err != nil || !strings.Contains(js((*sent)[0]), "pp:signpick") {
@@ -243,7 +244,7 @@ func TestNoticeButtons(t *testing.T) {
 	}
 	e, _ := coretest.Button(t, "pp:signpick", func(p map[string]any) {
 		p["member"].(map[string]any)["user"].(map[string]any)["id"] = "7"
-		p["data"] = map[string]any{"custom_id": "pp:signpick", "component_type": 3, "values": []any{"5"}}
+		p["data"] = map[string]any{"custom_id": "pp:signpick", "component_type": 3, "values": []any{"5:" + strconv.FormatInt(DayOf(t0), 10)}}
 	})
 	e.Respond = func(discord.InteractionResponseType, discord.InteractionResponseData, ...rest.RequestOpt) error {
 		return nil
@@ -251,10 +252,40 @@ func TestNoticeButtons(t *testing.T) {
 	if err := m.press(context.Background(), e); err != nil || len(s.members[5].pact.signers) != 3 {
 		t.Fatalf("signing from the board: %v", err)
 	}
-	if sent, _, err := press("pp:rally", ""); err != nil || !strings.Contains(js((*sent)[0]), "pp:sign:5") {
+	if _, _, err := press("pp:rally", ""); !errors.Is(err, errPactRally) {
+		t.Errorf("put up again straight away: %v", err)
+	}
+	m.now = func() time.Time { return t0.Add(rallyWait) }
+	if sent, _, err := press("pp:rally", ""); err != nil || !strings.Contains(js((*sent)[0]), "pp:sign:5:"+strconv.FormatInt(DayOf(t0), 10)) {
 		t.Fatalf("putting it up again: %v", err)
+	}
+	// A post from an older notice by the same bird signs nothing.
+	if _, _, err := press("pp:sign:5:1", "9"); !errors.Is(err, errPactGone) {
+		t.Errorf("an old post signed a newer notice: %v", err)
 	}
 	if _, _, err := press("pp:rally", "8"); !errors.Is(err, errPactGone) {
 		t.Errorf("rallying with none held: %v", err)
+	}
+}
+
+// A signer there for half who left before the day turned is paid in the
+// day it finishes, and can't take a second joinder that day.
+func TestLateSignerPaidToday(t *testing.T) {
+	st := newState(&Default, 42)
+	s := st.server(guild)
+	start := dayStart(DayOf(t0) + 1).Add(-20 * time.Minute)
+	a, b, c, d := old(1), old(2), old(3), old(4)
+	st.post(s, guild, a, true, DayOf(start))
+	for _, u := range []snowflake.ID{b, c, d} {
+		st.sign(s, guild, a, DayOf(start), u, DayOf(start))
+	}
+	at := together(st, s, start, 20, a, b, c, d)
+	together(st, s, at, int(Default.PactGoal)-20, a, b, c)
+	today := DayOf(at)
+	if md := s.members[d]; md.signs.paidDay != today || md.dayN != today {
+		t.Fatalf("the one who left: paid day %d in day %d, want %d", md.signs.paidDay, md.dayN, today)
+	}
+	if _, err := st.post(s, guild, d, false, today); !errors.Is(err, errPactPaid) {
+		t.Errorf("a second joinder the same day: %v", err)
 	}
 }

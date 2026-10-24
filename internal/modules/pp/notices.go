@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"image"
 	"slices"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -224,7 +224,7 @@ func (m *Module) noticesMessage(guild snowflake.ID, who *discord.ResolvedMember)
 		}
 		board[i] = Posted{Ring: p.ring, By: by, Places: p.size() - len(p.signers)}
 		if i < 25 {
-			opts = append(opts, discord.NewStringSelectMenuOption(clip(by+"'s "+pactName(p.ring), 100), p.opener.String()))
+			opts = append(opts, discord.NewStringSelectMenuOption(clip(by+"'s "+pactName(p.ring), 100), p.key()))
 		}
 	}
 	canPost := mem.pact == nil && mem.signs.paidDay != DayOf(m.now())
@@ -298,7 +298,7 @@ func (m *Module) postMessage(s *server, p *pact) (discord.MessageCreate, error) 
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
-	sign := withIcon(discord.NewPrimaryButton("sign", "pp:sign:"+p.opener.String()), "quill")
+	sign := withIcon(discord.NewPrimaryButton("sign", "pp:sign:"+p.key()), "quill")
 	if len(p.signers) >= p.size() || p.minutes > 0 {
 		sign = sign.AsDisabled()
 	}
@@ -322,6 +322,7 @@ func (m *Module) postPact(guild snowflake.ID, e *events.ComponentInteractionCrea
 		s.mu.Unlock()
 		return err
 	}
+	p.rallied = m.now()
 	msg, err := m.postMessage(s, p)
 	s.mu.Unlock()
 	if err != nil {
@@ -330,14 +331,24 @@ func (m *Module) postPact(guild snowflake.ID, e *events.ComponentInteractionCrea
 	return e.CreateMessage(msg)
 }
 
-// rally puts the pact user holds up in the channel again.
+// rallyWait is how long a notice waits before it can be put up again.
+const rallyWait = 10 * time.Minute
+
+// rally puts the pact user holds up in the channel again, while it has a
+// place open, once every rallyWait.
 func (m *Module) rally(guild snowflake.ID, e *events.ComponentInteractionCreate) error {
 	s := m.st.server(guild)
 	s.mu.Lock()
 	mem, ok := s.members[e.User().ID]
-	if !ok || mem.pact == nil {
+	if !ok || mem.pact == nil || len(mem.pact.signers) >= mem.pact.size() || mem.pact.minutes > 0 {
 		s.mu.Unlock()
 		return errPactGone
+	}
+	if now := m.now(); now.Sub(mem.pact.rallied) < rallyWait {
+		s.mu.Unlock()
+		return errPactRally
+	} else {
+		mem.pact.rallied = now
 	}
 	msg, err := m.postMessage(s, mem.pact)
 	s.mu.Unlock()
@@ -359,13 +370,13 @@ func (m *Module) signPact(guild snowflake.ID, e *events.ComponentInteractionCrea
 		}
 		id = data.Values[0]
 	}
-	opener, err := strconv.ParseUint(id, 10, 64)
-	if err != nil {
+	opener, day, ok := parseKey(id)
+	if !ok {
 		return errPactGone
 	}
 	s := m.st.server(guild)
 	s.mu.Lock()
-	p, err := m.st.sign(s, guild, snowflake.ID(opener), e.User().ID, DayOf(m.now()))
+	p, err := m.st.sign(s, guild, opener, day, e.User().ID, DayOf(m.now()))
 	if err != nil {
 		s.mu.Unlock()
 		return err
@@ -383,5 +394,5 @@ func (m *Module) signPact(guild snowflake.ID, e *events.ComponentInteractionCrea
 	if err != nil {
 		return err
 	}
-	return e.UpdateMessage(discord.MessageUpdate{Components: &msg.Components, Files: msg.Files, AllowedMentions: msg.AllowedMentions})
+	return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...))
 }
