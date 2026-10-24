@@ -169,6 +169,8 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 	tookPaid := map[*server][]int64{}
 	var ledger ledgerRows
 	took := map[*server][]entry{}
+	var stats statRows
+	tookStats := map[*server]map[statKey]int64{}
 	var guilds, days, raws, lits, before []int64
 	var treasuries, open, full, funds, smint, sburn, slast []int64
 	var heavy, seeded []bool
@@ -190,6 +192,12 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 		if len(s.paid) > 0 {
 			paid = append(paid, s.paid...)
 			tookPaid[s], s.paid = s.paid, nil
+		}
+		for k, n := range s.stats {
+			stats.add(g, k, n)
+		}
+		if len(s.stats) > 0 {
+			tookStats[s], s.stats = s.stats, nil
 		}
 		for u, m := range s.members {
 			if m.dirty {
@@ -233,19 +241,46 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			s.paid = append(ids, s.paid...)
 			s.mu.Unlock()
 		}
+		// Counters taken go back onto whatever's counted since.
+		for s, kept := range tookStats {
+			s.mu.Lock()
+			if s.stats == nil {
+				s.stats = map[statKey]int64{}
+			}
+			for k, n := range kept {
+				s.stats[k] += n
+			}
+			s.mu.Unlock()
+		}
 	}
-	if len(rows.user) == 0 && len(ledger.seq) == 0 && len(guilds) == 0 && len(paid) == 0 {
+	if len(rows.user) == 0 && len(ledger.seq) == 0 && len(guilds) == 0 && len(paid) == 0 && len(stats.n) == 0 {
 		return 0, nil
 	}
 	if err := pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
-		return writeFlush(ctx, tx, &rows, &ledger, paid, guilds, func(i int) []any {
+		if err := writeFlush(ctx, tx, &rows, &ledger, paid, guilds, func(i int) []any {
 			return []any{guilds[i], days[i], raws[i], histories[i], lits[i], before[i], treasuries[i], open[i], full[i], levyDays[i], funds[i], seeded[i], smint[i], sburn[i], slast[i], heavy[i]}
-		})
+		}); err != nil {
+			return err
+		}
+		return writeStats(ctx, tx, &stats)
 	}); err != nil {
 		remark()
 		return 0, err
 	}
 	return len(rows.user), nil
+}
+
+// writeStats adds the counters taken to pp_stat, inside the flush's
+// transaction.
+func writeStats(ctx context.Context, tx pgx.Tx, r *statRows) error {
+	if len(r.n) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `insert into pp_stat (guild_id, day, what, a, b, n)
+		select * from unnest($1::bigint[], $2::bigint[], $3::text[], $4::bigint[], $5::bigint[], $6::bigint[])
+		on conflict (guild_id, day, what, a, b) do update set n = pp_stat.n + excluded.n`,
+		r.guild, r.day, r.what, r.a, r.b, r.n)
+	return err
 }
 
 // writeFlush is flush's statements, inside its transaction; guild gives the

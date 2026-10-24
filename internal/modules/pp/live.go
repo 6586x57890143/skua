@@ -126,6 +126,8 @@ type server struct {
 	// joinders the pacts finished and not yet told.
 	checkpoints []checkpointNews
 	joinders    []joinderNews
+	// stats are the day counters not yet saved.
+	stats map[statKey]int64
 	// The season so far, for the backstop: what it minted and burned, the
 	// last season's burn in percent (-1 before one), and whether the heavy
 	// purse line is on.
