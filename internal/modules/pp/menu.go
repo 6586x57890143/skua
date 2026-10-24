@@ -127,7 +127,12 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.rally(*guild, e)
 	case id == "pp:withdraw":
 		return m.withdrawPact(*guild, e)
+	case id == "pp:start", strings.HasPrefix(id, "pp:start:"):
+		return m.startPact(*guild, e)
+	case buys(id):
+		return m.confirm(e)
 	}
+	id = strings.TrimSuffix(id, sure)
 	var msg discord.MessageCreate
 	var err error
 	switch {

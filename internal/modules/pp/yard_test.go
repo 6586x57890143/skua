@@ -224,18 +224,18 @@ func TestLeaseButton(t *testing.T) {
 		e.Client().Rest = y
 		return m.press(context.Background(), e)
 	}
-	if err := press("pp:lease:tallow"); err != nil || len(y.edits) != 1 || !strings.Contains(y.edits[0], "another week") {
+	if err := press("pp:lease:tallow:sure"); err != nil || len(y.edits) != 1 || !strings.Contains(y.edits[0], "another week") {
 		t.Fatalf("a lease: %v %v", err, y.edits)
 	}
-	if err := press("pp:lease:ink"); err != nil || len(y.followups) != 1 || y.followups[0] != string(errDyePerch) {
+	if err := press("pp:lease:ink:sure"); err != nil || len(y.followups) != 1 || y.followups[0] != string(errDyePerch) {
 		t.Fatalf("a lease refused: %v %v", err, y.followups)
 	}
 	m.st.server(3).anchor = 0
 	m.st.server(3).dyeRoles = nil
-	if err := press("pp:lease:hide"); err != nil || y.followups[1] != string(errNoAnchor) {
+	if err := press("pp:lease:hide:sure"); err != nil || y.followups[1] != string(errNoAnchor) {
 		t.Fatalf("a lease with no anchor: %v %v", err, y.followups)
 	}
-	if err := press("pp:lease:velvet"); !errors.Is(err, errNoDye) {
+	if err := press("pp:lease:velvet:sure"); !errors.Is(err, errNoDye) {
 		t.Errorf("a livery the yard doesn't sell: %v", err)
 	}
 	e, sent := coretest.Button(t, "pp:dye", func(p map[string]any) {

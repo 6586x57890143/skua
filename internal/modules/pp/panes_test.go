@@ -76,7 +76,8 @@ func TestPanes(t *testing.T) {
 		return NoticeSigner{Name: names[i%len(names)], Portrait: Portrait(Classes[i%len(Classes)]), Minutes: min}
 	}
 	save("notices_pair.jpg", noticesCanvas("heavywinds", &Notice{Signers: []NoticeSigner{sig(0, 0)}, Places: 2, Goal: 30, Pays: "60 pp each"}, board))
-	save("notices_ring.jpg", noticesCanvas("heavywinds", &Notice{Ring: true, Signers: []NoticeSigner{sig(1, 17), sig(3, 17), sig(6, 12)}, Places: 4, Together: 17, Goal: 30, Pays: "90 / 120 pp each"}, nil))
+	save("notices_ring.jpg", noticesCanvas("heavywinds", &Notice{Ring: true, Started: true, Signers: []NoticeSigner{sig(1, 17), sig(3, 17), sig(6, 12)}, Places: 4, Together: 17, Goal: 30, Pays: "90 / 120 pp each"}, nil))
+	save("notices_waiting.jpg", noticesCanvas("heavywinds", &Notice{Ring: true, Signers: []NoticeSigner{sig(1, 0), sig(3, 0), sig(6, 0)}, Places: 4, Goal: 30, Pays: "90 / 120 pp each"}, nil))
 	var named []BoardRow
 	for n := range int64(10) {
 		named = append(named, BoardRow{Place: int(n) + 1, Icon: icons[n], Name: names[n], Rung: n, Class: Classes[n%8].Name(), Value: "lv 9", You: n == 4})

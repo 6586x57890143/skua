@@ -100,6 +100,18 @@ func TestRoundRobin(t *testing.T) {
 	if p.minutes != 0 {
 		t.Fatal("two of a round robin counted")
 	}
+	// Three signed and together, but not started: nothing counts until
+	// its poster starts it, and nobody else can.
+	at = together(st, s, at, 1, a, b, c)
+	if p.minutes != 0 {
+		t.Fatal("a ring counted before it was started")
+	}
+	if _, err := st.start(s, b); !errors.Is(err, errPactStart) {
+		t.Errorf("a signer started it: %v", err)
+	}
+	if _, err := st.start(s, a); err != nil {
+		t.Fatal(err)
+	}
 	at = together(st, s, at, 1, a, b, c)
 	if _, err := st.sign(s, guild, a, today, d, today); !errors.Is(err, errPactActive) {
 		t.Errorf("a signature once work started: %v", err)
@@ -430,7 +442,7 @@ func TestWithdraw(t *testing.T) {
 	s := st.server(guild)
 	today := DayOf(t0)
 	a, b, c, d := old(1), old(2), old(3), old(4)
-	if err := st.withdraw(s, a); !errors.Is(err, errPactNone) {
+	if err := st.withdraw(s, a, DayOf(t0)); !errors.Is(err, errPactNone) {
 		t.Errorf("withdrawing nothing: %v", err)
 	}
 	p, err := st.post(s, guild, a, true, today)
@@ -443,13 +455,13 @@ func TestWithdraw(t *testing.T) {
 		}
 	}
 	p.rallied = t0
-	if err := st.withdraw(s, c); err != nil || s.members[c].pact != nil || len(p.signers) != 2 || s.members[a].pact != p || !p.rallied.IsZero() {
+	if err := st.withdraw(s, c, DayOf(t0)); err != nil || s.members[c].pact != nil || len(p.signers) != 2 || s.members[a].pact != p || !p.rallied.IsZero() {
 		t.Fatalf("a signer leaving before the work: %v %+v", err, p.signers)
 	}
 	if _, err := st.sign(s, guild, a, today, c, today); err != nil {
 		t.Fatalf("signing again after withdrawing: %v", err)
 	}
-	if err := st.withdraw(s, a); err != nil || s.members[b].pact != nil || s.members[c].pact != nil {
+	if err := st.withdraw(s, a, DayOf(t0)); err != nil || s.members[b].pact != nil || s.members[c].pact != nil {
 		t.Fatal("the poster withdrawing left the notice up")
 	}
 
@@ -464,7 +476,7 @@ func TestWithdraw(t *testing.T) {
 		}
 	}
 	at = together(st, s, at, 1, a, b, c, d)
-	if err := st.withdraw(s, d); err != nil || len(p.signers) != 3 || s.members[a].pact != p {
+	if err := st.withdraw(s, d, DayOf(t0)); err != nil || len(p.signers) != 3 || s.members[a].pact != p {
 		t.Fatalf("one leaving a working ring: %v", err)
 	}
 	together(st, s, at, int(Default.PactGoal)-1, a, b, c)
@@ -478,7 +490,7 @@ func TestWithdraw(t *testing.T) {
 		t.Fatal(err)
 	}
 	together(st, s, at.Add(time.Hour), 1, d, old(5))
-	if err := st.withdraw(s, old(5)); err != nil || s.members[d].pact != nil {
+	if err := st.withdraw(s, old(5), DayOf(t0)); err != nil || s.members[d].pact != nil {
 		t.Error("a chirograph left with one stayed")
 	}
 }
@@ -508,5 +520,74 @@ func TestWithdrawButton(t *testing.T) {
 	}
 	if err := m.press(context.Background(), firstOf(coretest.Button(t, "pp:withdraw", nil))); !errors.Is(err, errPactNone) {
 		t.Errorf("withdrawing twice: %v", err)
+	}
+}
+
+// A fourth name fills a round robin and starts it; a chirograph starts with
+// its second. Withdrawing as the poster gives back the day's post, twice a
+// day, and the buttons say it as the city does.
+func TestStartAndFreeWithdraws(t *testing.T) {
+	st := newState(&Default, 42)
+	s := st.server(guild)
+	today := DayOf(t0)
+	us := []snowflake.ID{old(1), old(2), old(3), old(4)}
+	p, _ := st.post(s, guild, us[0], true, today)
+	for _, u := range us[1:] {
+		if _, err := st.sign(s, guild, us[0], today, u, today); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !p.started {
+		t.Error("a full ring didn't start")
+	}
+	c, _ := st.post(s, guild, old(5), false, today)
+	if _, err := st.sign(s, guild, old(5), today, old(6), today); err != nil || !c.started {
+		t.Errorf("a chirograph with two didn't start: %v", err)
+	}
+	// Post and tear up twice: the post comes back each time. The third
+	// time it stays spent.
+	b := old(7)
+	for i := range 3 {
+		if _, err := st.post(s, guild, b, false, today); err != nil {
+			t.Fatalf("post %d: %v", i+1, err)
+		}
+		if err := st.withdraw(s, b, today); err != nil {
+			t.Fatal(err)
+		}
+		if spent := s.members[b].signs.postedDay == today; spent != (i == 2) {
+			t.Errorf("after withdrawal %d the post is spent: %v", i+1, spent)
+		}
+	}
+}
+
+// The notices screen offers its poster the start once three have signed,
+// and names the way out as the city does.
+func TestStartButton(t *testing.T) {
+	m := testModule(&fakeDB{})
+	s := m.st.server(3)
+	today := DayOf(t0)
+	s.mu.Lock()
+	if _, err := m.st.post(s, 3, 5, true, today); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []snowflake.ID{old(2), old(3)} {
+		if _, err := m.st.sign(s, 3, 5, today, u, today); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.mu.Unlock()
+	e, sent := coretest.Button(t, "pp:notices", nil)
+	if err := m.press(context.Background(), e); err != nil || !strings.Contains(js((*sent)[0]), "pp:start") || !strings.Contains(js((*sent)[0]), "strike your name") {
+		t.Fatalf("no start on the poster's notices: %v", err)
+	}
+	e, _ = coretest.Button(t, "pp:start", nil)
+	e.Respond = func(discord.InteractionResponseType, discord.InteractionResponseData, ...rest.RequestOpt) error {
+		return nil
+	}
+	if err := m.press(context.Background(), e); err != nil || !s.members[5].pact.started {
+		t.Fatalf("starting: %v", err)
+	}
+	if err := m.press(context.Background(), firstOf(coretest.Button(t, "pp:start", nil))); !errors.Is(err, errPactStart) {
+		t.Errorf("started twice: %v", err)
 	}
 }

@@ -36,6 +36,7 @@ func pactName(ring bool) string {
 // and places, how far the time together has come and what it pays.
 type Notice struct {
 	Ring           bool
+	Started        bool
 	Signers        []NoticeSigner
 	Places         int // how many may sign
 	Together, Goal int64
@@ -85,7 +86,15 @@ func noticesCanvas(name string, held *Notice, board []Posted) *pixel.Canvas {
 	mid := image.Rect(4, 132, 380, 172)
 	c.Window(mid)
 	y := midLine(mid)
-	if held != nil {
+	if held != nil && !held.Started {
+		// Before the work: what it's waiting for.
+		c.Icon("hearth", image.Pt(16, y-iconLift))
+		wait := "waiting for names"
+		if held.Ring && len(held.Signers) >= 3 {
+			wait = "three signed: its poster starts it, or a fourth fills it"
+		}
+		label(c, 16+pixel.IconCells+4, y, wait)
+	} else if held != nil {
 		c.Icon("hearth", image.Pt(16, y-iconLift))
 		x := label(c, 16+pixel.IconCells+4, y, "together") + pixel.Advance
 		c.Bar(image.Rect(x, y+4, x+80, y+9), held.Together, held.Goal, pixel.Blue)
@@ -176,7 +185,7 @@ func postedRows(c *pixel.Canvas, r image.Rectangle, board []Posted) {
 // noticeOf is p as the screen shows it. s.mu held.
 func (m *Module) noticeOf(s *server, p *pact) *Notice {
 	b := m.st.bal()
-	n := &Notice{Ring: p.ring, Places: p.size(), Together: p.minutes, Goal: b.PactGoal,
+	n := &Notice{Ring: p.ring, Started: p.started, Places: p.size(), Together: p.minutes, Goal: b.PactGoal,
 		Pays: grouped(b.Joinder[0]/unit) + " pp each"}
 	if p.ring {
 		n.Pays = fmt.Sprintf("%s / %s pp each", grouped(b.Joinder[1]/unit), grouped(b.Joinder[2]/unit))
@@ -199,7 +208,7 @@ func (m *Module) noticeOf(s *server, p *pact) *Notice {
 func posted(s *server, user snowflake.ID) (out []*pact) {
 	for u, mem := range s.members {
 		p := mem.pact
-		if p != nil && p.opener == u && len(p.signers) < p.size() && p.minutes == 0 && !p.signed(user) {
+		if p != nil && p.opener == u && len(p.signers) < p.size() && !p.started && !p.signed(user) {
 			out = append(out, p)
 		}
 	}
@@ -232,6 +241,7 @@ func (m *Module) noticesMessage(guild snowflake.ID, who *discord.ResolvedMember)
 		}
 	}
 	canPost := m.st.mayPost(mem, user, DayOf(m.now())) == nil
+	startable := mem.pact != nil && mem.pact.opener == user && mem.pact.startable()
 	alt := m.noticesAlt(held, board)
 	s.mu.Unlock()
 
@@ -253,11 +263,20 @@ func (m *Module) noticesMessage(guild snowflake.ID, who *discord.ResolvedMember)
 		return b
 	}
 	row := discord.NewActionRow(post("post a chirograph", "pp:pact:2", "envelope"), post("post a round robin", "pp:pact:4", "beads"))
-	if held != nil && len(held.Signers) < held.Places && held.Together == 0 {
+	if held != nil && len(held.Signers) < held.Places && !held.Started {
 		row = row.AddComponents(withIcon(discord.NewSecondaryButton("put it up here", "pp:rally"), "bell"))
 	}
+	if startable {
+		row = row.AddComponents(withIcon(discord.NewSuccessButton("start the ring", "pp:start"), "beads"))
+	}
 	if held != nil {
-		row = row.AddComponents(discord.NewDangerButton("withdraw", "pp:withdraw"))
+		// Withdrawing as the city does it: a chirograph's half is torn up,
+		// a name is struck from a ring.
+		leave := "tear up your half"
+		if held.Ring {
+			leave = "strike your name"
+		}
+		row = row.AddComponents(discord.NewDangerButton(leave, "pp:withdraw"))
 	}
 	extra = append(extra, row)
 	return discord.MessageCreate{
@@ -295,15 +314,15 @@ func (m *Module) noticesAlt(held *Notice, board []Posted) string {
 // postView is what a pact's channel post shows, taken under the lock so the
 // picture can be drawn after it.
 type postView struct {
-	notice   *Notice
-	name     string
-	key      string
-	signable bool
+	notice              *Notice
+	name                string
+	key                 string
+	signable, startable bool
 }
 
 // viewPost is p as its post shows it. s.mu held.
 func (m *Module) viewPost(s *server, p *pact) postView {
-	v := postView{notice: m.noticeOf(s, p), name: "a bird", key: p.key(), signable: len(p.signers) < p.size() && p.minutes == 0}
+	v := postView{notice: m.noticeOf(s, p), name: "a bird", key: p.key(), signable: len(p.signers) < p.size() && !p.started, startable: p.startable()}
 	if o := s.members[p.opener]; o != nil && o.name != "" {
 		v.name = o.name
 	}
@@ -323,10 +342,14 @@ func (m *Module) postMessage(v postView) (discord.MessageCreate, error) {
 	if !v.signable {
 		sign = sign.AsDisabled()
 	}
+	row := discord.NewActionRow(sign)
+	if v.startable {
+		row = row.AddComponents(withIcon(discord.NewSuccessButton("start the ring", "pp:start:"+v.key), "beads"))
+	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", pactName(v.notice.Ring), "",
 			discord.NewMediaGallery(screenItem(pic, clip(alt, altLimit))),
-			discord.NewActionRow(sign))},
+			row)},
 		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
@@ -362,7 +385,7 @@ func (m *Module) rally(guild snowflake.ID, e *events.ComponentInteractionCreate)
 	s := m.st.server(guild)
 	s.mu.Lock()
 	mem, ok := s.members[e.User().ID]
-	if !ok || mem.pact == nil || len(mem.pact.signers) >= mem.pact.size() || mem.pact.minutes > 0 {
+	if !ok || mem.pact == nil || len(mem.pact.signers) >= mem.pact.size() || mem.pact.started {
 		s.mu.Unlock()
 		return errPactGone
 	}
@@ -432,7 +455,7 @@ func (m *Module) signPact(guild snowflake.ID, e *events.ComponentInteractionCrea
 func (m *Module) withdrawPact(guild snowflake.ID, e *events.ComponentInteractionCreate) error {
 	s := m.st.server(guild)
 	s.mu.Lock()
-	err := m.st.withdraw(s, e.User().ID)
+	err := m.st.withdraw(s, e.User().ID, DayOf(m.now()))
 	s.mu.Unlock()
 	if err != nil {
 		return err
@@ -442,4 +465,31 @@ func (m *Module) withdrawPact(guild snowflake.ID, e *events.ComponentInteraction
 		return err
 	}
 	return m.answer(guild, e, msg, "pp:notices")
+}
+
+// startPact starts the round robin its poster pressed start on: from their
+// notices, shown again there, or from its post, redrawn.
+func (m *Module) startPact(guild snowflake.ID, e *events.ComponentInteractionCreate) error {
+	s := m.st.server(guild)
+	s.mu.Lock()
+	p, err := m.st.start(s, e.User().ID)
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if e.Data.CustomID() == "pp:start" {
+		s.mu.Unlock()
+		msg, err := m.noticesMessage(guild, e.Member())
+		if err != nil {
+			return err
+		}
+		return m.answer(guild, e, msg, "pp:notices")
+	}
+	v := m.viewPost(s, p)
+	s.mu.Unlock()
+	msg, err := m.postMessage(v)
+	if err != nil {
+		return err
+	}
+	return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...))
 }

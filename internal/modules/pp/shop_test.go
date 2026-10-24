@@ -57,7 +57,14 @@ func TestLadder(t *testing.T) {
 	if len(opened) != 1 || !strings.Contains(js(opened[0].Components), "climb to the chitin perch") {
 		t.Fatalf("the shop showed %v", js(opened))
 	}
-	c, _ := coretest.Button(t, "pp:climb", func(p map[string]any) {
+	// The first press asks; only the confirm climbs.
+	c, asked := coretest.Button(t, "pp:climb", func(p map[string]any) {
+		p["member"].(map[string]any)["user"] = map[string]any{"id": a.String(), "username": "member"}
+	})
+	if err := m.press(context.Background(), c); err != nil || mem.rung != 2 || len(*asked) != 1 || !strings.Contains(js((*asked)[0]), "pp:climb:sure") {
+		t.Fatalf("the climb didn't ask first: %v, rung %d", err, mem.rung)
+	}
+	c, _ = coretest.Button(t, "pp:climb:sure", func(p map[string]any) {
 		p["member"].(map[string]any)["user"] = map[string]any{"id": a.String(), "username": "member"}
 	})
 	updated := false

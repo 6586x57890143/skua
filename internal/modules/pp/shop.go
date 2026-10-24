@@ -237,7 +237,7 @@ var errNoRung = core.Tell("that rung isn't on the stair; open the shop again")
 // the next rung and shows that rung's card, and look shows the rung picked
 // in the menu.
 func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate) error {
-	id := e.Data.CustomID()
+	id := pressed(e)
 	look := int64(0)
 	if id == "pp:look" {
 		// The custom ID comes from the client, so the data may not be a
