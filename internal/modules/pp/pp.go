@@ -165,7 +165,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"sinks", sinks},
 		{"banners", strconv.Itoa(banners)},
 		{"presences", presence},
-	}, Controls: slices.Concat(m.betaControls(guild), m.keyControls(), m.logControls(guild), m.selfieControls(guild), m.liveryControls(guild), m.grantControls())}
+	}, Controls: slices.Concat(m.betaControls(guild), m.keyControls(), m.logControls(guild), m.selfieControls(guild), m.liveryControls(guild), m.yardControls(guild), m.grantControls())}
 }
 
 // Modals are the grant, key and redeem forms.
@@ -328,6 +328,7 @@ func (m *Module) tick(ctx context.Context, last *int64) {
 		// The audit may open members' ledgers, which the save writes; a
 		// boot only audits, so a restart doesn't post the head again.
 		m.audit(ctx)
+		m.fade(ctx, day)
 		m.Save()
 		if *last != 0 {
 			m.heads(day)

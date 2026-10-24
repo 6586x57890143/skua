@@ -112,7 +112,7 @@ const shopRungs = 6
 // shopMessage is the shop's front as a member sees it: the stair with what
 // they hold and what comes next, their purse, a menu to look closer at a
 // rung and the button to climb.
-func (st *state) shopMessage(s *server, m *member) (discord.MessageCreate, error) {
+func (st *state) shopMessage(s *server, m *member, yard bool) (discord.MessageCreate, error) {
 	price := rungPrice(st.pot(), m.rung)
 	first := max(1, m.rung-1)
 	var rungs []Rung
@@ -142,11 +142,21 @@ func (st *state) shopMessage(s *server, m *member) (discord.MessageCreate, error
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
 			discord.NewActionRow(discord.NewStringSelectMenu("pp:look", "look closer at a rung", look...)),
-			discord.NewActionRow(climbButton("climb to the "+next, m.purse >= price)))},
+			stairRow(climbButton("climb to the "+next, m.purse >= price), yard))},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
+}
+
+// stairRow is the stair's buttons: climbing, and the way into the dyers'
+// yard for whoever may see it.
+func stairRow(climb discord.ButtonComponent, yard bool) discord.ActionRowComponent {
+	row := discord.NewActionRow(climb)
+	if yard {
+		row = row.AddComponents(withIcon(discord.NewSecondaryButton("the dyers' yard", "pp:yard"), "scales"))
+	}
+	return row
 }
 
 // climbButton buys the next rung; it's greyed out until the member can
@@ -219,6 +229,7 @@ func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.Component
 		look = n
 	}
 	today := DayOf(m.now())
+	yard := m.sees(guild, e)
 	s := m.st.server(guild)
 	s.mu.Lock()
 	var err error
@@ -238,7 +249,7 @@ func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.Component
 	if look > 0 {
 		msg, drawn = m.st.itemMessage(mem, look)
 	} else {
-		msg, drawn = m.st.shopMessage(s, mem)
+		msg, drawn = m.st.shopMessage(s, mem, yard)
 	}
 	s.mu.Unlock()
 	if err != nil {

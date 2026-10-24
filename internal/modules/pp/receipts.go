@@ -40,6 +40,11 @@ func journalLine(reason string, inputs []int64) (icon, what string) {
 			return icon, name
 		}
 		return "pot", "the shop"
+	case reasonLease:
+		if len(inputs) > 0 && inputs[0] >= 0 && int(inputs[0]) < len(dyes) {
+			return "scales", dyes[inputs[0]].name
+		}
+		return "scales", "a livery"
 	case reasonPrize:
 		return "laurel", "a weekly prize"
 	case reasonGrant:

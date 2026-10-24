@@ -26,7 +26,8 @@ type roleRest struct {
 	created discord.RoleCreate
 	updated discord.RoleUpdate
 	moved   []discord.RolePositionUpdate
-	missing bool // a delete or a removal finds nothing there
+	missing bool   // a delete or a removal finds nothing there
+	onAdd   func() // runs as a member is given a role
 }
 
 func (f *roleRest) GetRoles(snowflake.ID, ...rest.RequestOpt) ([]discord.Role, error) {
@@ -39,6 +40,7 @@ func (f *roleRest) GetMember(_, user snowflake.ID, _ ...rest.RequestOpt) (*disco
 
 func (f *roleRest) CreateRole(_ snowflake.ID, c discord.RoleCreate, _ ...rest.RequestOpt) (*discord.Role, error) {
 	f.writes, f.created = append(f.writes, "create"), c
+	f.roles = append(f.roles, discord.Role{ID: 99, Position: 1})
 	return &discord.Role{ID: 99}, nil
 }
 
@@ -59,6 +61,10 @@ func (f *roleRest) DeleteRole(_, role snowflake.ID, _ ...rest.RequestOpt) error 
 
 func (f *roleRest) AddMemberRole(_, user, role snowflake.ID, _ ...rest.RequestOpt) error {
 	f.writes = append(f.writes, "add "+role.String())
+	if f.onAdd != nil {
+		f.onAdd()
+		f.onAdd = nil
+	}
 	return nil
 }
 

@@ -191,6 +191,12 @@ func (m *Module) dress(ctx context.Context, guild, user, role snowflake.ID, on b
 	if err != nil {
 		return err
 	}
+	return m.dressIn(ctx, guild, roles, at, user, role, on, why)
+}
+
+// dressIn is dress with guild's roles and the anchor's position already
+// read by standing, for a caller dressing several members at once.
+func (m *Module) dressIn(ctx context.Context, guild snowflake.ID, roles []discord.Role, at int, user, role snowflake.ID, on bool, why string) error {
 	if !bare(roles, guild, role, at) {
 		return errNotLivery
 	}

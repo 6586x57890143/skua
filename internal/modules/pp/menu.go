@@ -74,6 +74,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.setSelfies(ctx, *guild, e)
 	case id == "pp:anchor", id == "pp:heralds":
 		return m.setLivery(ctx, *guild, e)
+	case id == "pp:openyard":
+		return m.openYard(ctx, *guild, e)
 	case id == "pp:keys":
 		return m.openKeys(e)
 	case id == "pp:redeem":
@@ -136,6 +138,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		msg, err = m.buffsMessage(*guild, e.Member())
 	case id == "pp:shop", id == "pp:climb", id == "pp:look", id == "pp:back":
 		return m.shop(ctx, *guild, e)
+	case strings.HasPrefix(id, "pp:yard"), id == "pp:dye", strings.HasPrefix(id, "pp:lease:"):
+		return m.yard(ctx, *guild, e)
 	case id == "pp:ledger":
 		msg, err = m.journal(ctx, *guild, e.Member())
 	default:
