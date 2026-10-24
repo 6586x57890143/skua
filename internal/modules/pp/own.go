@@ -91,7 +91,6 @@ var (
 	errOwnStyle  = core.Tell("your perch can't wear that weave yet")
 	errOwnColors = core.Tell("the dyers need colours as hex, like #c66e34, or the name of a livery in the yard, like ember")
 	errOwnIcon   = core.Tell("a device has to be a picture (png, jpeg, gif or webp) of 256 kb at most")
-	errOwnDraft  = core.Tell("there's no petition written yet; write one first")
 )
 
 // names is the filter a livery's name passes.
@@ -424,7 +423,7 @@ func fetchIcon(ctx context.Context, a discord.Attachment) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("pp: fetching a device: %s", res.Status)
 	}
