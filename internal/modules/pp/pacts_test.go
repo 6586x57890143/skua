@@ -124,9 +124,13 @@ func TestFullRing(t *testing.T) {
 	s := st.server(guild)
 	today := DayOf(t0)
 	us := []snowflake.ID{old(1), old(2), old(3), old(4), old(5)}
-	st.post(s, guild, us[0], true, today)
+	if _, err := st.post(s, guild, us[0], true, today); err != nil {
+		t.Fatal(err)
+	}
 	for _, u := range us[1:4] {
-		st.sign(s, guild, us[0], today, u, today)
+		if _, err := st.sign(s, guild, us[0], today, u, today); err != nil {
+			t.Fatal(err)
+		}
 	}
 	together(st, s, t0, int(Default.PactGoal), us[:4]...)
 	for _, u := range us[:4] {
@@ -140,9 +144,13 @@ func TestFullRing(t *testing.T) {
 
 	// The next day a fourth who sits out is signed but unpaid.
 	next := t0.Add(24 * time.Hour)
-	st.post(s, guild, us[0], true, DayOf(next))
+	if _, err := st.post(s, guild, us[0], true, DayOf(next)); err != nil {
+		t.Fatal(err)
+	}
 	for _, u := range us[1:4] {
-		st.sign(s, guild, us[0], DayOf(next), u, DayOf(next))
+		if _, err := st.sign(s, guild, us[0], DayOf(next), u, DayOf(next)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	together(st, s, next, int(Default.PactGoal), us[:3]...)
 	if s.members[us[3]].signs.signatures != 1 || s.members[us[3]].pact != nil {
@@ -156,7 +164,9 @@ func TestPactLapses(t *testing.T) {
 	s := st.server(guild)
 	a := old(1)
 	st.rollServer(s, DayOf(t0))
-	st.post(s, guild, a, false, DayOf(t0))
+	if _, err := st.post(s, guild, a, false, DayOf(t0)); err != nil {
+		t.Fatal(err)
+	}
 	st.rollServer(s, DayOf(t0)+Default.PactLife-1)
 	if s.members[a].pact == nil {
 		t.Fatal("lapsed early")
@@ -275,9 +285,13 @@ func TestLateSignerPaidToday(t *testing.T) {
 	s := st.server(guild)
 	start := dayStart(DayOf(t0) + 1).Add(-20 * time.Minute)
 	a, b, c, d := old(1), old(2), old(3), old(4)
-	st.post(s, guild, a, true, DayOf(start))
+	if _, err := st.post(s, guild, a, true, DayOf(start)); err != nil {
+		t.Fatal(err)
+	}
 	for _, u := range []snowflake.ID{b, c, d} {
-		st.sign(s, guild, a, DayOf(start), u, DayOf(start))
+		if _, err := st.sign(s, guild, a, DayOf(start), u, DayOf(start)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	at := together(st, s, start, 20, a, b, c, d)
 	together(st, s, at, int(Default.PactGoal)-20, a, b, c)
