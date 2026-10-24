@@ -356,11 +356,12 @@ func TestSaveAndReport(t *testing.T) {
 	}
 	db.fail = nil
 	m.Save()
-	if s.members[old(1)].dirty || s.dirty || len(db.execs) != 3 {
+	// The member, the server, the ledger and the day's counters.
+	if s.members[old(1)].dirty || s.dirty || len(db.execs) != 4 || !strings.Contains(db.execs[3], "pp_stat") {
 		t.Fatalf("after a save: %d statements", len(db.execs))
 	}
 	m.Save()
-	if len(db.execs) != 3 {
+	if len(db.execs) != 4 {
 		t.Error("an idle save wrote")
 	}
 	m.now = func() time.Time { return t0.Add(90 * time.Second) }

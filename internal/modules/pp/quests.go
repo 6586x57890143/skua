@@ -144,7 +144,9 @@ func (st *state) deal(s *server, m *member, guild, user snowflake.ID, today int6
 		days = 1
 	}
 	for k := range min(days, int64(st.bal().QuestHold-len(m.quests))) {
-		m.quests = append(m.quests, st.bal().draw(st.seedOf(today), uint64(guild), uint64(user), today, slotDeal+uint64(k)*2, s.selfies != 0, nil))
+		q := st.bal().draw(st.seedOf(today), uint64(guild), uint64(user), today, slotDeal+uint64(k)*2, s.selfies != 0, nil)
+		m.quests = append(m.quests, q)
+		s.count(today, statDealt, q.tier, q.kind)
 	}
 	m.questDay, m.dirty = today, true
 }
@@ -195,6 +197,7 @@ func (st *state) payQuest(s *server, m *member, user snowflake.ID, q heldQuest) 
 	st.growFund(s, m.dayN, got)
 	lv, kept := st.labour(s, m, got)
 	m.questsDone++
+	s.count(m.dayN, statFinished, q.tier, q.kind)
 	s.append(user, m.dayN, reasonQuest, got-lv-kept, []int64{int64(q.tier), int64(q.kind), got, lv, kept})
 }
 
@@ -231,6 +234,7 @@ func (st *state) reroll(s *server, m *member, guild, user snowflake.ID, i int, t
 	case m.quests[i].rerolled == today:
 		return core.Tell("that quest has had today's reroll; another comes at 05:30 utc")
 	}
+	s.count(today, statRerolled, m.quests[i].tier, m.quests[i].kind)
 	// Each place has its own slot, so two rerolls in a day draw apart.
 	m.quests[i] = st.bal().draw(st.seedOf(today), uint64(guild), uint64(user), today, slotReroll+uint64(i)*2, s.selfies != 0, &m.quests[i])
 	m.quests[i].rerolled, m.dirty = today, true

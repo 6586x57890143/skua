@@ -215,6 +215,7 @@ func (st *state) post(s *server, guild, user snowflake.ID, ring bool, today int6
 	}
 	m.pact = &pact{opener: user, day: today, ring: ring, signers: []signer{{user: user}}}
 	m.signs.postedDay, m.dirty = today, true
+	s.count(today, statPosted, ringBit(ring), 0)
 	return m.pact, nil
 }
 
@@ -360,6 +361,7 @@ func (st *state) finish(s *server, p *pact, today int64) {
 			news.learned = append(news.learned, g.user)
 		}
 	}
+	s.count(today, statJoined, ringBit(p.ring), len(news.paid))
 	if news.channel != 0 && len(news.paid) > 0 {
 		s.joinders = append(s.joinders, news)
 	}
@@ -402,8 +404,13 @@ func mentions(us []snowflake.ID) string {
 // lapse drops every pact posted PactLife days or more before today. s.mu
 // held.
 func (st *state) lapse(s *server, today int64) {
+	gone := map[*pact]bool{}
 	for _, m := range s.members {
 		if m.pact != nil && today-m.pact.day >= st.bal().PactLife {
+			if !gone[m.pact] {
+				gone[m.pact] = true
+				s.count(today, statLapsed, ringBit(m.pact.ring), len(m.pact.signers))
+			}
 			m.pact, m.dirty = nil, true
 		}
 	}
