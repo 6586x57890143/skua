@@ -167,8 +167,8 @@ func TestSuppressionGuardAndObsoleteRevision(t *testing.T) {
 	if r.attempts != 0 {
 		t.Fatal("obsolete revision suppressed")
 	}
-	for range 120 {
-		_ = m.guard.Allow(3, guard.MessageSend)
+	for range 600 {
+		_ = m.guard.Allow(3, guard.FixCard)
 	}
 	m.suppressOriginal(context.Background(), r, key, tr, 1, []Link{{URL: "https://x.com/user/status/123"}})
 	if r.attempts != 0 {

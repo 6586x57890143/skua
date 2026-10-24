@@ -57,6 +57,10 @@ const (
 	// undocumented and the links come from members, so it is capped and
 	// breakered like one.
 	AttachmentRefresh
+	// FixCard is one /fix card write: a send, an edit or hiding the source's
+	// preview. Its own budget, so a link-heavy guild can't starve the
+	// alerts and warnings that share MessageSend.
+	FixCard
 	opCount
 )
 
@@ -86,6 +90,8 @@ var caps = [opCount]int64{
 	EmojiCreate: 128,
 	// One per bridged message with a pasted link: WebhookExecute's pace.
 	AttachmentRefresh: 300,
+	// Up to three cards and one preview flag per message with links.
+	FixCard: 600,
 }
 
 const (
