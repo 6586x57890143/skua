@@ -22,8 +22,10 @@ type Own struct {
 	Letter  string
 	Wearing bool
 	Left    int64
-	// Filled and Slots are how full the heralds' roll is.
+	// Filled and Slots are how full the heralds' roll is, and Term how
+	// long a lease runs, "week" or "season".
 	Filled, Slots int64
+	Term          string
 }
 
 // The two themes a name is shown on: Discord's dark member list and its
@@ -99,7 +101,7 @@ func ownCanvas(o Own) *pixel.Canvas {
 	c.Window(price)
 	c.Tab(price, "price")
 	y = paneTop(price)
-	label(c, 208, y, "a week")
+	label(c, 208, y, "a "+or(o.Term, "week"))
 	week := "-"
 	if o.Week > 0 {
 		week = grouped(o.Week/unit) + " pp"

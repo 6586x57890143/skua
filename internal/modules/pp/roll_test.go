@@ -17,26 +17,31 @@ import (
 // full, a member counted once.
 func TestRollFactor(t *testing.T) {
 	s := newServer(guild)
-	if s.rollFactor() != 100 {
-		t.Fatalf("an empty roll: %d", s.rollFactor())
+	if s.rollFactor(0) != 100 {
+		t.Fatalf("an empty roll: %d", s.rollFactor(0))
 	}
 	s.slots = 10
 	for u := range 5 {
 		s.wearOwn(snowflakeOf(u), 1, 100, 0)
 	}
 	s.ask(snowflakeOf(0), 9) // a change by someone already on it
-	if s.rolled() != 5 || s.rollFactor() != 100+Rules.RollRise/4 {
-		t.Errorf("half full: %d names, %d", s.rolled(), s.rollFactor())
+	if s.rolled(0) != 5 || s.rollFactor(0) != 100+Rules.RollRise/4 {
+		t.Errorf("half full: %d names, %d", s.rolled(0), s.rollFactor(0))
+	}
+	// A petitioner is priced as on the roll, so a grant doesn't move their
+	// price, and someone on it already counts once.
+	if s.rollFactor(snowflakeOf(7)) != s.rollFactor(0)+Rules.RollRise*11/100 || s.rollFactor(snowflakeOf(1)) != s.rollFactor(0) {
+		t.Errorf("a petitioner: %d, one on the roll: %d", s.rollFactor(snowflakeOf(7)), s.rollFactor(snowflakeOf(1)))
 	}
 	for u := 5; u < 10; u++ {
 		s.ask(snowflakeOf(u), int64(u))
 	}
-	if s.rollFactor() != 100+Rules.RollRise {
-		t.Errorf("full: %d", s.rollFactor())
+	if s.rollFactor(0) != 100+Rules.RollRise {
+		t.Errorf("full: %d", s.rollFactor(0))
 	}
 	s.slots = 0
-	if s.rollFactor() != 100+Rules.RollRise*100/(rollSlots*rollSlots) {
-		t.Errorf("the default room: %d", s.rollFactor())
+	if s.rollFactor(0) != 100+Rules.RollRise*100/(rollSlots*rollSlots) {
+		t.Errorf("the default room: %d", s.rollFactor(0))
 	}
 }
 
@@ -50,7 +55,7 @@ func TestSeasonLease(t *testing.T) {
 	if d, w, a := term(top); d != seasonDays || w != seasonWeeks || a != 2*seasonDays {
 		t.Errorf("past the bell: %d %d %d", d, w, a)
 	}
-	m, y := yardServer(top, 100000)
+	m, _ := yardServer(top, 100000)
 	tallow, _ := dyeOf("tallow")
 	before := m.st.member(m.st.server(3), 3, 5, DayOf(m.now())).purse
 	if _, err := m.leased(context.Background(), 3, 5, tallow); err != nil {
@@ -70,7 +75,6 @@ func TestSeasonLease(t *testing.T) {
 	if _, err := m.leased(context.Background(), 3, 5, tallow); !errors.Is(err, errDyeAhead) {
 		t.Errorf("a third season ahead: %v", err)
 	}
-	_ = y
 }
 
 // An admin sets the roll's room from the livery settings, from the
@@ -89,7 +93,7 @@ func TestRollSlots(t *testing.T) {
 	if err := pick("80"); err != nil || m.st.server(3).slots != 80 {
 		t.Fatalf("80: %v %d", err, m.st.server(3).slots)
 	}
-	if err := pick("7"); !errors.Is(err, errNotAdmin) || m.st.server(3).slots != 80 {
+	if err := pick("7"); !errors.Is(err, errRollRoom) || m.st.server(3).slots != 80 {
 		t.Errorf("7: %v", err)
 	}
 	m.Admin = func(discord.Interaction) bool { return false }

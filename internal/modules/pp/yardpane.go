@@ -53,7 +53,7 @@ func yardCanvas(title string, rows []YardRow, purse int64, wear Livery, lease st
 		case row.From != "":
 			at = rightIn(c, pixel.Light, r, y, "from the "+row.From, pixel.Dim)
 		default:
-			at = right(c, r, y, grouped(row.Price/unit)+" pp a week", pixel.Gold)
+			at = right(c, r, y, grouped(row.Price/unit)+" pp a "+or(lease, "week"), pixel.Gold)
 		}
 		c.FitIn(pixel.Bold, x+22, y, row.Name, c.Dye(row.Color), at-pixel.Advance-(x+22))
 	}

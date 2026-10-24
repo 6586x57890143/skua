@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -40,6 +39,7 @@ var (
 	errUnderSkua  = core.Tell("skua's highest role has to sit above the livery anchor; move her up in the server's roles")
 	errNotLivery  = core.Tell("that role isn't a livery skua may touch")
 	errNotStarted = core.Tell("skua is still waking up; try again in a moment")
+	errRollRoom   = core.Tell("the roll's room is one of the choices given; open the livery settings again")
 )
 
 // look is how a livery's role looks: its name, its colours (a second
@@ -273,11 +273,8 @@ func (m *Module) liverySettings(guild snowflake.ID) []discord.ContainerSubCompon
 func (m *Module) rollControl(guild snowflake.ID) discord.ContainerSubComponent {
 	s := m.st.server(guild)
 	s.mu.Lock()
-	slots := s.slots
+	slots := s.room()
 	s.mu.Unlock()
-	if slots <= 0 {
-		slots = rollSlots
-	}
 	opts := make([]discord.StringSelectMenuOption, len(rollChoices))
 	for i, n := range rollChoices {
 		o := discord.NewStringSelectMenuOption(fmt.Sprintf("the roll holds %d names", n), strconv.FormatInt(n, 10))
@@ -315,9 +312,12 @@ func (m *Module) setLivery(ctx context.Context, guild snowflake.ID, e *events.Co
 			said = "petitions for a livery of one's own go to <#" + picked.String() + "> now"
 		}
 	case discord.StringSelectMenuInteractionData:
-		n, err := strconv.ParseInt(strings.Join(data.Values, ""), 10, 64)
-		if e.Data.CustomID() != "pp:slots" || err != nil || !slices.Contains(rollChoices, n) {
+		if e.Data.CustomID() != "pp:slots" || len(data.Values) != 1 {
 			return errNotAdmin
+		}
+		n, err := strconv.ParseInt(data.Values[0], 10, 64)
+		if err != nil || !slices.Contains(rollChoices, n) {
+			return errRollRoom
 		}
 		column, picked = "livery_slots", snowflake.ID(n)
 		said = fmt.Sprintf("the heralds' roll holds %d names now", n)
