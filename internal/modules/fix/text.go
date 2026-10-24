@@ -89,7 +89,7 @@ func statLine(stats string) string {
 		case "repost", "reposts", "retweet", "retweets":
 			key, fallback, index = "stat_repost", "↻", 1
 		case "like", "likes":
-			key, fallback, index = "pp_heart", "♥", 2
+			key, fallback, index = "stat_likes", "♥", 2
 		case "view", "views":
 			key, fallback, index = "stat_views", "views", 3
 		default:
