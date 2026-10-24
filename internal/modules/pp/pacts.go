@@ -30,7 +30,8 @@ type pact struct {
 	minutes int64 // minutes together so far
 	signers []signer
 	// channel is where it was last put up, which hears when it's done; 0
-	// for nowhere.
+	// for nowhere. It's saved in its own column, pact_channel, so the
+	// pact's text reads the same to a binary from before it.
 	channel snowflake.ID
 	// last is the unix minute that last counted, so one room counts once,
 	// and rallied when it was last put up in a channel, in memory only.
@@ -75,7 +76,7 @@ func (p *pact) signed(user snowflake.ID) bool {
 }
 
 // encodePact is p as a member's row saves it: opener, day, ring, minutes,
-// channel, then a user and their minutes per signer, comma separated.
+// then a user and their minutes per signer, comma separated.
 func encodePact(p *pact) string {
 	if p == nil {
 		return ""
@@ -84,7 +85,7 @@ func encodePact(p *pact) string {
 	if p.ring {
 		ring = 1
 	}
-	parts := []string{p.opener.String(), strconv.FormatInt(p.day, 10), strconv.Itoa(ring), strconv.FormatInt(p.minutes, 10), p.channel.String()}
+	parts := []string{p.opener.String(), strconv.FormatInt(p.day, 10), strconv.Itoa(ring), strconv.FormatInt(p.minutes, 10)}
 	for _, s := range p.signers {
 		parts = append(parts, s.user.String(), strconv.FormatInt(s.minutes, 10))
 	}
@@ -92,10 +93,9 @@ func encodePact(p *pact) string {
 }
 
 // decodePact reads a saved pact back, nil for none or one that won't read.
-// One saved before pacts kept their channel has an even count of fields.
 func decodePact(s string) *pact {
 	f := strings.Split(s, ",")
-	if len(f) < 6 {
+	if len(f) < 6 || len(f)%2 != 0 {
 		return nil
 	}
 	n := make([]int64, len(f))
@@ -107,11 +107,7 @@ func decodePact(s string) *pact {
 		n[i] = v
 	}
 	p := &pact{opener: snowflake.ID(n[0]), day: n[1], ring: n[2] == 1, minutes: n[3]}
-	from := 4
-	if len(n)%2 == 1 {
-		p.channel, from = snowflake.ID(n[4]), 5
-	}
-	for i := from; i < len(n); i += 2 {
+	for i := 4; i < len(n); i += 2 {
 		p.signers = append(p.signers, signer{snowflake.ID(n[i]), n[i+1]})
 	}
 	if len(p.signers) > p.size() {
@@ -163,6 +159,7 @@ func joinPacts(s *server) {
 		}
 		k := [2]int64{int64(m.pact.opener), m.pact.day}
 		if p, ok := one[k]; ok {
+			p.channel = max(p.channel, m.pact.channel)
 			m.pact = p
 		} else {
 			one[k] = m.pact
@@ -357,7 +354,7 @@ func joinderText(n joinderNews) string {
 	if n.ring {
 		head = "the ring closes, and the ravens enter it without saying who led"
 	}
-	lines := []string{head, fmt.Sprintf("**paid** %s, %s pp each", mentions(n.paid), grouped(n.got/unit))}
+	lines := []string{head, fmt.Sprintf("**joinder** %s pp each to %s", grouped(n.got/unit), mentions(n.paid))}
 	if len(n.learned) > 0 {
 		lines = append(lines, fmt.Sprintf("**learned** %s: a new page on their lore card", mentions(n.learned)))
 	}

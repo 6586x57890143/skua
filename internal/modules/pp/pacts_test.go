@@ -386,7 +386,7 @@ func TestJoinderNews(t *testing.T) {
 	s.pending = nil
 	s.mu.Unlock()
 	m.postJoinders()
-	if len(r.posts) != 1 || r.to[0] != 77 || !strings.Contains(r.posts[0], "teeth match") || !strings.Contains(r.posts[0], "60 pp each") ||
+	if len(r.posts) != 1 || r.to[0] != 77 || !strings.Contains(r.posts[0], "teeth match") || !strings.Contains(r.posts[0], "60 pp each to") ||
 		!strings.Contains(r.posts[0], "**learned** \\u003c@"+a.String()) || strings.Contains(r.posts[0], "learned** \\u003c@"+b.String()) {
 		t.Errorf("posted %v to %v", r.posts, r.to)
 	}
@@ -394,9 +394,25 @@ func TestJoinderNews(t *testing.T) {
 	if len(r.posts) != 1 {
 		t.Error("told twice")
 	}
+	// Discord down: the news waits for the next tick rather than going.
+	s.mu.Lock()
+	s.joinders = []joinderNews{{channel: 77, got: Default.Joinder[0], paid: []snowflake.ID{a, b}}}
+	s.mu.Unlock()
+	r.down = true
+	m.postJoinders()
+	if len(s.joinders) != 0 {
+		t.Error("a plain failure was kept")
+	}
 
-	if q := decodePact("5,9,0,3,5,3,6,2"); q == nil || q.channel != 0 || len(q.signers) != 2 || q.signers[1].minutes != 2 {
-		t.Errorf("an old pact: %+v", q)
+	// Two signers' rows, one that heard the channel: joined, the pact
+	// keeps it.
+	q := &member{pact: decodePact("5,9,0,3,5,3,6,2")}
+	q.pact.channel = 77
+	srv := newServer(guild)
+	srv.members[5], srv.members[6] = &member{pact: decodePact("5,9,0,3,5,3,6,2")}, q
+	joinPacts(srv)
+	if srv.members[5].pact != srv.members[6].pact || srv.members[5].pact.channel != 77 {
+		t.Error("the joined pact lost its channel")
 	}
 	if mentions([]snowflake.ID{1, 2, 3}) != "<@1>, <@2> and <@3>" || mentions([]snowflake.ID{1}) != "<@1>" {
 		t.Error("mentions")

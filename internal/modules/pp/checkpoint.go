@@ -6,12 +6,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/brand"
-	"github.com/6586x57890143/skua/internal/core"
-	"github.com/6586x57890143/skua/internal/guard"
 )
 
 // The weekly checkpoint: when a server's week turns, the top places on each
@@ -159,19 +156,21 @@ func (m *Module) postJoinders() {
 		if !ready || !m.enabled(g) {
 			continue
 		}
+		var later []joinderNews
 		for _, n := range news {
-			err := m.Guard.Allow(g, guard.MessageSend)
-			if err == nil {
-				_, err = m.rest.CreateMessage(n.channel, discord.MessageCreate{
-					Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, Name, pactName(n.ring), joinderText(n))},
-					Flags:           discord.MessageFlagIsComponentsV2,
-					AllowedMentions: core.NoPings(),
-				})
-				m.Guard.Report(g, struggling(err))
-			}
+			again, err := m.sendCard(g, n.channel, brand.ColorNotice, pactName(n.ring), joinderText(n))
 			if err != nil {
-				m.log.Warn("pp: telling a finished notice", "guild", g, "channel", n.channel, "err", err)
+				m.log.Warn("pp: telling a finished notice", "guild", g, "channel", n.channel, "err", err, "again", again)
 			}
+			if again {
+				later = append(later, n)
+			}
+		}
+		// What the guard or a busy Discord held back goes on the next tick.
+		if len(later) > 0 {
+			s.mu.Lock()
+			s.joinders = append(later, s.joinders...)
+			s.mu.Unlock()
 		}
 	}
 }
