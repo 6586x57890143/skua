@@ -105,7 +105,7 @@ func leftWords(left int64) string {
 // enough to show them, pleats hanging down it with the lit side of each
 // fold to the left.
 func swatch(c *pixel.Canvas, r image.Rectangle, rgb uint32) {
-	lit, shade := c.Dye(tint(rgb, 0xffffff, 30)), c.Dye(tint(rgb, 0x000000, 28))
+	lit, shade := c.Dye(pixel.Tint(rgb, 0xffffff, 30)), c.Dye(pixel.Tint(rgb, 0x000000, 28))
 	c.Fill(r, c.Dye(rgb))
 	if r.Dy() >= 24 {
 		for x := r.Min.X + 6; x < r.Max.X-4; x += 12 {
@@ -116,14 +116,4 @@ func swatch(c *pixel.Canvas, r image.Rectangle, rgb uint32) {
 	c.Fill(image.Rect(r.Min.X, r.Min.Y, r.Max.X, r.Min.Y+max(1, r.Dy()/8)), lit)
 	c.Fill(image.Rect(r.Min.X, r.Max.Y-max(2, r.Dy()/6), r.Max.X, r.Max.Y), shade)
 	c.Outline(r.Inset(-1), pixel.Line)
-}
-
-// tint is a moved pct percent of the way to b.
-func tint(a, b uint32, pct uint32) uint32 {
-	var out uint32
-	for shift := 16; shift >= 0; shift -= 8 {
-		x, y := a>>shift&0xff, b>>shift&0xff
-		out |= (x*(100-pct) + y*pct) / 100 << shift
-	}
-	return out
 }

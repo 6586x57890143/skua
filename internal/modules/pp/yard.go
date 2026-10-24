@@ -164,7 +164,7 @@ func (st *state) dyeMessage(mem *member, d dye, today int64) (discord.MessageCre
 		page = "the factions"
 	}
 	it := Item{Kind: "livery", Name: d.name, What: d.what, Story: d.story, Effect: d.effect,
-		Price: price, Short: mem.purse < price, Climbed: worn, You: or(mem.name, "you"), Dye: d.color}
+		Price: price, Short: mem.purse < price, Climbed: worn, You: or(mem.name, "you"), Dye: d.color, Garment: garments[d.key]}
 	pic, err := ItemScreen(it)
 	if err != nil {
 		return discord.MessageCreate{}, err

@@ -577,5 +577,33 @@ func (c *Canvas) grid(g []string, p image.Point, scale int) image.Rectangle {
 	return box
 }
 
+// DyedGrid draws g like Grid, scale pixels a cell, and also paints its
+// cells 1, 2 and 3 in the colour rgb: lit, as it is and in shade. It's
+// how one drawing of a garment comes in every livery's dye.
+func (c *Canvas) DyedGrid(g []string, p image.Point, scale int, rgb uint32) image.Rectangle {
+	dyes := map[byte]uint8{'1': c.Dye(Tint(rgb, 0xffffff, 30)), '2': c.Dye(rgb), '3': c.Dye(Tint(rgb, 0x000000, 30))}
+	box := c.grid(g, p, scale)
+	for y, row := range g {
+		for x := range len(row) {
+			if i, ok := dyes[row[x]]; ok {
+				cell := image.Rect(p.X+x*scale, p.Y+y*scale, p.X+(x+1)*scale, p.Y+(y+1)*scale)
+				c.Fill(cell, i)
+				box = box.Union(cell.Intersect(c.Rect))
+			}
+		}
+	}
+	return box
+}
+
+// Tint is the colour a moved pct percent of the way to b.
+func Tint(a, b uint32, pct uint32) uint32 {
+	var out uint32
+	for shift := 16; shift >= 0; shift -= 8 {
+		x, y := a>>shift&0xff, b>>shift&0xff
+		out |= (x*(100-pct) + y*pct) / 100 << shift
+	}
+	return out
+}
+
 // IconInk is the palette index of the IconInks letter b.
 func IconInk(b byte) uint8 { return iconInk[b] }
