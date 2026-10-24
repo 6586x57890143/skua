@@ -11,6 +11,15 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.10.0",
+	Date:    "2026-10-24",
+	Balance: "1190f8",
+	Lines: []string{
+		"chirographs: post one from your quests and another bird signs it. spend 30 minutes together in voice and the pot pays you both 60 pp over your day",
+		"round robins: three or four birds sign in a ring. 30 minutes with three of you together pays 90 pp each, 120 with all four",
+		"one joinder a day, to each signer there for half the time; an unfinished notice lapses after two days",
+	},
+}, {
 	Version: "0.9.1",
 	Date:    "2026-10-24",
 	Balance: "710847",

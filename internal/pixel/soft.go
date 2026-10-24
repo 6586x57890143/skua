@@ -5,6 +5,9 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"sync"
+
+	"github.com/HugoSmits86/nativewebp"
 )
 
 // Soft is the canvas scale times larger as the PlayStation put it on a
@@ -16,6 +19,15 @@ import (
 // artefacts belong to the look, and the screens use it where crisp art
 // would read too clean for the 90s.
 func (c *Canvas) Soft(scale int) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, c.SoftImage(scale), &jpeg.Options{Quality: 88}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// SoftImage is the canvas softened as Soft has it, before it's encoded.
+func (c *Canvas) SoftImage(scale int) *image.RGBA {
 	w, h := c.Rect.Dx(), c.Rect.Dy()
 	// The canvas's colours as floats, a cell each, cut to 5 bits a channel
 	// under the ordered dither: its grain is the console's.
@@ -87,11 +99,7 @@ func (c *Canvas) Soft(scale int) ([]byte, error) {
 			out.SetRGBA(X, Y, color.RGBA{v[0], v[1], v[2], 0xFF})
 		}
 	}
-	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, out, &jpeg.Options{Quality: 88}); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return out
 }
 
 // bayer is the PlayStation's 4 by 4 ordered dither, thresholds of 16.
@@ -100,4 +108,52 @@ var bayer = [4][4]uint8{
 	{12, 4, 14, 6},
 	{3, 11, 1, 9},
 	{15, 7, 13, 5},
+}
+
+// SoftLoop is frames softened as Soft has them, looped as an animated WebP
+// that shows each for ms milliseconds. The first frame goes whole and the
+// rest as only the box that changes anywhere in the loop, so a loop of a
+// screen that barely moves costs about one frame to encode and to send.
+func SoftLoop(frames []*Canvas, scale int, ms uint) ([]byte, error) {
+	soft := make([]*image.RGBA, len(frames))
+	var wg sync.WaitGroup
+	for i, f := range frames {
+		wg.Go(func() { soft[i] = f.SoftImage(scale) })
+	}
+	wg.Wait()
+	var moved image.Rectangle
+	for _, f := range soft[1:] {
+		moved = moved.Union(changed(soft[0], f))
+	}
+	// A frame's place is stored halved, so its box starts on even pixels.
+	moved.Min.X, moved.Min.Y = moved.Min.X&^1, moved.Min.Y&^1
+	ani := nativewebp.Animation{Images: []image.Image{soft[0]}, Durations: []uint{ms}, Disposals: []uint{0}}
+	for _, f := range soft[1:] {
+		if moved.Empty() {
+			break
+		}
+		ani.Images = append(ani.Images, f.SubImage(moved))
+		ani.Durations = append(ani.Durations, ms)
+		ani.Disposals = append(ani.Disposals, 0)
+	}
+	var buf bytes.Buffer
+	if err := nativewebp.EncodeAll(&buf, &ani, &nativewebp.Options{CompressionLevel: nativewebp.BestSpeed}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// changed is the box round every pixel a and b differ in.
+func changed(a, b *image.RGBA) image.Rectangle {
+	var r image.Rectangle
+	for y := a.Rect.Min.Y; y < a.Rect.Max.Y; y++ {
+		row := a.PixOffset(a.Rect.Min.X, y)
+		for x := range a.Rect.Dx() {
+			o := row + x*4
+			if a.Pix[o] != b.Pix[o] || a.Pix[o+1] != b.Pix[o+1] || a.Pix[o+2] != b.Pix[o+2] {
+				r = r.Union(image.Rect(a.Rect.Min.X+x, y, a.Rect.Min.X+x+1, y+1))
+			}
+		}
+	}
+	return r
 }

@@ -61,6 +61,12 @@ type tierData struct {
 var (
 	lifetime = [4]float64{1, 8, 26, 52}
 	finishes = [4]float64{0.3, 0.5, 0.7, 0.9}
+	// pactRate is how often a day with PactGoal minutes in voice also
+	// finishes a chirograph or round robin, and pactSize how they split
+	// between two, three and four signers paid. Generous on purpose: a
+	// visitor never signs, and a core member signs most days in voice.
+	pactRate = [4]float64{0, 0.15, 0.4, 0.6}
+	pactSize = [3]float64{0.6, 0.3, 0.1}
 )
 
 // unmutedShare is the part of voice time spent with the mic open; the rest
@@ -80,6 +86,7 @@ type econ struct {
 	grants                int64 // pot days a week the admins grant, from week 5
 	fund                  int64 // basis points of quest pay minted into the contest fund
 	quests                int64 // percent of QuestPP a quest pays
+	pacts                 int64 // percent of pactRate
 	churn                 int64 // percent of the assumed leaving rate
 	// shock multiplies arrivals and turning up by pct percent over weeks
 	// [from, to).
@@ -90,7 +97,7 @@ type econ struct {
 
 // charter is the economy PR 3 ships.
 var charter = econ{levy: Rules.Levy, weeks: Rules.TreasuryWeeks, sinkFloor: Rules.SinkFloor, line: Rules.Line, keep: Rules.Keep,
-	fund: Rules.FundShare, spend: 30, ladder: true, grants: 20, quests: 100, churn: 100, run: 156}
+	fund: Rules.FundShare, spend: 30, ladder: true, grants: 20, quests: 100, pacts: 100, churn: 100, run: 156}
 
 // citizen is one member of the simulated server.
 type citizen struct {
@@ -122,6 +129,7 @@ type outcome struct {
 	giniW, giniI, topW, topI   float64
 	transfers                  float64 // A5: prizes and grants, most of labour in any 4 weeks
 	quests                     float64 // A5: quests' share of labour
+	pacts                      float64 // A5: joinders' share of labour
 	treasuryOK                 bool    // A6
 	atCap, supply              float64
 	perDay, mintDay, levyNeed  float64
@@ -249,7 +257,7 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 		launch = append(launch, c)
 	}
 
-	var treasury, burned, withheld, mint, questMint, transfers int64
+	var treasury, burned, withheld, mint, questMint, pactMint, transfers int64
 	// The contest fund starts full, once, and grows with every quest.
 	var fund, hold int64
 	if e.fund > 0 {
@@ -294,6 +302,15 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 				add := min(q*e.fund/10000, hold-fund)
 				fund += add
 				mint += add
+			}
+			if voice >= b.PactGoal && rng.Float64() < pactRate[c.tier]*float64(e.pacts)/100 {
+				n, r := 0, rng.Float64()
+				for n < 2 && r >= pactSize[n] {
+					r -= pactSize[n]
+					n++
+				}
+				got += b.Joinder[n]
+				pactMint += b.Joinder[n]
 			}
 			c.prev, c.prevPools, c.seen = d, pools, day
 			for i, act := range d.Activity() {
@@ -502,6 +519,7 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 	o.topW, o.topI = top(wealth, 100), top(income, 100)
 	o.atCap = float64(capped) / float64(max(len(wealth), 1))
 	o.quests = float64(questMint) / float64(max(mint, 1))
+	o.pacts = float64(pactMint) / float64(max(mint, 1))
 	o.perDay = float64(turnedUp) / float64(days)
 	o.mintDay = float64(mint) / float64(days) / unit
 	o.treasury, o.burned, o.withheld = treasury, burned, withheld
@@ -581,17 +599,19 @@ func (o outcome) check() []string {
 	fail(o.backstop == 0, "A4 the sinks failed: the heavy purse line switched on in season %d", o.backstop)
 	fail(o.transfers <= 0.03, "A5 prizes and grants reach %.1f%% of labour", o.transfers*100)
 	fail(o.quests <= 0.50, "A5 quests are %.0f%% of what's minted", o.quests*100)
+	// A joinder is a small reward for company, not a second quest.
+	fail(o.pacts <= 0.08, "A5 joinders are %.1f%% of what's minted", o.pacts*100)
 	fail(o.treasuryOK, "A6 the treasury left its bounds")
 	return bad
 }
 
 func (o outcome) String() string {
-	return fmt.Sprintf("pot day %d pp; %.0f turn up a day, %.0f pp minted a day, quests %.0f%%\n"+
+	return fmt.Sprintf("pot day %d pp; %.0f turn up a day, %.0f pp minted a day, quests %.0f%%, joinders %.1f%%\n"+
 		"savings %.1f pot days an active member, drift %+.2f%%/mo, swing %.0f%%; %.1f%% past %s pp\n"+
 		"a newcomer's day pays %.2f of a veteran's; sinks %.0f%% of minted, backstop season %d\n"+
 		"gini savings %.2f activity %.2f; the top 1%% hold %.1f%% of savings and earn %.1f%%\n"+
 		"transfers peak %.2f%% of labour, levy needed %.0f bp; treasury %s, burned %s, withheld %s",
-		o.potDay/unit, o.perDay, o.mintDay, o.quests*100,
+		o.potDay/unit, o.perDay, o.mintDay, o.quests*100, o.pacts*100,
 		o.supply, o.drift*100, o.band*100, o.atCap*100, grouped(o.H/unit),
 		o.terms, o.sink*100, o.backstop,
 		o.giniW, o.giniI, o.topW*100, o.topI*100,

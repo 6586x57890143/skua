@@ -92,6 +92,12 @@ type Balance struct {
 	// something odd instead.
 	QuestKinds [3][]QuestKind
 
+	// Chirographs and round robins: PactGoal minutes together finish one,
+	// it lapses PactLife days after it was posted, and Joinder is what each
+	// signer paid gets when two, three or four were.
+	PactGoal, PactLife int64
+	Joinder            [3]int64
+
 	// Classes: the first pick of a season is free, and so is changing it
 	// within ClassGrace days. After that a change costs ClassFee pot days
 	// and the next can't come for ClassWait days.
@@ -107,7 +113,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.9.1",
+	Version: "0.10.0",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -171,6 +177,10 @@ var Default = Balance{
 			{Icon: "orb", Tasks: []Task{{taskCamera, 20}}},
 		},
 	},
+
+	PactGoal: 30,
+	PactLife: 2,
+	Joinder:  [3]int64{60 * unit, 90 * unit, 120 * unit},
 
 	ClassGrace: 2,
 	ClassWait:  7,

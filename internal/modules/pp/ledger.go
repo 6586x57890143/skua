@@ -28,6 +28,7 @@ const (
 	reasonPrize   = "prize"   // a weekly checkpoint's prize, the same way
 	reasonShop    = "shop"    // something bought, burned
 	reasonQuest   = "quest"   // a finished quest, as labour
+	reasonJoinder = "joinder" // a chirograph's or round robin's pay, as labour; inputs how many were paid, got, levy, kept back
 	reasonLease   = "lease"   // a week of a livery, burned; inputs its dye (-1 for one's own) and the day it runs to
 	reasonHold    = "hold"    // a petition's price, held from the purse while the heralds decide
 	reasonRelease = "release" // a hold given back: a petition refused, or one that never reached them
