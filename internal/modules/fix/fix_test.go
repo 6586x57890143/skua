@@ -26,9 +26,33 @@ type resolverFunc func(context.Context, Link) (Post, error)
 
 func (f resolverFunc) Resolve(ctx context.Context, l Link) (Post, error) { return f(ctx, l) }
 func module() *Module {
-	return New(context.Background(), guard.New(), resolverFunc(func(context.Context, Link) (Post, error) {
+	m := New(context.Background(), guard.New(), resolverFunc(func(context.Context, Link) (Post, error) {
 		return Post{Text: "Source Text", Author: "Creator", Provider: "test"}, nil
 	}), slog.New(slog.DiscardHandler))
+	m.inline = true
+	return m
+}
+
+func TestCommandReturnsBeforeTheFetch(t *testing.T) {
+	m := module()
+	m.inline = false
+	release := make(chan struct{})
+	m.api = resolverFunc(func(context.Context, Link) (Post, error) {
+		<-release
+		return Post{Text: "late", Provider: "test"}, nil
+	})
+	e, _ := slash(t, "https://x.com/user/status/123", false)
+	e.Client().Rest = &recordingRest{}
+	if err := m.command(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	for len(m.slots) > 0 {
+		time.Sleep(time.Millisecond)
+	}
+	if m.Report(3).Rows[0][1] != "1" {
+		t.Fatal(m.Report(3))
+	}
 }
 
 type recordingRest struct {
