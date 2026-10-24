@@ -40,6 +40,9 @@ func (m *mediaRelay) signature(kind, id string) string {
 	_, _ = h.Write([]byte("skua/fix/" + kind + "/" + id))
 	return hex.EncodeToString(h.Sum(nil))
 }
+func relayID(kind, id string) bool {
+	return (kind == "kick" && kickClipID.MatchString(id)) || (kind == "reddit" && redditVideoID.MatchString(id))
+}
 func (m *mediaRelay) link(kind, id string) string {
 	return m.base + "/fix/media/" + kind + "/" + id + "/" + m.signature(kind, id) + ".mp4"
 }
@@ -57,7 +60,7 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	controller := http.NewResponseController(w)
 	_ = controller.SetWriteDeadline(time.Now().Add(20 * time.Second))
 	p := strings.Split(strings.TrimPrefix(r.URL.Path, "/fix/media/"), "/")
-	if !strings.HasPrefix(r.URL.Path, "/fix/media/") || len(p) != 3 || !((p[0] == "kick" && kickClipID.MatchString(p[1])) || (p[0] == "reddit" && redditVideoID.MatchString(p[1]))) || !hmac.Equal([]byte(p[2]), []byte(m.signature(p[0], p[1])+".mp4")) {
+	if !strings.HasPrefix(r.URL.Path, "/fix/media/") || len(p) != 3 || !relayID(p[0], p[1]) || !hmac.Equal([]byte(p[2]), []byte(m.signature(p[0], p[1])+".mp4")) {
 		http.NotFound(w, r)
 		return
 	}
