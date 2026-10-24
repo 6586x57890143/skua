@@ -60,41 +60,96 @@ func (a *API) reddit(ctx context.Context, l Link, d *fixData, p *Post) {
 	}
 	start := time.Now()
 	defer func() { obs.Default.Add("fix reddit audio", obs.HTTP, time.Since(start)) }()
+	place := func(media string) {
+		if missing {
+			p.Media = append(p.Media, Media{URL: media, Sensitive: p.Sensitive})
+			return
+		}
+		for i := range p.Media {
+			if p.Media[i].URL == d.Video.URL {
+				p.Media[i].URL = media
+			}
+		}
+	}
+	page := a.redditEmbed(ctx, path[1], path[3])
+	if muxed := redditMuxed(page); muxed != "" {
+		place(muxed)
+		return
+	}
+	if id := redditVideoIn(d, page); id != "" {
+		if media, silent, err := a.redditVideo(ctx, id); err == nil {
+			place(media)
+			if silent {
+				p.Context += "\nvideo preview may be silent; follow the post title for audio"
+			}
+			return
+		}
+	}
+	if missing && page != "" {
+		p.Incomplete = true // HTML alone cannot prove a text-only source.
+		return
+	}
+	unavailable()
+}
+
+// redditEmbed is Reddit's own embed page, or empty when it can't be read.
+func (a *API) redditEmbed(ctx context.Context, subreddit, post string) string {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-	endpoint := "https://embed.reddit.com/r/" + url.PathEscape(path[1]) + "/comments/" + url.PathEscape(path[3]) + "/"
+	endpoint := "https://embed.reddit.com/r/" + url.PathEscape(subreddit) + "/comments/" + url.PathEscape(post) + "/"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return
+		return ""
 	}
 	req.Header.Set("Accept", "text/html")
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)")
 	resp, err := a.c.Do(req)
-	if err == nil {
-		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode == http.StatusOK && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
-			raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 512*1024+1))
-			if readErr == nil && len(raw) <= 512*1024 {
-				if muxed := redditMuxed(string(raw)); muxed != "" {
-					if missing {
-						p.Media = append(p.Media, Media{URL: muxed, Sensitive: p.Sensitive})
-						return
-					}
-					for i := range p.Media {
-						if p.Media[i].URL == d.Video.URL {
-							p.Media[i].URL = muxed
-						}
-					}
-					return
-				}
-				if missing {
-					p.Incomplete = true
-					return
-				} // HTML alone cannot prove a text-only source.
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
+		return ""
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024+1))
+	if err != nil || len(raw) > 512*1024 {
+		return ""
+	}
+	return string(raw)
+}
+
+var redditPlaylist = regexp.MustCompile(`https://v\.redd\.it/([a-z0-9]{6,20})/HLSPlaylist\.m3u8`)
+
+func redditVideoIn(d *fixData, page string) string {
+	if d.Video != nil {
+		if u, err := url.Parse(d.Video.URL); err == nil && u.Host == "v.redd.it" {
+			if id, _, _ := strings.Cut(strings.TrimPrefix(u.Path, "/"), "/"); redditVideoID.MatchString(id) {
+				return id
 			}
 		}
 	}
-	unavailable()
+	if m := redditPlaylist.FindStringSubmatch(page); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// redditVideo returns a playable URL for a CMAF upload: the relay's muxed
+// file, or the video track alone (silent) when the relay can't serve it.
+func (a *API) redditVideo(ctx context.Context, id string) (media string, silent bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	video, audio, err := a.redditRenditions(ctx, id)
+	if err != nil || audio == "" {
+		return video, false, err
+	}
+	if a.media == nil {
+		return video, true, nil
+	}
+	if _, err := a.media.ready(ctx, "reddit/"+id, func(ctx context.Context) ([]byte, error) { return a.redditMux(ctx, id) }); err != nil {
+		return video, true, nil
+	}
+	return a.media.link("reddit", id), false, nil
 }
 
 func redditMuxed(raw string) string {
