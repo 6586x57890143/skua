@@ -61,6 +61,10 @@ const (
 	// preview. Its own budget, so a link-heavy guild can't starve the
 	// alerts and warnings that share MessageSend.
 	FixCard
+	// RoleWrite is one role made, changed, moved or deleted.
+	RoleWrite
+	// MemberRole is one role added to or taken from a member.
+	MemberRole
 	opCount
 )
 
@@ -92,6 +96,11 @@ var caps = [opCount]int64{
 	AttachmentRefresh: 300,
 	// Up to three cards and one preview flag per message with links.
 	FixCard: 600,
+	// A livery is a role made, moved and later deleted: a busy day's
+	// leases are a few dozen.
+	RoleWrite: 60,
+	// A lease starts and ends with one each.
+	MemberRole: 120,
 }
 
 const (

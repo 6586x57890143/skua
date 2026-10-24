@@ -371,7 +371,7 @@ func TestSaveAndReport(t *testing.T) {
 
 func TestModuleContract(t *testing.T) {
 	m := testModule(&fakeDB{})
-	if m.Name() != Name || m.Perms() != discord.PermissionViewChannel|discord.PermissionSendMessages || m.Want().Required&gateway.IntentGuildVoiceStates == 0 {
+	if m.Name() != Name || m.Perms() != discord.PermissionViewChannel|discord.PermissionSendMessages|discord.PermissionManageRoles || m.Want().Required&gateway.IntentGuildVoiceStates == 0 {
 		t.Error("the module's contract")
 	}
 	if h := m.Help(); h.Line == "" || strings.Count(h.About, ";") > 1 {

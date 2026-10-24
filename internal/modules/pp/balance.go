@@ -166,9 +166,9 @@ var Default = Balance{
 		},
 	},
 
-	ClassGrace:    2,
-	ClassWait:     7,
-	ClassFee:      1,
+	ClassGrace: 2,
+	ClassWait:  7,
+	ClassFee:   1,
 
 	SeasonStart: DayOf(time.Date(2026, 11, 2, 5, 30, 0, 0, time.UTC)),
 	SeasonWeeks: 4,
