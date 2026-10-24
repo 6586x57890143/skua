@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
@@ -16,23 +17,26 @@ import (
 )
 
 // A rarer quest asks more, but less than it pays more: every kind of a
-// tier asks under its pay's multiple of the good tier's ask.
+// tier asks under its pay's multiple of the good tier's ask. A minute in a
+// crowd or on stream is a voice minute too, and a reply is a message, so
+// tasks of one kind overlap: the work is the biggest of them.
 func TestQuestsAskLessThanTheyPay(t *testing.T) {
-	ask := func(k QuestKind) (n int64) {
+	ask := func(k QuestKind) int64 {
+		var voice, talk int64
 		for _, t := range k.Tasks {
 			switch t.Metric {
-			case taskVoice, taskHearth:
-				n += t.Goal * Default.VoiceBase * Default.Unmuted / 100
-			case taskTalk:
-				n += t.Goal * (Default.ChatMin + Default.ChatMax) / 2
+			case taskVoice, taskHearth, taskCrowd, taskStream, taskCamera:
+				voice = max(voice, t.Goal)
+			case taskTalk, taskReply:
+				talk = max(talk, t.Goal)
 			}
 		}
-		return n
+		return voice*Default.VoiceBase*Default.Unmuted/100 + talk*(Default.ChatMin+Default.ChatMax)/2
 	}
 	base := ask(Default.QuestKinds[0][0])
 	for tier, kinds := range Default.QuestKinds {
 		for _, k := range kinds {
-			if k.Tasks[0].Metric == taskSelfie {
+			if k.Tasks[0].Metric == taskSelfie || k.Tasks[0].Metric == taskCamera {
 				continue
 			}
 			pays := float64(Default.QuestPP[tier]) / float64(Default.QuestPP[0])
@@ -279,5 +283,80 @@ func TestQuestsButton(t *testing.T) {
 	// The selfie channel picker is on the help page, for admins.
 	if !strings.Contains(js(m.Report(3).Controls), "pp:selfies") {
 		t.Error("the help page has no selfie channel picker")
+	}
+}
+
+// kindOf is the first kind in tier whose first task counts metric.
+func kindOf(t *testing.T, tier int, metric string) int {
+	t.Helper()
+	for k, kind := range Default.QuestKinds[tier] {
+		if kind.Tasks[0].Metric == metric {
+			return k
+		}
+	}
+	t.Fatalf("no %s quest in tier %d", metric, tier)
+	return 0
+}
+
+// A crowd counts a voice minute with two or more others, a stream or a
+// camera counts only its own, and only a bird earning is counted.
+func TestVoiceQuests(t *testing.T) {
+	st := newState(&Default, 42)
+	s := st.server(guild)
+	a, b, c := old(1), old(2), old(3)
+	crowd, camera := kindOf(t, 0, taskCrowd), kindOf(t, 2, taskCamera)
+	stream := kindOf(t, 1, taskStream)
+	for _, u := range []snowflake.ID{a, b, c} {
+		st.member(s, guild, u, DayOf(t0)).quests = []heldQuest{{tier: 0, kind: crowd}, {tier: 2, kind: camera}, {tier: 1, kind: stream}}
+	}
+	cam, live := in(room), in(room)
+	cam.SelfVideo, live.SelfStream = true, true
+	st.sit(s, guild, a, cam, false, t0)
+	st.sit(s, guild, b, live, false, t0)
+	st.minute(s, guild, 0, t0.Add(time.Minute))
+	qa, qb := s.members[a].quests, s.members[b].quests
+	if qa[0].prog[0] != 0 || qa[1].prog[0] != 1 || qa[2].prog[0] != 0 || qb[2].prog[0] != 1 || qb[1].prog[0] != 0 {
+		t.Fatalf("two in a room: %+v %+v", qa, qb)
+	}
+	// A fresh alt makes three seats but not a crowd.
+	alt := snowflake.New(t0)
+	st.sit(s, guild, alt, in(room), false, t0)
+	st.minute(s, guild, 0, t0.Add(2*time.Minute))
+	if s.members[a].quests[0].prog[0] != 0 {
+		t.Fatal("a fresh account counted toward a crowd")
+	}
+	st.sit(s, guild, alt, discord.VoiceState{}, false, t0)
+	st.sit(s, guild, c, in(room), false, t0)
+	st.minute(s, guild, 0, t0.Add(3*time.Minute))
+	if s.members[c].quests[0].prog[0] != 1 || s.members[a].quests[0].prog[0] != 1 {
+		t.Errorf("three in a room isn't a crowd: %+v", s.members[c].quests)
+	}
+}
+
+// A reply counts when it answers another bird and pays: never one to
+// yourself or to a bot.
+func TestReplyQuest(t *testing.T) {
+	m := testModule(&fakeDB{})
+	s := m.st.server(guild)
+	a := old(1)
+	mem := m.st.member(s, guild, a, DayOf(t0))
+	mem.quests = []heldQuest{{tier: 0, kind: kindOf(t, 0, taskReply)}}
+	say := func(at time.Duration, to discord.User, text string) {
+		m.now = func() time.Time { return t0.Add(at) }
+		m.OnEvent(&events.GuildMessageCreate{GenericGuildMessage: &events.GenericGuildMessage{
+			GenericEvent: generic(), GuildID: guild,
+			Message: discord.Message{Author: discord.User{ID: a}, Content: text, ReferencedMessage: &discord.Message{Author: to}},
+		}})
+	}
+	say(0, discord.User{ID: a}, "talking to myself")
+	say(time.Minute, discord.User{ID: old(9), Bot: true}, "thanks, bot")
+	say(2*time.Minute, discord.User{ID: snowflake.New(t0)}, "hi, alt")
+	if mem.quests[0].prog[0] != 0 {
+		t.Fatal("a reply to yourself, a bot or a fresh account counted")
+	}
+	say(3*time.Minute, discord.User{ID: old(2)}, "good point")
+	say(3*time.Minute+time.Second, discord.User{ID: old(2)}, "and another")
+	if mem.quests[0].prog[0] != 1 {
+		t.Errorf("replies counted %d, want the one that paid", mem.quests[0].prog[0])
 	}
 }

@@ -69,7 +69,7 @@ type member struct {
 type seat struct {
 	channel                                snowflake.ID
 	bot, deaf, muted, suppressed, selfMute bool
-	video                                  bool
+	camera, stream                         bool
 }
 
 // server is one guild's state, behind its own lock.
@@ -427,6 +427,12 @@ var hashSeed = maphash.MakeSeed()
 // once per cooldown, neither when it is too short or the last one again.
 // It returns what it paid. s.mu held.
 func (st *state) chat(s *server, guild, user snowflake.ID, content string, now time.Time) int64 {
+	return st.talk(s, guild, user, content, now, false)
+}
+
+// talk is chat for a message that may be a reply to another bird, which
+// counts toward reply quests when it pays. s.mu held.
+func (st *state) talk(s *server, guild, user snowflake.ID, content string, now time.Time, reply bool) int64 {
 	m := st.member(s, guild, user, DayOf(now))
 	runes, repeat := -1, false
 	if content != "" {
@@ -445,7 +451,11 @@ func (st *state) chat(s *server, guild, user snowflake.ID, content string, now t
 	}
 	m.lastPay = now
 	r := Roll(st.seedOf(m.dayN), uint64(guild), uint64(user), m.dayN, uint64(m.day.Paid))
-	return st.earn(s, m, guild, user, true, st.bal().ChatRaw(r))
+	got := st.earn(s, m, guild, user, true, st.bal().ChatRaw(r))
+	if reply {
+		st.progress(s, m, user, taskReply)
+	}
+	return got
 }
 
 // sit puts user in voice as vs says, or takes them out. Joining, and
@@ -457,14 +467,13 @@ func (st *state) sit(s *server, guild, user snowflake.ID, vs discord.VoiceState,
 		return
 	}
 	old, ok := s.seats[user]
-	video := vs.SelfVideo || vs.SelfStream
-	if !bot && (!ok || old.channel != *vs.ChannelID || video && !old.video) {
+	if !bot && (!ok || old.channel != *vs.ChannelID || vs.SelfVideo && !old.camera || vs.SelfStream && !old.stream) {
 		st.member(s, guild, user, DayOf(now)).life = now
 	}
 	s.seats[user] = &seat{
 		channel: *vs.ChannelID, bot: bot,
 		deaf: vs.GuildDeaf || vs.SelfDeaf, muted: vs.GuildMute, suppressed: vs.Suppress,
-		selfMute: vs.SelfMute, video: video,
+		selfMute: vs.SelfMute, camera: vs.SelfVideo, stream: vs.SelfStream,
 	}
 }
 
@@ -504,6 +513,15 @@ func (st *state) minute(s *server, guild, afk snowflake.ID, now time.Time) int {
 			}
 			m.voiceMin++
 			st.earn(s, m, guild, u, false, raw)
+			if st.bal().company(others) >= 2 {
+				st.progress(s, m, u, taskCrowd)
+			}
+			if se.stream {
+				st.progress(s, m, u, taskStream)
+			}
+			if se.camera {
+				st.progress(s, m, u, taskCamera)
+			}
 			earning++
 		}
 	}
