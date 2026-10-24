@@ -165,7 +165,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"sinks", sinks},
 		{"banners", strconv.Itoa(banners)},
 		{"presences", presence},
-	}, Controls: slices.Concat(m.betaControls(guild), m.keyControls(), m.logControls(guild), m.selfieControls(guild), m.liveryControls(guild), m.yardControls(guild), m.grantControls())}
+	}, Controls: slices.Concat(m.betaControls(guild), m.keyControls(), m.logControls(guild), m.selfieControls(guild), m.liveryControls(), m.grantControls())}
 }
 
 // Modals are the grant, key and redeem forms.

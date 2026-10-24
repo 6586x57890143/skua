@@ -74,6 +74,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.setSelfies(ctx, *guild, e)
 	case id == "pp:anchor", id == "pp:heralds":
 		return m.setLivery(ctx, *guild, e)
+	case id == "pp:liveries":
+		return m.liveryPanel(*guild, e)
 	case id == "pp:openyard":
 		return m.openYard(ctx, *guild, e)
 	case id == "pp:keys":

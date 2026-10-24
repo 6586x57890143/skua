@@ -2,6 +2,7 @@ package pp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -246,9 +247,12 @@ func TestLiveryGuard(t *testing.T) {
 // Only admins pick the anchor and the heralds' channel, on the help page.
 func TestLiveryControls(t *testing.T) {
 	m := testModule(&fakeDB{})
-	got := js(m.Report(3).Controls)
-	if !strings.Contains(got, "pp:anchor") || !strings.Contains(got, "pp:heralds") {
-		t.Fatalf("the help page has no livery settings: %s", got)
+	if got := js(m.Report(3).Controls); !strings.Contains(got, "pp:liveries") {
+		t.Fatalf("the help page has no way to the livery settings: %s", got)
+	}
+	e, sent := coretest.Button(t, "pp:liveries", nil)
+	if err := m.press(context.Background(), e); err != nil || !strings.Contains(js(*sent), "pp:anchor") || !strings.Contains(js(*sent), "pp:heralds") {
+		t.Fatalf("the livery settings: %v %s", err, js(*sent))
 	}
 	role := func(id string) (*events.ComponentInteractionCreate, *[]discord.MessageCreate) {
 		return coretest.Button(t, "pp:anchor", func(p map[string]any) {
@@ -264,11 +268,14 @@ func TestLiveryControls(t *testing.T) {
 	}
 	admin := false
 	m.Admin = func(discord.Interaction) bool { return admin }
+	if err := m.press(context.Background(), firstOf(coretest.Button(t, "pp:liveries", nil))); !errors.Is(err, errNotAdmin) {
+		t.Fatalf("a member opened the livery settings: %v", err)
+	}
 	if err := m.press(context.Background(), firstOf(role("10"))); !errors.Is(err, errNotAdmin) {
 		t.Fatalf("a member set the anchor: %v", err)
 	}
 	admin = true
-	e, sent := role("10")
+	e, sent = role("10")
 	if err := m.press(context.Background(), e); err != nil || m.st.server(3).anchor != 10 || !strings.Contains((*sent)[0].Content, "<@&10>") {
 		t.Fatalf("the anchor: %v %d %s", err, m.st.server(3).anchor, js(*sent))
 	}
@@ -276,7 +283,7 @@ func TestLiveryControls(t *testing.T) {
 	if err := m.press(context.Background(), e); err != nil || m.st.server(3).heralds != 88 || !strings.Contains((*sent)[0].Content, "<#88>") {
 		t.Fatalf("the heralds' channel: %v %d %s", err, m.st.server(3).heralds, js(*sent))
 	}
-	if got := js(m.Report(3).Controls); !strings.Contains(got, `"id":"10"`) || !strings.Contains(got, `"id":"88"`) {
+	if got := js(m.liverySettings(3)); !strings.Contains(got, `"id":"10"`) || !strings.Contains(got, `"id":"88"`) {
 		t.Errorf("the help page doesn't show what's picked: %s", got)
 	}
 	// A select under the other's ID is refused.
@@ -287,4 +294,49 @@ func TestLiveryControls(t *testing.T) {
 	if err := m.press(context.Background(), e); !errors.Is(err, errNotAdmin) {
 		t.Errorf("a role select posing as the channel picker: %v", err)
 	}
+}
+
+// helpChrome is what /help's page puts round a module's settings: the
+// container, the head and its icon, the about, the commands, the status,
+// the separators, the on and off switch and the menu.
+const helpChrome = 20
+
+// /pp's help page, with every setting it can show, stays inside Discord's
+// 40 components a message, or Discord refuses the whole page.
+func TestHelpPageFits(t *testing.T) {
+	m := testModule(&fakeDB{})
+	if n := components(m.Report(3).Controls); helpChrome+n > 40 {
+		t.Errorf("the help page's settings are %d components, %d with the page round them", n, helpChrome+n)
+	}
+	if n := components(m.liverySettings(3)) + 1; n > 40 {
+		t.Errorf("the livery settings are %d components", n)
+	}
+}
+
+// components counts what Discord counts toward a message's 40: every
+// component, nested ones too.
+func components(v any) int {
+	var walk func(any) int
+	walk = func(x any) int {
+		n := 0
+		switch x := x.(type) {
+		case map[string]any:
+			if _, ok := x["type"]; ok {
+				n++
+			}
+			for k, v := range x {
+				if k != "default_values" && k != "options" {
+					n += walk(v)
+				}
+			}
+		case []any:
+			for _, v := range x {
+				n += walk(v)
+			}
+		}
+		return n
+	}
+	var x any
+	_ = json.Unmarshal([]byte(js(v)), &x)
+	return walk(x)
 }

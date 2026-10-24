@@ -75,14 +75,14 @@ func TestYardGate(t *testing.T) {
 	if s, err := got("pp:shop"); err != nil || !strings.Contains(s, "pp:yard") {
 		t.Fatalf("an admin can't see the closed yard from the shop: %v %s", err, s)
 	}
-	if !strings.Contains(js(m.Report(3).Controls), "pp:openyard") {
+	if !strings.Contains(js(m.liverySettings(3)), "pp:openyard") {
 		t.Fatal("the help page has no switch to open the yard")
 	}
 	e, sent := member("pp:openyard")
 	if err := m.press(context.Background(), e); err != nil || !m.st.server(3).yardOpen || !strings.Contains((*sent)[0].Content, "open") {
 		t.Fatalf("opening the yard: %v %v", err, *sent)
 	}
-	if strings.Contains(js(m.Report(3).Controls), "pp:openyard") {
+	if strings.Contains(js(m.liverySettings(3)), "pp:openyard") {
 		t.Error("the switch is still there once the yard is open")
 	}
 

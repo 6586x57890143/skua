@@ -12,6 +12,7 @@ import (
 	"github.com/disgoorg/omit"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/guard"
 )
@@ -219,9 +220,31 @@ func gone(err error) bool {
 	return ok && re.Response != nil && re.Response.StatusCode == http.StatusNotFound
 }
 
-// liveryControls are the livery settings on /pp's help page: the anchor
-// role and the heralds' channel.
-func (m *Module) liveryControls(guild snowflake.ID) []discord.ContainerSubComponent {
+// liveryControls is the way from /pp's help page to the livery settings.
+// They have a panel of their own: a help page holds at most 40
+// components, and /pp's other settings already take most of them.
+func (m *Module) liveryControls() []discord.ContainerSubComponent {
+	return []discord.ContainerSubComponent{
+		discord.NewTextDisplay("### liveries\n-# the role liveries sit under, where petitions are reviewed, and the switch that opens the dyers' yard"),
+		discord.NewActionRow(withIcon(discord.NewSecondaryButton("livery settings", "pp:liveries"), "scales")),
+	}
+}
+
+// liveryPanel is the livery settings, for an admin only.
+func (m *Module) liveryPanel(guild snowflake.ID, e *events.ComponentInteractionCreate) error {
+	if m.Admin == nil || !m.Admin(e) {
+		return errNotAdmin
+	}
+	return e.CreateMessage(discord.MessageCreate{
+		Components:      []discord.LayoutComponent{discord.NewContainer(m.liverySettings(guild)...).WithAccentColor(brand.ColorNotice)},
+		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
+		AllowedMentions: core.NoPings(),
+	})
+}
+
+// liverySettings are the anchor role, the heralds' channel and, until it's
+// pressed, the yard's switch.
+func (m *Module) liverySettings(guild snowflake.ID) []discord.ContainerSubComponent {
 	s := m.st.server(guild)
 	s.mu.Lock()
 	anchor, heralds := s.anchor, s.heralds
@@ -234,11 +257,11 @@ func (m *Module) liveryControls(guild snowflake.ID) []discord.ContainerSubCompon
 	if heralds != 0 {
 		ch.DefaultValues = []discord.SelectMenuDefaultValue{discord.NewSelectMenuDefaultChannel(heralds)}
 	}
-	return []discord.ContainerSubComponent{
+	return append([]discord.ContainerSubComponent{
 		discord.NewTextDisplay("### liveries\n-# roles bought in the shop sit directly under the anchor, so put it above the server's other colour roles and below staff; skua's own role must be above it. petitions for a livery of one's own go to the heralds' channel for a moderator to grant or refuse"),
 		discord.NewActionRow(role),
 		discord.NewActionRow(ch),
-	}
+	}, m.yardControls(guild)...)
 }
 
 // setLivery keeps the anchor or the heralds' channel an admin picked, or
