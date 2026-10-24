@@ -34,7 +34,7 @@ const (
 	taskTalk   = "talk"   // paying messages
 	taskHearth = "hearth" // minutes earning in voice while the hearth is lit
 	taskSelfie = "selfie" // a picture in the selfie channel still there a day later
-	taskCrowd  = "crowd"  // minutes earning in voice with two or more others
+	taskCrowd  = "crowd"  // minutes earning in voice with three or more in the room
 	taskReply  = "reply"  // paying messages that answer someone else
 	taskStream = "stream" // minutes earning in voice while streaming
 	taskCamera = "camera" // minutes earning in voice with the camera on
@@ -317,7 +317,7 @@ func taskText(t Task) string {
 	case taskSelfie:
 		return "a picture in the selfie channel that's still there a day later"
 	case taskCrowd:
-		return fmt.Sprintf("%d minutes in voice with two or more others", t.Goal)
+		return fmt.Sprintf("%d minutes in voice with three or more in the room", t.Goal)
 	case taskReply:
 		return fmt.Sprintf("%d replies to other birds", t.Goal)
 	case taskStream:
