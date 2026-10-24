@@ -797,6 +797,7 @@ func writeEmoji(b *image.NRGBA) {
 	bare(out, "stat_reply", socialGlyphs["reply"])
 	bare(out, "stat_repost", socialGlyphs["repost"])
 	bare(out, "stat_views", socialGlyphs["views"])
+	bare(out, "stat_likes", socialGlyphs["like"])
 	writeFixLoading(out, bird)
 	gameIcons(out)
 }
@@ -889,6 +890,32 @@ var socialGlyphs = map[string][]string{
 		"....wwwwwwwwwwwwwwww....",
 		"................ww......",
 		"................ww......",
+		"........................",
+		"........................",
+	},
+	"like": {
+		"........................",
+		"........................",
+		"....wwww........wwww....",
+		"....wwww........wwww....",
+		"..ww....ww....ww....ww..",
+		"..ww....ww....ww....ww..",
+		"ww........wwww........ww",
+		"ww........wwww........ww",
+		"ww....................ww",
+		"ww....................ww",
+		"ww....................ww",
+		"ww....................ww",
+		"..ww................ww..",
+		"..ww................ww..",
+		"....ww............ww....",
+		"....ww............ww....",
+		"......ww........ww......",
+		"......ww........ww......",
+		"........ww....ww........",
+		"........ww....ww........",
+		"..........wwww..........",
+		"..........wwww..........",
 		"........................",
 		"........................",
 	},
