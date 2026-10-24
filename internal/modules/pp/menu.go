@@ -278,11 +278,12 @@ func (m *Module) lore(guild, user snowflake.ID, i, page int) (discord.MessageCre
 	if mem.classSeason != -1 {
 		mine = mem.class
 	}
+	know := learned(mem.signs)
 	s.mu.Unlock()
 	if i < 0 {
 		i = classIndex(mine)
 	}
-	return loreMessage(i, page, mine, cost, purse, from-today)
+	return loreMessage(i, page, mine, cost, purse, from-today, know)
 }
 
 // status is who's screen as a message: the card, the picture and, on their

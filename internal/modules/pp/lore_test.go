@@ -26,8 +26,11 @@ func TestLoreCards(t *testing.T) {
 			if h := loreHeight(lines); h > loreText.Dy() {
 				t.Errorf("%s page %d runs %dpx, the card holds %d", cl.Key, p+1, h, loreText.Dy())
 			}
-			checkLayout(t, cl.Key, loreCanvas(cl, p))
+			checkLayout(t, cl.Key, loreCanvas(cl, p, [3]bool{}))
 		}
+		// The signing page, with nothing learned and with everything.
+		checkLayout(t, cl.Key+" signing", loreCanvas(cl, len(pages), [3]bool{}))
+		checkLayout(t, cl.Key+" signed", loreCanvas(cl, len(pages), [3]bool{true, true, true}))
 		if last := pages[len(pages)-1]; !last[len(last)-1].quote {
 			t.Errorf("%s doesn't end on the quote", cl.Key)
 		}
@@ -38,17 +41,23 @@ func TestLoreCards(t *testing.T) {
 // class or page that isn't there.
 func TestLorePress(t *testing.T) {
 	m := testModule(&fakeDB{})
+	// The story's last page reads on to what signing teaches, and that
+	// page goes back to the top.
 	e, sent := coretest.Button(t, loreID(3, 2), nil)
+	if err := m.press(context.Background(), e); err != nil || !strings.Contains(js((*sent)[0]), loreID(3, 3)) {
+		t.Fatalf("the sorcerer's story doesn't read on: %v", err)
+	}
+	e, sent = coretest.Button(t, loreID(3, 3), nil)
 	if err := m.press(context.Background(), e); err != nil {
 		t.Fatal(err)
 	}
 	got := js((*sent)[0])
-	for _, want := range []string{"raven sorcerer", "from the top", loreID(3, 0), loreID(2, 0), loreID(4, 0), "pp:pick:sorcerer"} {
+	for _, want := range []string{"raven sorcerer", "what signing in company teaches", "learned the first time you sign a chirograph", "from the top", loreID(3, 0), loreID(2, 0), loreID(4, 0), "pp:pick:sorcerer"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the sorcerer's last page has no %q: %s", want, got)
 		}
 	}
-	for _, bad := range []string{"pp:lore:8:0", "pp:lore:0:9", "pp:lore:-1:0", "pp:lore:x", "pp:lore:0:0:0"} {
+	for _, bad := range []string{"pp:lore:8:0", "pp:lore:0:4", "pp:lore:-1:0", "pp:lore:x", "pp:lore:0:0:0"} {
 		if err := m.press(context.Background(), firstOf(coretest.Button(t, bad, nil))); !errors.Is(err, errNotAClass) {
 			t.Errorf("%s: %v", bad, err)
 		}
@@ -70,7 +79,7 @@ func TestLorePress(t *testing.T) {
 // past altLimit it refuses the whole message.
 func TestLoreAltFits(t *testing.T) {
 	for i, cl := range Classes {
-		msg, err := loreMessage(i, 0, "", 0, 0, 0)
+		msg, err := loreMessage(i, 0, "", 0, 0, 0, [3]bool{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -83,5 +92,32 @@ func TestLoreAltFits(t *testing.T) {
 	}
 	if got := clip("abcdefgh", 4); got != "abcd" {
 		t.Errorf("clip with no sentence: %q", got)
+	}
+}
+
+// A member's own class's signing page shows what they've learned; another
+// class's says only when it would be learned.
+func TestSigningPage(t *testing.T) {
+	m := testModule(&fakeDB{})
+	if err := m.press(context.Background(), firstOf(pick(t, "monk"))); err != nil {
+		t.Fatal(err)
+	}
+	s := m.st.server(3)
+	s.mu.Lock()
+	s.members[5].signs = signs{chirographs: 1, signatures: 10}
+	s.mu.Unlock()
+	monk := classIndex("monk")
+	page := loreCount(Classes[monk]) - 1
+	e, sent := coretest.Button(t, loreID(monk, page), nil)
+	if err := m.press(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	got := js((*sent)[0])
+	if !strings.Contains(got, SigningLore["monk"][0][:30]) || !strings.Contains(got, SigningLore["monk"][1][:30]) || !strings.Contains(got, "learned the first time you close") {
+		t.Errorf("the monk's signing page: %s", got)
+	}
+	e, sent = coretest.Button(t, loreID(classIndex("bard"), page), nil)
+	if err := m.press(context.Background(), e); err != nil || strings.Contains(js((*sent)[0]), SigningLore["bard"][0][:30]) {
+		t.Errorf("another class's lore showed: %v", err)
 	}
 }

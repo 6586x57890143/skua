@@ -138,24 +138,35 @@ func parseLore(id string) (i, page int, ok bool) {
 	if err1 != nil || err2 != nil || i < 0 || i >= len(Classes) {
 		return 0, 0, false
 	}
-	return i, page, page >= 0 && page < len(lorePages(ClassLore[Classes[i].Key]))
+	return i, page, page >= 0 && page < loreCount(Classes[i])
 }
+
+// loreCount is how many pages c's card has: its story, then what signing
+// in company teaches it.
+func loreCount(c Class) int { return len(lorePages(ClassLore[c.Key])) + 1 }
 
 // loreMessage is class i's lore card at page, the class browser: the
 // picture, the titles the class wears and what walking it costs, and the
 // buttons to page through the classes and the story and to walk this path.
-// mine is the member's class once they've picked one, and wait how many
-// days until they may change it.
-func loreMessage(i, page int, mine string, cost, purse, wait int64) (discord.MessageCreate, error) {
+// mine is the member's class once they've picked one, wait how many days
+// until they may change it, and know what signing in company has taught
+// them of their own class.
+func loreMessage(i, page int, mine string, cost, purse, wait int64, know [3]bool) (discord.MessageCreate, error) {
 	cl := Classes[i]
-	pic, err := LoreScreen(cl, page)
+	if cl.Key != mine {
+		know = [3]bool{}
+	}
+	pic, err := LoreScreen(cl, page, know)
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
 	l := ClassLore[cl.Key]
 	alt := clip(cl.Name()+", "+l.Epithet+": "+strings.Join(l.Story, " ")+" \""+l.Quote+"\"", altLimit)
+	pages := loreCount(cl)
+	if page == pages-1 {
+		alt = cl.Name() + ", what signing in company teaches: " + strings.Join(signingLines(cl, know), "; ")
+	}
 
-	pages := len(lorePages(l))
 	n := len(Classes)
 	turn := "read on"
 	if page+1 >= pages {
@@ -220,10 +231,26 @@ func classIndex(key string) int {
 	return 0
 }
 
-// LoreScreen draws c's lore card at page.
-func LoreScreen(c Class, page int) ([]byte, error) { return loreCanvas(c, page).Soft(screenScale) }
+// LoreScreen draws c's lore card at page, know what of its signing lore
+// the member has learned.
+func LoreScreen(c Class, page int, know [3]bool) ([]byte, error) {
+	return loreCanvas(c, page, know).Soft(screenScale)
+}
 
-func loreCanvas(cl Class, page int) *pixel.Canvas {
+// signingLines is c's signing lore as its card shows it: a piece learned,
+// or when it would be.
+func signingLines(c Class, know [3]bool) []string {
+	out := make([]string, 3)
+	for k, piece := range SigningLore[c.Key] {
+		out[k] = piece
+		if !know[k] {
+			out[k] = "learned " + signingWhen[k]
+		}
+	}
+	return out
+}
+
+func loreCanvas(cl Class, page int, know [3]bool) *pixel.Canvas {
 	c := pixel.New(loreW, loreH)
 	l := ClassLore[cl.Key]
 
@@ -245,18 +272,34 @@ func loreCanvas(cl Class, page int) *pixel.Canvas {
 	c.Window(text)
 	c.Tab(text, cl.Bird+" "+cl.Key)
 	pages := lorePages(l)
-	page = min(max(page, 0), len(pages)-1)
+	page = min(max(page, 0), len(pages))
 	y = loreText.Min.Y
-	for _, s := range pages[page] {
-		face := pixel.Light
-		if s.quote {
-			face = pixel.Serif
+	if page == len(pages) {
+		// What signing in company teaches: a piece learned in the ink, one
+		// still to learn dim, saying when.
+		c.Print(pixel.Bold, loreText.Min.X, y, "signed in company", pixel.Ink)
+		y += pixel.Bold.Height + 4
+		for k, s := range signingLines(cl, know) {
+			ink := pixel.Dim
+			if know[k] {
+				ink = pixel.Ink
+			}
+			for _, line := range pixel.Light.Wrap(s, loreText.Dx()) {
+				c.Print(pixel.Light, loreText.Min.X, y, line, ink)
+				y += loreLine
+			}
+			y += loreLine / 2
 		}
-		c.Print(face, loreText.Min.X, y, s.text, pixel.Ink)
-		y += s.height()
+	} else {
+		for _, s := range pages[page] {
+			face := pixel.Light
+			if s.quote {
+				face = pixel.Serif
+			}
+			c.Print(face, loreText.Min.X, y, s.text, pixel.Ink)
+			y += s.height()
+		}
 	}
-	if len(pages) > 1 {
-		tabName(c, text, fmt.Sprintf("%d / %d", page+1, len(pages)))
-	}
+	tabName(c, text, fmt.Sprintf("%d / %d", page+1, len(pages)+1))
 	return c
 }
