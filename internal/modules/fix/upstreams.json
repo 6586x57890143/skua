@@ -47,19 +47,6 @@
         "yt_dlp/extractor/kick.py",
         "yt_dlp/extractor/common.py"
       ]
-    },
-    {
-      "repository": "bluenviron/mediacommon",
-      "revision": "dc7c53097c6b405e31271357167578a38242509a",
-      "license": "MIT",
-      "paths": [
-        "pkg/formats/mpegts",
-        "pkg/formats/fmp4",
-        "pkg/codecs/h264",
-        "pkg/codecs/mpeg4audio",
-        "go.mod",
-        "LICENSE"
-      ]
     }
   ]
 }

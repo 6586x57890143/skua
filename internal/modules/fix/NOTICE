@@ -31,4 +31,5 @@ HLS audio/video is repackaged by bluenviron/mediacommon v2.9.6 (MIT), using its
 MPEG-TS reader and fragmented MP4 writer. Its original license is preserved in
 LICENSE-mediacommon. Synthetic H.264 test parameters are from that project's
 MIT-licensed test cases; source-authored clip content is not kept in fixtures.
-The existing upstream watcher tracks both Kick extraction and media libraries.
+The upstream watcher tracks the Kick extractor; mediacommon is a tagged module
+pinned in go.mod and covered by govulncheck.
