@@ -1,7 +1,6 @@
 package pp
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -391,7 +390,7 @@ func (m *Module) questsMessage(guild snowflake.ID, who *discord.ResolvedMember) 
 		alt = "your quests: " + strings.Join(text, ". ")
 	}
 	extra := []discord.ContainerSubComponent{
-		discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: clip(alt, altLimit)}),
+		discord.NewMediaGallery(screenItem(pic, clip(alt, altLimit))),
 	}
 	if len(qs) > 0 {
 		// A reroll button per quest, in the screen's order, each greyed
@@ -411,7 +410,7 @@ func (m *Module) questsMessage(guild snowflake.ID, who *discord.ResolvedMember) 
 	extra = append(extra, discord.NewActionRow(withIcon(discord.NewSecondaryButton("do them in company", "pp:company"), "envelope")))
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(color, "pp", "quests", "", extra...)},
-		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil

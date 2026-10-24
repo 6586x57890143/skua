@@ -1,7 +1,6 @@
 package pp
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"image"
@@ -61,30 +60,26 @@ type Posted struct {
 
 // NoticesScreen draws the notices screen: the notice held, its signers
 // lined up like a party, or the board when none is held, and the board's
-// count along the foot. It's still for now: the moving one didn't show in
-// an ephemeral reply.
+// count along the foot, the hand at the open place or the first notice up.
 func NoticesScreen(name string, held *Notice, board []Posted) ([]byte, error) {
-	return noticesCanvas(name, held, board, 0).Soft(screenScale)
+	return noticesCanvas(name, held, board).Screen(screenScale)
 }
-
-// loopName is the file the notices screen goes out as.
-const loopName = "pp.jpg"
 
 // noticeSlot is one signer's column on the party window.
 const noticeSlot = 92
 
-func noticesCanvas(name string, held *Notice, board []Posted, bob int) *pixel.Canvas {
+func noticesCanvas(name string, held *Notice, board []Posted) *pixel.Canvas {
 	c := pixel.New(screenW, screenH)
 	top := image.Rect(4, 4, 380, 128)
 	c.Window(top)
 	if held == nil {
 		c.Tab(top, "the board")
 		tabName(c, top, name)
-		postedRows(c, top, board, bob)
+		postedRows(c, top, board)
 	} else {
 		c.Tab(top, pactName(held.Ring))
 		tabName(c, top, name)
-		party(c, top, held, bob)
+		party(c, top, held)
 	}
 
 	mid := image.Rect(4, 132, 380, 172)
@@ -115,8 +110,8 @@ func noticesCanvas(name string, held *Notice, board []Posted, bob int) *pixel.Ca
 
 // party lines up a notice's places: a framed portrait each, the name and
 // minutes under it, an empty frame for a place still open, the hand at the
-// first of those, bob nearer.
-func party(c *pixel.Canvas, r image.Rectangle, n *Notice, bob int) {
+// first of those.
+func party(c *pixel.Canvas, r image.Rectangle, n *Notice) {
 	x0 := r.Min.X + (r.Dx()-n.Places*noticeSlot)/2
 	for i := range n.Places {
 		x := x0 + i*noticeSlot
@@ -130,7 +125,7 @@ func party(c *pixel.Canvas, r image.Rectangle, n *Notice, bob int) {
 			c.Fill(frame.Inset(2), pixel.Line)
 			centred(c, x, under, "a place", pixel.Dim)
 			if i == len(n.Signers) {
-				c.Cursor(frame.Min.X-2+bob, frame.Min.Y+frame.Dy()/2)
+				c.Cursor(frame.Min.X-2, frame.Min.Y+frame.Dy()/2)
 			}
 			continue
 		}
@@ -151,7 +146,7 @@ func centred(c *pixel.Canvas, x, y int, s string, ink uint8) {
 
 // postedRows lists what's up on the board: its kind, who posted it and the
 // places still open.
-func postedRows(c *pixel.Canvas, r image.Rectangle, board []Posted, bob int) {
+func postedRows(c *pixel.Canvas, r image.Rectangle, board []Posted) {
 	x, y := 34, paneTop(r)+4
 	if len(board) == 0 {
 		label(c, x, y, "a chirograph is two birds, a round robin three or four")
@@ -172,7 +167,7 @@ func postedRows(c *pixel.Canvas, r image.Rectangle, board []Posted, bob int) {
 		}
 		right(c, 368, y, places, pixel.Green)
 		if i == 0 {
-			c.Cursor(x-4+bob, y+6)
+			c.Cursor(x-4, y+6)
 		}
 		y += 18
 	}
@@ -245,7 +240,7 @@ func (m *Module) noticesMessage(guild snowflake.ID, who *discord.ResolvedMember)
 		return discord.MessageCreate{}, err
 	}
 	extra := []discord.ContainerSubComponent{
-		discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + loopName}, Description: clip(alt, altLimit)}),
+		discord.NewMediaGallery(screenItem(pic, clip(alt, altLimit))),
 	}
 	if len(opts) > 0 && canPost {
 		extra = append(extra, discord.NewActionRow(discord.NewStringSelectMenu("pp:signpick", "sign a notice on the board", opts...)))
@@ -264,7 +259,7 @@ func (m *Module) noticesMessage(guild snowflake.ID, who *discord.ResolvedMember)
 	extra = append(extra, row)
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "notices", "", extra...)},
-		Files:           []*discord.File{discord.NewFile(loopName, alt, bytes.NewReader(pic))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
@@ -327,9 +322,9 @@ func (m *Module) postMessage(v postView) (discord.MessageCreate, error) {
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", pactName(v.notice.Ring), "",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + loopName}, Description: clip(alt, altLimit)}),
+			discord.NewMediaGallery(screenItem(pic, clip(alt, altLimit))),
 			discord.NewActionRow(sign))},
-		Files:           []*discord.File{discord.NewFile(loopName, alt, bytes.NewReader(pic))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil

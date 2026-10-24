@@ -14,12 +14,23 @@ func decodes(t *testing.T, data []byte, err error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	img, err := jpeg.Decode(bytes.NewReader(data))
-	if err != nil {
-		t.Fatal(err)
+	var size image.Point
+	if bytes.HasPrefix(data, []byte("RIFF")) {
+		// A moving screen: an animated WebP, its canvas in the VP8X chunk.
+		u24 := func(b []byte) int { return int(b[0]) | int(b[1])<<8 | int(b[2])<<16 }
+		if len(data) < 30 || string(data[8:16]) != "WEBPVP8X" || !bytes.Contains(data, []byte("ANMF")) {
+			t.Fatalf("not an animated WebP: %q", data[:min(len(data), 16)])
+		}
+		size = image.Pt(u24(data[24:])+1, u24(data[27:])+1)
+	} else {
+		img, err := jpeg.Decode(bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		size = img.Bounds().Size()
 	}
-	if img.Bounds().Dx() != screenW*screenScale || img.Bounds().Dy() != screenH*screenScale {
-		t.Fatalf("got a %T of %v", img, img.Bounds())
+	if size != image.Pt(screenW*screenScale, screenH*screenScale) {
+		t.Fatalf("a screen of %v", size)
 	}
 	if len(data) > 256<<10 {
 		t.Errorf("a screen is %d KB; keep it small", len(data)>>10)

@@ -102,6 +102,9 @@ type Canvas struct {
 	// overlaps and everything sits on parchment.
 	Marks []Mark
 	Panes []image.Rectangle
+	// hands are where Cursor put the hand. It's drawn last, over all the
+	// rest, as each frame is taken, so a screen can nudge it.
+	hands []image.Point
 }
 
 // Mark is one thing set on a canvas and the box its ink covers.
@@ -424,11 +427,37 @@ var hand = []string{
 	".####......",
 }
 
-// Cursor draws the hand with its tip's row at y, pointing at x.
+// Cursor puts the hand with its tip's row at y, pointing at x. It's drawn
+// when the canvas is: over everything, and nudged frame to frame by
+// Screen.
 func (c *Canvas) Cursor(x, y int) {
+	c.mark("hand", image.Rect(x-len(hand[0]), y-len(hand)/2, x, y-len(hand)/2+len(hand)))
+	c.hands = append(c.hands, image.Pt(x, y))
+}
+
+// Bob is how far the hand is nudged toward what it points at, a frame
+// each, and Beat how long each frame shows, in milliseconds.
+var Bob = []int{0, 1, 2, 1}
+
+const Beat = 160
+
+// frame is the canvas as it shows with every hand nudged bob nearer: a
+// copy, so the canvas can be taken again.
+func (c *Canvas) frame(bob int) *Canvas {
+	if len(c.hands) == 0 {
+		return c
+	}
+	f := &Canvas{Paletted: &image.Paletted{Pix: slices.Clone(c.Pix), Stride: c.Stride, Rect: c.Rect, Palette: c.Palette}}
+	for _, at := range c.hands {
+		f.hand(at.X+bob, at.Y)
+	}
+	return f
+}
+
+// hand draws the hand with its tip's row at y, pointing at x.
+func (c *Canvas) hand(x, y int) {
 	x -= len(hand[0])
 	y -= len(hand) / 2
-	c.mark("hand", image.Rect(x, y, x+len(hand[0]), y+len(hand)))
 	for dy, row := range hand {
 		for dx, ch := range row {
 			switch ch {
@@ -445,6 +474,7 @@ func (c *Canvas) Cursor(x, y int) {
 // compression, not best: a status screen is drawn per request, and best
 // took 11 ms a screen to save 2 KB where default takes under 2.
 func (c *Canvas) PNG(scale int) ([]byte, error) {
+	c = c.frame(0)
 	w, h := c.Rect.Dx(), c.Rect.Dy()
 	big := image.NewPaletted(image.Rect(0, 0, w*scale, h*scale), c.Palette)
 	for y := range h {

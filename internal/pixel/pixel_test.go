@@ -282,26 +282,45 @@ func TestDye(t *testing.T) {
 	}
 }
 
-// A soft loop is an animated WebP of its frames.
-func TestSoftLoop(t *testing.T) {
-	a, b := New(8, 8), New(8, 8)
-	b.Fill(b.Rect, Gold)
-	out, err := SoftLoop([]*Canvas{a, b}, 2, 100)
-	if err != nil || !bytes.HasPrefix(out, []byte("RIFF")) || !bytes.Contains(out[:64], []byte("WEBPVP8X")) || !bytes.Contains(out, []byte("ANMF")) {
-		t.Fatalf("a soft loop: %v %q", err, out[:min(len(out), 32)])
+// A screen with a hand on it is an animated WebP, its later frames only
+// the box round the hand, on even pixels; one without is a JPEG.
+func TestScreenMoves(t *testing.T) {
+	still, err := New(64, 64).Screen(3)
+	if err != nil || bytes.HasPrefix(still, []byte("RIFF")) {
+		t.Fatalf("a screen with no hand: %v", err)
 	}
-	// A loop whose second frame moves one cell sends that frame as the
-	// small box round the change, on even pixels.
-	still, moved := New(64, 64), New(64, 64)
-	moved.SetColorIndex(30, 30, Gold)
-	two, err := SoftLoop([]*Canvas{still, moved}, 3, 100)
-	second := bytes.LastIndex(two, []byte("ANMF"))
-	if err != nil || second < 0 {
-		t.Fatalf("a two frame loop: %v", err)
+	c := New(64, 64)
+	c.Cursor(40, 30)
+	out, err := c.Screen(3)
+	if err != nil || !bytes.HasPrefix(out, []byte("RIFF")) || bytes.Count(out, []byte("ANMF")) != len(Bob) {
+		t.Fatalf("a screen with a hand: %v", err)
 	}
-	f := two[second+8:]
+	second := bytes.Index(out[bytes.Index(out, []byte("ANMF"))+4:], []byte("ANMF")) + bytes.Index(out, []byte("ANMF")) + 4
+	f := out[second+8:]
 	u24 := func(b []byte) int { return int(b[0]) | int(b[1])<<8 | int(b[2])<<16 }
 	if x, w := u24(f)*2, u24(f[6:])+1; w >= 64*3/2 || x == 0 {
 		t.Errorf("the second frame is %d wide at x %d", w, x)
+	}
+	// The hand is drawn, and drawn over what came after it.
+	c.Fill(image.Rect(0, 0, 64, 64), Line)
+	if f := c.frame(0); f.ColorIndexAt(39, 30) == Line {
+		t.Error("the hand isn't drawn over what was set after it")
+	}
+}
+
+// A box softened alone is the same pixels as the whole canvas softened, so
+// a later frame shows no seam.
+func TestSoftInMatches(t *testing.T) {
+	c := New(40, 30)
+	c.Bird(image.Pt(2, 2))
+	whole := c.SoftImage(3)
+	box := image.Rect(31, 20, 77, 58)
+	part := c.softIn(3, box)
+	for y := box.Min.Y; y < box.Max.Y; y++ {
+		for x := box.Min.X; x < box.Max.X; x++ {
+			if whole.RGBAAt(x, y) != part.RGBAAt(x, y) {
+				t.Fatalf("(%d,%d) is %v alone and %v whole", x, y, part.RGBAAt(x, y), whole.RGBAAt(x, y))
+			}
+		}
 	}
 }
