@@ -57,7 +57,7 @@ func (m *Module) suppressOriginal(ctx context.Context, r rest.Rest, key source, 
 		flags &^= discord.MessageFlagSuppressEmbeds
 	}
 	m.mu.Unlock()
-	if !change {
+	if !change || m.refused(refusal{key.channel, true}) {
 		return
 	}
 	err := ctx.Err()
@@ -68,6 +68,7 @@ func (m *Module) suppressOriginal(ctx context.Context, r rest.Rest, key source, 
 	if !denied {
 		_, err = r.UpdateMessage(key.channel, key.message, discord.MessageUpdate{Flags: &flags}, rest.WithCtx(ctx))
 		m.guard.Report(key.guild, guard.Struggling(err))
+		m.noteRefusal(refusal{key.channel, true}, err)
 	}
 	m.mu.Lock()
 	if err == nil {
