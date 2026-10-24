@@ -63,6 +63,13 @@ func (st *state) checkpoint(s *server, week, today int64) {
 			news.prizes = append(news.prizes, prize{user: users[i], board: board, place: places[i], amount: want})
 		}
 	}
+	// Every place is the choir's to sing, so each wears a laurel for it,
+	// whatever the treasury can pay.
+	for _, p := range news.prizes {
+		m := s.members[p.user]
+		m.laurels++
+		m.dirty = true
+	}
 	if free := s.treasury - s.fund; owed > free {
 		news.short = true
 		kept := news.prizes[:0]
