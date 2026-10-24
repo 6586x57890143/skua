@@ -158,8 +158,10 @@ func (m *Module) treasuryMessage(ctx context.Context, guild snowflake.ID) (disco
 			t.Prizes = -sum
 		case treasury && reason == reasonGrant:
 			t.Granted = -sum
-		case !treasury && (reason == reasonQuest || reason == reasonJoinder):
-			t.Quest += sum
+		case !treasury && reason == reasonQuest:
+			t.Quest = sum
+		case !treasury && reason == reasonJoinder:
+			t.Joinder = sum
 		}
 	}
 	rows.Close()
@@ -202,7 +204,8 @@ func (m *Module) treasuryMessage(ctx context.Context, guild snowflake.ID) (disco
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
-	alt := fmt.Sprintf("the treasury holds %s pp", grouped(t.Balance/unit))
+	alt := fmt.Sprintf("the treasury holds %s pp; this %s quests paid %s pp and joinders %s pp",
+		grouped(t.Balance/unit), t.Period, grouped(t.Quest/unit), grouped(t.Joinder/unit))
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorInfo, "pp", "treasury",
 			"-# for admins: the levy in, prizes and grants out, what members hold and the ledger it's all written in",

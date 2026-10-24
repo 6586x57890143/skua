@@ -114,29 +114,30 @@ func decodePact(s string) *pact {
 
 // signs is what a member has signed in company, for the lore it teaches:
 // chirographs finished, signatures paid and round robins closed with all
-// four places filled, and the day they were last paid a joinder.
+// four places filled, the day they were last paid a joinder and the day
+// they last posted one, which keeps a notice's key its own.
 type signs struct {
-	chirographs, signatures, rings, paidDay int64
+	chirographs, signatures, rings, paidDay, postedDay int64
 }
 
 func encodeSigns(s signs) string {
 	if s == (signs{}) {
 		return ""
 	}
-	return fmt.Sprintf("%d,%d,%d,%d", s.chirographs, s.signatures, s.rings, s.paidDay)
+	return fmt.Sprintf("%d,%d,%d,%d,%d", s.chirographs, s.signatures, s.rings, s.paidDay, s.postedDay)
 }
 
 func decodeSigns(s string) signs {
 	var out signs
 	f := strings.Split(s, ",")
-	if len(f) != 4 {
+	if len(f) != 5 {
 		return out
 	}
-	v := make([]int64, 4)
+	v := make([]int64, 5)
 	for i := range f {
 		v[i], _ = strconv.ParseInt(f[i], 10, 64)
 	}
-	return signs{v[0], v[1], v[2], v[3]}
+	return signs{v[0], v[1], v[2], v[3], v[4]}
 }
 
 // joinPacts points the signers of every saved pact in s at one copy, the
@@ -171,6 +172,7 @@ var (
 	errPactYours  = core.Tell("you posted that one; somebody else has to sign it")
 	errPactActive = core.Tell("that round robin's work has started; no more signatures")
 	errPactRally  = core.Tell("it went up a few minutes ago; give the channel a moment")
+	errPactPosted = core.Tell("you've posted one today; sign somebody else's, or post again at 05:30 utc")
 )
 
 // mayPact is whether user may post or sign a pact today. s.mu held.
@@ -186,15 +188,27 @@ func (st *state) mayPact(m *member, user snowflake.ID, today int64) error {
 	return nil
 }
 
+// mayPost is whether user may post a pact today: as mayPact, and one
+// posted a day. s.mu held.
+func (st *state) mayPost(m *member, user snowflake.ID, today int64) error {
+	if err := st.mayPact(m, user, today); err != nil {
+		return err
+	}
+	if m.signs.postedDay == today {
+		return errPactPosted
+	}
+	return nil
+}
+
 // post opens a pact by user: a round robin if ring, else a chirograph.
 // s.mu held.
 func (st *state) post(s *server, guild, user snowflake.ID, ring bool, today int64) (*pact, error) {
 	m := st.member(s, guild, user, today)
-	if err := st.mayPact(m, user, today); err != nil {
+	if err := st.mayPost(m, user, today); err != nil {
 		return nil, err
 	}
 	m.pact = &pact{opener: user, day: today, ring: ring, signers: []signer{{user: user}}}
-	m.dirty = true
+	m.signs.postedDay, m.dirty = today, true
 	return m.pact, nil
 }
 

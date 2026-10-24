@@ -432,6 +432,7 @@ type Treasury struct {
 	Period         string // the season, or preseason
 	Levy, Prizes   int64  // this period: levy in, prizes out
 	Granted, Quest int64  // grants out, quests paid as labour
+	Joinder        int64  // chirographs and round robins paid as labour
 	Active         int
 	Median         int64 // pp hundredths
 	Top            int64 // percent the top 1% hold
@@ -476,7 +477,8 @@ func treasuryCanvas(t Treasury) *pixel.Canvas {
 	row(in, 0, "bell", "levy in", "+"+grouped(t.Levy/unit), pixel.Green)
 	row(in, 1, "laurel", "prizes", "-"+grouped(t.Prizes/unit), pixel.Red)
 	row(in, 2, "envelope", "grants", "-"+grouped(t.Granted/unit), pixel.Red)
-	row(in, 3, "compass", "quests paid", grouped(t.Quest/unit), pixel.Ink)
+	// Quest pay, then the joinders beside it: both paid as labour.
+	row(in, 3, "compass", "quests", grouped(t.Quest/unit)+" + "+grouped(t.Joinder/unit), pixel.Ink)
 
 	sv := image.Rect(4, 110, 190, 212)
 	c.Window(sv)

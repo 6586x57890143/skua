@@ -2,6 +2,7 @@ package pp
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image"
 	"slices"
@@ -245,7 +246,7 @@ func (m *Module) noticesMessage(guild snowflake.ID, who *discord.ResolvedMember)
 			opts = append(opts, discord.NewStringSelectMenuOption(clip(by+"'s "+pactName(p.ring), 100), p.key()))
 		}
 	}
-	canPost := mem.pact == nil && mem.signs.paidDay != DayOf(m.now())
+	canPost := m.st.mayPost(mem, user, DayOf(m.now())) == nil
 	alt := m.noticesAlt(held, board)
 	s.mu.Unlock()
 
@@ -303,25 +304,39 @@ func (m *Module) noticesAlt(held *Notice, board []Posted) string {
 	return strings.Join(parts, ". ")
 }
 
-// postMessage is p's own screen posted for the channel, with a sign button
-// while it has a place open and its work hasn't started. s.mu held.
-func (m *Module) postMessage(s *server, p *pact) (discord.MessageCreate, error) {
-	n := m.noticeOf(s, p)
-	name := "a bird"
+// postView is what a pact's channel post shows, taken under the lock so the
+// picture can be drawn after it.
+type postView struct {
+	notice   *Notice
+	name     string
+	key      string
+	signable bool
+}
+
+// viewPost is p as its post shows it. s.mu held.
+func (m *Module) viewPost(s *server, p *pact) postView {
+	v := postView{notice: m.noticeOf(s, p), name: "a bird", key: p.key(), signable: len(p.signers) < p.size() && p.minutes == 0}
 	if o := s.members[p.opener]; o != nil && o.name != "" {
-		name = o.name
+		v.name = o.name
 	}
-	alt := m.noticesAlt(n, nil)
-	pic, err := NoticesScreen(name, n, nil)
+	return v
+}
+
+// postMessage is a pact's own screen posted for the channel, with a sign
+// button while it has a place open and its work hasn't started. It draws
+// the picture, so it runs outside the lock.
+func (m *Module) postMessage(v postView) (discord.MessageCreate, error) {
+	alt := m.noticesAlt(v.notice, nil)
+	pic, err := NoticesScreen(v.name, v.notice, nil)
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
-	sign := withIcon(discord.NewPrimaryButton("sign", "pp:sign:"+p.key()), "quill")
-	if len(p.signers) >= p.size() || p.minutes > 0 {
+	sign := withIcon(discord.NewPrimaryButton("sign", "pp:sign:"+v.key), "quill")
+	if !v.signable {
 		sign = sign.AsDisabled()
 	}
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", pactName(p.ring), "",
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", pactName(v.notice.Ring), "",
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + loopName}, Description: clip(alt, altLimit)}),
 			discord.NewActionRow(sign))},
 		Files:           []*discord.File{discord.NewFile(loopName, alt, bytes.NewReader(pic))},
@@ -341,8 +356,9 @@ func (m *Module) postPact(guild snowflake.ID, e *events.ComponentInteractionCrea
 		return err
 	}
 	p.rallied = m.now()
-	msg, err := m.postMessage(s, p)
+	v := m.viewPost(s, p)
 	s.mu.Unlock()
+	msg, err := m.postMessage(v)
 	if err != nil {
 		return err
 	}
@@ -362,14 +378,15 @@ func (m *Module) rally(guild snowflake.ID, e *events.ComponentInteractionCreate)
 		s.mu.Unlock()
 		return errPactGone
 	}
-	if now := m.now(); now.Sub(mem.pact.rallied) < rallyWait {
+	now := m.now()
+	if now.Sub(mem.pact.rallied) < rallyWait {
 		s.mu.Unlock()
 		return errPactRally
-	} else {
-		mem.pact.rallied = now
 	}
-	msg, err := m.postMessage(s, mem.pact)
+	mem.pact.rallied = now
+	v := m.viewPost(s, mem.pact)
 	s.mu.Unlock()
+	msg, err := m.postMessage(v)
 	if err != nil {
 		return err
 	}
@@ -377,7 +394,9 @@ func (m *Module) rally(guild snowflake.ID, e *events.ComponentInteractionCreate)
 }
 
 // signPact signs the pact on the post pressed, or the one picked from the
-// board, and shows it again where it was pressed.
+// board, and shows it again where it was pressed. A post pressed after its
+// notice filled or started, from the board or elsewhere, is redrawn as it
+// stands now.
 func (m *Module) signPact(guild snowflake.ID, e *events.ComponentInteractionCreate) error {
 	id := strings.TrimPrefix(e.Data.CustomID(), "pp:sign:")
 	picked := e.Data.CustomID() == "pp:signpick"
@@ -395,6 +414,9 @@ func (m *Module) signPact(guild snowflake.ID, e *events.ComponentInteractionCrea
 	s := m.st.server(guild)
 	s.mu.Lock()
 	p, err := m.st.sign(s, guild, opener, day, e.User().ID, DayOf(m.now()))
+	if !picked && (errors.Is(err, errPactFull) || errors.Is(err, errPactActive)) {
+		p, err = s.members[opener].pact, nil
+	}
 	if err != nil {
 		s.mu.Unlock()
 		return err
@@ -407,8 +429,9 @@ func (m *Module) signPact(guild snowflake.ID, e *events.ComponentInteractionCrea
 		}
 		return m.answer(guild, e, msg, "pp:notices")
 	}
-	msg, err := m.postMessage(s, p)
+	v := m.viewPost(s, p)
 	s.mu.Unlock()
+	msg, err := m.postMessage(v)
 	if err != nil {
 		return err
 	}

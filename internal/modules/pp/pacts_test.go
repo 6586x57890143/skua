@@ -69,7 +69,7 @@ func TestChirograph(t *testing.T) {
 	if ma.pact != nil || mb.pact != nil || s.members[c].signs.signatures != 0 {
 		t.Fatal("a finished chirograph wasn't let go, or paid an outsider")
 	}
-	if ma.signs != (signs{chirographs: 1, signatures: 1, paidDay: today}) || mb.signs != ma.signs {
+	if ma.signs != (signs{chirographs: 1, signatures: 1, paidDay: today, postedDay: today}) || mb.signs != (signs{chirographs: 1, signatures: 1, paidDay: today}) {
 		t.Errorf("signs %+v %+v", ma.signs, mb.signs)
 	}
 	last := s.pending[len(s.pending)-1]
@@ -194,7 +194,7 @@ func TestPactSaved(t *testing.T) {
 	if encodePact(got) != encodePact(p) || encodePact(nil) != "" {
 		t.Errorf("round trip %q", encodePact(got))
 	}
-	sg := signs{1, 2, 3, 4}
+	sg := signs{1, 2, 3, 4, 5}
 	if decodeSigns(encodeSigns(sg)) != sg || encodeSigns(signs{}) != "" || decodeSigns("x") != (signs{}) {
 		t.Error("signs round trip")
 	}
@@ -313,5 +313,47 @@ func BenchmarkNoticesScreen(b *testing.B) {
 		if _, err := NoticesScreen("heavywinds", n, nil); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// A bird posts one notice a day, so a post's key names only that notice;
+// a post pressed once its notice is full is redrawn rather than refused.
+func TestOnePostADay(t *testing.T) {
+	m := testModule(&fakeDB{})
+	s := m.st.server(3)
+	today := DayOf(t0)
+	s.mu.Lock()
+	if _, err := m.st.post(s, 3, 5, false, today); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.st.sign(s, 3, 5, today, old(6), today); err != nil {
+		t.Fatal(err)
+	}
+	s.members[5].pact, s.members[old(6)].pact = nil, nil
+	if _, err := m.st.post(s, 3, 5, true, today); !errors.Is(err, errPactPosted) {
+		t.Errorf("a second post the same day: %v", err)
+	}
+	s.mu.Unlock()
+
+	next := today + 1
+	m.now = func() time.Time { return dayStart(next).Add(time.Hour) }
+	s.mu.Lock()
+	if _, err := m.st.post(s, 3, 5, false, next); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.st.sign(s, 3, 5, next, old(6), next); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Unlock()
+	e, _ := coretest.Button(t, "pp:sign:5:"+strconv.FormatInt(next, 10), func(p map[string]any) {
+		p["member"].(map[string]any)["user"].(map[string]any)["id"] = old(7).String()
+	})
+	var updated string
+	e.Respond = func(_ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
+		updated = js(d)
+		return nil
+	}
+	if err := m.press(context.Background(), e); err != nil || !strings.Contains(updated, `"disabled":true`) {
+		t.Errorf("a full notice's post pressed: %v %s", err, updated)
 	}
 }
