@@ -140,7 +140,7 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		msg, err = m.buffsMessage(*guild, e.Member())
 	case id == "pp:shop", id == "pp:climb", id == "pp:look", id == "pp:back":
 		return m.shop(ctx, *guild, e)
-	case strings.HasPrefix(id, "pp:yard"), id == "pp:dye", strings.HasPrefix(id, "pp:lease:"):
+	case strings.HasPrefix(id, "pp:yard"), id == "pp:dye", strings.HasPrefix(id, "pp:lease:"), strings.HasPrefix(id, "pp:own"):
 		return m.yard(ctx, *guild, e)
 	case id == "pp:ledger":
 		msg, err = m.journal(ctx, *guild, e.Member())

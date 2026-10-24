@@ -65,6 +65,17 @@ func main() {
 			}, 2)
 		},
 		"quests-empty": func() ([]byte, error) { return pp.QuestScreen("steve", nil, 0) },
+		"own-empty":    func() ([]byte, error) { return pp.OwnScreen(pp.Own{Fee: 20350, Purse: 9000 * 100}) },
+		"own-plain": func() ([]byte, error) {
+			return pp.OwnScreen(pp.Own{Name: "the lamplighter", Style: "plain dye", Colors: []uint32{0xa2803e}, Week: 40700, Fee: 20350, Purse: 9000 * 100})
+		},
+		"own-silk": func() ([]byte, error) {
+			return pp.OwnScreen(pp.Own{Name: "heavywinds of the sump", Style: "shot silk", Colors: []uint32{0xc66e34, 0x6286c3}, Week: 101750, Fee: 20350, Purse: 9000 * 100})
+		},
+		"own-nacre": func() ([]byte, error) {
+			return pp.OwnScreen(pp.Own{Name: "touched by the nothing", Style: "nacre", Colors: []uint32{0xa9c9ff, 0xffbbec, 0xffc3a0}, Icon: pp.Portrait(pp.ClassOf("raven")),
+				Week: 203500, Fee: 20350, Purse: 31000 * 100})
+		},
 		"yard-trades": func() ([]byte, error) {
 			return pp.YardScreen("the sump's trades", []pp.YardRow{
 				{Name: "chandlers' tallow", Color: 0xa2803e, Price: 20350},
