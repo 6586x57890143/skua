@@ -178,6 +178,7 @@ var (
 	errPactActive = core.Tell("that round robin's work has started; no more signatures")
 	errPactRally  = core.Tell("it went up a few minutes ago; give the channel a moment")
 	errPactPosted = core.Tell("you've posted one today; sign somebody else's, or post again at 05:30 utc")
+	errPactNone   = core.Tell("you haven't signed a notice")
 )
 
 // mayPact is whether user may post or sign a pact today. s.mu held.
@@ -253,6 +254,31 @@ func (st *state) sign(s *server, guild, opener snowflake.ID, day int64, user sno
 	m.pact = p
 	st.touchPact(s, p)
 	return p, nil
+}
+
+// withdraw takes user's name off the pact they hold. Before the work
+// starts, the place opens again and the notice may go straight back up to
+// fill it, and its poster withdrawing takes it down for everyone. After, one who leaves isn't paid, and a pact left with too
+// few to count minutes ends for everyone. s.mu held.
+func (st *state) withdraw(s *server, user snowflake.ID) error {
+	m := s.members[user]
+	if m == nil || m.pact == nil {
+		return errPactNone
+	}
+	p := m.pact
+	p.signers = slices.DeleteFunc(p.signers, func(g signer) bool { return g.user == user })
+	m.pact, m.dirty = nil, true
+	if p.minutes == 0 && p.opener == user || p.minutes > 0 && len(p.signers) < p.need() {
+		for _, g := range p.signers {
+			if o := s.members[g.user]; o != nil {
+				o.pact, o.dirty = nil, true
+			}
+		}
+		return nil
+	}
+	p.rallied = time.Time{}
+	st.touchPact(s, p)
+	return nil
 }
 
 // touchPact marks every signer of p to be saved. s.mu held.
