@@ -53,6 +53,14 @@ func desk(t *testing.T, r, purse int64) (*Module, *deskRest) {
 // press is a member pressing id, its replies going to d; perms are the
 // member's permissions and who their ID.
 func (d *deskRest) press(t *testing.T, m *Module, id, who string, perms discord.Permissions) error {
+	// A buy goes through its confirm, as a member's second press does.
+	if buys(id) {
+		u, _ := strconv.ParseUint(who, 10, 64)
+		s := m.st.server(3)
+		s.mu.Lock()
+		id += ":" + buyToken(s, snowflake.ID(u), id) + sure
+		s.mu.Unlock()
+	}
 	e, _ := coretest.Button(t, id, func(p map[string]any) {
 		mem := p["member"].(map[string]any)
 		mem["permissions"] = strconv.FormatInt(int64(perms), 10)
