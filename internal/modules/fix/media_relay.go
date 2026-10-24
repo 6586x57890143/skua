@@ -33,13 +33,15 @@ func newMediaRelay(a *API, base, secret string) *mediaRelay {
 	}
 	return &mediaRelay{api: a, base: strings.TrimRight(base, "/"), secret: secret, slot: make(chan struct{}, 1), serving: make(chan struct{}, 2)}
 }
-func (m *mediaRelay) signature(id string) string {
+
+// kind is "kick" or "reddit"; each signs its IDs in its own namespace.
+func (m *mediaRelay) signature(kind, id string) string {
 	h := hmac.New(sha256.New, []byte(m.secret))
-	_, _ = h.Write([]byte("skua/fix/kick/" + id))
+	_, _ = h.Write([]byte("skua/fix/" + kind + "/" + id))
 	return hex.EncodeToString(h.Sum(nil))
 }
-func (m *mediaRelay) link(id string) string {
-	return m.base + "/fix/media/kick/" + id + "/" + m.signature(id) + ".mp4"
+func (m *mediaRelay) link(kind, id string) string {
+	return m.base + "/fix/media/" + kind + "/" + id + "/" + m.signature(kind, id) + ".mp4"
 }
 
 // MediaHandler shares the already-configured public listener through main;
@@ -54,8 +56,8 @@ func (a *API) ServesMedia() bool { return a.media != nil }
 func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	controller := http.NewResponseController(w)
 	_ = controller.SetWriteDeadline(time.Now().Add(20 * time.Second))
-	p := strings.Split(strings.TrimPrefix(r.URL.Path, "/fix/media/kick/"), "/")
-	if !strings.HasPrefix(r.URL.Path, "/fix/media/kick/") || len(p) != 2 || !kickClipID.MatchString(p[0]) || !hmac.Equal([]byte(p[1]), []byte(m.signature(p[0])+".mp4")) {
+	p := strings.Split(strings.TrimPrefix(r.URL.Path, "/fix/media/"), "/")
+	if !strings.HasPrefix(r.URL.Path, "/fix/media/") || len(p) != 3 || !((p[0] == "kick" && kickClipID.MatchString(p[1])) || (p[0] == "reddit" && redditVideoID.MatchString(p[1]))) || !hmac.Equal([]byte(p[2]), []byte(m.signature(p[0], p[1])+".mp4")) {
 		http.NotFound(w, r)
 		return
 	}
@@ -73,7 +75,11 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { <-m.serving }()
-	raw, err := m.ready(ctx, p[0], nil)
+	prepare := func(ctx context.Context) ([]byte, error) { return m.prepare(ctx, p[1], nil) }
+	if p[0] == "reddit" {
+		prepare = func(ctx context.Context) ([]byte, error) { return m.api.redditMux(ctx, p[1]) }
+	}
+	raw, err := m.ready(ctx, p[0]+"/"+p[1], prepare)
 	if err != nil {
 		http.Error(w, "media unavailable", http.StatusBadGateway)
 		return
@@ -85,23 +91,23 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, "clip.mp4", time.Time{}, bytes.NewReader(raw))
 }
-func (m *mediaRelay) ready(ctx context.Context, id string, d *kickData) ([]byte, error) {
+func (m *mediaRelay) ready(ctx context.Context, key string, prepare func(context.Context) ([]byte, error)) ([]byte, error) {
 	select {
 	case m.slot <- struct{}{}:
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 	defer func() { <-m.slot }()
-	if m.cachedID == id && time.Now().Before(m.until) {
+	if m.cachedID == key && time.Now().Before(m.until) {
 		return m.cached, nil
 	}
 	started := time.Now()
-	raw, err := m.prepare(ctx, id, d)
+	raw, err := prepare(ctx)
 	obs.Default.Add("fix media", obs.HTTP, time.Since(started))
 	if err != nil {
 		return nil, err
 	}
-	m.cachedID, m.cached, m.until = id, raw, time.Now().Add(15*time.Minute)
+	m.cachedID, m.cached, m.until = key, raw, time.Now().Add(15*time.Minute)
 	return raw, nil
 }
 func (m *mediaRelay) prepare(ctx context.Context, id string, d *kickData) ([]byte, error) {
