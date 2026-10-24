@@ -109,7 +109,7 @@ func (m *Module) command(ctx context.Context, e *events.ApplicationCommandIntera
 		m.count(*guild, func(c *counts) { c.Busy++ })
 		return core.Tell("she's already fetching eight posts; try again in a moment")
 	}
-	if err := m.guard.Allow(*guild, guard.MessageSend); err != nil {
+	if err := m.guard.Allow(*guild, guard.FixCard); err != nil {
 		return core.Tell("too many cards here this hour; try again in a bit")
 	}
 	pending := loading()

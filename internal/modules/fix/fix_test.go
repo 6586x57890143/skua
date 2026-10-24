@@ -139,8 +139,8 @@ func TestCommandRefusalsThroughRouter(t *testing.T) {
 					m.slots <- struct{}{}
 				}
 			case "limited":
-				for range 120 {
-					_ = m.guard.Allow(3, guard.MessageSend)
+				for range 600 {
+					_ = m.guard.Allow(3, guard.FixCard)
 				}
 			case "dm":
 				e, sent = coretest.Event(t, "fix", func(p map[string]any) {
@@ -356,8 +356,8 @@ func TestBoundedAutomaticWorkAndFailures(t *testing.T) {
 		t.Fatal(len(m.tracked))
 	}
 	m = module()
-	for range 120 {
-		_ = m.guard.Allow(3, guard.MessageSend)
+	for range 600 {
+		_ = m.guard.Allow(3, guard.FixCard)
 	}
 	m.queue(rr, key, "https://x.com/user/status/123", false)
 	idle(t, m)
@@ -579,8 +579,8 @@ func TestRateLimitedMultiLinkJobResumesAfterCompletedPrefix(t *testing.T) {
 	rr := &recordingRest{}
 	key := source{3, 4, 10}
 	links := Links("https://x.com/user/status/123 https://x.com/user/status/124")
-	for range 119 {
-		_ = m.guard.Allow(3, guard.MessageSend)
+	for range 599 {
+		_ = m.guard.Allow(3, guard.FixCard)
 	}
 	entry := &tracking{version: 1}
 	m.tracked[key] = entry
@@ -597,8 +597,8 @@ func TestRateLimitedMultiLinkJobResumesAfterCompletedPrefix(t *testing.T) {
 	// A replenished guard models the next admission interval. The completed
 	// first post must not consume the only new token on every retry.
 	m.guard = guard.New()
-	for range 119 {
-		_ = m.guard.Allow(3, guard.MessageSend)
+	for range 599 {
+		_ = m.guard.Allow(3, guard.FixCard)
 	}
 	m.convert(context.Background(), rr, key, entry, 1, links)
 	if n, u, _ := rr.totals(); n != 2 || u != 0 {

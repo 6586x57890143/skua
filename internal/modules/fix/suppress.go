@@ -62,7 +62,7 @@ func (m *Module) suppressOriginal(ctx context.Context, r rest.Rest, key source, 
 	}
 	err := ctx.Err()
 	if err == nil {
-		err = m.guard.Allow(key.guild, guard.MessageSend)
+		err = m.guard.Allow(key.guild, guard.FixCard)
 	}
 	denied := err != nil
 	if !denied {

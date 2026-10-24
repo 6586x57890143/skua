@@ -265,7 +265,7 @@ func (m *Module) convert(ctx context.Context, r rest.Rest, key source, t *tracki
 		if !current {
 			return
 		}
-		if err := m.guard.Allow(key.guild, guard.MessageSend); err != nil {
+		if err := m.guard.Allow(key.guild, guard.FixCard); err != nil {
 			m.mu.Lock()
 			if m.current(ctx, key, t, version) {
 				t.pending, t.dirty = links, true

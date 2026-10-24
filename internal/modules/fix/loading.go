@@ -39,7 +39,7 @@ func (m *Module) finishLoading(e *events.ApplicationCommandInteractionCreate, g 
 			return false
 		}
 	}
-	if m.ctx.Err() != nil || m.guard.Allow(g, guard.MessageSend) != nil {
+	if m.ctx.Err() != nil || m.guard.Allow(g, guard.FixCard) != nil {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(m.ctx, 3*time.Second)
