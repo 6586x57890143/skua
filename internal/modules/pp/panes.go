@@ -218,6 +218,18 @@ type Item struct {
 	Garment []string
 }
 
+// discordPreview sets name in rgb centred across row, whose left half is
+// Discord's dark theme and right half its light, so a livery shows how it
+// reads in either. Discord casts no shadow, so neither does the name.
+func discordPreview(c *pixel.Canvas, row image.Rectangle, name string, rgb uint32) {
+	mid := (row.Min.X + row.Max.X) / 2
+	c.Ground(image.Rect(row.Min.X, row.Min.Y, mid, row.Max.Y), c.Dye(0x313338))
+	c.Ground(image.Rect(mid, row.Min.Y, row.Max.X, row.Max.Y), c.Dye(0xFFFFFF))
+	name = fitted(pixel.Bold, name, row.Dx()-6)
+	ink := c.Dye(rgb)
+	c.PrintOn(pixel.Bold, mid-pixel.Bold.Width(name)/2, row.Min.Y+3, name, ink, ink)
+}
+
 // ItemScreen draws an item's card: on the left its picture, the member's
 // name as it will look and the price; on the right its name and its text.
 func ItemScreen(it Item) ([]byte, error) { return itemCanvas(it).Soft(screenScale) }
@@ -247,7 +259,7 @@ func itemCanvas(it Item) *pixel.Canvas {
 		c.Tab(you, "you")
 		y := you.Min.Y + pixel.TabDrop + 6
 		if it.Dye != 0 {
-			c.FitIn(pixel.Bold, 14, y, it.You, c.Dye(it.Dye), 104-14)
+			discordPreview(c, image.Rect(10, y-3, 106, y+15), it.You, it.Dye)
 		} else {
 			setName(c, *it.Look, 14, y, it.You, 104-14, image.Rect(10, y-3, 106, y+15))
 		}

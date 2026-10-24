@@ -62,6 +62,11 @@ func TestPanes(t *testing.T) {
 		save(fmt.Sprintf("item_%d.jpg", n), itemCanvas(Item{Icon: p.icon, Kind: fmt.Sprintf("rung %d", n), Name: p.name,
 			What: p.what, Story: p.story, Effect: p.effect, Price: rungPrice(pd, n-1), Short: n > 3, You: names[n%3*3], Look: &look}))
 	}
+	// A livery's card, its name on Discord's dark and light themes.
+	for _, d := range []dye{dyes[0], dyes[len(dyes)-1]} {
+		save("livery_"+d.key+".jpg", itemCanvas(Item{Kind: "livery", Name: d.name, What: d.what, Story: d.story, Effect: d.effect, Price: 407 * unit,
+			You: names[d.color%3*3], Dye: d.color, Garment: garments[d.key]}))
+	}
 	var named []BoardRow
 	for n := range int64(10) {
 		named = append(named, BoardRow{Place: int(n) + 1, Icon: icons[n], Name: names[n], Rung: n, Class: Classes[n%8].Name(), Value: "lv 9", You: n == 4})
