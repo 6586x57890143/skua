@@ -20,7 +20,13 @@ type Look struct {
 	Frame bool   // a gilt rule round the plate
 	Perch string // their perch's icon after the name, "" for none
 	Count int64  // the rung, shown past the last perch
+	// Tint is the plate's own shade past the great nothing, 0 for Plate's.
+	Tint uint32
 }
+
+// paragonTints are the plates past the great nothing, a dark shade a rung
+// in turn, each near enough to black for the gilt to read on.
+var paragonTints = []uint32{0x2a2433, 0x1f2d2e, 0x2e2620, 0x24262e, 0x2b2028, 0x232b22}
 
 // lookOf is the look rung buys: bold with the perch beside it, so the
 // first rung already shows, then slate, then chitin red, then a pale glass
@@ -51,6 +57,7 @@ func lookOf(rung int64) Look {
 	}
 	if rung > int64(len(perches)) {
 		l.Count = rung
+		l.Tint = paragonTints[(rung-int64(len(perches))-1)%int64(len(paragonTints))]
 	}
 	return l
 }
@@ -59,7 +66,11 @@ func lookOf(rung int64) Look {
 // behind row. It returns where the name, perch and count end.
 func setName(c *pixel.Canvas, l Look, x, y int, name string, width int, row image.Rectangle) int {
 	if l.Plate != 0 {
-		c.Ground(row, l.Plate)
+		ground := l.Plate
+		if l.Tint != 0 {
+			ground = c.Dye(l.Tint)
+		}
+		c.Ground(row, ground)
 		if l.Frame {
 			c.Outline(row, pixel.Gold)
 		}

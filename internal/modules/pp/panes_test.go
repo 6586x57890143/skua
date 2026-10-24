@@ -96,7 +96,7 @@ func TestPerches(t *testing.T) {
 			t.Errorf("%s is missing its words", p.name)
 		}
 	}
-	if perchOf(0) != perches[0] || perchOf(99) != perches[len(perches)-1] {
+	if perchOf(0) != perches[0] || perchOf(int64(len(perches))) != perches[len(perches)-1] {
 		t.Error("rungs off the stair don't clamp to it")
 	}
 }
