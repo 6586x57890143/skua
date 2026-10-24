@@ -34,6 +34,10 @@ const (
 	taskTalk   = "talk"   // paying messages
 	taskHearth = "hearth" // minutes earning in voice while the hearth is lit
 	taskSelfie = "selfie" // a picture in the selfie channel still there a day later
+	taskCrowd  = "crowd"  // minutes earning in voice with three or more in the room
+	taskReply  = "reply"  // paying messages that answer someone else
+	taskStream = "stream" // minutes earning in voice while streaming
+	taskCamera = "camera" // minutes earning in voice with the camera on
 )
 
 // Task is one thing a quest asks: Goal of Metric.
@@ -312,6 +316,14 @@ func taskText(t Task) string {
 		return fmt.Sprintf("%d minutes in voice while the hearth burns", t.Goal)
 	case taskSelfie:
 		return "a picture in the selfie channel that's still there a day later"
+	case taskCrowd:
+		return fmt.Sprintf("%d minutes in voice with three or more in the room", t.Goal)
+	case taskReply:
+		return fmt.Sprintf("%d replies to other birds", t.Goal)
+	case taskStream:
+		return fmt.Sprintf("%d minutes streaming in voice", t.Goal)
+	case taskCamera:
+		return fmt.Sprintf("%d minutes in voice with your camera on", t.Goal)
 	}
 	return t.Metric
 }
@@ -409,6 +421,14 @@ func shortTask(t Task, up bool) string {
 			return "selfie up, a day to stay"
 		}
 		return "a selfie that stays a day"
+	case taskCrowd:
+		return "minutes in a crowd"
+	case taskReply:
+		return "replies"
+	case taskStream:
+		return "minutes streaming"
+	case taskCamera:
+		return "minutes on camera"
 	}
 	return t.Metric
 }
