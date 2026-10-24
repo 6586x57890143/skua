@@ -2,7 +2,6 @@ package pp
 
 import (
 	"image"
-	"image/color"
 
 	"github.com/6586x57890143/skua/internal/pixel"
 )
@@ -42,10 +41,16 @@ func ownCanvas(o Own) *pixel.Canvas {
 			c.Ground(plate, c.Dye(theme))
 			x := 22
 			if o.Icon != nil {
-				c.Picture(shrink(o.Icon, 16, theme), image.Pt(x, plate.Min.Y+9), 1)
 				x += 20
 			}
 			dyed(c, x, plate.Min.Y+10, o.Name, o.Colors, plate.Max.X-8-x)
+		}
+		// The device last: a photo can fill the palette, and the name's
+		// inks and the plates are drawn true before it does.
+		if o.Icon != nil {
+			for i, theme := range []uint32{darkTheme, lightTheme} {
+				c.Picture(shrink(o.Icon, 16, theme), image.Pt(22, paneTop(show)+i*40+5), 1)
+			}
 		}
 	}
 
@@ -117,23 +122,15 @@ func along(colors []uint32, t float64) uint32 {
 	return pixel.Tint(colors[i], colors[i+1], uint32((t-float64(i))*100))
 }
 
-// shrink is img drawn at most side square, nearest neighbour, over bg.
+// shrink is img at most side square over bg, a pixel's alpha blended into
+// it: the canvas has no alpha.
 func shrink(img image.Image, side int, bg uint32) image.Image {
-	b := img.Bounds()
-	scale := min(1, float64(side)/float64(max(b.Dx(), b.Dy())))
-	w, h := max(1, int(float64(b.Dx())*scale)), max(1, int(float64(b.Dy())*scale))
-	out := image.NewNRGBA(image.Rect(0, 0, w, h))
-	for y := range h {
-		for x := range w {
-			r, g, bl, a := img.At(b.Min.X+x*b.Dx()/w, b.Min.Y+y*b.Dy()/h).RGBA()
-			// A see-through pixel shows the plate: the canvas has no
-			// alpha.
-			if a < 0x8000 {
-				out.Set(x, y, color.NRGBA{uint8(bg >> 16), uint8(bg >> 8), uint8(bg), 255})
-				continue
-			}
-			out.Set(x, y, color.NRGBA{uint8(r >> 8), uint8(g >> 8), uint8(bl >> 8), 255})
-		}
+	out := resize(img, side)
+	br, bgg, bb := bg>>16&0xff, bg>>8&0xff, bg&0xff
+	for i := 0; i < len(out.Pix); i += 4 {
+		a := uint32(out.Pix[i+3])
+		mixed := func(v, under uint32) uint8 { return uint8((v*a + under*(255-a)) / 255) }
+		out.Pix[i], out.Pix[i+1], out.Pix[i+2], out.Pix[i+3] = mixed(uint32(out.Pix[i]), br), mixed(uint32(out.Pix[i+1]), bgg), mixed(uint32(out.Pix[i+2]), bb), 255
 	}
 	return out
 }

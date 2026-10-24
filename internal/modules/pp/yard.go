@@ -206,13 +206,12 @@ func (m *Module) yard(ctx context.Context, guild snowflake.ID, e *events.Compone
 		today := DayOf(m.now())
 		s := m.st.server(guild)
 		s.mu.Lock()
-		mem := m.st.member(s, guild, user, today)
-		low := mem.rung < ownStyles[0].rung
-		msg, err := m.st.ownMessage(mem, s.drafts[user])
+		mem, d := *m.st.member(s, guild, user, today), s.drafts[user]
 		s.mu.Unlock()
-		if low {
+		if mem.rung < ownStyles[0].rung {
 			return errOwnPerch
 		}
+		msg, err := m.st.ownMessage(&mem, d)
 		if err != nil {
 			return err
 		}

@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	"strings"
 	"testing"
 
@@ -146,6 +147,7 @@ func TestOwnPetition(t *testing.T) {
 		want                error
 	}{
 		{"moderators", "plain", "ember", errOwnTaken},
+		{"Hearth Ember", "plain", "ember", errOwnTaken},
 		{"x", "nacre", "", errOwnStyle},
 		{"x", "plain", "velvet", errOwnColors},
 		{"@here", "plain", "ember", errOwnName},
@@ -198,5 +200,46 @@ func TestOwnFromTheYard(t *testing.T) {
 	m.st.server(3).members[5].rung = 2
 	if got := open("pp:yard"); strings.Contains(got, `"pp:own"`) {
 		t.Error("shale is offered a livery of its own")
+	}
+}
+
+// From review: whole livery names count once, stray words match nothing,
+// a near grey stays grey, the form's text fits Discord's limits, a device
+// is never fetched past a redirect, and a half see-through pixel blends.
+func TestOwnReviewed(t *testing.T) {
+	got, err := ownColors("hearth ember, stair blue", 2)
+	if err != nil || got[0] != 0xc66e34 || got[1] != 0x6286c3 {
+		t.Errorf("two whole names: %06x %v", got, err)
+	}
+	for _, raw := range []string{"the", "e a", "#c66e34 the"} {
+		if _, err := ownColors(raw, 2); !errors.Is(err, errOwnColors) {
+			t.Errorf("%q: %v", raw, err)
+		}
+	}
+	for _, c := range []uint32{0xfffff0, 0x000010, 0x808081} {
+		_, s, l := toHSL(inBand(c))
+		if chroma := s * (1 - math.Abs(2*l-1)); chroma > 0.08 {
+			t.Errorf("%06x came out with chroma %.2f", c, chroma)
+		}
+	}
+	modal := ownModal(&member{rung: 5}, nil)
+	for _, part := range modal.Components {
+		if l, ok := part.(discord.LabelComponent); ok && (len(l.Label) > 45 || len(l.Description) > 100) {
+			t.Errorf("a label too long for Discord: %q %q", l.Label, l.Description)
+		}
+	}
+	if len(modal.Title) > 45 {
+		t.Errorf("the title: %q", modal.Title)
+	}
+	if iconClient.CheckRedirect == nil || iconClient.CheckRedirect(nil, nil) == nil {
+		t.Error("the device client follows redirects")
+	}
+	half := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	half.Set(0, 0, color.NRGBA{255, 255, 255, 128})
+	if r, _, _, _ := shrink(half, 16, 0x000000).At(0, 0).RGBA(); r>>8 < 120 || r>>8 > 136 {
+		t.Errorf("a half white pixel over black came out %d", r>>8)
+	}
+	if _, yard := dyeNamed("hearth ember"); !yard {
+		t.Error("a yard livery's name isn't known")
 	}
 }

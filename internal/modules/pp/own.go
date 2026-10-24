@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	_ "image/gif" // a device may come as a gif, jpeg or webp; it is sent as png
 	_ "image/jpeg"
 	"image/png"
@@ -43,17 +44,17 @@ import (
 // ownStyle is how a livery of one's own is dyed, and the perch it's worn
 // from.
 type ownStyle struct {
-	key, name string
-	rung      int64
-	colors    int // how many a member picks
+	key, name, about string
+	rung             int64
+	colors           int // how many a member picks
 	// price is a week in hundredths of a pot day.
 	price int64
 }
 
 var ownStyles = []ownStyle{
-	{"plain", "plain dye", 3, 1, 100},
-	{"silk", "shot silk", 4, 2, 250},
-	{"nacre", "nacre", 5, 0, 400},
+	{"plain", "plain dye", "one colour", 3, 1, 100},
+	{"silk", "shot silk", "two colours, one into the other", 4, 2, 250},
+	{"nacre", "nacre", "every colour, holographic", 5, 0, 400},
 }
 
 const (
@@ -134,7 +135,7 @@ func ownModal(mem *member, d *draft) discord.ModalCreate {
 			continue
 		}
 		o := discord.NewStringSelectMenuOption(s.name, s.key)
-		o.Description = map[string]string{"plain": "one colour", "silk": "two colours, one into the other", "nacre": "every colour, holographic"}[s.key]
+		o.Description = s.about
 		o.Default = d != nil && d.style.key == s.key
 		opts = append(opts, o)
 	}
@@ -149,12 +150,12 @@ func ownModal(mem *member, d *draft) discord.ModalCreate {
 	parts := []discord.LayoutComponent{
 		discord.NewLabel("name", name),
 		discord.NewLabel("weave", discord.NewStringSelectMenu("style", "pick a weave", opts...)),
-		discord.LabelComponent{Label: "colours", Description: "one for plain dye, two for shot silk, none for nacre. the dyers bring each into a shade that reads on light and dark", Component: colors},
+		discord.LabelComponent{Label: "colours", Description: "one for plain dye, two for shot silk, none for nacre; each is fit to light and dark", Component: colors},
 	}
 	if mem.rung >= deviceRung {
 		up := discord.NewFileUpload("device").WithMinValues(0)
 		up.Required = false
-		parts = append(parts, discord.LabelComponent{Label: "device", Description: "a small picture beside your name, square is best; leave it empty to keep the one you have", Component: up})
+		parts = append(parts, discord.LabelComponent{Label: "device", Description: "a small square picture by your name; leave it empty to keep yours", Component: up})
 	}
 	return discord.ModalCreate{CustomID: ownForm, Title: "a petition to the heralds", Components: parts}
 }
@@ -222,15 +223,6 @@ func (m *Module) readOwn(ctx context.Context, guild snowflake.ID, e *events.Moda
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
-	if m.rest != nil {
-		roles, err := m.rest.GetRoles(guild, rest.WithCtx(ctx))
-		if err != nil {
-			return discord.MessageCreate{}, err
-		}
-		if slices.ContainsFunc(roles, func(r discord.Role) bool { return strings.EqualFold(r.Name, name) }) {
-			return discord.MessageCreate{}, errOwnTaken
-		}
-	}
 	styles := e.Data.StringValues("style")
 	style, ok := ownStyleOf(strings.Join(styles, ""))
 	if !ok || style.rung > rung {
@@ -239,6 +231,15 @@ func (m *Module) readOwn(ctx context.Context, guild snowflake.ID, e *events.Moda
 	colors, err := ownColors(e.Data.Text("colors"), style.colors)
 	if err != nil {
 		return discord.MessageCreate{}, err
+	}
+	if m.rest != nil {
+		roles, err := m.rest.GetRoles(guild, rest.WithCtx(ctx))
+		if err != nil {
+			return discord.MessageCreate{}, err
+		}
+		if _, yard := dyeNamed(strings.ToLower(name)); yard || slices.ContainsFunc(roles, func(r discord.Role) bool { return strings.EqualFold(r.Name, name) }) {
+			return discord.MessageCreate{}, errOwnTaken
+		}
 	}
 	d := &draft{name: name, style: style, colors: colors}
 	if old != nil && rung >= deviceRung {
@@ -251,12 +252,13 @@ func (m *Module) readOwn(ctx context.Context, guild snowflake.ID, e *events.Moda
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.drafts == nil {
 		s.drafts = map[snowflake.ID]*draft{}
 	}
 	s.drafts[user] = d
-	return m.st.ownMessage(mem, d)
+	now := *mem
+	s.mu.Unlock()
+	return m.st.ownMessage(&now, d)
 }
 
 // ownName is a livery's name as the heralds would enter it.
@@ -272,27 +274,46 @@ func ownName(raw string) (string, error) {
 	return name, nil
 }
 
-// ownColors reads want colours from raw: hex or a yard livery's key or
-// name, each brought into the band every livery reads in on both themes.
+// ownColors reads want colours from raw, separated by commas or spaces:
+// hex, or a yard livery's key or whole name, each brought into the band
+// every livery reads in on both themes.
 func ownColors(raw string, want int) ([]uint32, error) {
-	words := strings.FieldsFunc(strings.ToLower(raw), func(r rune) bool { return r == ' ' || r == ',' })
 	var out []uint32
-	for i := 0; i < len(words) && len(out) < want; i++ {
-		w := strings.TrimPrefix(words[i], "#")
-		if c, err := strconv.ParseUint(w, 16, 32); err == nil && len(w) == 6 {
-			out = append(out, inBand(uint32(c)))
+	for part := range strings.SplitSeq(strings.ToLower(raw), ",") {
+		part = strings.Join(strings.Fields(part), " ")
+		if part == "" {
 			continue
 		}
-		at := slices.IndexFunc(dyes, func(d dye) bool { return d.key == words[i] || strings.Contains(d.name, words[i]) })
-		if at < 0 {
-			return nil, errOwnColors
+		if c, ok := dyeNamed(part); ok {
+			out = append(out, c)
+			continue
 		}
-		out = append(out, dyes[at].color)
+		for _, w := range strings.Fields(part) {
+			c, ok := dyeNamed(w)
+			if !ok {
+				hex := strings.TrimPrefix(w, "#")
+				v, err := strconv.ParseUint(hex, 16, 32)
+				if err != nil || len(hex) != 6 {
+					return nil, errOwnColors
+				}
+				c = inBand(uint32(v))
+			}
+			out = append(out, c)
+		}
 	}
 	if len(out) < want {
 		return nil, errOwnColors
 	}
-	return out, nil
+	return out[:want], nil
+}
+
+// dyeNamed is the colour of the yard livery whose key or whole name is s.
+func dyeNamed(s string) (uint32, bool) {
+	at := slices.IndexFunc(dyes, func(d dye) bool { return d.key == s || d.name == s })
+	if at < 0 {
+		return 0, false
+	}
+	return dyes[at].color, true
 }
 
 // The band: a name reads on Discord's white and on its darkest member list
@@ -311,17 +332,23 @@ func inBand(c uint32) uint32 {
 	if l > bandHigh {
 		target = bandHigh
 	}
-	h, s, _ := toHSL(c)
+	// Chroma, not saturation, is kept: a near grey's saturation is near one
+	// however grey it looks, and would come out vivid.
+	h, s, l := toHSL(c)
+	chroma := s * (1 - math.Abs(2*l-1))
+	at := func(l float64) uint32 {
+		return fromHSL(h, min(1, chroma/max(1e-9, 1-math.Abs(2*l-1))), l)
+	}
 	lo, hi := 0.0, 1.0
 	for range 30 {
 		mid := (lo + hi) / 2
-		if luminance(fromHSL(h, s, mid)) < target {
+		if luminance(at(mid)) < target {
 			lo = mid
 		} else {
 			hi = mid
 		}
 	}
-	return fromHSL(h, s, (lo+hi)/2)
+	return at((lo + hi) / 2)
 }
 
 // luminance is c's relative luminance, as WCAG reckons it.
@@ -370,7 +397,12 @@ func fromHSL(h, s, l float64) uint32 {
 }
 
 // iconClient fetches devices: briefly, and only from Discord.
-var iconClient = &http.Client{Timeout: 10 * time.Second}
+var iconClient = &http.Client{
+	Timeout: 10 * time.Second,
+	// A redirect could lead anywhere; the host checked is the only one
+	// fetched.
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
 
 // fetchIcon is a device uploaded with the form as a PNG at most iconSide
 // square. Only Discord's own attachment hosts are fetched, at most iconMost
@@ -410,24 +442,15 @@ func fetchIcon(ctx context.Context, a discord.Attachment) ([]byte, error) {
 // square, nearest neighbour so pixel art stays crisp.
 func redrawIcon(raw []byte) ([]byte, error) {
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
-	if err != nil || cfg.Width < 1 || cfg.Height < 1 || cfg.Width > 4096 || cfg.Height > 4096 {
+	if err != nil || cfg.Width < 1 || cfg.Height < 1 || cfg.Width > 1024 || cfg.Height > 1024 {
 		return nil, errOwnIcon
 	}
 	src, _, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {
 		return nil, errOwnIcon
 	}
-	b := src.Bounds()
-	scale := min(1, float64(iconSide)/float64(max(b.Dx(), b.Dy())))
-	w, h := max(1, int(float64(b.Dx())*scale)), max(1, int(float64(b.Dy())*scale))
-	out := image.NewNRGBA(image.Rect(0, 0, w, h))
-	for y := range h {
-		for x := range w {
-			out.Set(x, y, src.At(b.Min.X+x*b.Dx()/w, b.Min.Y+y*b.Dy()/h))
-		}
-	}
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, out); err != nil {
+	if err := png.Encode(&buf, resize(src, iconSide)); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
@@ -464,4 +487,19 @@ func (st *state) ownMessage(mem *member, d *draft) (discord.MessageCreate, error
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
+}
+
+// resize is img at most side square, nearest neighbour so pixel art stays
+// crisp, its colours straight rather than premultiplied.
+func resize(img image.Image, side int) *image.NRGBA {
+	b := img.Bounds()
+	scale := min(1, float64(side)/float64(max(b.Dx(), b.Dy())))
+	w, h := max(1, int(float64(b.Dx())*scale)), max(1, int(float64(b.Dy())*scale))
+	out := image.NewNRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			out.Set(x, y, color.NRGBAModel.Convert(img.At(b.Min.X+x*b.Dx()/w, b.Min.Y+y*b.Dy()/h)))
+		}
+	}
+	return out
 }
