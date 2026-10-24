@@ -18,17 +18,19 @@ import (
 
 // What a ledger row is for.
 const (
-	reasonOpen   = "open"   // a purse as it stood when the ledger began
-	reasonLabour = "labour" // a closed day of earning
-	reasonClass  = "class"  // a class change paid for
-	reasonLevy   = "levy"   // a day's levy, into the treasury (user 0)
-	reasonGrant  = "grant"  // a grant: out of the contest fund, into a purse
-	reasonFund   = "fund"   // the contest fund's share of a quest, minted into the treasury
-	reasonSeed   = "seed"   // the contest fund's one seed, the same way
-	reasonPrize  = "prize"  // a weekly checkpoint's prize, the same way
-	reasonShop   = "shop"   // something bought, burned
-	reasonQuest  = "quest"  // a finished quest, as labour
-	reasonLease  = "lease"  // a week of a livery, burned; inputs its dye and the day it runs to
+	reasonOpen    = "open"    // a purse as it stood when the ledger began
+	reasonLabour  = "labour"  // a closed day of earning
+	reasonClass   = "class"   // a class change paid for
+	reasonLevy    = "levy"    // a day's levy, into the treasury (user 0)
+	reasonGrant   = "grant"   // a grant: out of the contest fund, into a purse
+	reasonFund    = "fund"    // the contest fund's share of a quest, minted into the treasury
+	reasonSeed    = "seed"    // the contest fund's one seed, the same way
+	reasonPrize   = "prize"   // a weekly checkpoint's prize, the same way
+	reasonShop    = "shop"    // something bought, burned
+	reasonQuest   = "quest"   // a finished quest, as labour
+	reasonLease   = "lease"   // a week of a livery, burned; inputs its dye (-1 for one's own) and the day it runs to
+	reasonHold    = "hold"    // a petition's price, held from the purse while the heralds decide
+	reasonRelease = "release" // a hold given back: a petition refused, or one that never reached them
 )
 
 // entry is one ledger row.

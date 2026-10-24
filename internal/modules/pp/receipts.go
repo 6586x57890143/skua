@@ -45,6 +45,10 @@ func journalLine(reason string, inputs []int64) (icon, what string) {
 			return "scales", dyes[inputs[0]].name
 		}
 		return "scales", "a livery"
+	case reasonHold:
+		return "quill", "a petition to the heralds"
+	case reasonRelease:
+		return "quill", "a petition's price returned"
 	case reasonPrize:
 		return "laurel", "a weekly prize"
 	case reasonGrant:

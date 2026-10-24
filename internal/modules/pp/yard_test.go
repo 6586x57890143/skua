@@ -107,7 +107,7 @@ func TestYardPages(t *testing.T) {
 	mem.livery, mem.liveryUntil = "hide", today+5
 	seen := map[string]bool{}
 	for _, page := range []int{tradesPage, factionsPage} {
-		msg, err := m.st.yardMessage(mem, page, today)
+		msg, err := m.st.yardMessage(s, 5, mem, page, today)
 		if err != nil {
 			t.Fatal(err)
 		}

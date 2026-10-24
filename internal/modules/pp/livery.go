@@ -261,7 +261,7 @@ func (m *Module) liverySettings(guild snowflake.ID) []discord.ContainerSubCompon
 		discord.NewTextDisplay("### liveries\n-# roles bought in the shop sit directly under the anchor, so put it above the server's other colour roles and below staff; skua's own role must be above it. petitions for a livery of one's own go to the heralds' channel for a moderator to grant or refuse"),
 		discord.NewActionRow(role),
 		discord.NewActionRow(ch),
-	}, m.yardControls(guild)...)
+	}, append(m.yardControls(guild), m.waiting(guild)...)...)
 }
 
 // setLivery keeps the anchor or the heralds' channel an admin picked, or

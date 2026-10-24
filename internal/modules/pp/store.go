@@ -73,6 +73,9 @@ func (st *state) load(ctx context.Context, db DB) error {
 	if err := st.loadDyes(ctx, db); err != nil {
 		return err
 	}
+	if err := st.loadPetitions(ctx, db); err != nil {
+		return err
+	}
 	if err := st.loadLedger(ctx, db); err != nil {
 		return err
 	}

@@ -135,6 +135,10 @@ type server struct {
 	// drafts are petitions for a livery of one's own being written, by
 	// member; only in memory until they're sent.
 	drafts map[snowflake.ID]*draft
+	// asked is each member's petition with the heralds, and own the
+	// livery of their own each wears.
+	asked map[snowflake.ID]int64
+	own   map[snowflake.ID]ownWorn
 }
 
 func newServer(id snowflake.ID) *server {

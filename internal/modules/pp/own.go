@@ -24,6 +24,7 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/jackc/pgx/v5"
 	_ "golang.org/x/image/webp"
 
 	"github.com/6586x57890143/skua/internal/brand"
@@ -211,9 +212,12 @@ func (m *Module) readOwn(ctx context.Context, guild snowflake.ID, e *events.Moda
 	today := DayOf(m.now())
 	s := m.st.server(guild)
 	s.mu.Lock()
-	mem := m.st.member(s, guild, user, today)
-	rung, old := mem.rung, s.drafts[user]
+	rung := m.st.member(s, guild, user, today).rung
 	s.mu.Unlock()
+	old, err := m.ownDraft(ctx, guild, user)
+	if err != nil {
+		return discord.MessageCreate{}, err
+	}
 	if rung < ownStyles[0].rung {
 		return discord.MessageCreate{}, errOwnPerch
 	}
@@ -255,9 +259,8 @@ func (m *Module) readOwn(ctx context.Context, guild snowflake.ID, e *events.Moda
 		s.drafts = map[snowflake.ID]*draft{}
 	}
 	s.drafts[user] = d
-	now := *mem
 	s.mu.Unlock()
-	return m.st.ownMessage(&now, d)
+	return m.ownPage(ctx, guild, user)
 }
 
 // ownName is a livery's name as the heralds would enter it.
@@ -455,33 +458,71 @@ func redrawIcon(raw []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// ownState is what the petition screen shows besides the draft: the
+// heralds' last word, and the livery worn now.
+type ownState struct {
+	letter  string
+	asked   bool
+	wearing bool
+	left    int64 // days on the lease of the livery worn
+	week    int64 // what a week of it costs, pp hundredths
+}
+
 // ownMessage is the petition as it stands: drawn on both themes, its
-// price, and the way to change it. s.mu held.
-func (st *state) ownMessage(mem *member, d *draft) (discord.MessageCreate, error) {
-	o := Own{Purse: mem.purse, Fee: st.pot() * heraldsFee / 100}
+// price, and the way to change it, send it and keep the livery worn.
+// s.mu held.
+func (st *state) ownMessage(mem *member, d *draft, o ownState) (discord.MessageCreate, error) {
+	fee := st.pot() * heraldsFee / 100
+	scr := Own{Purse: mem.purse, Fee: fee, Letter: o.letter}
+	if o.wearing {
+		scr.Left = o.left
+		scr.Wearing = true
+	}
+	send := fee
 	if d != nil {
-		o.Name, o.Style, o.Colors, o.Week = d.name, d.style.name, d.shown(), st.weekly(d)
+		scr.Name, scr.Style, scr.Colors, scr.Week = d.name, d.style.name, d.shown(), st.weekly(d)
 		if d.icon != nil {
-			o.Icon, _ = png.Decode(bytes.NewReader(d.icon))
+			scr.Icon, _ = png.Decode(bytes.NewReader(d.icon))
+		}
+		if !o.wearing {
+			send += scr.Week
 		}
 	}
-	pic, err := OwnScreen(o)
+	pic, err := OwnScreen(scr)
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
 	alt := "a livery of your own: no petition written yet"
 	write := "write a petition"
 	if d != nil {
-		alt = fmt.Sprintf("a livery of your own, %q in %s, %s pp a week and a fee of %s pp to the heralds", d.name, d.style.name, grouped(o.Week/unit), grouped(o.Fee/unit))
+		alt = fmt.Sprintf("a livery of your own, %q in %s, %s pp a week and a fee of %s pp to the heralds", d.name, d.style.name, grouped(scr.Week/unit), grouped(fee/unit))
 		if d.icon != nil {
 			alt += ", with a device"
 		}
 		write = "change the petition"
 	}
+	if o.letter != "" {
+		alt += ". the heralds: " + o.letter
+	}
+	row := discord.NewActionRow(discord.NewSecondaryButton("◂ the yard", "pp:yard"), withIcon(discord.NewSecondaryButton(write, "pp:ownwrite"), "quill"))
+	if d != nil && !o.asked {
+		b := withIcon(discord.NewPrimaryButton("send to the heralds · "+grouped(send/unit)+" pp", "pp:ownsend"), "envelope")
+		if mem.purse < send {
+			b = b.AsDisabled()
+		}
+		row = row.AddComponents(b)
+	}
+	if o.wearing {
+		b := withIcon(discord.NewSuccessButton("another week · "+grouped(o.week/unit)+" pp", "pp:ownweek"), "pot")
+		if mem.purse < o.week || o.left+leaseDays > leaseCap {
+			b = b.AsDisabled()
+		}
+		row = row.AddComponents(b)
+	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
-			discord.NewActionRow(discord.NewSecondaryButton("◂ the yard", "pp:yard"), withIcon(discord.NewPrimaryButton(write, "pp:ownwrite"), "quill")))},
+			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: clip(alt, altLimit)}),
+			row)},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
@@ -501,4 +542,57 @@ func resize(img image.Image, side int) *image.NRGBA {
 		}
 	}
 	return out
+}
+
+// ownPage is user's petition screen: their draft, or the livery they wear
+// when they've written none, with the heralds' last word.
+func (m *Module) ownPage(ctx context.Context, guild, user snowflake.ID) (discord.MessageCreate, error) {
+	d, err := m.ownDraft(ctx, guild, user)
+	if err != nil {
+		return discord.MessageCreate{}, err
+	}
+	letter := m.letter(ctx, guild, user)
+	today := DayOf(m.now())
+	s := m.st.server(guild)
+	s.mu.Lock()
+	mem := *m.st.member(s, guild, user, today)
+	worn, asked := s.own[user], s.asked[user] != 0
+	s.mu.Unlock()
+	if mem.rung < ownStyles[0].rung {
+		return discord.MessageCreate{}, errOwnPerch
+	}
+	o := ownState{letter: letter, asked: asked, wearing: worn.role != 0 && mem.livery == ownKey}
+	if o.wearing {
+		o.left, o.week = mem.liveryUntil-today, m.st.pot()*worn.week/100
+	}
+	return m.st.ownMessage(&mem, d, o)
+}
+
+// ownDraft is user's draft, or when they have none and wear a livery of
+// their own, that livery as a draft to change.
+func (m *Module) ownDraft(ctx context.Context, guild, user snowflake.ID) (*draft, error) {
+	s := m.st.server(guild)
+	s.mu.Lock()
+	d, worn := s.drafts[user], s.own[user].role != 0
+	s.mu.Unlock()
+	if d != nil || !worn {
+		return d, nil
+	}
+	var style string
+	var colors []int64
+	d = &draft{}
+	err := queryOne(ctx, m.db, `select name, style, colors, icon from pp_petition
+		where guild_id = $1 and user_id = $2 and state = 'granted' order by id desc limit 1`,
+		[]any{int64(guild), int64(user)}, &d.name, &style, &colors, &d.icon)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	d.style, _ = ownStyleOf(style)
+	for _, c := range colors {
+		d.colors = append(d.colors, uint32(c))
+	}
+	return d, nil
 }
