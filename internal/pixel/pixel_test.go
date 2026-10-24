@@ -281,3 +281,27 @@ func TestDye(t *testing.T) {
 		t.Error("an ink already there was added again")
 	}
 }
+
+// A soft loop is an animated WebP of its frames.
+func TestSoftLoop(t *testing.T) {
+	a, b := New(8, 8), New(8, 8)
+	b.Fill(b.Rect, Gold)
+	out, err := SoftLoop([]*Canvas{a, b}, 2, 100)
+	if err != nil || !bytes.HasPrefix(out, []byte("RIFF")) || !bytes.Contains(out[:64], []byte("WEBPVP8X")) || !bytes.Contains(out, []byte("ANMF")) {
+		t.Fatalf("a soft loop: %v %q", err, out[:min(len(out), 32)])
+	}
+	// A loop whose second frame moves one cell sends that frame as the
+	// small box round the change, on even pixels.
+	still, moved := New(64, 64), New(64, 64)
+	moved.SetColorIndex(30, 30, Gold)
+	two, err := SoftLoop([]*Canvas{still, moved}, 3, 100)
+	second := bytes.LastIndex(two, []byte("ANMF"))
+	if err != nil || second < 0 {
+		t.Fatalf("a two frame loop: %v", err)
+	}
+	f := two[second+8:]
+	u24 := func(b []byte) int { return int(b[0]) | int(b[1])<<8 | int(b[2])<<16 }
+	if x, w := u24(f)*2, u24(f[6:])+1; w >= 64*3/2 || x == 0 {
+		t.Errorf("the second frame is %d wide at x %d", w, x)
+	}
+}

@@ -303,3 +303,15 @@ func TestLateSignerPaidToday(t *testing.T) {
 		t.Errorf("a second joinder the same day: %v", err)
 	}
 }
+
+func BenchmarkNoticesScreen(b *testing.B) {
+	n := &Notice{Ring: true, Places: 4, Goal: 30, Together: 17, Pays: "90 / 120 pp each"}
+	for i := range 3 {
+		n.Signers = append(n.Signers, NoticeSigner{Name: "steve", Portrait: Portrait(Classes[i]), Minutes: 17})
+	}
+	for b.Loop() {
+		if _, err := NoticesScreen("heavywinds", n, nil); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

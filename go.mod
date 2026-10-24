@@ -4,6 +4,7 @@ go 1.27.2
 
 require (
 	github.com/6586x57890143/cygnet/link v0.9.0
+	github.com/HugoSmits86/nativewebp v1.3.0
 	github.com/bluenviron/mediacommon/v2 v2.9.6
 	github.com/btcsuite/btcd/btcec/v2 v2.5.0
 	github.com/disgoorg/disgo v0.19.6
