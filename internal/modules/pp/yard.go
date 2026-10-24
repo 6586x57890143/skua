@@ -159,7 +159,7 @@ func (st *state) yardMessage(s *server, user snowflake.ID, mem *member, page int
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
 			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenName}, Description: alt}),
 			discord.NewActionRow(discord.NewStringSelectMenu("pp:dye", "look closer at a livery", look...)),
-			yardRow(discord.NewSecondaryButton("◂ the stair", "pp:shop"), discord.NewSecondaryButton(other, otherID), mem.rung >= ownStyles[0].rung))},
+			yardRow(discord.NewSecondaryButton("◂ the stair", "pp:back"), discord.NewSecondaryButton(other, otherID), mem.rung >= ownStyles[0].rung))},
 		Files:           []*discord.File{discord.NewFile(screenName, alt, bytes.NewReader(pic))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
@@ -237,12 +237,12 @@ func (m *Module) yard(ctx context.Context, guild snowflake.ID, e *events.Compone
 	case id == "pp:ownsend", id == "pp:ownweek":
 		// A send posts to the heralds and a week dresses the member: both
 		// longer than an interaction may wait.
-		return m.deferred(ctx, guild, e, func() error {
+		return m.deferred(ctx, guild, e, func(ctx context.Context) error {
 			if id == "pp:ownsend" {
 				return m.sendPetition(ctx, guild, user)
 			}
 			return m.leaseOwn(ctx, guild, user)
-		}, func() (discord.MessageCreate, error) { return m.ownPage(ctx, guild, user) })
+		}, func(ctx context.Context) (discord.MessageCreate, error) { return m.ownPage(ctx, guild, user) })
 	case strings.HasPrefix(id, "pp:lease:"):
 		d, ok := dyeOf(strings.TrimPrefix(id, "pp:lease:"))
 		if !ok {
@@ -251,10 +251,10 @@ func (m *Module) yard(ctx context.Context, guild snowflake.ID, e *events.Compone
 		// Making a role and dressing a member are a few calls to Discord,
 		// longer than an interaction may wait.
 		var msg discord.MessageCreate
-		return m.deferred(ctx, guild, e, func() (err error) {
+		return m.deferred(ctx, guild, e, func(ctx context.Context) (err error) {
 			msg, err = m.leased(ctx, guild, user, d)
 			return err
-		}, func() (discord.MessageCreate, error) { return msg, nil })
+		}, func(context.Context) (discord.MessageCreate, error) { return msg, nil })
 	case id == "pp:dye":
 		data, ok := e.Data.(discord.StringSelectMenuInteractionData)
 		if !ok || len(data.Values) != 1 {

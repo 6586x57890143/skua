@@ -59,6 +59,9 @@ type Module struct {
 	beacon Beacon
 	// self is skua's own user, once she is up.
 	self snowflake.ID
+	// inline runs work after a deferred answer in place rather than on a
+	// goroutine of its own: for tests, which read what it did right after.
+	inline bool
 }
 
 // New loads what /pp has kept. seed keeps each member's daily pool from

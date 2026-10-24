@@ -5,10 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
@@ -364,18 +367,13 @@ func (m *Module) herald(ctx context.Context, guild snowflake.ID, e *events.Compo
 	if err := e.DeferUpdateMessage(); err != nil {
 		return err
 	}
-	note, err := m.grantPetition(ctx, guild, n, e.User().ID)
-	if err != nil {
-		if _, isTell := errors.AsType[core.Tell](err); !isTell {
-			m.log.Warn("pp: granting a petition", "guild", guild, "err", err)
-			err = core.Tell("skua couldn't make the livery just now; the petition still waits")
-		}
-		_, ferr := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), said(err.Error()), rest.WithCtx(ctx))
-		return ferr
-	}
-	_, err = e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(),
-		core.Edit(discord.NewMessageUpdateV2(petitionCard(note.p, note.line))), rest.WithCtx(ctx))
-	return err
+	by := e.User().ID
+	m.later(ctx, func(ctx context.Context) {
+		note, err := m.grantPetition(ctx, guild, n, by)
+		msg := discord.MessageCreate{Components: []discord.LayoutComponent{petitionCard(note.p, note.line)}}
+		m.answerLater(ctx, guild, e, e.Client(), msg, err, "granting a petition", "skua couldn't make the livery just now; the petition still waits")
+	})
+	return nil
 }
 
 // settled is a petition and the line that says how it was settled.
@@ -596,30 +594,72 @@ func (m *Module) letter(ctx context.Context, guild, user snowflake.ID) string {
 	return "refused: " + reason
 }
 
-// deferred answers e after act, which may take longer than an interaction
-// waits: the press is deferred, act runs, and the screen page draws comes
-// back as an edit, or act's refusal as a note.
-func (m *Module) deferred(ctx context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate, act func() error, page func() (discord.MessageCreate, error)) error {
+// laterFor is how long work after a deferred answer may run, well inside
+// the fifteen minutes Discord keeps a deferred interaction open.
+const laterFor = 30 * time.Second
+
+// later runs work once its answer is deferred: on a context of its own,
+// past the three seconds a press gives, and off the gateway's goroutine,
+// so every other event keeps flowing while it calls Discord. Tests run it
+// in place.
+func (m *Module) later(ctx context.Context, work func(ctx context.Context)) {
+	run := func() {
+		defer func() {
+			if p := recover(); p != nil {
+				m.log.Error("pp: deferred work panicked", "panic", p, "stack", string(debug.Stack()))
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), laterFor)
+		defer cancel()
+		work(ctx)
+	}
+	if m.inline {
+		run()
+		return
+	}
+	go run()
+}
+
+// answerLater is a deferred interaction answered: msg as an edit, or err
+// as a note, a Tell as it is and anything else in what's the member's
+// words, logged as what.
+func (m *Module) answerLater(ctx context.Context, guild snowflake.ID, i discord.Interaction, client *bot.Client, msg discord.MessageCreate, err error, what, sorry string) {
+	if err != nil {
+		if _, isTell := errors.AsType[core.Tell](err); !isTell {
+			m.log.Warn("pp: "+what, "guild", guild, "err", err)
+			err = core.Tell(sorry)
+		}
+		if _, ferr := client.Rest.CreateFollowupMessage(i.ApplicationID(), i.Token(), said(err.Error()), rest.WithCtx(ctx)); ferr != nil {
+			m.log.Warn("pp: telling a member", "guild", guild, "err", ferr)
+		}
+		return
+	}
+	if _, err := client.Rest.UpdateInteractionResponse(i.ApplicationID(), i.Token(),
+		core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...), rest.WithCtx(ctx)); err != nil {
+		m.log.Warn("pp: answering "+what, "guild", guild, "err", err)
+	}
+}
+
+// deferred answers e after act, which takes longer than a press waits:
+// the press is deferred and act runs later, then the screen page draws
+// comes back as an edit, or act's refusal as a note.
+func (m *Module) deferred(ctx context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate, act func(ctx context.Context) error, page func(ctx context.Context) (discord.MessageCreate, error)) error {
 	if err := e.DeferUpdateMessage(); err != nil {
 		return err
 	}
-	err := act()
-	var msg discord.MessageCreate
-	if err == nil {
-		msg, err = page()
-	}
-	if err != nil {
-		if _, isTell := errors.AsType[core.Tell](err); !isTell {
-			m.log.Warn("pp: a livery", "guild", guild, "err", err)
-			err = core.Tell("the dyers couldn't do that just now; try again in a while")
+	admin := m.Admin != nil && m.Admin(e)
+	m.later(ctx, func(ctx context.Context) {
+		err := act(ctx)
+		var msg discord.MessageCreate
+		if err == nil {
+			msg, err = page(ctx)
 		}
-		_, ferr := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), said(err.Error()), rest.WithCtx(ctx))
-		return ferr
-	}
-	msg = m.withMenu(guild, e.User().ID, m.Admin != nil && m.Admin(e), msg, "pp:shop")
-	_, err = e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(),
-		core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...), rest.WithCtx(ctx))
-	return err
+		if err == nil {
+			msg = m.withMenu(guild, e.User().ID, admin, msg, "pp:shop")
+		}
+		m.answerLater(ctx, guild, e, e.Client(), msg, err, "a livery", "the dyers couldn't do that just now; try again in a while")
+	})
+	return nil
 }
 
 // leaseOwn leases user another lease of the livery of their own they
@@ -700,24 +740,39 @@ func (m *Module) repost(ctx context.Context, guild snowflake.ID, e *events.Compo
 	if err := e.DeferCreateMessage(true); err != nil {
 		return err
 	}
+	m.later(ctx, func(ctx context.Context) {
+		posted, of, err := m.postAgain(ctx, guild, ch)
+		note := fmt.Sprintf("%d of %d petitions posted to <#%s> again", posted, of, ch)
+		if err == nil {
+			_, err = e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), said(note), rest.WithCtx(ctx))
+		}
+		if err != nil {
+			m.log.Warn("pp: posting petitions again", "guild", guild, "err", err)
+		}
+	})
+	return nil
+}
+
+// postAgain posts every petition of guild still with the heralds to ch,
+// going on past one that fails, and says how many of how many went.
+func (m *Module) postAgain(ctx context.Context, guild, ch snowflake.ID) (posted, of int, err error) {
 	rows, err := m.db.Query(ctx, `select `+petitionCols+` from pp_petition where guild_id = $1 and state = 'asked' order by id`, int64(guild))
 	if err != nil {
-		return err
+		return 0, 0, err
 	}
 	var ps []petition
 	for rows.Next() {
 		p, err := scanPetition(rows.Scan)
 		if err != nil {
 			rows.Close()
-			return err
+			return 0, 0, err
 		}
 		ps = append(ps, p)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return err
+		return 0, 0, err
 	}
-	posted := 0
 	for _, p := range ps {
 		if err := m.postPetition(ctx, guild, ch, p); err != nil {
 			m.log.Warn("pp: posting a petition again", "guild", guild, "err", err)
@@ -725,9 +780,7 @@ func (m *Module) repost(ctx context.Context, guild snowflake.ID, e *events.Compo
 		}
 		posted++
 	}
-	_, err = e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(),
-		said(fmt.Sprintf("%d of %d petitions posted to <#%s> again", posted, len(ps), ch)), rest.WithCtx(ctx))
-	return err
+	return posted, len(ps), nil
 }
 
 // rollSlots is the roll's room until an admin sets it.

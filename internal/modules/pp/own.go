@@ -181,20 +181,15 @@ func (m *Module) submitOwn(ctx context.Context, e *events.ModalSubmitInteraction
 	if err := e.DeferUpdateMessage(); err != nil {
 		return err
 	}
-	msg, err := m.readOwn(ctx, *guild, e)
-	if err != nil {
-		if _, isTell := errors.AsType[core.Tell](err); !isTell {
-			m.log.Warn("pp: a petition", "guild", *guild, "err", err)
-			err = core.Tell("the heralds couldn't read that just now; try again in a while")
+	admin := m.Admin != nil && m.Admin(e)
+	m.later(ctx, func(ctx context.Context) {
+		msg, err := m.readOwn(ctx, *guild, e)
+		if err == nil {
+			msg = m.withMenu(*guild, e.User().ID, admin, msg, "pp:shop")
 		}
-		_, ferr := e.Client().Rest.CreateFollowupMessage(e.ApplicationID(), e.Token(), discord.MessageCreate{
-			Content: err.Error(), Flags: discord.MessageFlagEphemeral, AllowedMentions: core.NoPings()}, rest.WithCtx(ctx))
-		return ferr
-	}
-	msg = m.withMenu(*guild, e.User().ID, m.Admin != nil && m.Admin(e), msg, "pp:shop")
-	_, err = e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(),
-		core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...), rest.WithCtx(ctx))
-	return err
+		m.answerLater(ctx, *guild, e, e.Client(), msg, err, "a petition", "the heralds couldn't read that just now; try again in a while")
+	})
+	return nil
 }
 
 // readOwn checks the form and keeps it as the member's draft.
