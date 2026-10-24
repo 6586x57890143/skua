@@ -30,8 +30,8 @@ var paragonTints = []uint32{0x2a2433, 0x1f2d2e, 0x2e2620, 0x24262e, 0x2b2028, 0x
 
 // lookOf is the look rung buys: bold with the perch beside it, so the
 // first rung already shows, then slate, then chitin red, then a pale glass
-// plate, then a bronze plate under the book hand, then gilt on a dark
-// plate, and at the top that plate in a gilt frame.
+// plate, then a bronze plate under the book hand, then bone white on a
+// cold sea, and at the top gilt on a dark plate in a gilt frame.
 func lookOf(rung int64) Look {
 	l := Look{Face: pixel.Regular, Ink: pixel.Ink}
 	if rung >= 1 {
@@ -50,10 +50,10 @@ func lookOf(rung int64) Look {
 		l.Plate, l.Face, l.Ink = pixel.Bronze, pixel.Serif, pixel.Ink
 	}
 	if rung >= 6 {
-		l.Plate, l.Ink = pixel.Line, pixel.Gilt
+		l.Plate, l.Ink = pixel.Sea, pixel.Glove
 	}
 	if rung >= 7 {
-		l.Frame = true
+		l.Plate, l.Ink, l.Frame = pixel.Line, pixel.Gilt, true
 	}
 	if rung > int64(len(perches)) {
 		l.Count = rung
@@ -85,8 +85,9 @@ func setName(c *pixel.Canvas, l Look, x, y int, name string, width int, row imag
 		}
 	}
 	end := 0
-	if l.Plate == pixel.Line {
-		// On the dark plate the khaki shadow would glare; the gilt casts a
+	dark := l.Plate == pixel.Line || l.Plate == pixel.Sea
+	if dark {
+		// On a dark plate the khaki shadow would glare; the letters cast a
 		// black one.
 		end = c.PrintOn(l.Face, x, y, fitted(l.Face, name, width-tail), l.Ink, pixel.Shadow)
 	} else {

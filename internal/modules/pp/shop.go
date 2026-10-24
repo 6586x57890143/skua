@@ -93,7 +93,7 @@ var perches = []perchKind{
 		"the plate turns bronze and your name is set in the book hand, beside your perch"},
 	{"whalebone perch", pixel.Perches[5], "a perch carved from a whale's jaw",
 		"the north sea company once brought home the jaw of a whale longer than a guildhall, and gave it to the order of the stair in place of a debt it could not pay. the order carved it into perches for the gilt. the bone is pale and cold and never quite dry, and on still nights the birds who sit on it say they can hear the sea",
-		"your name in gilt on a dark plate, in the book hand, beside your perch"},
+		"your name in bone white on a cold sea, in the book hand, beside your perch"},
 	{"perch touched by the great nothing", pixel.Perches[6], "a perch where the stair ran out",
 		"past the bell the stair climbed into a place where nothing was. the climbers stepped out and the nothing held them. where it touched the last rung the wood turned to gold. those who sit there stop talking, and the flock knows not to ask what they heard",
 		"your name in gilt on a dark plate, framed in gilt; your perch counts every rung past it"},
