@@ -118,8 +118,16 @@ func (m *Module) due(r rest.Rest) {
 		jctx, jcancel := context.WithCancel(context.Background())
 		j := m.newJob(r, g, nil, "scheduled purge for")
 		var mine, busy []snowflake.ID
+		var stops atomic.Int32
 		for _, u := range users {
-			if _, loaded := m.running.LoadOrStore(target{g, u}, &run{jcancel, j, true}); loaded {
+			// One member's stop leaves the others' sweep running; the last
+			// stop ends the job. stopCmd holds settings, so mine is final.
+			stop := func() {
+				if _, again := j.sweep.stopped.LoadOrStore(u, struct{}{}); !again && int(stops.Add(1)) >= len(mine) {
+					jcancel()
+				}
+			}
+			if _, loaded := m.running.LoadOrStore(target{g, u}, &run{stop, j, true}); loaded {
 				busy = append(busy, u)
 			} else {
 				mine = append(mine, u)

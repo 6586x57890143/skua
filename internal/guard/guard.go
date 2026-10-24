@@ -85,9 +85,9 @@ var caps = [opCount]int64{
 	Reaction: 1260,
 	// Discord allows 200 command creates a guild a day.
 	CommandSync: 8,
-	// A fresh install uploads the complete icon set (currently 63); later
-	// boots upload only missing art. Keep a bounded budget with room for both.
-	EmojiCreate: 64,
+	// A fresh install uploads the complete icon set in one hour; later boots
+	// upload only missing art. brand's tests keep the set under this cap.
+	EmojiCreate: 128,
 	// One per bridged message with a pasted link: WebhookExecute's pace.
 	AttachmentRefresh: 300,
 	// Up to three cards and one preview flag per message with links.

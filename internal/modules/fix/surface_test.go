@@ -53,7 +53,7 @@ func TestCompactLinkedCard(t *testing.T) {
 			all += d.Content + "\n"
 		}
 	}
-	for _, want := range []string{"<:pp_heart_", "<:stat_repost_", "<:stat_reply_", "<t:1792663980:R>", "[Author](<https://x.com/author/status/100>)"} {
+	for _, want := range []string{"<:stat_likes_", "<:stat_repost_", "<:stat_reply_", "<t:1792663980:R>", "[Author](<https://x.com/author/status/100>)"} {
 		if !strings.Contains(all, want) {
 			t.Fatalf("missing %s: %s", want, all)
 		}

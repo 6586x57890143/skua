@@ -102,6 +102,10 @@ func (m *Module) command(ctx context.Context, e *events.ApplicationCommandIntera
 	if guild == nil {
 		return core.Tell("this only works in a server")
 	}
+	// A shared card is a public message with media; the member must be able to post one here.
+	if member := e.Member(); share && (member == nil || !member.Permissions.Has(discord.PermissionSendMessages|discord.PermissionEmbedLinks)) {
+		return core.Tell("you can't post embeds in this channel; run it without share to see it yourself")
+	}
 	select {
 	case m.slots <- struct{}{}:
 		defer m.release()
