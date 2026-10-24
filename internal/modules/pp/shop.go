@@ -74,7 +74,7 @@ type perchKind struct {
 }
 
 // perches are the rookery stair's rungs; past the last, every rung is the
-// perch touched by the great nothingness.
+// perch touched by the great nothing, counted.
 var perches = []perchKind{
 	{"tallow perch", pixel.Perches[0], "a perch poured from rendered fat",
 		"in the first winter of the rookery there was no timber and no stone, only what the flock could spare. they burned their lamps low for a month to pour this one. the birds who sat on it through that dark were the ones who stayed, and it still smells faintly of smoke",
@@ -91,7 +91,10 @@ var perches = []perchKind{
 	{"drowned-bell perch", pixel.Perches[4], "a perch cast from a drowned bell",
 		"the chapel bell went under with the rest of the low town. divers brought it up in pieces over three summers, and the bronze was cast into perches for those who had climbed this far. at the hour the water came in it still rings, faintly, and the birds below look up",
 		"the plate turns bronze and your name is set in the book hand, beside your perch"},
-	{"perch touched by the great nothingness", pixel.Perches[5], "a perch where the stair ran out",
+	{"whalebone perch", pixel.Perches[5], "a perch carved from a whale's jaw",
+		"the north sea company once brought home the jaw of a whale longer than a guildhall, and gave it to the order of the stair in place of a debt it could not pay. the order carved it into perches for the gilt. the bone is pale and cold and never quite dry, and on still nights the birds who sit on it say they can hear the sea",
+		"your name in gilt on a dark plate, in the book hand, beside your perch"},
+	{"perch touched by the great nothing", pixel.Perches[6], "a perch where the stair ran out",
 		"past the bell the stair climbed into a place where nothing was. the climbers stepped out and the nothing held them. where it touched the last rung the wood turned to gold. those who sit there stop talking, and the flock knows not to ask what they heard",
 		"your name in gilt on a dark plate, framed in gilt; your perch counts every rung past it"},
 }
