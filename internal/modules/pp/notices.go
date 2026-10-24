@@ -256,6 +256,9 @@ func (m *Module) noticesMessage(guild snowflake.ID, who *discord.ResolvedMember)
 	if held != nil && len(held.Signers) < held.Places && held.Together == 0 {
 		row = row.AddComponents(withIcon(discord.NewSecondaryButton("put it up here", "pp:rally"), "bell"))
 	}
+	if held != nil {
+		row = row.AddComponents(discord.NewDangerButton("withdraw", "pp:withdraw"))
+	}
 	extra = append(extra, row)
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "notices", "", extra...)},
@@ -422,4 +425,21 @@ func (m *Module) signPact(guild snowflake.ID, e *events.ComponentInteractionCrea
 		return err
 	}
 	return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...))
+}
+
+// withdrawPact takes the member's name off the notice they hold and shows
+// their notices again.
+func (m *Module) withdrawPact(guild snowflake.ID, e *events.ComponentInteractionCreate) error {
+	s := m.st.server(guild)
+	s.mu.Lock()
+	err := m.st.withdraw(s, e.User().ID)
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	msg, err := m.noticesMessage(guild, e.Member())
+	if err != nil {
+		return err
+	}
+	return m.answer(guild, e, msg, "pp:notices")
 }

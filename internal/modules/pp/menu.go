@@ -125,6 +125,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.signPact(*guild, e)
 	case id == "pp:rally":
 		return m.rally(*guild, e)
+	case id == "pp:withdraw":
+		return m.withdrawPact(*guild, e)
 	}
 	var msg discord.MessageCreate
 	var err error

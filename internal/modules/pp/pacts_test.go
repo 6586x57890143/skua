@@ -421,3 +421,92 @@ func TestJoinderNews(t *testing.T) {
 		t.Error("a round robin's news")
 	}
 }
+
+// Before the work starts a signer leaves and the place opens, and the
+// poster leaving takes the notice down for all; after, one who leaves
+// isn't paid, and too few left to count ends it for everyone.
+func TestWithdraw(t *testing.T) {
+	st := newState(&Default, 42)
+	s := st.server(guild)
+	today := DayOf(t0)
+	a, b, c, d := old(1), old(2), old(3), old(4)
+	if err := st.withdraw(s, a); !errors.Is(err, errPactNone) {
+		t.Errorf("withdrawing nothing: %v", err)
+	}
+	p, err := st.post(s, guild, a, true, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []snowflake.ID{b, c} {
+		if _, err := st.sign(s, guild, a, today, u, today); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p.rallied = t0
+	if err := st.withdraw(s, c); err != nil || s.members[c].pact != nil || len(p.signers) != 2 || s.members[a].pact != p || !p.rallied.IsZero() {
+		t.Fatalf("a signer leaving before the work: %v %+v", err, p.signers)
+	}
+	if _, err := st.sign(s, guild, a, today, c, today); err != nil {
+		t.Fatalf("signing again after withdrawing: %v", err)
+	}
+	if err := st.withdraw(s, a); err != nil || s.members[b].pact != nil || s.members[c].pact != nil {
+		t.Fatal("the poster withdrawing left the notice up")
+	}
+
+	// After the work starts: four signed, one leaves and the ring goes on
+	// without paying them; then one more leaves and it ends.
+	next := today + 1
+	at := dayStart(next).Add(time.Hour)
+	p, _ = st.post(s, guild, b, true, next)
+	for _, u := range []snowflake.ID{a, c, d} {
+		if _, err := st.sign(s, guild, b, next, u, next); err != nil {
+			t.Fatal(err)
+		}
+	}
+	at = together(st, s, at, 1, a, b, c, d)
+	if err := st.withdraw(s, d); err != nil || len(p.signers) != 3 || s.members[a].pact != p {
+		t.Fatalf("one leaving a working ring: %v", err)
+	}
+	together(st, s, at, int(Default.PactGoal)-1, a, b, c)
+	if s.members[d].signs.signatures != 0 || s.members[a].signs.signatures != 1 {
+		t.Errorf("one who left was paid, or the rest weren't: %+v %+v", s.members[d].signs, s.members[a].signs)
+	}
+	if _, err := st.post(s, guild, d, false, next); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.sign(s, guild, d, next, old(5), next); err != nil {
+		t.Fatal(err)
+	}
+	together(st, s, at.Add(time.Hour), 1, d, old(5))
+	if err := st.withdraw(s, old(5)); err != nil || s.members[d].pact != nil {
+		t.Error("a chirograph left with one stayed")
+	}
+}
+
+// The notices screen offers withdraw to whoever holds a notice, and the
+// press takes their name off it and shows the board again.
+func TestWithdrawButton(t *testing.T) {
+	m := testModule(&fakeDB{})
+	s := m.st.server(3)
+	s.mu.Lock()
+	if _, err := m.st.post(s, 3, 5, true, DayOf(t0)); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Unlock()
+	e, sent := coretest.Button(t, "pp:notices", nil)
+	if err := m.press(context.Background(), e); err != nil || !strings.Contains(js((*sent)[0]), "pp:withdraw") {
+		t.Fatalf("no withdraw on the notices: %v", err)
+	}
+	e, _ = coretest.Button(t, "pp:withdraw", nil)
+	var shown string
+	e.Respond = func(_ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
+		shown = js(d)
+		return nil
+	}
+	if err := m.press(context.Background(), e); err != nil || s.members[5].pact != nil || strings.Contains(shown, "pp:withdraw") {
+		t.Fatalf("withdrawing: %v", err)
+	}
+	if err := m.press(context.Background(), firstOf(coretest.Button(t, "pp:withdraw", nil))); !errors.Is(err, errPactNone) {
+		t.Errorf("withdrawing twice: %v", err)
+	}
+}
