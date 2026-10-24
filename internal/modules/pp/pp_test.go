@@ -154,7 +154,7 @@ func pick(t *testing.T, value string) (*events.ComponentInteractionCreate, *[]di
 
 // A pick turns the picker into the status screen, and the edit lists the
 // screen's picture once, as disgo sends it: unlisted Discord can't find
-// attachment://pp.jpg, listed twice it refuses the edit.
+// attachment://pp.webp, listed twice it refuses the edit.
 func TestPickListsTheScreen(t *testing.T) {
 	m := testModule(&fakeDB{})
 	// The chat hasn't moved past the picker, so it's edited in place.

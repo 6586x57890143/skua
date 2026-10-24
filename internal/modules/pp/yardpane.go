@@ -43,7 +43,7 @@ func yardCanvas(title string, rows []YardRow, purse int64, wear Livery, lease st
 		step = min(step, (yard.Max.Y-6-paneTop(yard))/len(rows))
 	}
 	x, r := 34, 368
-	point := 0
+	point := -1
 	for i, row := range rows {
 		if row.Worn {
 			point = i

@@ -1,7 +1,6 @@
 package pp
 
 import (
-	"bytes"
 	"context"
 	"slices"
 	"time"
@@ -116,8 +115,8 @@ func (m *Module) journal(ctx context.Context, guild snowflake.ID, who *discord.R
 	const alt = "your journal: what came in and went out, newest first"
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorInfo, "pp", "journal", "",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: alt}))},
-		Files:           []*discord.File{discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))},
+			discord.NewMediaGallery(screenItem(pic, alt)))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil

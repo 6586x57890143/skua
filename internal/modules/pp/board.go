@@ -1,7 +1,6 @@
 package pp
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"fmt"
@@ -118,8 +117,8 @@ func (m *Module) boardMessage(guild, user snowflake.ID) (discord.MessageCreate, 
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "board", "",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: alt}))},
-		Files:           []*discord.File{discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))},
+			discord.NewMediaGallery(screenItem(pic, alt)))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
@@ -209,8 +208,8 @@ func (m *Module) treasuryMessage(ctx context.Context, guild snowflake.ID) (disco
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorInfo, "pp", "treasury",
 			"-# for admins: the levy in, prizes and grants out, what members hold and the ledger it's all written in",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: alt}))},
-		Files:           []*discord.File{discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))},
+			discord.NewMediaGallery(screenItem(pic, alt)))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil

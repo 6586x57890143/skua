@@ -1,7 +1,6 @@
 package pp
 
 import (
-	"bytes"
 	"fmt"
 	"image"
 	"strconv"
@@ -195,9 +194,9 @@ func loreMessage(i, page int, mine string, cost, purse, wait int64, know [3]bool
 		walk)
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "lore", "",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: alt}),
+			discord.NewMediaGallery(screenItem(pic, alt)),
 			row)},
-		Files:           []*discord.File{discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil

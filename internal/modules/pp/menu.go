@@ -34,6 +34,17 @@ func screenFile(pic []byte) string {
 	return "pp.jpg"
 }
 
+// screenItem is pic in a message's gallery, described for a reader that
+// can't see it, and screenAttachment the file it names: the two always
+// agree on the file.
+func screenItem(pic []byte, desc string) discord.MediaGalleryItem {
+	return discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: desc}
+}
+
+func screenAttachment(pic []byte, alt string) *discord.File {
+	return discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))
+}
+
 func (m *Module) Commands() []core.Command {
 	return []core.Command{{
 		Create: discord.SlashCommandCreate{Name: "pp", Description: "your pot points, your level and how your day is going"},
@@ -322,8 +333,8 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	alt := fmt.Sprintf("%s, %s, level %d, %s pp to spend", pixel.Plain(sh.Name), sh.Class.Name(), sh.Level, grouped(sh.Purse/unit))
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", turnsOver(today),
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: alt}))},
-		Files:           []*discord.File{discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))},
+			discord.NewMediaGallery(screenItem(pic, alt)))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
@@ -387,7 +398,7 @@ func titleMessage(buttons bool) (discord.MessageCreate, error) {
 	}
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "melting pot", "", extra...)},
-		Files:           []*discord.File{discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil

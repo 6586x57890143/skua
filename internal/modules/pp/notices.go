@@ -1,7 +1,6 @@
 package pp
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"image"
@@ -241,7 +240,7 @@ func (m *Module) noticesMessage(guild snowflake.ID, who *discord.ResolvedMember)
 		return discord.MessageCreate{}, err
 	}
 	extra := []discord.ContainerSubComponent{
-		discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: clip(alt, altLimit)}),
+		discord.NewMediaGallery(screenItem(pic, clip(alt, altLimit))),
 	}
 	if len(opts) > 0 && canPost {
 		extra = append(extra, discord.NewActionRow(discord.NewStringSelectMenu("pp:signpick", "sign a notice on the board", opts...)))
@@ -260,7 +259,7 @@ func (m *Module) noticesMessage(guild snowflake.ID, who *discord.ResolvedMember)
 	extra = append(extra, row)
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "notices", "", extra...)},
-		Files:           []*discord.File{discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
@@ -323,9 +322,9 @@ func (m *Module) postMessage(v postView) (discord.MessageCreate, error) {
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", pactName(v.notice.Ring), "",
-			discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: clip(alt, altLimit)}),
+			discord.NewMediaGallery(screenItem(pic, clip(alt, altLimit))),
 			discord.NewActionRow(sign))},
-		Files:           []*discord.File{discord.NewFile(screenFile(pic), alt, bytes.NewReader(pic))},
+		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil

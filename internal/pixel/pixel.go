@@ -454,20 +454,6 @@ func (c *Canvas) frame(bob int) *Canvas {
 	return f
 }
 
-// Screen is the canvas as a screen goes out: still, as Soft has it, or
-// when a hand is on it, a SoftLoop of the hand nudging toward what it
-// points at.
-func (c *Canvas) Screen(scale int) ([]byte, error) {
-	if len(c.hands) == 0 {
-		return c.Soft(scale)
-	}
-	frames := make([]*Canvas, len(Bob))
-	for i, b := range Bob {
-		frames[i] = c.frame(b)
-	}
-	return SoftLoop(frames, scale, Beat)
-}
-
 // hand draws the hand with its tip's row at y, pointing at x.
 func (c *Canvas) hand(x, y int) {
 	x -= len(hand[0])
