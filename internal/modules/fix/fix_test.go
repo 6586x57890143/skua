@@ -87,7 +87,17 @@ func route(t *testing.T, m *Module) *core.Router {
 func slash(t *testing.T, link string, share bool) (*events.ApplicationCommandInteractionCreate, *[]discord.MessageCreate) {
 	return coretest.Event(t, "fix", func(p map[string]any) {
 		p["data"].(map[string]any)["options"] = []any{map[string]any{"name": "link", "type": 3, "value": link}, map[string]any{"name": "share", "type": 5, "value": share}}
+		p["member"].(map[string]any)["permissions"] = "18432"
 	})
+}
+func TestShareNeedsEmbedLinks(t *testing.T) {
+	e, sent := coretest.Event(t, "fix", func(p map[string]any) {
+		p["data"].(map[string]any)["options"] = []any{map[string]any{"name": "link", "type": 3, "value": "https://x.com/user/status/123"}, map[string]any{"name": "share", "type": 5, "value": true}}
+		p["member"].(map[string]any)["permissions"] = "2048"
+	})
+	if err := module().command(context.Background(), e); err == nil || len(*sent) != 0 {
+		t.Fatal("shared without embed links", err)
+	}
 }
 func TestModuleContractAndCommandDelivery(t *testing.T) {
 	m := module()
@@ -494,7 +504,7 @@ func TestCleanupRetainsFailedIDsAndRetriesTransientFailure(t *testing.T) {
 	}
 }
 
-func TestCleanupTreats404AsSuccessAndDoesNotRetry403(t *testing.T) {
+func TestCleanupDropsPermanentFailuresWithoutRetry(t *testing.T) {
 	for _, status := range []int{404, 403} {
 		m := module()
 		r := &recordingRest{}
@@ -509,11 +519,9 @@ func TestCleanupTreats404AsSuccessAndDoesNotRetry403(t *testing.T) {
 		entry := m.tracked[key]
 		m.kickLocked()
 		m.mu.Unlock()
-		if status == 404 && entry != nil {
-			t.Fatal("404 retained a missing reply")
-		}
-		if status == 403 && (entry == nil || len(entry.cleanup) != 1 || !entry.cleanup[0].stopped) {
-			t.Fatal("403 must retain the ID without retrying")
+		// A retained 403 would wedge the source: work waits for empty cleanup.
+		if entry != nil {
+			t.Fatal("permanent failure retained", status)
 		}
 		if _, _, d := r.totals(); d != 1 {
 			t.Fatal("permanent failure retried")
@@ -532,7 +540,7 @@ func TestCleanupGuardDeferralAndCanceledScheduler(t *testing.T) {
 	m.tracked[key] = entry
 	m.rest = r
 	m.cleanReplies(r, key, entry)
-	if len(entry.cleanup) != 1 || entry.cleanup[0].stopped || !entry.cleanup[0].next.After(time.Now()) {
+	if len(entry.cleanup) != 1 || !entry.cleanup[0].next.After(time.Now()) {
 		t.Fatal("guard denial lost cleanup or stopped retries")
 	}
 	m.mu.Lock()

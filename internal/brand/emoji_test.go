@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
@@ -177,5 +178,13 @@ func TestIconsReadDuringSync(t *testing.T) {
 				t.Fatalf("icon %q mid-sync", url)
 			}
 		}
+	}
+}
+
+// A fresh install uploads every emoji in one guard window; past the cap the
+// rest wait an hour and render as text.
+func TestEmojiSetFitsUploadCap(t *testing.T) {
+	if limit := int(time.Hour / guard.Step(guard.EmojiCreate)); len(Emojis()) > limit {
+		t.Fatalf("%d emoji, cap %d: raise guard.EmojiCreate", len(Emojis()), limit)
 	}
 }

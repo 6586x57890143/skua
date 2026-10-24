@@ -283,3 +283,12 @@ MP4 audio/video tracks run in the six-hour live contract workflow.
 The footer uses one subtext row: stats, provider attribution, relative timestamp.
 Components V2 text has no independent right-alignment column; Discord may wrap the
 row on narrow clients. No whitespace padding or new action buttons are inserted.
+
+### Reddit uploads without a packaged MP4
+
+Newer Reddit uploads list only CMAF video and audio files in their HLS master
+playlist. Skua picks the largest rendition up to 720p and the audio group it
+names, then joins the two fragmented MP4s into one file on the signed
+`/fix/media/reddit/` route, copying samples without re-encoding. Without the
+relay, or when joining fails, the video track plays alone with a silent note.
+Uploads without an audio group play the video file directly.
