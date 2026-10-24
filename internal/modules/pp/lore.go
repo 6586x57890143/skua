@@ -144,8 +144,9 @@ func parseLore(id string) (i, page int, ok bool) {
 // loreMessage is class i's lore card at page, the class browser: the
 // picture, the titles the class wears and what walking it costs, and the
 // buttons to page through the classes and the story and to walk this path.
-// mine is the member's class once they've picked one.
-func loreMessage(i, page int, mine string, cost, purse int64) (discord.MessageCreate, error) {
+// mine is the member's class once they've picked one, and wait how many
+// days until they may change it.
+func loreMessage(i, page int, mine string, cost, purse, wait int64) (discord.MessageCreate, error) {
 	cl := Classes[i]
 	pic, err := LoreScreen(cl, page)
 	if err != nil {
@@ -161,11 +162,16 @@ func loreMessage(i, page int, mine string, cost, purse int64) (discord.MessageCr
 		turn = "from the top"
 	}
 	label := "walk this path"
-	if cost > 0 {
+	switch {
+	case wait == 1:
+		label += " · tomorrow"
+	case wait > 1:
+		label += fmt.Sprintf(" · in %d days", wait)
+	case cost > 0:
 		label += " · " + grouped(cost/unit) + " pp"
 	}
 	walk := withIcon(discord.NewPrimaryButton(label, "pp:pick:"+cl.Key), classIcons[cl.Key])
-	if cost > purse {
+	if cost > purse || wait > 0 {
 		walk = walk.AsDisabled()
 	}
 	if cl.Key == mine {
