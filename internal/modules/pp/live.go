@@ -69,7 +69,7 @@ type member struct {
 type seat struct {
 	channel                                snowflake.ID
 	bot, deaf, muted, suppressed, selfMute bool
-	video                                  bool
+	camera, stream                         bool
 }
 
 // server is one guild's state, behind its own lock.
@@ -458,13 +458,13 @@ func (st *state) sit(s *server, guild, user snowflake.ID, vs discord.VoiceState,
 	}
 	old, ok := s.seats[user]
 	video := vs.SelfVideo || vs.SelfStream
-	if !bot && (!ok || old.channel != *vs.ChannelID || video && !old.video) {
+	if !bot && (!ok || old.channel != *vs.ChannelID || video && !old.camera && !old.stream) {
 		st.member(s, guild, user, DayOf(now)).life = now
 	}
 	s.seats[user] = &seat{
 		channel: *vs.ChannelID, bot: bot,
 		deaf: vs.GuildDeaf || vs.SelfDeaf, muted: vs.GuildMute, suppressed: vs.Suppress,
-		selfMute: vs.SelfMute, video: video,
+		selfMute: vs.SelfMute, camera: vs.SelfVideo, stream: vs.SelfStream,
 	}
 }
 
@@ -483,6 +483,12 @@ func (st *state) minute(s *server, guild, afk snowflake.ID, now time.Time) int {
 	for _, users := range rooms {
 		if len(users) < 2 {
 			continue
+		}
+		birds := 0
+		for _, u := range users {
+			if !s.seats[u].bot {
+				birds++
+			}
 		}
 		for _, u := range users {
 			se := s.seats[u]
@@ -504,6 +510,15 @@ func (st *state) minute(s *server, guild, afk snowflake.ID, now time.Time) int {
 			}
 			m.voiceMin++
 			st.earn(s, m, guild, u, false, raw)
+			if birds >= 3 {
+				st.progress(s, m, u, taskCrowd)
+			}
+			if se.stream {
+				st.progress(s, m, u, taskStream)
+			}
+			if se.camera {
+				st.progress(s, m, u, taskCamera)
+			}
 			earning++
 		}
 	}

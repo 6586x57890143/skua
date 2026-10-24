@@ -107,7 +107,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.9.0",
+	Version: "0.9.1",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -153,16 +153,22 @@ var Default = Balance{
 		{
 			{Icon: "campfire", Tasks: []Task{{taskVoice, 30}}},
 			{Icon: "quill", Tasks: []Task{{taskTalk, 25}}},
+			{Icon: "drum", Tasks: []Task{{taskCrowd, 20}}},
+			{Icon: "envelope", Tasks: []Task{{taskReply, 12}}},
 		},
 		{
 			{Icon: "compass", Tasks: []Task{{taskVoice, 20}, {taskTalk, 17}}},
 			{Icon: "campfire", Tasks: []Task{{taskVoice, 40}}},
 			{Icon: "quill", Tasks: []Task{{taskTalk, 33}}},
+			{Icon: "bell", Tasks: []Task{{taskCrowd, 25}, {taskReply, 10}}},
+			{Icon: "lute", Tasks: []Task{{taskStream, 15}, {taskVoice, 20}}},
 		},
 		{
 			{Icon: "lantern", Tasks: []Task{{taskVoice, 18}, {taskTalk, 15}, {taskHearth, 10}}},
 			{Icon: "quill", Tasks: []Task{{taskTalk, 45}}},
 			{Icon: "mirror", Tasks: []Task{{taskSelfie, 1}}},
+			{Icon: "beads", Tasks: []Task{{taskCrowd, 45}, {taskReply, 15}}},
+			{Icon: "orb", Tasks: []Task{{taskCamera, 20}}},
 		},
 	},
 

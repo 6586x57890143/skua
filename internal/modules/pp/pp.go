@@ -237,6 +237,10 @@ func (m *Module) OnEvent(ev bot.Event) {
 		mem := m.st.member(s, e.GuildID, msg.Author.ID, DayOf(now))
 		seen(mem, msg.Member, msg.Author, e.GuildID)
 		m.st.chat(s, e.GuildID, msg.Author.ID, msg.Content, now)
+		// A reply to another bird counts once the message paid.
+		if r := msg.ReferencedMessage; r != nil && !r.Author.Bot && r.Author.ID != msg.Author.ID && mem.lastPay.Equal(now) {
+			m.st.progress(s, mem, msg.Author.ID, taskReply)
+		}
 		m.st.selfie(s, mem, msg, now)
 	case *events.GuildVoiceStateUpdate:
 		s := m.st.server(e.VoiceState.GuildID)
