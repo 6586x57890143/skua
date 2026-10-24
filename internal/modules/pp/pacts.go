@@ -29,6 +29,10 @@ type pact struct {
 	ring    bool  // a round robin, not a chirograph
 	minutes int64 // minutes together so far
 	signers []signer
+	// channel is where it was last put up, which hears when it's done; 0
+	// for nowhere. It's saved in its own column, pact_channel, so the
+	// pact's text reads the same to a binary from before it.
+	channel snowflake.ID
 	// last is the unix minute that last counted, so one room counts once,
 	// and rallied when it was last put up in a channel, in memory only.
 	last    int64
@@ -155,6 +159,7 @@ func joinPacts(s *server) {
 		}
 		k := [2]int64{int64(m.pact.opener), m.pact.day}
 		if p, ok := one[k]; ok {
+			p.channel = max(p.channel, m.pact.channel)
 			m.pact = p
 		} else {
 			one[k] = m.pact
@@ -303,6 +308,7 @@ func (st *state) finish(s *server, p *pact, today int64) {
 	if n := len(paid); n >= 2 {
 		got = st.bal().Joinder[min(n, 4)-2]
 	}
+	news := joinderNews{channel: p.channel, ring: p.ring, got: got}
 	for _, g := range p.signers {
 		if _, ok := s.members[g.user]; !ok {
 			continue
@@ -313,6 +319,7 @@ func (st *state) finish(s *server, p *pact, today int64) {
 		if got == 0 || !slices.Contains(paid, g.user) {
 			continue
 		}
+		knew := learned(m.signs)
 		m.signs.signatures++
 		if !p.ring {
 			m.signs.chirographs++
@@ -322,7 +329,48 @@ func (st *state) finish(s *server, p *pact, today int64) {
 		m.signs.paidDay = m.dayN
 		lv, kept := st.labour(s, m, got)
 		s.append(g.user, m.dayN, reasonJoinder, got-lv-kept, []int64{int64(len(paid)), got, lv, kept})
+		news.paid = append(news.paid, g.user)
+		if learned(m.signs) != knew {
+			news.learned = append(news.learned, g.user)
+		}
 	}
+	if news.channel != 0 && len(news.paid) > 0 {
+		s.joinders = append(s.joinders, news)
+	}
+}
+
+// joinderNews is a finished pact to tell the channel it went up in: who
+// was paid, what each got and who learned something of their own kind.
+type joinderNews struct {
+	channel       snowflake.ID
+	ring          bool
+	got           int64
+	paid, learned []snowflake.ID
+}
+
+// joinderText is n as its channel reads it.
+func joinderText(n joinderNews) string {
+	head := "the ravens fit the two halves together, and the teeth match"
+	if n.ring {
+		head = "the ring closes, and the ravens enter it without saying who led"
+	}
+	lines := []string{head, fmt.Sprintf("**joinder** %s pp each to %s", grouped(n.got/unit), mentions(n.paid))}
+	if len(n.learned) > 0 {
+		lines = append(lines, fmt.Sprintf("**learned** %s: a new page on their lore card", mentions(n.learned)))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// mentions is us as a list a channel reads.
+func mentions(us []snowflake.ID) string {
+	out := make([]string, len(us))
+	for i, u := range us {
+		out[i] = "<@" + u.String() + ">"
+	}
+	if len(out) < 2 {
+		return strings.Join(out, "")
+	}
+	return strings.Join(out[:len(out)-1], ", ") + " and " + out[len(out)-1]
 }
 
 // lapse drops every pact posted PactLife days or more before today. s.mu

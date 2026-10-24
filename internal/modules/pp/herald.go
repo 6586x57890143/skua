@@ -79,18 +79,24 @@ func (m *Module) post(guild snowflake.ID, what, body string) {
 	if ch == 0 || m.rest == nil {
 		return
 	}
-	err := m.Guard.Allow(guild, guard.MessageSend)
-	if err == nil {
-		_, err = m.rest.CreateMessage(ch, discord.MessageCreate{
-			Components:      []discord.LayoutComponent{brand.Card(brand.ColorInfo, Name, what, body)},
-			Flags:           discord.MessageFlagIsComponentsV2,
-			AllowedMentions: core.NoPings(),
-		})
-		m.Guard.Report(guild, struggling(err))
-	}
-	if err != nil {
+	if _, err := m.sendCard(guild, ch, brand.ColorInfo, what, body); err != nil {
 		m.log.Warn("pp: posting to the ledger channel", "guild", guild, "channel", ch, "err", err)
 	}
+}
+
+// sendCard sends a /pp card to ch through the guard, and says whether a
+// failure was the guard or Discord asking to wait, so worth sending again.
+func (m *Module) sendCard(guild, ch snowflake.ID, color int, what, body string) (again bool, err error) {
+	if err := m.Guard.Allow(guild, guard.MessageSend); err != nil {
+		return true, err
+	}
+	_, err = m.rest.CreateMessage(ch, discord.MessageCreate{
+		Components:      []discord.LayoutComponent{brand.Card(color, Name, what, body)},
+		Flags:           discord.MessageFlagIsComponentsV2,
+		AllowedMentions: core.NoPings(),
+	})
+	m.Guard.Report(guild, struggling(err))
+	return struggling(err), err
 }
 
 // struggling is whether err is Discord being busy rather than refusing.

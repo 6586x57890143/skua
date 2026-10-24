@@ -122,8 +122,10 @@ type server struct {
 	// and seeded whether it has had its one seed.
 	fund   int64
 	seeded bool
-	// checkpoints are the weekly checkpoints paid and not yet posted.
+	// checkpoints are the weekly checkpoints paid and not yet posted, and
+	// joinders the pacts finished and not yet told.
 	checkpoints []checkpointNews
+	joinders    []joinderNews
 	// The season so far, for the backstop: what it minted and burned, the
 	// last season's burn in percent (-1 before one), and whether the heavy
 	// purse line is on.
