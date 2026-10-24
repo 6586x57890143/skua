@@ -54,6 +54,10 @@ type member struct {
 	// questsDone how many ever finished.
 	quests               []heldQuest
 	questDay, questsDone int64
+	// pact is the chirograph or round robin they've signed, shared with
+	// its other signers, and signs what signing in company has taught them.
+	pact  *pact
+	signs signs
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, a fingerprint of their last message, when they last showed a
@@ -290,6 +294,7 @@ func (st *state) rollServer(s *server, today int64) {
 	if s.day == today-1 {
 		s.litBefore = s.lit
 	}
+	st.lapse(s, today)
 	s.day, s.raw, s.lit, s.dirty = today, 0, 0, true
 }
 
@@ -493,6 +498,7 @@ func (st *state) minute(s *server, guild, afk snowflake.ID, now time.Time) int {
 		if len(users) < 2 {
 			continue
 		}
+		var paid []snowflake.ID
 		for _, u := range users {
 			se := s.seats[u]
 			if se.bot {
@@ -522,8 +528,10 @@ func (st *state) minute(s *server, guild, afk snowflake.ID, now time.Time) int {
 			if se.camera {
 				st.progress(s, m, u, taskCamera)
 			}
+			paid = append(paid, u)
 			earning++
 		}
+		st.together(s, paid, now.Unix()/60)
 	}
 	return earning
 }

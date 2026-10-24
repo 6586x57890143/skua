@@ -193,14 +193,23 @@ func (st *state) growFund(s *server, day, got int64) {
 // payQuest pays q as labour, its own ledger row. s.mu held.
 func (st *state) payQuest(s *server, m *member, user snowflake.ID, q heldQuest) {
 	got := st.bal().QuestPP[q.tier]
-	lv := int64(0)
+	st.growFund(s, m.dayN, got)
+	lv, kept := st.labour(s, m, got)
+	m.questsDone++
+	s.append(user, m.dayN, reasonQuest, got-lv-kept, []int64{int64(q.tier), int64(q.kind), got, lv, kept})
+}
+
+// labour pays m got outside the day's pool, as a quest pays: the levy
+// takes its share, the heavy purse line keeps back what it does, and the
+// level counts it all. It returns the levy and what was kept back; the
+// caller writes the ledger row. s.mu held.
+func (st *state) labour(s *server, m *member, got int64) (lv, kept int64) {
 	if s.levying() {
 		lv = Rules.levy(got)
 	}
 	s.levyFull += Rules.levy(got)
 	s.treasury += lv
 	s.levyOpen += lv
-	st.growFund(s, m.dayN, got)
 	net := got - lv
 	credit := net
 	if s.heavy && m.purse >= Rules.Line*st.pot() {
@@ -209,10 +218,9 @@ func (st *state) payQuest(s *server, m *member, user snowflake.ID, q heldQuest) 
 	m.purse += credit
 	m.total += got
 	m.seasonPP += got
-	m.questsDone++
 	s.seasonMint += got
-	s.append(user, m.dayN, reasonQuest, credit, []int64{int64(q.tier), int64(q.kind), got, lv, net - credit})
 	m.dirty, s.dirty = true, true
+	return lv, net - credit
 }
 
 // reroll swaps m's quest i for a fresh draw, each quest once a day.

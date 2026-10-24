@@ -32,6 +32,11 @@ func journalLine(reason string, inputs []int64) (icon, what string) {
 			return "compass", QuestTiers[inputs[0]] + " quest"
 		}
 		return "compass", "a quest"
+	case reasonJoinder:
+		if len(inputs) > 0 && inputs[0] > 2 {
+			return "beads", "a round robin"
+		}
+		return "envelope", "a chirograph"
 	case reasonClass:
 		return "shield", "a new path"
 	case reasonShop:
