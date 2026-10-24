@@ -211,6 +211,9 @@ type Item struct {
 	Climbed             bool // the member has it already
 	You                 string
 	Look                *Look // how the member's name looks with it, or nil
+	// Dye is a livery's colour: the card shows its cloth for a picture and
+	// the member's name in it, and Climbed reads as worn.
+	Dye uint32
 }
 
 // ItemScreen draws an item's card: on the left its picture, the member's
@@ -225,8 +228,20 @@ func itemCanvas(it Item) *pixel.Canvas {
 	const scale = 4
 	side := pixel.IconCells * scale
 	top := pic.Min.Y + pixel.TabDrop
-	c.BigIcon(it.Icon, image.Pt((pic.Min.X+pic.Max.X-side)/2, top+(pic.Max.Y-4-top-side)/2), scale)
+	if it.Dye != 0 {
+		cloth := image.Rect(0, 0, 64, 52)
+		swatch(c, cloth.Add(image.Pt((pic.Min.X+pic.Max.X-cloth.Dx())/2, top+(pic.Max.Y-4-top-cloth.Dy())/2)), it.Dye)
+	} else {
+		c.BigIcon(it.Icon, image.Pt((pic.Min.X+pic.Max.X-side)/2, top+(pic.Max.Y-4-top-side)/2), scale)
+	}
 
+	if it.Dye != 0 {
+		you := image.Rect(4, 116, 112, 164)
+		c.Window(you)
+		c.Tab(you, "you")
+		y := you.Min.Y + pixel.TabDrop + 6
+		c.FitIn(pixel.Bold, 14, y, it.You, c.Dye(it.Dye), 104-14)
+	}
 	if it.Look != nil {
 		you := image.Rect(4, 116, 112, 164)
 		c.Window(you)
@@ -245,7 +260,11 @@ func itemCanvas(it Item) *pixel.Canvas {
 	}
 	c.Icon("pot", image.Pt(14, y-iconLift))
 	if it.Climbed {
-		c.Text(14+pixel.IconCells+4, y, "climbed", pixel.Green, 0)
+		done := "climbed"
+		if it.Dye != 0 {
+			done = "worn"
+		}
+		c.Text(14+pixel.IconCells+4, y, done, pixel.Green, 0)
 	} else {
 		c.Text(14+pixel.IconCells+4, y, grouped(it.Price/unit)+" pp", ink, 0)
 	}

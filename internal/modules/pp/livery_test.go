@@ -39,6 +39,7 @@ func (f *roleRest) GetMember(_, user snowflake.ID, _ ...rest.RequestOpt) (*disco
 
 func (f *roleRest) CreateRole(_ snowflake.ID, c discord.RoleCreate, _ ...rest.RequestOpt) (*discord.Role, error) {
 	f.writes, f.created = append(f.writes, "create"), c
+	f.roles = append(f.roles, discord.Role{ID: 99, Position: 1})
 	return &discord.Role{ID: 99}, nil
 }
 

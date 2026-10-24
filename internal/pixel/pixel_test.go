@@ -266,3 +266,18 @@ func TestWrap(t *testing.T) {
 		t.Errorf("blank wraps to %q", got)
 	}
 }
+
+// A dye joins the canvas's own palette once, and leaves the shared one be.
+func TestDye(t *testing.T) {
+	c, shared := New(4, 4), len(Palette)
+	i := c.Dye(0xa2803e)
+	if int(i) != shared || c.Dye(0xa2803e) != i || len(Palette) != shared {
+		t.Fatalf("dye %d, palette %d, shared %d of %d", i, len(c.Palette), len(Palette), shared)
+	}
+	if r, g, b, _ := c.Palette[i].RGBA(); r>>8 != 0xa2 || g>>8 != 0x80 || b>>8 != 0x3e {
+		t.Errorf("the dye is %v", c.Palette[i])
+	}
+	if c.Dye(0x333329) != Ink {
+		t.Error("an ink already there was added again")
+	}
+}

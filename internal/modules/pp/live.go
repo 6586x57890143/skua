@@ -33,8 +33,12 @@ type member struct {
 	classChanges int64
 	// classDay is the day they last picked or changed class.
 	classDay int64
-	voiceMin int64
-	messages int64
+	// livery is the key of the livery they lease, "" for none, and
+	// liveryUntil the day its lease runs out.
+	livery      string
+	liveryUntil int64
+	voiceMin    int64
+	messages    int64
 	// dayGot is what the open day has paid into the purse, not yet in the
 	// ledger, dayLevy what it paid the treasury, and buffLo and buffHi the
 	// lowest and highest buff it paid under.
@@ -121,6 +125,10 @@ type server struct {
 	// anchor is the role liveries sit directly under, and heralds the
 	// channel livery petitions are posted in for review; 0 none.
 	anchor, heralds snowflake.ID
+	// yardOpen is whether the dyers' yard sells to everyone yet, not only
+	// admins, and dyeRoles each livery's role here once it's made.
+	yardOpen bool
+	dyeRoles map[string]snowflake.ID
 }
 
 func newServer(id snowflake.ID) *server {

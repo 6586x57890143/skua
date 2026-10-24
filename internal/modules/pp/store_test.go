@@ -40,6 +40,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	st.chat(s, g, a, "a real thing to say", t0)
 	m := s.members[a]
 	m.class, m.classSeason, m.voiceMin = "monk", 3, 17
+	m.classDay, m.livery, m.liveryUntil = 12, "ember", 20800
 	s.history = []int64{100, 200}
 	if n, err := st.flush(ctx, db); err != nil || n == 0 {
 		t.Fatalf("flush: %d, %v", n, err)
@@ -61,7 +62,8 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Fatal("the member didn't come back")
 	}
 	if gm.total != m.total || gm.class != "monk" || gm.classSeason != 3 || gm.voiceMin != 17 ||
-		gm.day != m.day || gm.dayN != m.dayN || gm.weekAct != m.weekAct || gm.seasonPP != m.seasonPP || gm.messages != m.messages {
+		gm.day != m.day || gm.dayN != m.dayN || gm.weekAct != m.weekAct || gm.seasonPP != m.seasonPP || gm.messages != m.messages ||
+		gm.classDay != 12 || gm.livery != "ember" || gm.liveryUntil != 20800 {
 		t.Errorf("came back as %+v; want %+v", *gm, *m)
 	}
 	if got.day != s.day || got.raw != s.raw || len(got.history) != 2 || got.lit != s.lit {

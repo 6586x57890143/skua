@@ -65,8 +65,35 @@ func main() {
 			}, 2)
 		},
 		"quests-empty": func() ([]byte, error) { return pp.QuestScreen("steve", nil, 0) },
-		"icons":        iconSheet,
-		"type":         typeSheet,
+		"yard-trades": func() ([]byte, error) {
+			return pp.YardScreen("the sump's trades", []pp.YardRow{
+				{Name: "chandlers' tallow", Color: 0xa2803e, Price: 20350},
+				{Name: "tanners' hide", Color: 0xbe715d, Price: 20350, Worn: true, Left: 5},
+				{Name: "the pits' bruise", Color: 0x9d78a9, Price: 20350},
+				{Name: "gin lane juniper", Color: 0x5c916a, Price: 20350},
+				{Name: "ferrymen's tidewater", Color: 0x5f8aa6, Price: 20350},
+				{Name: "fish market pewter", Color: 0x81868b, Price: 20350},
+			}, 1234*100, pp.Livery{Name: "tanners' hide", Color: 0xbe715d, Left: 5})
+		},
+		"yard-factions": func() ([]byte, error) {
+			return pp.YardScreen("the factions", []pp.YardRow{
+				{Name: "counting house ink", Color: 0x887fb2, Price: 40700},
+				{Name: "stair blue", Color: 0x6286c3, Price: 40700},
+				{Name: "hedge company thorn", Color: 0x708e5b, Price: 40700},
+				{Name: "wet guild sea green", Color: 0x4a9183, Price: 40700},
+				{Name: "hearth ember", Color: 0xc66e34, Price: 40700, From: "shale perch"},
+				{Name: "choir rose", Color: 0xb1738a, Price: 40700, From: "shale perch"},
+				{Name: "wardens' moss", Color: 0x818b42, Price: 40700, From: "shale perch"},
+				{Name: "kiln glass", Color: 0x618c92, Price: 40700, From: "shale perch"},
+			}, 312*100, pp.Livery{})
+		},
+		"item-livery": func() ([]byte, error) {
+			return pp.ItemScreen(pp.Item{Kind: "livery", Name: "hearth ember", What: "a scarf the colour of a banked fire",
+				Story:  "the herons tie an ember scarf on every bird they feed through a hard winter, and the sump remembers who wore one. the dyers sell the colour on the herons' terms: the lease pays for a bowl at the hearth on a cold night",
+				Effect: "your name wears ember in the server for a week", Price: 40700, You: "heavywinds", Dye: 0xc66e34})
+		},
+		"icons": iconSheet,
+		"type":  typeSheet,
 	}
 	for name, draw := range shots {
 		data, err := draw()

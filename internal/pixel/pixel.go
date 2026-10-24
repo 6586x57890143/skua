@@ -365,6 +365,22 @@ func (c *Canvas) Picture(img image.Image, p image.Point, scale int) {
 	}
 }
 
+// Dye is the ink for the colour rgb on c, joining c's own palette while
+// there's room, like a Picture's colours, and past that the nearest ink:
+// a colour only this canvas needs, such as a livery's.
+func (c *Canvas) Dye(rgb uint32) uint8 {
+	col := color.RGBA{uint8(rgb >> 16), uint8(rgb >> 8), uint8(rgb), 255}
+	c.Palette = slices.Clip(c.Palette)
+	if at := slices.IndexFunc(c.Palette, func(have color.Color) bool { return same(have, col) }); at >= 0 {
+		return uint8(at)
+	}
+	if len(c.Palette) < 256 {
+		c.Palette = append(c.Palette, col)
+		return uint8(len(c.Palette) - 1)
+	}
+	return uint8(c.Palette.Index(col))
+}
+
 // same reports whether two colours are the same colour.
 func same(a, b color.Color) bool {
 	ar, ag, ab, aa := a.RGBA()
