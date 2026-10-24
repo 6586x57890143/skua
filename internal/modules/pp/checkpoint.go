@@ -6,7 +6,12 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
+
+	"github.com/6586x57890143/skua/internal/brand"
+	"github.com/6586x57890143/skua/internal/core"
+	"github.com/6586x57890143/skua/internal/guard"
 )
 
 // The weekly checkpoint: when a server's week turns, the top places on each
@@ -134,6 +139,39 @@ func (m *Module) postCheckpoints() {
 		}
 		for _, n := range news {
 			m.post(g, "checkpoint", checkpointText(n))
+		}
+	}
+}
+
+// postJoinders tells each finished pact's channel who was paid, once the
+// rows that paid them are saved.
+func (m *Module) postJoinders() {
+	if m.rest == nil {
+		return
+	}
+	for g, s := range m.st.servers() {
+		s.mu.Lock()
+		news, ready := s.joinders, len(s.pending) == 0
+		if ready {
+			s.joinders = nil
+		}
+		s.mu.Unlock()
+		if !ready || !m.enabled(g) {
+			continue
+		}
+		for _, n := range news {
+			err := m.Guard.Allow(g, guard.MessageSend)
+			if err == nil {
+				_, err = m.rest.CreateMessage(n.channel, discord.MessageCreate{
+					Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, Name, pactName(n.ring), joinderText(n))},
+					Flags:           discord.MessageFlagIsComponentsV2,
+					AllowedMentions: core.NoPings(),
+				})
+				m.Guard.Report(g, struggling(err))
+			}
+			if err != nil {
+				m.log.Warn("pp: telling a finished notice", "guild", g, "channel", n.channel, "err", err)
+			}
 		}
 	}
 }

@@ -340,7 +340,7 @@ func (m *Module) postPact(guild snowflake.ID, e *events.ComponentInteractionCrea
 		s.mu.Unlock()
 		return err
 	}
-	p.rallied = m.now()
+	p.rallied, p.channel = m.now(), e.Channel().ID()
 	v := m.viewPost(s, p)
 	s.mu.Unlock()
 	msg, err := m.postMessage(v)
@@ -368,7 +368,8 @@ func (m *Module) rally(guild snowflake.ID, e *events.ComponentInteractionCreate)
 		s.mu.Unlock()
 		return errPactRally
 	}
-	mem.pact.rallied = now
+	mem.pact.rallied, mem.pact.channel = now, e.Channel().ID()
+	m.st.touchPact(s, mem.pact)
 	v := m.viewPost(s, mem.pact)
 	s.mu.Unlock()
 	msg, err := m.postMessage(v)

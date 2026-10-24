@@ -29,6 +29,9 @@ type pact struct {
 	ring    bool  // a round robin, not a chirograph
 	minutes int64 // minutes together so far
 	signers []signer
+	// channel is where it was last put up, which hears when it's done; 0
+	// for nowhere.
+	channel snowflake.ID
 	// last is the unix minute that last counted, so one room counts once,
 	// and rallied when it was last put up in a channel, in memory only.
 	last    int64
@@ -72,7 +75,7 @@ func (p *pact) signed(user snowflake.ID) bool {
 }
 
 // encodePact is p as a member's row saves it: opener, day, ring, minutes,
-// then a user and their minutes per signer, comma separated.
+// channel, then a user and their minutes per signer, comma separated.
 func encodePact(p *pact) string {
 	if p == nil {
 		return ""
@@ -81,7 +84,7 @@ func encodePact(p *pact) string {
 	if p.ring {
 		ring = 1
 	}
-	parts := []string{p.opener.String(), strconv.FormatInt(p.day, 10), strconv.Itoa(ring), strconv.FormatInt(p.minutes, 10)}
+	parts := []string{p.opener.String(), strconv.FormatInt(p.day, 10), strconv.Itoa(ring), strconv.FormatInt(p.minutes, 10), p.channel.String()}
 	for _, s := range p.signers {
 		parts = append(parts, s.user.String(), strconv.FormatInt(s.minutes, 10))
 	}
@@ -89,9 +92,10 @@ func encodePact(p *pact) string {
 }
 
 // decodePact reads a saved pact back, nil for none or one that won't read.
+// One saved before pacts kept their channel has an even count of fields.
 func decodePact(s string) *pact {
 	f := strings.Split(s, ",")
-	if len(f) < 6 || len(f)%2 != 0 {
+	if len(f) < 6 {
 		return nil
 	}
 	n := make([]int64, len(f))
@@ -103,7 +107,11 @@ func decodePact(s string) *pact {
 		n[i] = v
 	}
 	p := &pact{opener: snowflake.ID(n[0]), day: n[1], ring: n[2] == 1, minutes: n[3]}
-	for i := 4; i < len(n); i += 2 {
+	from := 4
+	if len(n)%2 == 1 {
+		p.channel, from = snowflake.ID(n[4]), 5
+	}
+	for i := from; i < len(n); i += 2 {
 		p.signers = append(p.signers, signer{snowflake.ID(n[i]), n[i+1]})
 	}
 	if len(p.signers) > p.size() {
@@ -303,6 +311,7 @@ func (st *state) finish(s *server, p *pact, today int64) {
 	if n := len(paid); n >= 2 {
 		got = st.bal().Joinder[min(n, 4)-2]
 	}
+	news := joinderNews{channel: p.channel, ring: p.ring, got: got}
 	for _, g := range p.signers {
 		if _, ok := s.members[g.user]; !ok {
 			continue
@@ -313,6 +322,7 @@ func (st *state) finish(s *server, p *pact, today int64) {
 		if got == 0 || !slices.Contains(paid, g.user) {
 			continue
 		}
+		knew := learned(m.signs)
 		m.signs.signatures++
 		if !p.ring {
 			m.signs.chirographs++
@@ -322,7 +332,48 @@ func (st *state) finish(s *server, p *pact, today int64) {
 		m.signs.paidDay = m.dayN
 		lv, kept := st.labour(s, m, got)
 		s.append(g.user, m.dayN, reasonJoinder, got-lv-kept, []int64{int64(len(paid)), got, lv, kept})
+		news.paid = append(news.paid, g.user)
+		if learned(m.signs) != knew {
+			news.learned = append(news.learned, g.user)
+		}
 	}
+	if news.channel != 0 && len(news.paid) > 0 {
+		s.joinders = append(s.joinders, news)
+	}
+}
+
+// joinderNews is a finished pact to tell the channel it went up in: who
+// was paid, what each got and who learned something of their own kind.
+type joinderNews struct {
+	channel       snowflake.ID
+	ring          bool
+	got           int64
+	paid, learned []snowflake.ID
+}
+
+// joinderText is n as its channel reads it.
+func joinderText(n joinderNews) string {
+	head := "the ravens fit the two halves together, and the teeth match"
+	if n.ring {
+		head = "the ring closes, and the ravens enter it without saying who led"
+	}
+	lines := []string{head, fmt.Sprintf("**paid** %s, %s pp each", mentions(n.paid), grouped(n.got/unit))}
+	if len(n.learned) > 0 {
+		lines = append(lines, fmt.Sprintf("**learned** %s: a new page on their lore card", mentions(n.learned)))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// mentions is us as a list a channel reads.
+func mentions(us []snowflake.ID) string {
+	out := make([]string, len(us))
+	for i, u := range us {
+		out[i] = "<@" + u.String() + ">"
+	}
+	if len(out) < 2 {
+		return strings.Join(out, "")
+	}
+	return strings.Join(out[:len(out)-1], ", ") + " and " + out[len(out)-1]
 }
 
 // lapse drops every pact posted PactLife days or more before today. s.mu

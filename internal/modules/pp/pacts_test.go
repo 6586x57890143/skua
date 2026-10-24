@@ -13,6 +13,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/core/coretest"
+	"github.com/6586x57890143/skua/internal/guard"
 )
 
 // together runs n voice minutes from at with users in room, everyone else
@@ -355,5 +356,52 @@ func TestOnePostADay(t *testing.T) {
 	}
 	if err := m.press(context.Background(), e); err != nil || !strings.Contains(updated, `"disabled":true`) {
 		t.Errorf("a full notice's post pressed: %v %s", err, updated)
+	}
+}
+
+// A finished pact tells the channel it went up in who was paid and who
+// learned a page of their lore, once its rows are saved; one posted
+// nowhere tells nobody. A pact saved before pacts kept a channel reads.
+func TestJoinderNews(t *testing.T) {
+	m := testModule(&fakeDB{})
+	r := &postRest{}
+	m.rest, m.Guard = r, guard.New()
+	s := m.st.server(guild)
+	today := DayOf(t0)
+	a, b := old(1), old(2)
+	s.mu.Lock()
+	p, err := m.st.post(s, guild, a, false, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.channel = 77
+	if _, err := m.st.sign(s, guild, a, today, b, today); err != nil {
+		t.Fatal(err)
+	}
+	s.members[b].signs.chirographs = 1 // b has the first page already
+	together(m.st, s, t0, int(Default.PactGoal), a, b)
+	if len(s.joinders) != 1 {
+		t.Fatalf("%d joinders to tell", len(s.joinders))
+	}
+	s.pending = nil
+	s.mu.Unlock()
+	m.postJoinders()
+	if len(r.posts) != 1 || r.to[0] != 77 || !strings.Contains(r.posts[0], "teeth match") || !strings.Contains(r.posts[0], "60 pp each") ||
+		!strings.Contains(r.posts[0], "**learned** \\u003c@"+a.String()) || strings.Contains(r.posts[0], "learned** \\u003c@"+b.String()) {
+		t.Errorf("posted %v to %v", r.posts, r.to)
+	}
+	m.postJoinders()
+	if len(r.posts) != 1 {
+		t.Error("told twice")
+	}
+
+	if q := decodePact("5,9,0,3,5,3,6,2"); q == nil || q.channel != 0 || len(q.signers) != 2 || q.signers[1].minutes != 2 {
+		t.Errorf("an old pact: %+v", q)
+	}
+	if mentions([]snowflake.ID{1, 2, 3}) != "<@1>, <@2> and <@3>" || mentions([]snowflake.ID{1}) != "<@1>" {
+		t.Error("mentions")
+	}
+	if !strings.Contains(joinderText(joinderNews{ring: true, got: 90 * unit, paid: []snowflake.ID{1, 2, 3}}), "ring closes") {
+		t.Error("a round robin's news")
 	}
 }
