@@ -110,16 +110,17 @@ work poured in at the rim, and leave the notices on the board out of the
 count. The fire has three heights, and once lit it isn't let down until the
 next day is out, whatever the city does after.
 
-### Indentures and round robins
+### Chirographs and round robins
 
 Most notices on the board are one bird's work. Some are taken in company,
 and the rookery has two ways of signing for that.
 
-An **indenture** is a notice taken by two. The board's clerk writes it out
-twice on one sheet and cuts the sheet apart along a wavy line, the indent,
-and each bird keeps a half. When the work is done they bring both halves to
+A **chirograph** is a notice taken by two. The board's clerk writes it out
+twice on one sheet, writes a word across the gap between the copies and
+cuts the sheet through the word along a wavy line, and each bird keeps a
+half. Nobody but the clerk knows the word. When the work is done they bring both halves to
 the pot's rim, and a raven of the counting house fits them together. If the
-teeth match, the pot pays each of them a little over what the notice is
+word and the teeth match, the pot pays each of them a little over what the notice is
 worth. The ravens enter the extra as **the joinder** and have never agreed
 on why the pot pays it. The sump says the pot likes company.
 
@@ -155,12 +156,12 @@ all:
 
 Signing in company teaches a bird things about their own kind that nobody
 says out loud. Each class learns three, one at a time: the first time they
-sign an indenture, at their tenth signature, and the first time they close a
+sign a chirograph, at their tenth signature, and the first time they close a
 round robin with all four places filled.
 
 - **Wanderer.** first: the board's clerk is an albatross too, and asks the
   same question at the rim that everyone from the grey north asks. tenth:
-  the north sea company buys up indentures signed by albatrosses, because a
+  the north sea company buys up chirographs signed by albatrosses, because a
   bird who signs in company can be found again. a full ring: the kittiwake
   sailed with a round robin pinned under her mast. nobody at the company
   will say what it asked for.
@@ -341,7 +342,7 @@ more as it fills.
 | the hearth | the herons' public fire, lit on a day the city earns it |
 | laurels | the choir's monday names |
 | quests | notices on the board at the pot's rim |
-| two players on one quest | an indenture, cut in two and fitted back together |
+| two players on one quest | a chirograph, cut in two through a word and fitted back together |
 | three or four players on one quest | a round robin, signed in a ring |
 | classes | who you are in the city, and what you came from |
 | seasons | the city's years, counted in tides |
