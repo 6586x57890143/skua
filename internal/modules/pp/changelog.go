@@ -13,7 +13,7 @@ type Entry struct {
 var Changelog = []Entry{{
 	Version: "0.9.1",
 	Date:    "2026-10-24",
-	Balance: "df198c",
+	Balance: "710847",
 	Lines: []string{
 		"new notices on the board: sit in a crowd of three or more in voice, reply to other birds, stream in voice, and for a golden one, turn your camera on",
 	},

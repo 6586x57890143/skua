@@ -17,18 +17,21 @@ import (
 )
 
 // A rarer quest asks more, but less than it pays more: every kind of a
-// tier asks under its pay's multiple of the good tier's ask.
+// tier asks under its pay's multiple of the good tier's ask. A minute in a
+// crowd or on stream is a voice minute too, and a reply is a message, so
+// tasks of one kind overlap: the work is the biggest of them.
 func TestQuestsAskLessThanTheyPay(t *testing.T) {
-	ask := func(k QuestKind) (n int64) {
+	ask := func(k QuestKind) int64 {
+		var voice, talk int64
 		for _, t := range k.Tasks {
 			switch t.Metric {
-			case taskVoice, taskHearth, taskCrowd, taskStream:
-				n += t.Goal * Default.VoiceBase * Default.Unmuted / 100
+			case taskVoice, taskHearth, taskCrowd, taskStream, taskCamera:
+				voice = max(voice, t.Goal)
 			case taskTalk, taskReply:
-				n += t.Goal * (Default.ChatMin + Default.ChatMax) / 2
+				talk = max(talk, t.Goal)
 			}
 		}
-		return n
+		return voice*Default.VoiceBase*Default.Unmuted/100 + talk*(Default.ChatMin+Default.ChatMax)/2
 	}
 	base := ask(Default.QuestKinds[0][0])
 	for tier, kinds := range Default.QuestKinds {
@@ -315,8 +318,16 @@ func TestVoiceQuests(t *testing.T) {
 	if qa[0].prog[0] != 0 || qa[1].prog[0] != 1 || qa[2].prog[0] != 0 || qb[2].prog[0] != 1 || qb[1].prog[0] != 0 {
 		t.Fatalf("two in a room: %+v %+v", qa, qb)
 	}
-	st.sit(s, guild, c, in(room), false, t0)
+	// A fresh alt makes three seats but not a crowd.
+	alt := snowflake.New(t0)
+	st.sit(s, guild, alt, in(room), false, t0)
 	st.minute(s, guild, 0, t0.Add(2*time.Minute))
+	if s.members[a].quests[0].prog[0] != 0 {
+		t.Fatal("a fresh account counted toward a crowd")
+	}
+	st.sit(s, guild, alt, discord.VoiceState{}, false, t0)
+	st.sit(s, guild, c, in(room), false, t0)
+	st.minute(s, guild, 0, t0.Add(3*time.Minute))
 	if s.members[c].quests[0].prog[0] != 1 || s.members[a].quests[0].prog[0] != 1 {
 		t.Errorf("three in a room isn't a crowd: %+v", s.members[c].quests)
 	}
@@ -339,11 +350,12 @@ func TestReplyQuest(t *testing.T) {
 	}
 	say(0, discord.User{ID: a}, "talking to myself")
 	say(time.Minute, discord.User{ID: old(9), Bot: true}, "thanks, bot")
+	say(2*time.Minute, discord.User{ID: snowflake.New(t0)}, "hi, alt")
 	if mem.quests[0].prog[0] != 0 {
-		t.Fatal("a reply to yourself or a bot counted")
+		t.Fatal("a reply to yourself, a bot or a fresh account counted")
 	}
-	say(2*time.Minute, discord.User{ID: old(2)}, "good point")
-	say(2*time.Minute+time.Second, discord.User{ID: old(2)}, "and another")
+	say(3*time.Minute, discord.User{ID: old(2)}, "good point")
+	say(3*time.Minute+time.Second, discord.User{ID: old(2)}, "and another")
 	if mem.quests[0].prog[0] != 1 {
 		t.Errorf("replies counted %d, want the one that paid", mem.quests[0].prog[0])
 	}

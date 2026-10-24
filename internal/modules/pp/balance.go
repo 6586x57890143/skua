@@ -161,7 +161,7 @@ var Default = Balance{
 			{Icon: "campfire", Tasks: []Task{{taskVoice, 40}}},
 			{Icon: "quill", Tasks: []Task{{taskTalk, 33}}},
 			{Icon: "bell", Tasks: []Task{{taskCrowd, 25}, {taskReply, 10}}},
-			{Icon: "lute", Tasks: []Task{{taskStream, 15}, {taskVoice, 20}}},
+			{Icon: "lute", Tasks: []Task{{taskStream, 35}}},
 		},
 		{
 			{Icon: "lantern", Tasks: []Task{{taskVoice, 18}, {taskTalk, 15}, {taskHearth, 10}}},

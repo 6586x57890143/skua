@@ -202,13 +202,18 @@ func (b *Balance) VoiceRaw(me Seat, others []Seat, pace int64) int64 {
 }
 
 // heard is whether anyone in others counts as company.
-func (b *Balance) heard(others []Seat) bool {
+func (b *Balance) heard(others []Seat) bool { return b.company(others) > 0 }
+
+// company is how many in others count as company: not a bot, not deaf
+// and an account at least CompanionAge old.
+func (b *Balance) company(others []Seat) int {
+	n := 0
 	for _, o := range others {
 		if !o.Bot && !o.Deaf && o.Age >= b.CompanionAge {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
 }
 
 // fade is the percent an idle stretch pays: all of it through grace, then
