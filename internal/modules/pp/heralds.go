@@ -183,7 +183,7 @@ func (m *Module) sendPetition(ctx context.Context, guild, user snowflake.ID) err
 		p.name, p.style, p.colors, p.icon = d.name, d.style, d.colors, d.icon
 		p.held = m.st.pot() * heraldsFee / 100
 		if !p.change {
-			p.held += m.st.weekly(d)
+			p.held += m.st.weekly(d) * s.rollFactor() / 100
 		}
 		if mem.purse < p.held {
 			err = errOwnShort
@@ -627,14 +627,17 @@ func (m *Module) leaseOwn(ctx context.Context, guild, user snowflake.ID) error {
 	s := m.st.server(guild)
 	s.leasing.Lock()
 	defer s.leasing.Unlock()
+	var days int64
 	check := func(mem *member, worn ownWorn) (int64, error) {
-		price := m.st.pot() * worn.week / 100
+		var weeks, ahead int64
+		days, weeks, ahead = term(mem.rung)
+		price := m.st.pot() * worn.week / 100 * s.rollFactor() / 100 * weeks
 		switch {
 		case worn.role == 0 || mem.livery != ownKey:
 			return 0, errOwnNone
 		case mem.purse < price:
 			return 0, errDyeShort
-		case mem.liveryUntil+leaseDays > today+leaseCap:
+		case mem.liveryUntil+days > today+ahead:
 			return 0, errDyeAhead
 		}
 		return price, nil
@@ -657,7 +660,7 @@ func (m *Module) leaseOwn(ctx context.Context, guild, user snowflake.ID) error {
 		return err
 	}
 	mem.purse -= price
-	mem.liveryUntil = max(today, mem.liveryUntil) + leaseDays
+	mem.liveryUntil = max(today, mem.liveryUntil) + days
 	m.st.burn(s, user, today, reasonLease, price, []int64{-1, mem.liveryUntil})
 	mem.dirty = true
 	s.mu.Unlock()
@@ -727,3 +730,33 @@ func (m *Module) repost(ctx context.Context, guild snowflake.ID, e *events.Compo
 		said(fmt.Sprintf("%d of %d petitions posted to <#%s> again", posted, len(ps), ch)), rest.WithCtx(ctx))
 	return err
 }
+
+// rollSlots is the roll's room until an admin sets it.
+const rollSlots = 40
+
+// rolled is how many names the heralds' roll holds: liveries of one's own
+// worn and petitions waiting, a member once. s.mu held.
+func (s *server) rolled() int64 {
+	n := int64(len(s.own))
+	for u := range s.asked {
+		if _, worn := s.own[u]; !worn {
+			n++
+		}
+	}
+	return n
+}
+
+// rollFactor is a livery of one's own's price as the roll fills, in
+// hundredths: Rules.RollRise percent dearer at full, with the square of
+// how full, and dearer still past it. s.mu held.
+func (s *server) rollFactor() int64 {
+	slots := s.slots
+	if slots <= 0 {
+		slots = rollSlots
+	}
+	filled := s.rolled()
+	return 100 + Rules.RollRise*filled*filled/(slots*slots)
+}
+
+// rollChoices are the room an admin may give the roll.
+var rollChoices = []int64{10, 20, 30, 40, 60, 80, 120, 160}

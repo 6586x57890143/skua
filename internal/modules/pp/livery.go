@@ -3,8 +3,11 @@ package pp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -262,7 +265,27 @@ func (m *Module) liverySettings(guild snowflake.ID) []discord.ContainerSubCompon
 		discord.NewTextDisplay("### liveries\n-# roles bought in the shop sit directly under the anchor, so put it above the server's other colour roles and below staff; skua's own role must be above it. petitions for a livery of one's own go to the heralds' channel for a moderator to grant or refuse"),
 		discord.NewActionRow(role),
 		discord.NewActionRow(ch),
+		m.rollControl(guild),
 	}, append(m.yardControls(guild), m.waiting(guild)...)...)
+}
+
+// rollControl picks the heralds' roll's room.
+func (m *Module) rollControl(guild snowflake.ID) discord.ContainerSubComponent {
+	s := m.st.server(guild)
+	s.mu.Lock()
+	slots := s.slots
+	s.mu.Unlock()
+	if slots <= 0 {
+		slots = rollSlots
+	}
+	opts := make([]discord.StringSelectMenuOption, len(rollChoices))
+	for i, n := range rollChoices {
+		o := discord.NewStringSelectMenuOption(fmt.Sprintf("the roll holds %d names", n), strconv.FormatInt(n, 10))
+		o.Description = "liveries of one's own grow dearer as it fills"
+		o.Default = n == slots
+		opts[i] = o
+	}
+	return discord.NewActionRow(discord.NewStringSelectMenu("pp:slots", "how many names the heralds' roll holds", opts...))
 }
 
 // setLivery keeps the anchor or the heralds' channel an admin picked, or
@@ -291,20 +314,30 @@ func (m *Module) setLivery(ctx context.Context, guild snowflake.ID, e *events.Co
 			picked = data.Values[0]
 			said = "petitions for a livery of one's own go to <#" + picked.String() + "> now"
 		}
+	case discord.StringSelectMenuInteractionData:
+		n, err := strconv.ParseInt(strings.Join(data.Values, ""), 10, 64)
+		if e.Data.CustomID() != "pp:slots" || err != nil || !slices.Contains(rollChoices, n) {
+			return errNotAdmin
+		}
+		column, picked = "livery_slots", snowflake.ID(n)
+		said = fmt.Sprintf("the heralds' roll holds %d names now", n)
 	default:
 		return errNotAdmin
 	}
-	// column is one of two constants, never input.
+	// column is one of three constants, never input.
 	if _, err := m.db.Exec(ctx, `insert into pp_guild (guild_id, `+column+`) values ($1, $2)
 		on conflict (guild_id) do update set `+column+` = excluded.`+column, int64(guild), int64(picked)); err != nil {
 		return err
 	}
 	s := m.st.server(guild)
 	s.mu.Lock()
-	if column == "livery_anchor" {
+	switch column {
+	case "livery_anchor":
 		s.anchor = picked
-	} else {
+	case "heralds_channel":
 		s.heralds = picked
+	default:
+		s.slots = int64(picked)
 	}
 	s.mu.Unlock()
 	return e.CreateMessage(discord.MessageCreate{Content: said, Flags: discord.MessageFlagEphemeral, AllowedMentions: core.NoPings()})

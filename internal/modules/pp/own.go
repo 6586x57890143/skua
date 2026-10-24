@@ -460,7 +460,12 @@ type ownState struct {
 	asked   bool
 	wearing bool
 	left    int64 // days on the lease of the livery worn
-	week    int64 // what a week of it costs, pp hundredths
+	week    int64 // what a lease of it costs, pp hundredths
+	days    int64 // how long a lease runs
+	ahead   int64 // how far ahead leases may run
+	// factor is the roll's price, in hundredths, and filled and slots how
+	// full it is.
+	factor, filled, slots int64
 }
 
 // ownMessage is the petition as it stands: drawn on both themes, its
@@ -468,14 +473,14 @@ type ownState struct {
 // s.mu held.
 func (st *state) ownMessage(mem *member, d *draft, o ownState) (discord.MessageCreate, error) {
 	fee := st.pot() * heraldsFee / 100
-	scr := Own{Purse: mem.purse, Fee: fee, Letter: o.letter}
+	scr := Own{Purse: mem.purse, Fee: fee, Letter: o.letter, Filled: o.filled, Slots: o.slots}
 	if o.wearing {
 		scr.Left = o.left
 		scr.Wearing = true
 	}
 	send := fee
 	if d != nil {
-		scr.Name, scr.Style, scr.Colors, scr.Week = d.name, d.style.name, d.shown(), st.weekly(d)
+		scr.Name, scr.Style, scr.Colors, scr.Week = d.name, d.style.name, d.shown(), st.weekly(d)*max(o.factor, 100)/100
 		if d.icon != nil {
 			scr.Icon, _ = png.Decode(bytes.NewReader(d.icon))
 		}
@@ -508,8 +513,8 @@ func (st *state) ownMessage(mem *member, d *draft, o ownState) (discord.MessageC
 		row = row.AddComponents(b)
 	}
 	if o.wearing {
-		b := withIcon(discord.NewSuccessButton("another week · "+grouped(o.week/unit)+" pp", "pp:ownweek"), "pot")
-		if mem.purse < o.week || o.left+leaseDays > leaseCap {
+		b := withIcon(discord.NewSuccessButton("another "+termWord(o.days)+" · "+grouped(o.week/unit)+" pp", "pp:ownweek"), "pot")
+		if mem.purse < o.week || o.left+o.days > o.ahead {
 			b = b.AsDisabled()
 		}
 		row = row.AddComponents(b)
@@ -552,13 +557,20 @@ func (m *Module) ownPage(ctx context.Context, guild, user snowflake.ID) (discord
 	s.mu.Lock()
 	mem := *m.st.member(s, guild, user, today)
 	worn, asked, drafted := s.own[user], s.asked[user] != 0, s.drafts[user] != nil
+	factor, filled, slots := s.rollFactor(), s.rolled(), s.slots
 	s.mu.Unlock()
+	if slots <= 0 {
+		slots = rollSlots
+	}
 	if mem.rung < ownStyles[0].rung {
 		return discord.MessageCreate{}, errOwnPerch
 	}
-	o := ownState{letter: letter, asked: asked, drafted: drafted, wearing: worn.role != 0 && mem.livery == ownKey}
+	o := ownState{letter: letter, asked: asked, drafted: drafted, wearing: worn.role != 0 && mem.livery == ownKey,
+		factor: factor, filled: filled, slots: slots}
+	var weeks int64
+	o.days, weeks, o.ahead = term(mem.rung)
 	if o.wearing {
-		o.left, o.week = mem.liveryUntil-today, m.st.pot()*worn.week/100
+		o.left, o.week = mem.liveryUntil-today, m.st.pot()*worn.week/100*factor/100*weeks
 	}
 	return m.st.ownMessage(&mem, d, o)
 }

@@ -1,6 +1,7 @@
 package pp
 
 import (
+	"fmt"
 	"image"
 	"strings"
 
@@ -21,6 +22,8 @@ type Own struct {
 	Letter  string
 	Wearing bool
 	Left    int64
+	// Filled and Slots are how full the heralds' roll is.
+	Filled, Slots int64
 }
 
 // The two themes a name is shown on: Discord's dark member list and its
@@ -67,6 +70,8 @@ func ownCanvas(o Own) *pixel.Canvas {
 			ink = pixel.Red
 		}
 		c.FitIn(pixel.Light, 18, foot, "the heralds: "+o.Letter, ink, 230)
+	} else if o.Slots > 0 {
+		label(c, 18, foot, fmt.Sprintf("the heralds' roll: %d of %d names", o.Filled, o.Slots))
 	}
 	if o.Wearing {
 		right(c, 368, foot, "worn · "+leftWords(o.Left), pixel.Green)

@@ -29,11 +29,11 @@ type Livery struct {
 // swatch of its cloth, its name in its own colour and its weekly price,
 // whether it's worn or which perch it waits on; under it the purse and
 // what the member wears now.
-func YardScreen(title string, rows []YardRow, purse int64, wear Livery) ([]byte, error) {
-	return yardCanvas(title, rows, purse, wear).Soft(screenScale)
+func YardScreen(title string, rows []YardRow, purse int64, wear Livery, lease string) ([]byte, error) {
+	return yardCanvas(title, rows, purse, wear, lease).Soft(screenScale)
 }
 
-func yardCanvas(title string, rows []YardRow, purse int64, wear Livery) *pixel.Canvas {
+func yardCanvas(title string, rows []YardRow, purse int64, wear Livery, lease string) *pixel.Canvas {
 	c := pixel.New(screenW, screenH)
 	yard := image.Rect(4, 4, 380, 148)
 	c.Window(yard)
@@ -66,7 +66,7 @@ func yardCanvas(title string, rows []YardRow, purse int64, wear Livery) *pixel.C
 	c.Icon("pot", image.Pt(at-pixel.IconCells-4, y-iconLift))
 	label(c, 16, y, "you hold")
 	label(c, 16, y+17, "a lease runs")
-	right(c, 180, y+17, "a week", pixel.Ink)
+	right(c, 180, y+17, "a "+or(lease, "week"), pixel.Ink)
 
 	you := image.Rect(196, 152, 380, 212)
 	c.Window(you)

@@ -30,7 +30,27 @@ const (
 	leaseDays = 7
 	leaseCap  = 28
 	fadeDays  = 3
+	// Past the bell the dye holds: a lease runs seasonDays for the price
+	// of seasonWeeks weeks.
+	seasonDays, seasonWeeks = 28, 3
 )
+
+// term is a lease as a member on rung leases it: its days, the weeks it
+// costs, and how far ahead leases may run.
+func term(rung int64) (days, weeks, ahead int64) {
+	if rung >= int64(len(perches)) {
+		return seasonDays, seasonWeeks, 2 * seasonDays
+	}
+	return leaseDays, 1, leaseCap
+}
+
+// termWord is a lease of days as a member reads it.
+func termWord(days int64) string {
+	if days == seasonDays {
+		return "season"
+	}
+	return "week"
+}
 
 var (
 	errYardShut  = core.Tell("the dyers' yard hasn't opened yet")
@@ -110,7 +130,8 @@ func (st *state) yardMessage(s *server, user snowflake.ID, mem *member, page int
 		look = append(look, o)
 	}
 	wear := st.wearing(s, user, mem, today)
-	pic, err := YardScreen(title, rows, mem.purse, wear)
+	days, _, _ := term(mem.rung)
+	pic, err := YardScreen(title, rows, mem.purse, wear, termWord(days))
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
@@ -159,7 +180,8 @@ func (st *state) wearing(s *server, user snowflake.ID, mem *member, today int64)
 // dyeMessage is d's own card as mem sees it, with the way back to its page
 // and the button to lease it. s.mu held.
 func (st *state) dyeMessage(mem *member, d dye, today int64) (discord.MessageCreate, error) {
-	price := st.leasePrice(d)
+	days, weeks, ahead := term(mem.rung)
+	price := st.leasePrice(d) * weeks
 	worn := mem.livery == d.key
 	page := "the sump's trades"
 	if d.page() == factionsPage {
@@ -172,16 +194,16 @@ func (st *state) dyeMessage(mem *member, d dye, today int64) (discord.MessageCre
 		return discord.MessageCreate{}, err
 	}
 	alt := clip(fmt.Sprintf("%s, a livery of %s, %s pp a week: %s. %s. effect: %s", d.name, page, grouped(price/unit), d.what, d.story, d.effect), altLimit)
-	label := "lease a week · " + grouped(price/unit) + " pp"
+	label := "lease a " + termWord(days) + " · " + grouped(price/unit) + " pp"
 	if worn {
-		label = "another week · " + grouped(price/unit) + " pp"
+		label = "another " + termWord(days) + " · " + grouped(price/unit) + " pp"
 	}
 	lease := withIcon(discord.NewPrimaryButton(label, "pp:lease:"+d.key), "pot")
 	switch {
 	case mem.rung < d.rung:
 		from, _ := perch(d.rung)
 		lease = withIcon(discord.NewPrimaryButton("worn from the "+from, "pp:lease:"+d.key), "pot").AsDisabled()
-	case mem.purse < price, worn && mem.liveryUntil+leaseDays > today+leaseCap:
+	case mem.purse < price, worn && mem.liveryUntil+days > today+ahead:
 		lease = lease.AsDisabled()
 	}
 	return discord.MessageCreate{
@@ -278,14 +300,17 @@ func (m *Module) dyeCard(guild snowflake.ID, e *events.ComponentInteractionCreat
 func (m *Module) leased(ctx context.Context, guild, user snowflake.ID, d dye) (discord.MessageCreate, error) {
 	today := DayOf(m.now())
 	s := m.st.server(guild)
-	price := m.st.leasePrice(d)
+	var price, days int64
 	check := func(mem *member) error {
+		var weeks, ahead int64
+		days, weeks, ahead = term(mem.rung)
+		price = m.st.leasePrice(d) * weeks
 		switch {
 		case mem.rung < d.rung:
 			return errDyePerch
 		case mem.purse < price:
 			return errDyeShort
-		case mem.livery == d.key && mem.liveryUntil+leaseDays > today+leaseCap:
+		case mem.livery == d.key && mem.liveryUntil+days > today+ahead:
 			return errDyeAhead
 		}
 		return nil
@@ -335,7 +360,7 @@ func (m *Module) leased(ctx context.Context, guild, user snowflake.ID, d dye) (d
 		from = max(today, mem.liveryUntil)
 	}
 	mem.purse -= price
-	mem.livery, mem.liveryUntil = d.key, from+leaseDays
+	mem.livery, mem.liveryUntil = d.key, from+days
 	m.st.burn(s, user, today, reasonLease, price, []int64{int64(dyeIndex(d.key)), mem.liveryUntil})
 	mem.dirty = true
 	if old == ownKey {

@@ -139,6 +139,9 @@ type server struct {
 	// livery of their own each wears.
 	asked map[snowflake.ID]int64
 	own   map[snowflake.ID]ownWorn
+	// slots is how many names the heralds' roll holds before a livery of
+	// one's own is at its dearest, 0 for rollSlots.
+	slots int64
 }
 
 func newServer(id snowflake.ID) *server {

@@ -11,6 +11,15 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.9.0",
+	Date:    "2026-10-24",
+	Balance: "9e3f24",
+	Lines: []string{
+		"the dyers' yard opens in the shop: lease a sump trade's colours from the tallow perch and a faction's from the shale perch, by the week",
+		"from the chitin perch, petition the heralds for a livery of your own; it costs more as the heralds' roll fills, and the fee comes back if they refuse",
+		"past the bell, a lease runs a season for the price of three weeks",
+	},
+}, {
 	Version: "0.8.3",
 	Date:    "2026-10-24",
 	Balance: "7dcfff",
