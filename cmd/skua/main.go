@@ -237,9 +237,11 @@ func run(log *slog.Logger) error {
 		help.New(func() []core.Module { return running }, func(i discord.Interaction) bool { return router.Admin(i) }, toggles),
 	}
 	// Embed metadata settings are optional; a bad endpoint only stops fix.
+	var fixAPI *fix.API
 	if api, err := fix.NewAPI(fix.FromEnv()); err != nil {
 		log.Error("fix is off: its metadata endpoints are invalid", "err", err)
 	} else {
+		fixAPI = api
 		all = append(all, fix.New(ctx, g, api, log))
 	}
 	// The Armada bridge runs only where it is configured. Its mappings share
@@ -310,9 +312,16 @@ func run(log *slog.Logger) error {
 		}
 	}
 	// Pushes from twitch, kick and youtube, which reach skua through the
-	// tunnel; nothing listens unless notify took SKUA_HOOKS_URL.
-	if notifier != nil && notifier.Pushing() {
-		hooks := &http.Server{Addr: env("SKUA_HOOKS_ADDR", ":8080"), Handler: notifier.Hooks(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second}
+	// tunnel, plus signed fix media on the same configured listener.
+	if (notifier != nil && notifier.Pushing()) || (fixAPI != nil && fixAPI.ServesMedia()) {
+		mux := http.NewServeMux()
+		if fixAPI != nil && fixAPI.ServesMedia() {
+			mux.Handle("/fix/media/", fixAPI.MediaHandler())
+		}
+		if notifier != nil && notifier.Pushing() {
+			mux.Handle("/", notifier.Hooks())
+		}
+		hooks := &http.Server{Addr: env("SKUA_HOOKS_ADDR", ":8080"), Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second}
 		go func() {
 			log.Info("hooks listening", "addr", hooks.Addr)
 			if err := hooks.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {

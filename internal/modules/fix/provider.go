@@ -41,17 +41,18 @@ type Resolver interface {
 	Resolve(context.Context, Link) (Post, error)
 }
 
-type Config struct{ Twitter, Bluesky, FixEmbed string }
+type Config struct{ Twitter, Bluesky, FixEmbed, MediaURL, MediaSecret string }
 
 func FromEnv() Config {
-	return Config{Twitter: os.Getenv("SKUA_FIX_TWITTER_API"), Bluesky: os.Getenv("SKUA_FIX_BLUESKY_API"), FixEmbed: os.Getenv("SKUA_FIX_API")}
+	return Config{Twitter: os.Getenv("SKUA_FIX_TWITTER_API"), Bluesky: os.Getenv("SKUA_FIX_BLUESKY_API"), FixEmbed: os.Getenv("SKUA_FIX_API"), MediaURL: os.Getenv("SKUA_HOOKS_URL"), MediaSecret: os.Getenv("SKUA_HOOKS_SECRET")}
 }
 
 // API uses maintained metadata services, not their HTML or Discord rendering.
 // Endpoints can point at self-hosted services; no platform secret is required.
 type API struct {
-	c   *http.Client
-	cfg Config
+	c     *http.Client
+	cfg   Config
+	media *mediaRelay
 }
 
 func NewAPI(cfg Config) (*API, error) {
@@ -68,7 +69,9 @@ func NewAPI(cfg Config) (*API, error) {
 			return nil, fmt.Errorf("fix: endpoint %d must be an https base URL", i+1)
 		}
 	}
-	return &API{cfg: cfg, c: &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	a := &API{cfg: cfg, c: &http.Client{Timeout: 12 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}}
+	a.media = newMediaRelay(a, cfg.MediaURL, cfg.MediaSecret)
+	return a, nil
 }
 
 const responseLimit = 2 << 20
@@ -107,6 +110,9 @@ func (a *API) Resolve(ctx context.Context, l Link) (Post, error) {
 	checked, ok := Parse(l.URL)
 	if !ok || checked != l {
 		return Post{}, errMetadata
+	}
+	if l.Platform == "kick" {
+		return a.kick(ctx, l)
 	}
 	if l.Platform == "twitter" || l.Platform == "bluesky" {
 		first, cancel := context.WithTimeout(ctx, 6*time.Second)
