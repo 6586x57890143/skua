@@ -48,10 +48,10 @@ func (a *API) kick(ctx context.Context, l Link) (Post, error) {
 		if a.media == nil {
 			return Post{}, errMetadata
 		}
-		if _, err := a.media.ready(ctx, l.ID, d); err != nil {
+		if _, err := a.media.ready(ctx, "kick/"+l.ID, func(ctx context.Context) ([]byte, error) { return a.media.prepare(ctx, l.ID, d) }); err != nil {
 			return Post{}, errMetadata
 		}
-		media = a.media.link(l.ID)
+		media = a.media.link("kick", l.ID)
 	}
 	author := d.Channel.Username
 	if author == "" {
