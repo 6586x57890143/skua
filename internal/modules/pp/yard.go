@@ -225,7 +225,7 @@ func (m *Module) yard(ctx context.Context, guild snowflake.ID, e *events.Compone
 	if !m.sees(guild, e) {
 		return errYardShut
 	}
-	id := e.Data.CustomID()
+	id := pressed(e)
 	user := e.User().ID
 	switch {
 	case id == "pp:ownwrite":

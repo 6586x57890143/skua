@@ -11,6 +11,15 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.10.2",
+	Date:    "2026-10-25",
+	Balance: "369e4c",
+	Lines: []string{
+		"a round robin waits for its poster to start it once three have signed, so a fourth can still join; a full ring starts itself",
+		"tear up your half of a chirograph or strike your name from a round robin: twice a day it gives the poster their post back",
+		"anything that costs pp asks once more before it's bought",
+	},
+}, {
 	Version: "0.10.1",
 	Date:    "2026-10-24",
 	Balance: "ce9f0d",

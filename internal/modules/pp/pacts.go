@@ -24,8 +24,11 @@ import (
 // pact is one chirograph or round robin. Each signer's member holds the
 // same pointer, and every signer's row saves it whole.
 type pact struct {
-	opener  snowflake.ID
-	day     int64 // the day it was posted
+	opener snowflake.ID
+	day    int64 // the day it was posted
+	// at is when it was posted, unix milliseconds, so a bird's two posts
+	// in a day never share a key. Saved in pact_at; 0 on one from before.
+	at      int64
 	ring    bool  // a round robin, not a chirograph
 	minutes int64 // minutes together so far
 	signers []signer
@@ -33,6 +36,11 @@ type pact struct {
 	// for nowhere. It's saved in its own column, pact_channel, so the
 	// pact's text reads the same to a binary from before it.
 	channel snowflake.ID
+	// started is whether the work has begun: a chirograph's when its second
+	// signs, a round robin's when its poster starts it with three or more,
+	// or when the fourth signs. Nobody signs after, and minutes count only
+	// from then. Saved in pact_started.
+	started bool
 	// last is the unix minute that last counted, so one room counts once,
 	// and rallied when it was last put up in a channel, in memory only.
 	last    int64
@@ -64,6 +72,10 @@ func (p *pact) need() int {
 
 // working is whether p has enough signatures to count minutes.
 func (p *pact) working() bool { return len(p.signers) >= p.need() }
+
+// startable is whether p's poster may start it now: a round robin with
+// three signed, not yet begun.
+func (p *pact) startable() bool { return p.ring && !p.started && p.working() }
 
 // signed is whether user has signed p.
 func (p *pact) signed(user snowflake.ID) bool {
@@ -160,6 +172,8 @@ func joinPacts(s *server) {
 		k := [2]int64{int64(m.pact.opener), m.pact.day}
 		if p, ok := one[k]; ok {
 			p.channel = max(p.channel, m.pact.channel)
+			p.started = p.started || m.pact.started
+			p.at = max(p.at, m.pact.at)
 			m.pact = p
 		} else {
 			one[k] = m.pact
@@ -175,7 +189,8 @@ var (
 	errPactGone   = core.Tell("that notice has lapsed or been finished")
 	errPactFull   = core.Tell("every place on that notice is signed")
 	errPactYours  = core.Tell("you posted that one; somebody else has to sign it")
-	errPactActive = core.Tell("that round robin's work has started; no more signatures")
+	errPactActive = core.Tell("that notice's work has started; no more signatures")
+	errPactStart  = core.Tell("only the bird who posted it can start it, once three have signed")
 	errPactRally  = core.Tell("it went up a few minutes ago; give the channel a moment")
 	errPactPosted = core.Tell("you've posted one today; sign somebody else's, or post again at 05:30 utc")
 	errPactNone   = core.Tell("you haven't signed a notice")
@@ -213,22 +228,51 @@ func (st *state) post(s *server, guild, user snowflake.ID, ring bool, today int6
 	if err := st.mayPost(m, user, today); err != nil {
 		return nil, err
 	}
-	m.pact = &pact{opener: user, day: today, ring: ring, signers: []signer{{user: user}}}
+	// Each post a moment after the bird's last, so two never share a key.
+	m.lastPost = max(time.Now().UnixMilli(), m.lastPost+1)
+	m.pact = &pact{opener: user, day: today, at: m.lastPost, ring: ring, signers: []signer{{user: user}}}
 	m.signs.postedDay, m.dirty = today, true
 	s.count(today, statPosted, ringBit(ring), 0)
 	return m.pact, nil
 }
 
-// key names p in a button: its opener and the day it was posted, so an
-// old post never signs a newer notice by the same bird.
-func (p *pact) key() string { return p.opener.String() + ":" + strconv.FormatInt(p.day, 10) }
+// key names p in a button: its opener, the day and the moment it was
+// posted, so an old post never signs or starts a newer notice by the same
+// bird.
+func (p *pact) key() string {
+	return p.opener.String() + ":" + strconv.FormatInt(p.day, 10) + ":" + strconv.FormatInt(p.at, 10)
+}
+
+// pactKey is a key read back; at is 0 on a post from before keys had it.
+type pactKey struct {
+	opener  snowflake.ID
+	day, at int64
+}
 
 // parseKey reads a key back.
-func parseKey(k string) (snowflake.ID, int64, bool) {
-	o, d, ok := strings.Cut(k, ":")
-	opener, err := strconv.ParseUint(o, 10, 64)
-	day, err2 := strconv.ParseInt(d, 10, 64)
-	return snowflake.ID(opener), day, ok && err == nil && err2 == nil
+func parseKey(k string) (pactKey, bool) {
+	f := strings.Split(k, ":")
+	if len(f) != 2 && len(f) != 3 {
+		return pactKey{}, false
+	}
+	opener, err := strconv.ParseUint(f[0], 10, 64)
+	day, err2 := strconv.ParseInt(f[1], 10, 64)
+	var at int64
+	var err3 error
+	if len(f) == 3 {
+		at, err3 = strconv.ParseInt(f[2], 10, 64)
+	}
+	return pactKey{snowflake.ID(opener), day, at}, err == nil && err2 == nil && err3 == nil
+}
+
+// pactOf is the pact k names, nil when it's gone or another has taken its
+// opener's place. s.mu held.
+func pactOf(s *server, k pactKey) *pact {
+	o, ok := s.members[k.opener]
+	if !ok || o.pact == nil || o.pact.opener != k.opener || o.pact.day != k.day || k.at != 0 && o.pact.at != k.at {
+		return nil
+	}
+	return o.pact
 }
 
 // sign puts user's name to the pact opener posted on day. s.mu held.
@@ -248,28 +292,51 @@ func (st *state) sign(s *server, guild, opener snowflake.ID, day int64, user sno
 	switch {
 	case len(p.signers) >= p.size():
 		return nil, errPactFull
-	case p.minutes > 0:
+	case p.started:
 		return nil, errPactActive
 	}
 	p.signers = append(p.signers, signer{user: user})
+	// A chirograph starts with its second name, a round robin when full.
+	p.started = len(p.signers) == p.size()
 	m.pact = p
 	st.touchPact(s, p)
 	return p, nil
 }
 
-// withdraw takes user's name off the pact they hold. Before the work
-// starts, the place opens again and the notice may go straight back up to
-// fill it, and its poster withdrawing takes it down for everyone. After, one who leaves isn't paid, and a pact left with too
-// few to count minutes ends for everyone. s.mu held.
-func (st *state) withdraw(s *server, user snowflake.ID) error {
+// freeWithdraws is how many times a day a poster taking their notice down
+// before its work gets the day's post back. Past them a bird may still
+// withdraw, but the post stays spent.
+const freeWithdraws = 2
+
+// withdraw takes user's name off the pact they hold: tearing up their half
+// of a chirograph, or striking their name from a round robin. Before the
+// work starts, the place opens again and the notice may go straight back
+// up to fill it, and its poster withdrawing takes it down for everyone.
+// After, one who leaves isn't paid, and a pact left with too few to count
+// minutes ends for everyone. s.mu held.
+func (st *state) withdraw(s *server, user snowflake.ID, today int64) error {
 	m := s.members[user]
 	if m == nil || m.pact == nil {
 		return errPactNone
 	}
 	p := m.pact
+	if m.withdrawDay != today {
+		m.withdrawDay, m.withdrawn = today, 0
+	}
+	// The poster taking down today's notice before its work gets the post
+	// back, freeWithdraws times a day.
+	if !p.started && p.opener == user && p.day == today && m.withdrawn < freeWithdraws {
+		m.signs.postedDay = 0
+		m.withdrawn++
+	}
+	started := 0
+	if p.started {
+		started = 1
+	}
+	s.count(today, statLeft, ringBit(p.ring), started)
 	p.signers = slices.DeleteFunc(p.signers, func(g signer) bool { return g.user == user })
 	m.pact, m.dirty = nil, true
-	if p.minutes == 0 && p.opener == user || p.minutes > 0 && len(p.signers) < p.need() {
+	if !p.started && p.opener == user || p.started && len(p.signers) < p.need() {
 		for _, g := range p.signers {
 			if o := s.members[g.user]; o != nil {
 				o.pact, o.dirty = nil, true
@@ -280,6 +347,17 @@ func (st *state) withdraw(s *server, user snowflake.ID) error {
 	p.rallied = time.Time{}
 	st.touchPact(s, p)
 	return nil
+}
+
+// start begins the work on the round robin user posted. s.mu held.
+func (st *state) start(s *server, user snowflake.ID) (*pact, error) {
+	m := s.members[user]
+	if m == nil || m.pact == nil || m.pact.opener != user || !m.pact.startable() {
+		return nil, errPactStart
+	}
+	m.pact.started = true
+	st.touchPact(s, m.pact)
+	return m.pact, nil
 }
 
 // touchPact marks every signer of p to be saved. s.mu held.
@@ -297,7 +375,7 @@ func (st *state) touchPact(s *server, p *pact) {
 func (st *state) together(s *server, earning []snowflake.ID, minute int64) {
 	here := map[*pact][]snowflake.ID{}
 	for _, u := range earning {
-		if m := s.members[u]; m != nil && m.pact != nil && m.pact.working() {
+		if m := s.members[u]; m != nil && m.pact != nil && m.pact.started && m.pact.working() {
 			here[m.pact] = append(here[m.pact], u)
 		}
 	}

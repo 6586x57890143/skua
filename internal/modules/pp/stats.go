@@ -15,8 +15,9 @@ const (
 	statRerolled = "quest_rerolled" // the quest a reroll replaced
 	statFinished = "quest_finished"
 	statPosted   = "notice_posted"
-	statJoined   = "notice_finished" // b is how many were paid
-	statLapsed   = "notice_lapsed"   // b is how many had signed
+	statJoined   = "notice_finished"  // b is how many were paid
+	statLapsed   = "notice_lapsed"    // b is how many had signed
+	statLeft     = "notice_withdrawn" // b is 1 once its work had started
 )
 
 // statKey is one counter: a day, what it counts and its two particulars.
