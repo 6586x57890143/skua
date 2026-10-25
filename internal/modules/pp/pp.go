@@ -75,6 +75,7 @@ func New(ctx context.Context, log *slog.Logger, db DB, seed uint64, info GuildIn
 	if err := m.st.load(ctx, db); err != nil {
 		return nil, err
 	}
+	m.st.regrant(DayOf(m.now()))
 	return m, nil
 }
 
