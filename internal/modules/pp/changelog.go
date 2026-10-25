@@ -11,6 +11,13 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.10.4",
+	Date:    "2026-10-25",
+	Balance: "44629a",
+	Lines: []string{
+		"quests that ask for messages or replies ask for about twice as many, at every tier. voice quests and every quest's pay stay as they were",
+	},
+}, {
 	Version: "0.10.3",
 	Date:    "2026-10-25",
 	Balance: "8b0d7b",
