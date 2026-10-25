@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 
@@ -20,8 +19,8 @@ import (
 
 // Grants are how admins reward contest winners: always out of the contest
 // fund, which grows with every quest paid, under the charter's limits, and
-// every one posted in the ledger channel. A grant over GrantSecond pot days waits there for
-// a second admin to approve it.
+// every one posted in the ledger channel. Grants are flat pp; the charter's limits are
+// in pot days, so a grant over GrantSecond of them waits there for a second admin to approve it.
 
 const grantForm = "ppgrant"
 
@@ -30,7 +29,7 @@ var (
 	errGrantAdmin = core.Tell("grants never go to an admin, the one granting included")
 	errGrantBot   = core.Tell("grants go to members, not bots")
 	errGrantWho   = core.Tell("pick who the grant is for")
-	errGrantSize  = core.Tell("say how many pot days, like 2 or 0.5")
+	errGrantSize  = core.Tell("say how many pp, like 500")
 	errGrantGone  = core.Tell("that grant was already settled")
 	errGrantSelf  = core.Tell("a second admin has to approve this one, not the one who asked for it")
 )
@@ -38,8 +37,8 @@ var (
 // grantControls is the grant button for /pp's help page.
 func (m *Module) grantControls() []discord.ContainerSubComponent {
 	return []discord.ContainerSubComponent{
-		discord.NewTextDisplay(fmt.Sprintf("### grants\n-# pay a contest winner from the contest fund, which grows with every quest: at most %s pp a prize and %d pot days a season to anyone. a second admin approves anything over %d pot day, and every grant is posted in the ledger channel",
-			grouped(Rules.Prize(m.st.bal())/unit), Rules.GrantSeason, Rules.GrantSecond)),
+		discord.NewTextDisplay(fmt.Sprintf("### grants\n-# pay a contest winner from the contest fund, which grows with every quest: at most %s pp a prize and %s pp a season to anyone. a second admin approves anything over %s pp, and every grant is posted in the ledger channel",
+			grouped(Rules.Prize(m.st.bal())/unit), grouped(Rules.GrantSeason*m.st.pot()/unit), grouped(Rules.GrantSecond*m.st.pot()/unit))),
 		discord.NewActionRow(withIcon(discord.NewSecondaryButton("grant pp", "pp:grant"), "envelope")),
 	}
 }
@@ -51,8 +50,8 @@ func grantModal() discord.ModalCreate {
 		Title:    "grant pp from the contest fund",
 		Components: []discord.LayoutComponent{
 			discord.NewLabel("who", discord.UserSelectMenuComponent{CustomID: "to", MaxValues: 1}),
-			discord.NewLabel("pot days", discord.TextInputComponent{
-				CustomID: "amount", Style: discord.TextInputStyleShort, Required: true, MaxLength: 6, Placeholder: "2",
+			discord.NewLabel("pp", discord.TextInputComponent{
+				CustomID: "amount", Style: discord.TextInputStyleShort, Required: true, MaxLength: 9, Placeholder: "500",
 			}),
 			discord.NewLabel("what for", discord.TextInputComponent{
 				CustomID: "reason", Style: discord.TextInputStyleShort, Required: true, MaxLength: 120,
@@ -70,16 +69,17 @@ type grant struct {
 	reason           string
 }
 
-// potDays reads an amount of pot days as pp hundredths.
-func potDays(s string) (int64, bool) {
-	f, err := strconv.ParseFloat(strings.TrimSpace(strings.ReplaceAll(s, ",", ".")), 64)
-	if err != nil || f <= 0 || math.IsInf(f, 0) || f > 1000 {
+// grantPP reads a whole number of pp, thousands separators allowed, as pp
+// hundredths.
+func grantPP(s string) (int64, bool) {
+	n, err := strconv.ParseInt(strings.NewReplacer(",", "", ".", "", " ", "", "_", "").Replace(s), 10, 64)
+	if err != nil || n <= 0 || n > 1e7 {
 		return 0, false
 	}
-	return int64(f * float64(Default.PotDay(Rules))), true
+	return n * unit, true
 }
 
-// submitGrant takes the form: under GrantSecond pot days it pays at once,
+// submitGrant takes the form: up to GrantSecond pot days of pp it pays at once,
 // over it it waits for a second admin in the ledger channel.
 func (m *Module) submitGrant(ctx context.Context, e *events.ModalSubmitInteractionCreate) error {
 	guild := e.GuildID()
@@ -91,7 +91,7 @@ func (m *Module) submitGrant(ctx context.Context, e *events.ModalSubmitInteracti
 		return errGrantWho
 	}
 	to := users[0]
-	amount, ok := potDays(e.Data.Text("amount"))
+	amount, ok := grantPP(e.Data.Text("amount"))
 	if !ok {
 		return errGrantSize
 	}
