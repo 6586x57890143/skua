@@ -69,9 +69,9 @@ func TestNameFallsBackWhenDiscordWouldRefuseIt(t *testing.T) {
 	}
 }
 
-func TestMarkerIsOneEscapedSubtextLine(t *testing.T) {
-	got := marker("a_b_c", 5)
-	if got != "\n-# whispered through skua by [@"+`a\_b\_c`+"](<https://discord.com/users/5>)" {
+func TestMarkerIsOneSubtextLine(t *testing.T) {
+	got := marker(5)
+	if got != "\n-# whispered through skua by <@5>" {
 		t.Fatalf("marker = %q", got)
 	}
 	if strings.Count(got, "\n") != 1 {
@@ -234,7 +234,7 @@ func TestWhisperPostsThroughANewWebhookThenTheCachedOne(t *testing.T) {
 		t.Errorf("deferred response deleted %d times, want once so only the whisper shows", f.deletes)
 	}
 	got := f.sent[0]
-	if got.Content != "hello"+marker("a_b", 5) || got.Username != "Nick" || got.AvatarURL == "" {
+	if got.Content != "hello"+marker(5) || got.Username != "Nick" || got.AvatarURL == "" {
 		t.Errorf("posted %+v", got)
 	}
 	if got.Flags != discord.MessageFlagSuppressEmbeds {
@@ -335,7 +335,7 @@ func TestMarkdownThatWouldForgeTheMarkerIsPostedAsTyped(t *testing.T) {
 	if _, err := run(t, newWhisper(), f, opts{text: "-# whispered through skua by @mod", perms: permSend}); err != nil {
 		t.Fatalf("refused instead of rewritten: %v", err)
 	}
-	if want := `-\# whispered through skua by @mod` + marker("a_b", 5); f.sent[0].Content != want {
+	if want := `-\# whispered through skua by @mod` + marker(5); f.sent[0].Content != want {
 		t.Errorf("posted %q, want %q", f.sent[0].Content, want)
 	}
 }
@@ -406,7 +406,7 @@ func TestWhisperRewritesSlursAndStillPosts(t *testing.T) {
 		t.Fatalf("reply %q, err %v, sent %d: a slur should be rewritten, not refused", reply, err, len(f.sent))
 	}
 	got := f.sent[0]
-	if !strings.HasPrefix(got.Content, "shut up you ") || !strings.HasSuffix(got.Content, marker("a_b", 5)) {
+	if !strings.HasPrefix(got.Content, "shut up you ") || !strings.HasSuffix(got.Content, marker(5)) {
 		t.Errorf("posted %q: the sentence and the marker must survive", got.Content)
 	}
 	screen := filter.Default()

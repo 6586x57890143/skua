@@ -172,12 +172,10 @@ func name(m *discord.ResolvedMember) string {
 	return m.EffectiveName()
 }
 
-var markdown = strings.NewReplacer(`\`, `\\`, `_`, `\_`, `*`, `\*`, `~`, `\~`, "`", "\\`", `|`, `\|`, `>`, `\>`, `[`, `\[`, `]`, `\]`)
-
-// marker is the last line of every whisper. The username is escaped so
-// "a_b_c" cannot render as "a" + italic "b" + "c".
-func marker(username string, user snowflake.ID) string {
-	return "\n-# whispered through skua by [@" + markdown.Replace(username) + "](<https://discord.com/users/" + user.String() + ">)"
+// marker is the last line of every whisper. A mention, not a link to the
+// profile: Discord draws a discord.com/users link as a profile card.
+func marker(user snowflake.ID) string {
+	return "\n-# whispered through skua by <@" + user.String() + ">"
 }
 
 func (m *Module) whisper(ctx context.Context, e *events.ApplicationCommandInteractionCreate) (err error) {
@@ -223,7 +221,7 @@ func (m *Module) whisper(ctx context.Context, e *events.ApplicationCommandIntera
 	}
 
 	msg := discord.WebhookMessageCreate{
-		Content:         text + marker(member.User.Username, member.User.ID),
+		Content:         text + marker(member.User.ID),
 		Username:        m.screen.Check(name(member)).Text,
 		AvatarURL:       member.EffectiveAvatarURL(),
 		AllowedMentions: core.NoPings(),
