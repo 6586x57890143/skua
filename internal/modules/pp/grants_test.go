@@ -3,7 +3,7 @@ package pp
 import (
 	"context"
 	"errors"
-	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -68,7 +68,7 @@ func TestGrantRefusals(t *testing.T) {
 	if err := m.press(ctx, firstOf(coretest.Button(t, "pp:grant", nil))); !errors.Is(err, errNotAdmin) {
 		t.Fatalf("a member opened the grant form: %v", err)
 	}
-	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, "1", false, false)); !errors.Is(err, errNotAdmin) {
+	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, days(1), false, false)); !errors.Is(err, errNotAdmin) {
 		t.Fatalf("a member granted: %v", err)
 	}
 	admin = true
@@ -82,14 +82,14 @@ func TestGrantRefusals(t *testing.T) {
 		e    *events.ModalSubmitInteractionCreate
 		want string
 	}{
-		{"no ledger channel", grantFor(t, g, 5, winner, "0.5", false, false), "ledger channel"},
+		{"no ledger channel", grantFor(t, g, 5, winner, days(0.5), false, false), "ledger channel"},
 	} {
 		if err := m.submitGrant(ctx, c.e); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v", c.name, err)
 		}
 	}
 	s.logChannel, s.treasury = 88, 100*pd
-	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, "0.5", false, false)); err == nil || !strings.Contains(err.Error(), "contest fund holds") {
+	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, days(0.5), false, false)); err == nil || !strings.Contains(err.Error(), "contest fund holds") {
 		t.Errorf("the treasury outside the fund granted: %v", err)
 	}
 	openFund(m, g, 100*pd)
@@ -98,9 +98,9 @@ func TestGrantRefusals(t *testing.T) {
 		e    *events.ModalSubmitInteractionCreate
 		want error
 	}{
-		{"to a bot", grantFor(t, g, 5, winner, "0.5", true, false), errGrantBot},
-		{"to themselves", grantFor(t, g, 5, 5, "0.5", false, false), errGrantAdmin},
-		{"to an admin", grantFor(t, g, 5, winner, "0.5", false, true), errGrantAdmin},
+		{"to a bot", grantFor(t, g, 5, winner, days(0.5), true, false), errGrantBot},
+		{"to themselves", grantFor(t, g, 5, 5, days(0.5), false, false), errGrantAdmin},
+		{"to an admin", grantFor(t, g, 5, winner, days(0.5), false, true), errGrantAdmin},
 		{"nothing", grantFor(t, g, 5, winner, "zero", false, false), errGrantSize},
 		{"less than nothing", grantFor(t, g, 5, winner, "-1", false, false), errGrantSize},
 	} {
@@ -109,7 +109,7 @@ func TestGrantRefusals(t *testing.T) {
 		}
 	}
 	// No prize past PrizeMax golden quests.
-	over := fmt.Sprint(float64(Rules.Prize(&Default))/float64(pd) + 0.1)
+	over := strconv.FormatInt(Rules.Prize(&Default)/unit+1, 10)
 	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, over, false, false)); err == nil || !strings.Contains(err.Error(), "golden quests") {
 		t.Errorf("a prize past the biggest: %v", err)
 	}
@@ -117,12 +117,12 @@ func TestGrantRefusals(t *testing.T) {
 	season, _ := Default.Season(DayOf(t0))
 	mem := m.st.member(s, g, winner, DayOf(t0))
 	mem.grantSeason, mem.granted = season, (Rules.GrantSeason-1)*pd
-	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, "1.5", false, false)); err == nil || !strings.Contains(err.Error(), "this season") {
+	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, days(1.5), false, false)); err == nil || !strings.Contains(err.Error(), "this season") {
 		t.Errorf("past a member's season: %v", err)
 	}
 	// No more than the fund holds.
 	openFund(m, g, pd/2)
-	if err := m.submitGrant(ctx, grantFor(t, g, 5, old(8), "1", false, false)); err == nil || !strings.Contains(err.Error(), "contest fund holds") {
+	if err := m.submitGrant(ctx, grantFor(t, g, 5, old(8), days(1), false, false)); err == nil || !strings.Contains(err.Error(), "contest fund holds") {
 		t.Errorf("past the contest fund: %v", err)
 	}
 }
@@ -138,7 +138,7 @@ func TestGrantPays(t *testing.T) {
 	g := snowflake.ID(3)
 	s := openFund(m, g, 50*pd)
 	winner := old(7)
-	e := grantFor(t, g, 5, winner, "1", false, false)
+	e := grantFor(t, g, 5, winner, days(1), false, false)
 	var got []string
 	e.Respond = func(_ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
 		got = append(got, d.(discord.MessageCreate).Content)
@@ -148,7 +148,8 @@ func TestGrantPays(t *testing.T) {
 		t.Fatal(err)
 	}
 	mem := s.members[winner]
-	if mem.purse != pd || mem.total != 0 || s.treasury != 49*pd || s.fund != 49*pd || mem.granted != pd {
+	paid := pd / unit * unit // the form takes whole pp
+	if mem.purse != paid || mem.total != 0 || s.treasury != 50*pd-paid || s.fund != 50*pd-paid || mem.granted != paid {
 		t.Errorf("purse %d total %d treasury %d granted %d", mem.purse, mem.total, s.treasury, mem.granted)
 	}
 	if len(s.pending) != 0 || len(db.execs) == 0 || !strings.Contains(db.execs[0], "insert into pp_ledger") {
@@ -185,7 +186,7 @@ func TestGrantApproval(t *testing.T) {
 	s.append(0, DayOf(t0), reasonOpen, 40*pd, nil) // what the treasury holds, in its ledger
 	winner := old(7)
 
-	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, "3", false, false)); err != nil {
+	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, days(3), false, false)); err != nil {
 		t.Fatal(err)
 	}
 	if s.treasury != 40*pd || len(r.posts) != 1 || !strings.Contains(r.posts[0], "pp:approve:") {
@@ -216,7 +217,7 @@ func TestGrantApproval(t *testing.T) {
 		t.Errorf("a grant paid twice: %v", err)
 	}
 
-	if err := m.submitGrant(ctx, grantFor(t, g, 5, old(8), "2", false, false)); err != nil {
+	if err := m.submitGrant(ctx, grantFor(t, g, 5, old(8), days(2), false, false)); err != nil {
 		t.Fatal(err)
 	}
 	last := r.posts[len(r.posts)-1]
@@ -311,5 +312,23 @@ func TestGrantSaveFails(t *testing.T) {
 	m.Save()
 	if len(s.paid) != 0 || len(s.pending) != 0 || !strings.Contains(strings.Join(db.execs, "\n"), "set state = 'paid'") {
 		t.Errorf("the next save: paid %v, pending %d, wrote %v", s.paid, len(s.pending), db.execs)
+	}
+}
+
+// days is a grant of d pot days, in whole pp as the form takes it.
+func days(d float64) string {
+	return strconv.FormatInt(int64(d*float64(Default.PotDay(Rules)))/unit, 10)
+}
+
+func TestGrantPP(t *testing.T) {
+	for in, want := range map[string]int64{"500": 500 * unit, "1,200": 1200 * unit, " 3 000 ": 3000 * unit} {
+		if got, ok := grantPP(in); !ok || got != want {
+			t.Errorf("grantPP(%q) = %d, %v; want %d", in, got, ok, want)
+		}
+	}
+	for _, in := range []string{"", "0", "-5", "two", "1e9", "99999999"} {
+		if _, ok := grantPP(in); ok {
+			t.Errorf("grantPP(%q) took it", in)
+		}
 	}
 }
