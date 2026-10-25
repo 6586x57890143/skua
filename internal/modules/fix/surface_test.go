@@ -38,7 +38,7 @@ func TestCompactLinkedCard(t *testing.T) {
 		t.Fatal(head)
 	}
 	body := box.Components[1].(discord.TextDisplayComponent).Content
-	if strings.HasPrefix(body, ">") || strings.HasPrefix(body, "-#") || !strings.Contains(body, "[https://example.com/story](<https://example.com/story>)") {
+	if strings.HasPrefix(body, ">") || strings.HasPrefix(body, "-#") || !strings.Contains(body, "<https://example.com/story>") || strings.Contains(body, "](<") {
 		t.Fatal(body)
 	}
 	raw, _ := json.Marshal(msg)
@@ -68,7 +68,7 @@ func TestLinkedTextCannotInjectMarkdown(t *testing.T) {
 			t.Fatal(got)
 		}
 	}
-	if !strings.Contains(got, "https://evil.example/a") || strings.Contains(got, "(<https://localhost/") {
+	if !strings.Contains(got, "<https://evil.example/a>") || !strings.Contains(got, "<https://example.com/a%28b%29?q=x>") || strings.Contains(got, "<https://localhost/") {
 		t.Fatal(got)
 	}
 	for _, limit := range []int{0, 3, 4, 20, 100, 1800} {

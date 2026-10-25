@@ -35,7 +35,9 @@ func sourceText(text string, limit int) string {
 		visible := clean(raw, min(100, limit-used))
 		link := visible
 		if u != "" {
-			link = "[" + visible + "](<" + u + ">)"
+			// Bare, not masked: Discord shows a masked link whose label
+			// is a URL as raw markdown, and escaping changes the label.
+			link = "<" + u + ">"
 		}
 		if len(utf16.Encode([]rune(link))) > limit-used-3 {
 			b.WriteString(clean(text[loc[0]:], limit-used))
