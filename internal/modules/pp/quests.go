@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -55,16 +56,34 @@ type QuestKind struct {
 const selfieWait = 24 * time.Hour
 
 // heldQuest is one held quest: its tier and kind, how far each task has come,
-// a selfie posted for it, waiting out selfieWait, and the day it was last
-// rerolled.
+// a selfie posted for it, waiting out selfieWait, the day it was last
+// rerolled and how many times its selfie came down.
 type heldQuest struct {
 	tier, kind int
 	prog       [3]int64
 	ref, refAt int64 // the selfie message and when it was posted (unix)
 	rerolled   int64
+	struck     int64
 }
 
 func (q heldQuest) tasks(b *Balance) []Task { return b.QuestKinds[q.tier][q.kind].Tasks }
+
+// aside is whether q is a selfie that's up, or came down once and waits for
+// one more: it doesn't count toward QuestHold, so waiting out its day never
+// costs the quest dealt at 05:30, and it can't be rerolled. A selfie not
+// yet posted is an ordinary quest.
+func (q heldQuest) aside() bool { return q.ref != 0 || q.struck > 0 }
+
+// held is how many of qs take a slot.
+func held(qs []heldQuest) int {
+	n := 0
+	for _, q := range qs {
+		if !q.aside() {
+			n++
+		}
+	}
+	return n
+}
 
 // done is whether every task is met.
 func (q heldQuest) done(b *Balance) bool {
@@ -77,29 +96,30 @@ func (q heldQuest) done(b *Balance) bool {
 }
 
 // encodeQuests is held quests as they're saved: tier, kind, progress, ref,
-// refAt and rerolled, comma separated, a quest each between semicolons.
+// refAt, rerolled and struck, comma separated, a quest each between
+// semicolons.
 func encodeQuests(qs []heldQuest) string {
 	parts := make([]string, len(qs))
 	for i, q := range qs {
-		parts[i] = fmt.Sprintf("%d,%d,%d,%d,%d,%d,%d,%d", q.tier, q.kind, q.prog[0], q.prog[1], q.prog[2], q.ref, q.refAt, q.rerolled)
+		parts[i] = fmt.Sprintf("%d,%d,%d,%d,%d,%d,%d,%d,%d", q.tier, q.kind, q.prog[0], q.prog[1], q.prog[2], q.ref, q.refAt, q.rerolled, q.struck)
 	}
 	return strings.Join(parts, ";")
 }
 
-// decodeQuests reads saved quests back, those saved before rerolled was
-// too, dropping any the balance no longer has a kind for.
+// decodeQuests reads saved quests back, those saved before rerolled or
+// struck were too, dropping any the balance no longer has a kind for.
 func decodeQuests(b *Balance, s string) []heldQuest {
 	var out []heldQuest
 	for part := range strings.SplitSeq(s, ";") {
 		f := strings.Split(part, ",")
-		if len(f) != 7 && len(f) != 8 {
+		if len(f) < 7 || len(f) > 9 {
 			continue
 		}
-		var n [8]int64
+		var n [9]int64
 		for i := range f {
 			n[i], _ = strconv.ParseInt(f[i], 10, 64)
 		}
-		q := heldQuest{tier: int(n[0]), kind: int(n[1]), prog: [3]int64{n[2], n[3], n[4]}, ref: n[5], refAt: n[6], rerolled: n[7]}
+		q := heldQuest{tier: int(n[0]), kind: int(n[1]), prog: [3]int64{n[2], n[3], n[4]}, ref: n[5], refAt: n[6], rerolled: n[7], struck: n[8]}
 		if q.tier >= 0 && q.tier < len(b.QuestKinds) && q.kind >= 0 && q.kind < len(b.QuestKinds[q.tier]) {
 			out = append(out, q)
 		}
@@ -133,8 +153,8 @@ func (b *Balance) old(user snowflake.ID, now time.Time) bool {
 	return now.Sub(user.Time()) >= b.CompanionAge
 }
 
-// deal gives m a quest for each day since the last, up to QuestHold held.
-// s.mu held.
+// deal gives m a quest for each day since the last, up to QuestHold in
+// the slots. s.mu held.
 func (st *state) deal(s *server, m *member, guild, user snowflake.ID, today int64) {
 	if m.questDay >= today || !st.bal().old(user, dayStart(today)) {
 		return
@@ -143,7 +163,7 @@ func (st *state) deal(s *server, m *member, guild, user snowflake.ID, today int6
 	if m.questDay == 0 {
 		days = 1
 	}
-	for k := range min(days, int64(st.bal().QuestHold-len(m.quests))) {
+	for k := range min(days, int64(st.bal().QuestHold-held(m.quests))) {
 		q := st.bal().draw(st.seedOf(today), uint64(guild), uint64(user), today, slotDeal+uint64(k)*2, s.selfies != 0, nil)
 		m.quests = append(m.quests, q)
 		s.count(today, statDealt, q.tier, q.kind)
@@ -231,6 +251,8 @@ func (st *state) reroll(s *server, m *member, guild, user snowflake.ID, i int, t
 	switch {
 	case i < 0 || i >= len(m.quests):
 		return core.Tell("that quest isn't held any more; open your quests again")
+	case m.quests[i].aside():
+		return core.Tell("a selfie that's up can't be rerolled; it pays once it has stayed a day")
 	case m.quests[i].rerolled == today:
 		return core.Tell("that quest has had today's reroll; another comes at 05:30 utc")
 	}
@@ -241,8 +263,8 @@ func (st *state) reroll(s *server, m *member, guild, user snowflake.ID, i int, t
 	return nil
 }
 
-// selfie keeps a picture posted in the selfie channel against the first
-// selfie quest waiting for one. s.mu held.
+// selfie keeps a picture posted in the selfie channel against a selfie
+// quest waiting for one, first one whose picture came down. s.mu held.
 func (st *state) selfie(s *server, m *member, msg discord.Message, now time.Time) {
 	if s.selfies == 0 || msg.ChannelID != s.selfies {
 		return
@@ -256,10 +278,37 @@ func (st *state) selfie(s *server, m *member, msg discord.Message, now time.Time
 	if !picture {
 		return
 	}
+	pick := -1
 	for i, q := range m.quests {
-		if q.ref == 0 && q.tasks(st.bal())[0].Metric == taskSelfie {
-			m.quests[i].ref, m.quests[i].refAt, m.dirty = int64(msg.ID), now.Unix(), true
-			return
+		if q.ref == 0 && q.tasks(st.bal())[0].Metric == taskSelfie && (pick < 0 || q.struck > m.quests[pick].struck) {
+			pick = i
+		}
+	}
+	if pick >= 0 {
+		m.quests[pick].ref, m.quests[pick].refAt, m.dirty = int64(msg.ID), now.Unix(), true
+	}
+}
+
+// strike counts quest i's selfie coming down: the first time the quest
+// waits for one more picture, the second voids it, so reposting can't
+// keep a quest going.
+func (m *member) strike(i int) {
+	m.dirty = true
+	if m.quests[i].struck > 0 {
+		m.quests = slices.Delete(m.quests, i, i+1)
+		return
+	}
+	m.quests[i].ref, m.quests[i].refAt, m.quests[i].struck = 0, 0, 1
+}
+
+// unpost strikes the selfie quest a deleted message was up for. s.mu held.
+func (s *server) unpost(msg snowflake.ID) {
+	for _, mem := range s.members {
+		for i, q := range mem.quests {
+			if q.ref == int64(msg) {
+				mem.strike(i)
+				return
+			}
 		}
 	}
 }
@@ -270,7 +319,7 @@ type pendingSelfie struct {
 }
 
 // checkSelfies looks at every selfie past selfieWait: one still there
-// finishes its task, one gone frees the quest for another try.
+// finishes its task, one gone is struck, as a delete seen live is.
 func (m *Module) checkSelfies(ctx context.Context) {
 	if m.rest == nil {
 		return
@@ -304,8 +353,7 @@ func (m *Module) checkSelfies(ctx context.Context) {
 				continue
 			}
 			if gone {
-				mem.quests[i].ref, mem.quests[i].refAt = 0, 0
-				mem.dirty = true
+				mem.strike(i)
 			} else {
 				mem.quests[i].ref = 0
 				m.st.progress(s, mem, p.user, taskSelfie)
@@ -365,18 +413,38 @@ func (m *Module) questsMessage(guild snowflake.ID, who *discord.ResolvedMember) 
 	s.mu.Unlock()
 
 	b := m.st.bal()
-	lines := make([]QuestLine, len(qs))
+	// The screen has room for QuestHold. A selfie set aside keeps its
+	// place while there's room, and goes under the screen once a quest
+	// dealt at 05:30 took it.
+	var shown, below []int
+	for i, q := range qs {
+		if !q.aside() {
+			shown = append(shown, i)
+		}
+	}
+	for i, q := range qs {
+		if q.aside() && len(shown) < b.QuestHold {
+			shown = append(shown, i)
+		} else if q.aside() {
+			below = append(below, i)
+		}
+	}
+	slices.Sort(shown)
+	lines := make([]QuestLine, len(shown))
 	var text []string
 	color, golden := brand.ColorNotice, false
 	ready := 0
-	for i, q := range qs {
-		if q.rerolled != today {
+	for n, i := range shown {
+		q := qs[i]
+		if q.rerolled != today && !q.aside() {
 			ready++
 		}
-		lines[i] = QuestLine{Icon: b.QuestKinds[q.tier][q.kind].Icon, Tier: q.tier, Reward: b.QuestPP[q.tier]}
+		lines[n] = QuestLine{Icon: b.QuestKinds[q.tier][q.kind].Icon, Tier: q.tier, Reward: b.QuestPP[q.tier]}
 		for j, t := range q.tasks(b) {
-			lines[i].Tasks = append(lines[i].Tasks, TaskLine{What: shortTask(t, q.ref != 0), Progress: min(q.prog[j], t.Goal), Goal: t.Goal})
+			lines[n].Tasks = append(lines[n].Tasks, TaskLine{What: shortTask(t, q.ref != 0), Progress: min(q.prog[j], t.Goal), Goal: t.Goal})
 		}
+	}
+	for _, q := range qs {
 		text = append(text, fmt.Sprintf("%s · %s · %s pp", QuestTiers[q.tier], q.text(b), grouped(b.QuestPP[q.tier]/unit)))
 		golden = golden || q.tier == 2
 	}
@@ -396,13 +464,21 @@ func (m *Module) questsMessage(guild snowflake.ID, who *discord.ResolvedMember) 
 	extra := []discord.ContainerSubComponent{
 		discord.NewMediaGallery(screenItem(pic, clip(alt, altLimit))),
 	}
-	if len(qs) > 0 {
+	for _, i := range below {
+		q := qs[i]
+		line := fmt.Sprintf("-# your selfie is up: it pays %s pp <t:%d:R> if it's still there", grouped(b.QuestPP[q.tier]/unit), q.refAt+int64(selfieWait/time.Second))
+		if q.ref == 0 {
+			line = "-# your selfie came down: post another to finish it. if that one comes down too, the quest is void"
+		}
+		extra = append(extra, discord.NewTextDisplay(line))
+	}
+	if len(shown) > 0 {
 		// A reroll button per quest, in the screen's order, each greyed
-		// out once it has had today's.
+		// out once it has had today's or its selfie is up.
 		row := discord.NewActionRow()
-		for i, q := range qs {
-			btn := withIcon(discord.NewSecondaryButton(fmt.Sprintf("reroll %d", i+1), "pp:reroll:"+strconv.Itoa(i)), "reroll")
-			if q.rerolled == today {
+		for n, i := range shown {
+			btn := withIcon(discord.NewSecondaryButton(fmt.Sprintf("reroll %d", n+1), "pp:reroll:"+strconv.Itoa(i)), "reroll")
+			if qs[i].rerolled == today || qs[i].aside() {
 				btn = btn.AsDisabled()
 			}
 			row = row.AddComponents(btn)

@@ -242,6 +242,13 @@ func (m *Module) OnEvent(ev bot.Event) {
 		reply := r != nil && !r.Author.Bot && r.Author.ID != msg.Author.ID && m.st.bal().old(r.Author.ID, now)
 		m.st.talk(s, e.GuildID, msg.Author.ID, msg.Content, now, reply)
 		m.st.selfie(s, mem, msg, now)
+	case *events.GuildMessageDelete:
+		s := m.st.server(e.GuildID)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.selfies != 0 && e.ChannelID == s.selfies {
+			s.unpost(e.MessageID)
+		}
 	case *events.GuildVoiceStateUpdate:
 		s := m.st.server(e.VoiceState.GuildID)
 		s.mu.Lock()

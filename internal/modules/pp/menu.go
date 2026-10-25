@@ -426,7 +426,7 @@ func (m *Module) sheet(s *server, mem *member, guild, user snowflake.ID, today i
 	sh := Sheet{
 		Portrait: Portrait(ClassOf(mem.class)), Rung: mem.rung,
 		Class: ClassOf(mem.class), Level: l, Into: into, Need: need, Total: mem.total, Purse: mem.purse,
-		Vigor: vigor, Phase: phase, Season: season, Week: week, Held: len(mem.quests),
+		Vigor: vigor, Phase: phase, Season: season, Week: week, Held: held(mem.quests),
 		Laurels: int(mem.laurels),
 	}
 	for _, w := range []struct {

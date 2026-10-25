@@ -3,6 +3,7 @@ package pp
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -358,5 +359,65 @@ func TestReplyQuest(t *testing.T) {
 	say(3*time.Minute+time.Second, discord.User{ID: old(2)}, "and another")
 	if mem.quests[0].prog[0] != 1 {
 		t.Errorf("replies counted %d, want the one that paid", mem.quests[0].prog[0])
+	}
+}
+
+// A selfie that's up is set aside: with three held the day's deal still
+// comes and the selfie goes under the screen, and it can't be rerolled
+// while it's up, though one not yet posted can. One taken down may be
+// posted again once; a second taken down voids the quest.
+func TestSelfieAside(t *testing.T) {
+	m := testModule(&fakeDB{})
+	s := m.st.server(3)
+	s.selfies = 77
+	user, day := snowflake.ID(5), DayOf(t0)
+	selfie := kindOf(t, 2, taskSelfie)
+	mem := m.st.member(s, 3, user, day)
+	mem.quests = []heldQuest{{tier: 0, kind: 0}, {tier: 0, kind: 1}, {tier: 2, kind: selfie}}
+
+	other := m.st.member(s, 3, old(2), day)
+	other.quests = []heldQuest{{tier: 2, kind: selfie}}
+	if err := m.st.reroll(s, other, 3, old(2), 0, day); err != nil {
+		t.Errorf("a selfie not yet posted can't be rerolled: %v", err)
+	}
+
+	png := "image/png"
+	post := func(id snowflake.ID) {
+		m.st.selfie(s, mem, discord.Message{ID: id, ChannelID: 77, Attachments: []discord.Attachment{{ContentType: &png}}}, t0)
+	}
+	post(900)
+	if m.st.reroll(s, mem, 3, user, 2, day) == nil {
+		t.Error("a selfie that's up was rerolled")
+	}
+	m.now = func() time.Time { return t0.Add(24 * time.Hour) }
+	m.st.member(s, 3, user, day+1)
+	if len(mem.quests) != 4 || held(mem.quests) != 3 {
+		t.Fatalf("the day's deal behind a selfie that's up: %+v", mem.quests)
+	}
+	if got := decodeQuests(&Default, encodeQuests(mem.quests)); !slices.Equal(got, mem.quests) {
+		t.Errorf("saved quests came back %+v", got)
+	}
+	card := func() string {
+		e, sent := coretest.Button(t, "pp:quests", nil)
+		if err := m.press(context.Background(), e); err != nil {
+			t.Fatal(err)
+		}
+		return js((*sent)[0].Components)
+	}
+	if c := card(); !strings.Contains(c, "your selfie is up") || strings.Contains(c, "pp:reroll:2") || !strings.Contains(c, "pp:reroll:3") {
+		t.Errorf("the quests card with a selfie aside: %s", c)
+	}
+
+	s.unpost(900)
+	if len(mem.quests) != 4 || mem.quests[2].ref != 0 || !strings.Contains(card(), "came down") {
+		t.Fatalf("a selfie taken down once: %+v", mem.quests)
+	}
+	post(901)
+	if mem.quests[2].ref != 901 {
+		t.Fatalf("the repost wasn't kept: %+v", mem.quests)
+	}
+	s.unpost(901)
+	if len(mem.quests) != 3 || held(mem.quests) != 3 {
+		t.Errorf("a selfie taken down twice: %+v", mem.quests)
 	}
 }
