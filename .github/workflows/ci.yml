@@ -41,12 +41,36 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.14.0
+      # Coverage without the race detector; the race job runs beside this one.
       - run: scripts/coverage.sh
       # The economy simulations, which the race tests skip.
       - run: go test -run Economy ./internal/modules/pp/
       - uses: golang/govulncheck-action@v1
         with:
           go-version-file: go.mod
+
+  # The race detector on its own runner, so it runs beside the coverage
+  # floor instead of multiplying it.
+  race:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: skua
+          POSTGRES_PASSWORD: skua
+          POSTGRES_DB: skua
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U skua" --health-interval 5s --health-retries 10
+    env:
+      SKUA_TEST_DATABASE_URL: postgres://skua:skua@localhost:5432/skua?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - run: go test -race ./...
 
   secret-scan:
     runs-on: ubuntu-latest
@@ -92,7 +116,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   push-image:
-    needs: [lint-test, secret-scan, prose, docker-build]
+    needs: [lint-test, race, secret-scan, prose, docker-build]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
