@@ -38,6 +38,7 @@ func decodes(t *testing.T, data []byte, err error) {
 }
 
 func TestStatusScreen(t *testing.T) {
+	realScreens(t)
 	l, into, need := Default.Level(9400 * unit)
 	for _, s := range []Sheet{
 		{Name: "tester", Class: ClassOf("wanderer"), Need: Default.Need(0), Vigor: 100, Phase: "fresh", Held: 1, RerollReady: true},
@@ -51,6 +52,7 @@ func TestStatusScreen(t *testing.T) {
 }
 
 func TestQuestScreen(t *testing.T) {
+	realScreens(t)
 	data, err := QuestScreen("heavywinds", []QuestLine{
 		{Icon: "quill", Reward: Default.QuestPP[0], Tasks: []TaskLine{{What: "messages", Progress: 23, Goal: 40}}},
 		{Icon: "mirror", Tier: 2, Reward: Default.QuestPP[2], Tasks: []TaskLine{{What: "a selfie that stays a day", Goal: 1}}},
@@ -93,6 +95,7 @@ func BenchmarkStatusScreen(b *testing.B) {
 }
 
 func TestTitleScreen(t *testing.T) {
+	realScreens(t)
 	data, err := TitleScreen()
 	decodes(t, data, err)
 }

@@ -78,7 +78,7 @@ the migration runner in `internal/store` along with the first migration.
 ```sh
 go build ./... && go vet ./...
 golangci-lint run
-scripts/coverage.sh                    # race tests + 85% floor per internal/ package
+scripts/coverage.sh                    # tests + 85% floor per internal/ package (CI runs -race as its own job)
 scripts/prose.sh                       # CI's punctuation check
 govulncheck ./...
 go run ./tools/sprites                 # regenerate internal/brand/assets and emoji
@@ -126,6 +126,10 @@ wait Discord gives, never retry a 401 or 403, stop on any global or shared 429, 
 429s per run (`reactbench` stops at 300). A path that sends ahead of Discord's headers
 was tried and drew 20 429s in one fill, so it is not worth trying again.
 
+Screens are stubbed in `pp`'s tests (`pixel.Draft`, set in `TestMain`): a
+real one costs seconds under `-race`. A test that looks at its picture calls
+`realScreens(t)`, which also runs it in parallel with the others that do.
+
 ## GitHub and deploy
 
 Public repo `6586x57890143/skua`. `main` takes changes only through PRs, squash merged,
@@ -133,7 +137,7 @@ and the PR title becomes the commit, so it should read like one (`feat(guard): .
 One change per PR. Branches are deleted on merge.
 
 CI (`.github/workflows/ci.yml`) runs on every PR and every push to `main`: vet, lint,
-race tests under a per-package coverage floor, govulncheck, gitleaks, the prose check
+a per-package coverage floor, race tests as a job beside it, govulncheck, gitleaks, the prose check
 (`scripts/prose.sh`: no em dashes, ellipsis characters or curly quotes anywhere), and
 a Docker build for the deploy host's platform (`VPS_PLATFORM`, written by
 `tools/setup`; arm64 by default). Those are the required checks, and they are strict:

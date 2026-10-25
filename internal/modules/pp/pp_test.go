@@ -70,6 +70,7 @@ func js(v any) string { b, _ := json.Marshal(v); return string(b) }
 // Before a first pick /pp is the title screen with the button to pick;
 // the wanderer counts as a pick though it's the class they start as.
 func TestTitleUntilAPick(t *testing.T) {
+	realScreens(t)
 	m := testModule(&fakeDB{})
 	e, sent := coretest.Event(t, "pp", nil)
 	if err := m.Commands()[0].Run(context.Background(), e); err != nil {
@@ -93,6 +94,7 @@ func TestTitleUntilAPick(t *testing.T) {
 }
 
 func TestStatusCommand(t *testing.T) {
+	realScreens(t)
 	m := testModule(&fakeDB{})
 	if err := m.pick(3, 5, "thief"); err != nil {
 		t.Fatal(err)
@@ -156,6 +158,7 @@ func pick(t *testing.T, value string) (*events.ComponentInteractionCreate, *[]di
 // screen's picture once, as disgo sends it: unlisted Discord can't find
 // attachment://pp.webp, listed twice it refuses the edit.
 func TestPickListsTheScreen(t *testing.T) {
+	realScreens(t)
 	m := testModule(&fakeDB{})
 	// The chat hasn't moved past the picker, so it's edited in place.
 	e, _ := coretest.Button(t, "pp:pick:thief", func(p map[string]any) {

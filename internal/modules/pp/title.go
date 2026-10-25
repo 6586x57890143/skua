@@ -30,8 +30,16 @@ var title = sync.OnceValue(func() image.Image {
 // game's title: the name over its emblem, what it is, every class's bird in
 // a row, and a menu with the cursor on picking one. It returns the PNG.
 //
-// It never changes, so it's drawn once.
-var TitleScreen = sync.OnceValues(drawTitle)
+// It never changes, so it's drawn once; a draft (pixel.Draft, in tests)
+// is never kept.
+func TitleScreen() ([]byte, error) {
+	if pixel.Draft.Load() {
+		return drawTitle()
+	}
+	return titleScreen()
+}
+
+var titleScreen = sync.OnceValues(drawTitle)
 
 func drawTitle() ([]byte, error) {
 	c := pixel.New(screenW, screenH)
