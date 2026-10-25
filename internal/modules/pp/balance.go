@@ -113,7 +113,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.10.3",
+	Version: "0.10.4",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -158,22 +158,22 @@ var Default = Balance{
 	QuestKinds: [3][]QuestKind{
 		{
 			{Icon: "campfire", Tasks: []Task{{taskVoice, 30}}},
-			{Icon: "quill", Tasks: []Task{{taskTalk, 25}}},
+			{Icon: "quill", Tasks: []Task{{taskTalk, 45}}},
 			{Icon: "drum", Tasks: []Task{{taskCrowd, 20}}},
-			{Icon: "envelope", Tasks: []Task{{taskReply, 12}}},
+			{Icon: "envelope", Tasks: []Task{{taskReply, 25}}},
 		},
 		{
-			{Icon: "compass", Tasks: []Task{{taskVoice, 20}, {taskTalk, 17}}},
+			{Icon: "compass", Tasks: []Task{{taskVoice, 20}, {taskTalk, 30}}},
 			{Icon: "campfire", Tasks: []Task{{taskVoice, 40}}},
-			{Icon: "quill", Tasks: []Task{{taskTalk, 33}}},
-			{Icon: "bell", Tasks: []Task{{taskCrowd, 25}, {taskReply, 10}}},
+			{Icon: "quill", Tasks: []Task{{taskTalk, 60}}},
+			{Icon: "bell", Tasks: []Task{{taskCrowd, 25}, {taskReply, 20}}},
 			{Icon: "lute", Tasks: []Task{{taskStream, 35}}},
 		},
 		{
-			{Icon: "lantern", Tasks: []Task{{taskVoice, 18}, {taskTalk, 15}, {taskHearth, 10}}},
-			{Icon: "quill", Tasks: []Task{{taskTalk, 45}}},
+			{Icon: "lantern", Tasks: []Task{{taskVoice, 18}, {taskTalk, 30}, {taskHearth, 10}}},
+			{Icon: "quill", Tasks: []Task{{taskTalk, 90}}},
 			{Icon: "mirror", Tasks: []Task{{taskSelfie, 1}}},
-			{Icon: "beads", Tasks: []Task{{taskCrowd, 45}, {taskReply, 15}}},
+			{Icon: "beads", Tasks: []Task{{taskCrowd, 45}, {taskReply, 30}}},
 			{Icon: "orb", Tasks: []Task{{taskCamera, 20}}},
 		},
 	},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,10 +21,12 @@ import (
 // A rarer quest asks more, but less than it pays more: every kind of a
 // tier asks under its pay's multiple of the good tier's ask. A minute in a
 // crowd or on stream is a voice minute too, and a reply is a message, so
-// tasks of one kind overlap: the work is the biggest of them.
+// tasks of one kind overlap: the work is the biggest of them. Each kind is
+// measured against the good quest of its own kind, since a message comes
+// every 20 seconds and pays about what a voice minute does: work, not pay,
+// is what a quest asks. A quest of both asks the sum.
 func TestQuestsAskLessThanTheyPay(t *testing.T) {
-	ask := func(k QuestKind) int64 {
-		var voice, talk int64
+	goals := func(k QuestKind) (voice, talk int64) {
 		for _, t := range k.Tasks {
 			switch t.Metric {
 			case taskVoice, taskHearth, taskCrowd, taskStream, taskCamera:
@@ -32,16 +35,18 @@ func TestQuestsAskLessThanTheyPay(t *testing.T) {
 				talk = max(talk, t.Goal)
 			}
 		}
-		return voice*Default.VoiceBase*Default.Unmuted/100 + talk*(Default.ChatMin+Default.ChatMax)/2
+		return voice, talk
 	}
-	base := ask(Default.QuestKinds[0][0])
+	baseVoice, _ := goals(Default.QuestKinds[0][0])
+	_, baseTalk := goals(Default.QuestKinds[0][1])
 	for tier, kinds := range Default.QuestKinds {
 		for _, k := range kinds {
 			if k.Tasks[0].Metric == taskSelfie || k.Tasks[0].Metric == taskCamera {
 				continue
 			}
 			pays := float64(Default.QuestPP[tier]) / float64(Default.QuestPP[0])
-			asks := float64(ask(k)) / float64(base)
+			voice, talk := goals(k)
+			asks := float64(voice)/float64(baseVoice) + float64(talk)/float64(baseTalk)
 			if tier > 0 && (asks >= pays || asks <= 1) {
 				t.Errorf("a %s quest asks %.2f times a good one and pays %.2f times", QuestTiers[tier], asks, pays)
 			}
@@ -99,13 +104,14 @@ func TestQuestPays(t *testing.T) {
 	s := st.server(guild)
 	a := old(1)
 	mem := st.member(s, guild, a, DayOf(t0))
-	mem.quests = []heldQuest{{tier: 0, kind: 1}, {tier: 1, kind: 0}} // 25 messages; 20 minutes and 17 messages
+	mem.quests = []heldQuest{{tier: 0, kind: 1}, {tier: 1, kind: 0}} // messages; minutes and messages
+	talk, greatTalk := Default.QuestKinds[0][1].Tasks[0].Goal, Default.QuestKinds[1][0].Tasks[1].Goal
 	purse, total, treasury := mem.purse, mem.total, s.treasury
-	for i := range 25 {
-		st.chat(s, guild, a, "a thing worth saying "+string(rune('a'+i%26)), t0.Add(time.Duration(i)*30*time.Second))
+	for i := range talk {
+		st.chat(s, guild, a, "a thing worth saying "+strconv.Itoa(int(i)), t0.Add(time.Duration(i)*30*time.Second))
 	}
 	if len(mem.quests) != 1 || mem.questsDone != 1 {
-		t.Fatalf("after 25 messages: %d held, %d done", len(mem.quests), mem.questsDone)
+		t.Fatalf("after %d messages: %d held, %d done", talk, len(mem.quests), mem.questsDone)
 	}
 	var row *entry
 	for i := range s.pending {
@@ -123,7 +129,7 @@ func TestQuestPays(t *testing.T) {
 	if s.treasury-treasury < levy || row.delta != Default.QuestPP[0]-levy || mem.purse-purse < row.delta {
 		t.Errorf("treasury +%d, row %d, purse +%d", s.treasury-treasury, row.delta, mem.purse-purse)
 	}
-	if mem.quests[0].prog[1] != 17 {
+	if mem.quests[0].prog[1] != greatTalk {
 		t.Errorf("the great quest's talk stands at %d", mem.quests[0].prog[1])
 	}
 
