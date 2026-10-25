@@ -33,16 +33,16 @@ func TestAddRefusesMalformed(t *testing.T) {
 		"no handler":    {Create: discord.SlashCommandCreate{Name: "a"}, Tier: Public},
 	}
 	for want, c := range cases {
-		err := NewRouter(0, nil, slog.Default()).Add(mod{[]Command{c}})
+		err := NewRouter(nil, nil, slog.Default()).Add(mod{[]Command{c}})
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("got %v, want an error containing %q", err, want)
 		}
 	}
 	ok := Command{Create: discord.SlashCommandCreate{Name: "a"}, Tier: Admin, Run: run}
-	if err := NewRouter(0, nil, slog.Default()).Add(mod{[]Command{ok, ok}}); err == nil {
+	if err := NewRouter(nil, nil, slog.Default()).Add(mod{[]Command{ok, ok}}); err == nil {
 		t.Error("a duplicate name was accepted")
 	}
-	r := NewRouter(0, nil, slog.Default())
+	r := NewRouter(nil, nil, slog.Default())
 	if err := r.Add(mod{[]Command{ok}}); err != nil || len(r.Creates()) != 1 {
 		t.Errorf("valid command: err=%v creates=%d", err, len(r.Creates()))
 	}
@@ -68,7 +68,7 @@ func (f *fakeRest) CreateFollowupMessage(_ snowflake.ID, _ string, m discord.Mes
 
 func router(t *testing.T, c Command) *Router {
 	t.Helper()
-	r := NewRouter(9, func(g snowflake.ID) (snowflake.ID, bool) { return 7, g == 3 }, slog.New(slog.DiscardHandler))
+	r := NewRouter(Admins{9, 11}, func(g snowflake.ID) (snowflake.ID, bool) { return 7, g == 3 }, slog.New(slog.DiscardHandler))
 	c.Create = discord.SlashCommandCreate{Name: "a"}
 	if err := r.Add(mod{[]Command{c}}); err != nil {
 		t.Fatal(err)
@@ -94,6 +94,8 @@ func TestOnCommandTiers(t *testing.T) {
 		{"admin by guild owner", Admin, asUser("7"), true},
 		{"owner of another guild is not admin", Admin, func(p map[string]any) { asUser("7")(p); p["guild_id"] = "8" }, false},
 		{"break-glass by bootstrap user", BreakGlass, asUser("9"), true},
+		{"break-glass by the second bootstrap user", BreakGlass, asUser("11"), true},
+		{"admin by the second bootstrap user", Admin, asUser("11"), true},
 		{"break-glass refuses a server admin", BreakGlass, admin, false},
 		{"break-glass refuses the guild owner", BreakGlass, asUser("7"), false},
 	}
@@ -121,7 +123,7 @@ func TestOnCommandTiers(t *testing.T) {
 // With no bootstrap set, break-glass is nobody: not the owner, not an
 // admin, not user 0.
 func TestBreakGlassWithoutABootstrapRefusesEveryone(t *testing.T) {
-	r := NewRouter(0, func(snowflake.ID) (snowflake.ID, bool) { return 5, true }, slog.New(slog.DiscardHandler))
+	r := NewRouter(nil, func(snowflake.ID) (snowflake.ID, bool) { return 5, true }, slog.New(slog.DiscardHandler))
 	ran := false
 	if err := r.Add(mod{[]Command{{Create: discord.SlashCommandCreate{Name: "a"}, Tier: BreakGlass, Run: func(context.Context, *events.ApplicationCommandInteractionCreate) error { ran = true; return nil }}}}); err != nil {
 		t.Fatal(err)
@@ -196,7 +198,7 @@ func TestOnCommandLogsATellOnlyWhenItCarriesACause(t *testing.T) {
 		{"wrapped", fmt.Errorf("%w: %w", Tell("your message didn't go through"), cause), true},
 	} {
 		var log strings.Builder
-		r := NewRouter(0, nil, slog.New(slog.NewTextHandler(&log, nil)))
+		r := NewRouter(nil, nil, slog.New(slog.NewTextHandler(&log, nil)))
 		if err := r.Add(mod{[]Command{{
 			Create: discord.SlashCommandCreate{Name: "a"},
 			Tier:   Public,
@@ -258,12 +260,12 @@ func TestAddRefusesMalformedModals(t *testing.T) {
 		"no colon":       {ID: "a:b", Run: run},
 		"has no handler": {ID: "a"},
 	} {
-		err := NewRouter(0, nil, slog.Default()).Add(modalMod{modals: []Modal{md}})
+		err := NewRouter(nil, nil, slog.Default()).Add(modalMod{modals: []Modal{md}})
 		if err == nil || !strings.Contains(err.Error(), strings.Fields(want)[len(strings.Fields(want))-1]) {
 			t.Errorf("%s: got %v", want, err)
 		}
 	}
-	r := NewRouter(0, nil, slog.Default())
+	r := NewRouter(nil, nil, slog.Default())
 	if err := r.Add(modalMod{modals: []Modal{{ID: "a", Run: run}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +279,7 @@ func TestAddRefusesMalformedModals(t *testing.T) {
 
 func TestSlashAndMessageCommandsMayShareAName(t *testing.T) {
 	var ran []string
-	r := NewRouter(0, nil, slog.New(slog.DiscardHandler))
+	r := NewRouter(nil, nil, slog.New(slog.DiscardHandler))
 	if err := r.Add(mod{[]Command{
 		{Create: discord.SlashCommandCreate{Name: "a"}, Tier: Public, Run: func(context.Context, *events.ApplicationCommandInteractionCreate) error {
 			ran = append(ran, "slash")
@@ -314,7 +316,7 @@ func (c compMod) Components() []Component { return c.comps }
 
 func TestOnComponentRoutesByPrefix(t *testing.T) {
 	var got string
-	r := NewRouter(0, nil, slog.New(slog.DiscardHandler))
+	r := NewRouter(nil, nil, slog.New(slog.DiscardHandler))
 	if err := r.Add(compMod{comps: []Component{
 		{ID: "more", Run: func(_ context.Context, e *events.ComponentInteractionCreate) error {
 			got = e.Data.CustomID()
@@ -351,7 +353,7 @@ func TestOnComponentRoutesByPrefix(t *testing.T) {
 func TestOnModalRoutesByPrefixAndReportsErrors(t *testing.T) {
 	fail := Tell("boom") // a Tell, so the member reads it as written
 	var got string
-	r := NewRouter(0, nil, slog.New(slog.DiscardHandler))
+	r := NewRouter(nil, nil, slog.New(slog.DiscardHandler))
 	if err := r.Add(modalMod{modals: []Modal{
 		{ID: "edit", Run: func(ctx context.Context, e *events.ModalSubmitInteractionCreate) error {
 			if d, ok := ctx.Deadline(); !ok || !d.Equal(e.ID().Time().Add(respondBy)) {

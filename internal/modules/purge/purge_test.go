@@ -21,7 +21,7 @@ import (
 
 func router(t *testing.T, m *Module) *core.Router {
 	t.Helper()
-	r := core.NewRouter(0, func(snowflake.ID) (snowflake.ID, bool) { return 0, false }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	r := core.NewRouter(nil, func(snowflake.ID) (snowflake.ID, bool) { return 0, false }, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err := r.Add(m); err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func submit(t *testing.T, m *Module, f *fake, text string) []discord.MessageCrea
 }
 
 func newModule() *Module {
-	m := New(guard.New(), nil, slog.New(slog.NewTextHandler(io.Discard, nil)), 0)
+	m := New(guard.New(), nil, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	m.pace = newPacer(1e9)
 	return m
 }

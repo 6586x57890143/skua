@@ -75,7 +75,7 @@ func TestPerfReplies(t *testing.T) {
 // The numbers span every server, so a server's own admin, Administrator
 // bit and all, is refused through the router.
 func TestPerfIsBreakGlassOnly(t *testing.T) {
-	r := core.NewRouter(9, func(snowflake.ID) (snowflake.ID, bool) { return 5, true }, slog.New(slog.DiscardHandler))
+	r := core.NewRouter(core.Admins{9}, func(snowflake.ID) (snowflake.ID, bool) { return 5, true }, slog.New(slog.DiscardHandler))
 	if err := r.Add(New(obs.New())); err != nil {
 		t.Fatal(err)
 	}

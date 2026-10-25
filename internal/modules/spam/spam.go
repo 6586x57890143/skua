@@ -6,7 +6,7 @@
 // skua ships the bird; a jail, a timeout or a ban is another Sanction
 // passed to New, ahead of or behind it.
 //
-// Staff are never sanctioned: the owner, the bootstrap admin, and anyone
+// Staff are never sanctioned: the owner, the bootstrap admins, and anyone
 // whose roles can manage messages, moderate, kick, ban, manage the server or
 // administer it. Roles are read only on a trip, and a trip whose roles
 // can't be read is let go.
@@ -77,7 +77,7 @@ type Module struct {
 	history   sanction.History
 	sanctions []sanction.Sanction
 	owner     func(guild snowflake.ID) (snowflake.ID, bool)
-	bootstrap snowflake.ID
+	bootstrap core.Admins
 	// Admin is the router's check, for the controls on spam's /help page.
 	Admin func(discord.Interaction) bool
 
@@ -92,7 +92,7 @@ type Module struct {
 // then a record lasts only as long as the process. owner reads a guild's
 // owner from the cache. sanctions are tried in order.
 func New(ctx context.Context, log *slog.Logger, g *guard.Guard, db DB, history sanction.History,
-	owner func(snowflake.ID) (snowflake.ID, bool), bootstrap snowflake.ID, sanctions ...sanction.Sanction) (*Module, error) {
+	owner func(snowflake.ID) (snowflake.ID, bool), bootstrap core.Admins, sanctions ...sanction.Sanction) (*Module, error) {
 	m := &Module{log: log, guard: g, db: db, history: history, owner: owner, bootstrap: bootstrap, sanctions: sanctions, now: time.Now}
 	if db == nil {
 		return m, nil
@@ -361,7 +361,7 @@ func (m *Module) act(r rest.Rest, guild snowflake.ID, msg discord.Message, burst
 // staff is whether user is beyond the module. The roles are read here,
 // once per trip, rather than kept in a cache every message would pay for.
 func (m *Module) staff(r rest.Rest, guild, user snowflake.ID, member *discord.Member) (bool, error) {
-	if user == m.bootstrap {
+	if m.bootstrap.Has(user) {
 		return true, nil
 	}
 	if owner, ok := m.owner(guild); ok && owner == user {
