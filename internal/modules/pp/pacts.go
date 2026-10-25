@@ -160,7 +160,7 @@ func decodeSigns(s string) signs {
 // first read, and drops a copy that doesn't name the member holding it.
 // s.mu held.
 func joinPacts(s *server) {
-	one := map[[2]int64]*pact{}
+	one := map[[3]int64]*pact{}
 	for u, m := range s.members {
 		if m.pact == nil {
 			continue
@@ -169,11 +169,10 @@ func joinPacts(s *server) {
 			m.pact = nil
 			continue
 		}
-		k := [2]int64{int64(m.pact.opener), m.pact.day}
+		k := [3]int64{int64(m.pact.opener), m.pact.day, m.pact.at}
 		if p, ok := one[k]; ok {
 			p.channel = max(p.channel, m.pact.channel)
 			p.started = p.started || m.pact.started
-			p.at = max(p.at, m.pact.at)
 			m.pact = p
 		} else {
 			one[k] = m.pact
@@ -232,7 +231,7 @@ func (st *state) post(s *server, guild, user snowflake.ID, ring bool, today int6
 	m.lastPost = max(time.Now().UnixMilli(), m.lastPost+1)
 	m.pact = &pact{opener: user, day: today, at: m.lastPost, ring: ring, signers: []signer{{user: user}}}
 	m.signs.postedDay, m.dirty = today, true
-	s.count(today, statPosted, ringBit(ring), 0)
+	s.count(today, statPosted, bit(ring), 0)
 	return m.pact, nil
 }
 
@@ -265,27 +264,35 @@ func parseKey(k string) (pactKey, bool) {
 	return pactKey{snowflake.ID(opener), day, at}, err == nil && err2 == nil && err3 == nil
 }
 
-// pactOf is the pact k names, nil when it's gone or another has taken its
-// opener's place. s.mu held.
+// pactOf is the pact k names, nil when it's gone. Its poster may have left
+// it to the others, so it's found through whoever holds it. s.mu held.
 func pactOf(s *server, k pactKey) *pact {
-	o, ok := s.members[k.opener]
-	if !ok || o.pact == nil || o.pact.opener != k.opener || o.pact.day != k.day || k.at != 0 && o.pact.at != k.at {
-		return nil
+	names := func(p *pact) bool {
+		return p != nil && p.opener == k.opener && p.day == k.day && (k.at == 0 || p.at == k.at)
 	}
-	return o.pact
+	if o, ok := s.members[k.opener]; ok && names(o.pact) {
+		return o.pact
+	}
+	for _, m := range s.members {
+		if names(m.pact) {
+			return m.pact
+		}
+	}
+	return nil
 }
 
-// sign puts user's name to the pact opener posted on day. s.mu held.
-func (st *state) sign(s *server, guild, opener snowflake.ID, day int64, user snowflake.ID, today int64) (*pact, error) {
-	if user == opener {
+// sign puts user's name to the pact k names. The signer is moved into
+// today first, which may turn the day and lapse the pact, so it's looked
+// up after. s.mu held.
+func (st *state) sign(s *server, guild snowflake.ID, k pactKey, user snowflake.ID, today int64) (*pact, error) {
+	if user == k.opener {
 		return nil, errPactYours
 	}
-	o, ok := s.members[opener]
-	if !ok || o.pact == nil || o.pact.opener != opener || o.pact.day != day {
+	m := st.member(s, guild, user, today)
+	p := pactOf(s, k)
+	if p == nil {
 		return nil, errPactGone
 	}
-	p := o.pact
-	m := st.member(s, guild, user, today)
 	if err := st.mayPact(m, user, today); err != nil {
 		return nil, err
 	}
@@ -329,11 +336,7 @@ func (st *state) withdraw(s *server, user snowflake.ID, today int64) error {
 		m.signs.postedDay = 0
 		m.withdrawn++
 	}
-	started := 0
-	if p.started {
-		started = 1
-	}
-	s.count(today, statLeft, ringBit(p.ring), started)
+	s.count(today, statLeft, bit(p.ring), bit(p.started))
 	p.signers = slices.DeleteFunc(p.signers, func(g signer) bool { return g.user == user })
 	m.pact, m.dirty = nil, true
 	if !p.started && p.opener == user || p.started && len(p.signers) < p.need() {
@@ -439,7 +442,7 @@ func (st *state) finish(s *server, p *pact, today int64) {
 			news.learned = append(news.learned, g.user)
 		}
 	}
-	s.count(today, statJoined, ringBit(p.ring), len(news.paid))
+	s.count(today, statJoined, bit(p.ring), len(news.paid))
 	if news.channel != 0 && len(news.paid) > 0 {
 		s.joinders = append(s.joinders, news)
 	}
@@ -473,10 +476,15 @@ func mentions(us []snowflake.ID) string {
 	for i, u := range us {
 		out[i] = "<@" + u.String() + ">"
 	}
-	if len(out) < 2 {
-		return strings.Join(out, "")
+	return andList(out)
+}
+
+// andList is xs as a reader says them: "a", "a and b", "a, b and c".
+func andList(xs []string) string {
+	if len(xs) < 2 {
+		return strings.Join(xs, "")
 	}
-	return strings.Join(out[:len(out)-1], ", ") + " and " + out[len(out)-1]
+	return strings.Join(xs[:len(xs)-1], ", ") + " and " + xs[len(xs)-1]
 }
 
 // lapse drops every pact posted PactLife days or more before today. s.mu
@@ -487,7 +495,7 @@ func (st *state) lapse(s *server, today int64) {
 		if m.pact != nil && today-m.pact.day >= st.bal().PactLife {
 			if !gone[m.pact] {
 				gone[m.pact] = true
-				s.count(today, statLapsed, ringBit(m.pact.ring), len(m.pact.signers))
+				s.count(today, statLapsed, bit(m.pact.ring), len(m.pact.signers))
 			}
 			m.pact, m.dirty = nil, true
 		}

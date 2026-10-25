@@ -51,9 +51,9 @@ func (r *statRows) add(guild snowflake.ID, k statKey, n int64) {
 	r.n = append(r.n, n)
 }
 
-// ringBit is a notice's kind as a stat has it.
-func ringBit(ring bool) int {
-	if ring {
+// bit is b as a stat's particular has it: 1 for true.
+func bit(b bool) int {
+	if b {
 		return 1
 	}
 	return 0

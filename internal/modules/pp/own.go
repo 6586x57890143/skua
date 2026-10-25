@@ -178,6 +178,7 @@ func (m *Module) submitOwn(ctx context.Context, e *events.ModalSubmitInteraction
 	if !m.plays(e) {
 		return errBeta
 	}
+	m.forget(*guild, e.User().ID) // a confirm open over the old draft
 	if err := e.DeferUpdateMessage(); err != nil {
 		return err
 	}

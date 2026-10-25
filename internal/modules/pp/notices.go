@@ -110,7 +110,11 @@ func noticesCanvas(name string, held *Notice, board []Posted) *pixel.Canvas {
 	y = midLine(foot)
 	c.Icon("beads", image.Pt(16, y-iconLift))
 	open := "nothing posted on the board"
-	if n := len(board); n > 0 {
+	switch n := len(board); {
+	case board == nil:
+		// A channel post: what to do with it, not a board it doesn't show.
+		open = "sign below to take a place; /pp shows the whole board"
+	case n > 0:
 		open = fmt.Sprintf("%d up on the board, waiting for names", n)
 	}
 	label(c, 16+pixel.IconCells+4, y, open)
@@ -241,6 +245,7 @@ func (m *Module) noticesMessage(guild snowflake.ID, who *discord.ResolvedMember)
 		}
 	}
 	canPost := m.st.mayPost(mem, user, DayOf(m.now())) == nil
+	canSign := m.st.mayPact(mem, user, DayOf(m.now())) == nil
 	startable := mem.pact != nil && mem.pact.opener == user && mem.pact.startable()
 	alt := m.noticesAlt(held, board)
 	s.mu.Unlock()
@@ -252,7 +257,7 @@ func (m *Module) noticesMessage(guild snowflake.ID, who *discord.ResolvedMember)
 	extra := []discord.ContainerSubComponent{
 		discord.NewMediaGallery(screenItem(pic, clip(alt, altLimit))),
 	}
-	if len(opts) > 0 && canPost {
+	if len(opts) > 0 && canSign {
 		extra = append(extra, discord.NewActionRow(discord.NewStringSelectMenu("pp:signpick", "sign a notice on the board", opts...)))
 	}
 	post := func(label, id, icon string) discord.InteractiveComponent {
@@ -304,7 +309,11 @@ func (m *Module) noticesAlt(held *Notice, board []Posted) string {
 			}
 		}
 		parts = append(parts, fmt.Sprintf("your %s, signed by %s, %s, pays %s",
-			pactName(held.Ring), strings.Join(names, " and "), state, held.Pays))
+			pactName(held.Ring), andList(names), state, held.Pays))
+	}
+	if board == nil {
+		// A channel post carries no board.
+		return strings.Join(parts, ". ")
 	}
 	var up []string
 	for _, p := range board {
@@ -432,11 +441,7 @@ func (m *Module) signPact(guild snowflake.ID, e *events.ComponentInteractionCrea
 	}
 	s := m.st.server(guild)
 	s.mu.Lock()
-	if pactOf(s, k) == nil {
-		s.mu.Unlock()
-		return errPactGone
-	}
-	p, err := m.st.sign(s, guild, k.opener, k.day, e.User().ID, DayOf(m.now()))
+	p, err := m.st.sign(s, guild, k, e.User().ID, DayOf(m.now()))
 	if !picked && (errors.Is(err, errPactFull) || errors.Is(err, errPactActive)) {
 		p, err = pactOf(s, k), nil
 	}

@@ -34,16 +34,13 @@ func confirmOf(t *testing.T, m *Module, id string, edit func(map[string]any)) st
 	return sure
 }
 
-// A confirm names what the member stood at when asked: pressed after that
-// has changed it's refused, so a second card can't buy the next rung.
+// A confirm holds one ticket: a second card replaces the first, the
+// confirm spends it, and pressing anything else or the day turning voids
+// it, so no card buys what it didn't show.
 func TestStaleConfirm(t *testing.T) {
-	m, _, a, mem := ladderServer(t)
+	m, s, a, mem := ladderServer(t)
 	who := func(p map[string]any) {
 		p["member"].(map[string]any)["user"] = map[string]any{"id": a.String(), "username": "member"}
-	}
-	first, second := confirmOf(t, m, "pp:climb", who), confirmOf(t, m, "pp:climb", who)
-	if first != second {
-		t.Fatalf("two cards asked differently: %s %s", first, second)
 	}
 	press := func(id string) error {
 		e, _ := coretest.Button(t, id, who)
@@ -52,14 +49,34 @@ func TestStaleConfirm(t *testing.T) {
 		}
 		return m.press(context.Background(), e)
 	}
-	if err := press(first); err != nil || mem.rung != 3 {
+	first, second := confirmOf(t, m, "pp:climb", who), confirmOf(t, m, "pp:climb", who)
+	if err := press(first); !errors.Is(err, errStale) || mem.rung != 2 {
+		t.Fatalf("a card another replaced bought: %v, rung %d", err, mem.rung)
+	}
+	if err := press(second); err != nil || mem.rung != 3 {
 		t.Fatalf("the confirm: %v, rung %d", err, mem.rung)
 	}
 	if err := press(second); !errors.Is(err, errStale) || mem.rung != 3 {
-		t.Errorf("a second card bought the next rung: %v, rung %d", err, mem.rung)
+		t.Errorf("a double tap bought the next rung: %v, rung %d", err, mem.rung)
 	}
-	if p, tok, ok := confirmed("pp:lease:tallow:12.6:sure"); !ok || p != "pp:lease:tallow" || tok != "12.6" {
-		t.Errorf("confirmed: %s %s %v", p, tok, ok)
+	// Something else pressed between: void.
+	third := confirmOf(t, m, "pp:climb", who)
+	if err := press("pp:quests"); err != nil {
+		t.Fatal(err)
+	}
+	if err := press(third); !errors.Is(err, errStale) || mem.rung != 3 {
+		t.Errorf("a confirm survived another press: %v", err)
+	}
+	// The day turning: void.
+	fourth := confirmOf(t, m, "pp:climb", who)
+	s.mu.Lock()
+	m.st.member(s, guild, a, DayOf(t0)+1)
+	s.mu.Unlock()
+	if err := press(fourth); !errors.Is(err, errStale) {
+		t.Errorf("a confirm survived the day: %v", err)
+	}
+	if p, tk, ok := confirmed("pp:lease:tallow:12:sure"); !ok || p != "pp:lease:tallow" || tk != 12 {
+		t.Errorf("confirmed: %s %d %v", p, tk, ok)
 	}
 	if _, _, ok := confirmed("pp:climb"); ok {
 		t.Error("a plain press read as a confirm")

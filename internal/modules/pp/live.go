@@ -65,6 +65,9 @@ type member struct {
 	// (in memory: a restart moves the clock past it anyway).
 	withdrawn, withdrawDay int64
 	lastPost               int64
+	// ticket is the confirm their last buying press asked with, 0 for
+	// none: in memory, voided by any other press and by the day turning.
+	ticket int64
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, a fingerprint of their last message, when they last showed a
@@ -131,8 +134,10 @@ type server struct {
 	// joinders the pacts finished and not yet told.
 	checkpoints []checkpointNews
 	joinders    []joinderNews
-	// stats are the day counters not yet saved.
-	stats map[statKey]int64
+	// stats are the day counters not yet saved, and tickets the last
+	// confirm ticket handed out.
+	stats   map[statKey]int64
+	tickets int64
 	// The season so far, for the backstop: what it minted and burned, the
 	// last season's burn in percent (-1 before one), and whether the heavy
 	// purse line is on.
@@ -248,6 +253,7 @@ func (st *state) member(s *server, guild, user snowflake.ID, today int64) *membe
 // counts over. s.mu held.
 func (st *state) roll(s *server, m *member, guild, user snowflake.ID, today int64) {
 	if m.dayN != today {
+		m.ticket = 0 // a price may have moved with the day
 		st.close(s, user, m)
 		m.day = Day{Rested: st.bal().Rested(m.day, st.pools(guild, user, m.dayN), today-m.dayN)}
 		m.dayN = today

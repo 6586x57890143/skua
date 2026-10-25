@@ -13,11 +13,14 @@ import (
 )
 
 // Anything that spends pp asks once more first: the first press answers
-// with a small card naming what it buys and a confirm button, whose ID is
-// the press's, then a token of what the member stood at when asked, then
-// sure; only that press buys, and only while the token still holds, so a
-// second card or a double tap can't buy the next rung or another week.
-// The card is its own reply, so the screen under it is left as it was.
+// with a small card naming what it buys and a confirm button carrying a
+// ticket, and only that confirm buys. A member holds one ticket at a time:
+// a new card replaces it, the confirm spends it in the same locked step
+// that checks it, and anything else they press or send, or the day
+// turning, voids it. So a second card, a double tap, a draft rewritten
+// under an open card or a price that moved at 05:30 can't buy what the
+// card didn't show. The card is its own reply; the screen under it is left
+// as it was.
 
 // sure marks a buying press as confirmed.
 const sure = ":sure"
@@ -36,46 +39,47 @@ func pressed(e *events.ComponentInteractionCreate) string {
 	return id
 }
 
-// confirmed splits a confirm's ID into the press it confirms and the token
-// it was asked under; ok is false for an ID that's no confirm.
-func confirmed(id string) (press, token string, ok bool) {
+// confirmed splits a confirm's ID into the press it confirms and its
+// ticket; ok is false for an ID that's no confirm.
+func confirmed(id string) (press string, ticket int64, ok bool) {
 	rest, ok := strings.CutSuffix(id, sure)
 	if !ok {
-		return id, "", false
+		return id, 0, false
 	}
 	i := strings.LastIndexByte(rest, ':')
 	if i < 0 {
-		return rest, "", false
+		return rest, 0, false
 	}
-	return rest[:i], rest[i+1:], true
+	t, err := strconv.ParseInt(rest[i+1:], 10, 64)
+	return rest[:i], t, err == nil
 }
 
-// buyToken is what a buy depends on for user: the rung for a climb, the
-// livery and its last day for the rest. s.mu held.
-func buyToken(s *server, user snowflake.ID, id string) string {
-	mem := s.members[user]
-	if mem == nil {
-		return "0"
-	}
-	if id == "pp:climb" {
-		return strconv.FormatInt(mem.rung, 10)
-	}
-	return strconv.FormatInt(mem.liveryUntil, 10) + "." + strconv.Itoa(len(mem.livery))
-}
-
-// errStale is a confirm pressed after what it named has changed.
+// errStale is a confirm whose ticket is spent or void.
 var errStale = core.Tell("that's changed since you were asked; look again before buying")
 
-// stale is whether a confirmed press no longer names what its card did.
-func (m *Module) stale(guild snowflake.ID, e *events.ComponentInteractionCreate) bool {
-	press, token, ok := confirmed(e.Data.CustomID())
-	if !ok {
-		return false
-	}
+// spend takes the ticket a confirm press carries, and is false when it
+// isn't the member's ticket any more: spent, replaced or voided.
+func (m *Module) spend(guild snowflake.ID, e *events.ComponentInteractionCreate) bool {
+	_, ticket, ok := confirmed(e.Data.CustomID())
 	s := m.st.server(guild)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return buyToken(s, e.User().ID, press) != token
+	mem := s.members[e.User().ID]
+	if !ok || mem == nil || ticket == 0 || mem.ticket != ticket {
+		return false
+	}
+	mem.ticket = 0
+	return true
+}
+
+// forget voids user's ticket: they've done something else since.
+func (m *Module) forget(guild, user snowflake.ID) {
+	s := m.st.server(guild)
+	s.mu.Lock()
+	if mem := s.members[user]; mem != nil {
+		mem.ticket = 0
+	}
+	s.mu.Unlock()
 }
 
 // confirm answers a buying press with the card that asks once more.
@@ -83,7 +87,10 @@ func (m *Module) confirm(guild snowflake.ID, e *events.ComponentInteractionCreat
 	id := e.Data.CustomID()
 	s := m.st.server(guild)
 	s.mu.Lock()
-	token := buyToken(s, e.User().ID, id)
+	mem := m.st.member(s, guild, e.User().ID, DayOf(m.now()))
+	s.tickets++
+	mem.ticket = s.tickets
+	ticket := mem.ticket
 	s.mu.Unlock()
 	what := labelOf(e.Message.Components, id)
 	if what == "" {
@@ -91,7 +98,7 @@ func (m *Module) confirm(guild snowflake.ID, e *events.ComponentInteractionCreat
 	}
 	return e.CreateMessage(discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorWarn, "pp", "sure?", what,
-			discord.NewActionRow(discord.NewDangerButton("confirm", id+":"+token+sure)))},
+			discord.NewActionRow(discord.NewDangerButton("confirm", id+":"+strconv.FormatInt(ticket, 10)+sure)))},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	})
