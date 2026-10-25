@@ -15,6 +15,7 @@ import (
 // treasury with its backstop on. SKUA_DUMP_PANES=dir writes them out to
 // look at.
 func TestPanes(t *testing.T) {
+	realScreens(t)
 	dir := os.Getenv("SKUA_DUMP_PANES")
 	save := func(name string, c *pixel.Canvas) {
 		t.Helper()

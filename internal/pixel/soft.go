@@ -7,6 +7,7 @@ import (
 	"image/jpeg"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/HugoSmits86/nativewebp"
 )
@@ -20,12 +21,23 @@ import (
 // artefacts belong to the look, and the screens use it where crisp art
 // would read too clean for the 90s.
 func (c *Canvas) Soft(scale int) ([]byte, error) {
+	if Draft.Load() {
+		return draft, nil
+	}
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, c.SoftImage(scale), &jpeg.Options{Quality: 88}); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
+
+// Draft makes Soft and Screen skip the softening and the encoding and
+// return a fixed placeholder. Packages whose tests only press buttons set it
+// in TestMain: under -race a real screen costs seconds, and they never look
+// at the picture.
+var Draft atomic.Bool
+
+var draft = []byte("draft screen")
 
 // SoftImage is the canvas softened as Soft has it, before it's encoded.
 func (c *Canvas) SoftImage(scale int) *image.RGBA {
@@ -126,6 +138,9 @@ var bayer = [4][4]uint8{
 // round the hands, softened on their own, so a moving screen costs about
 // one frame to make and to send.
 func (c *Canvas) Screen(scale int) ([]byte, error) {
+	if Draft.Load() {
+		return draft, nil
+	}
 	if len(c.hands) == 0 {
 		return c.Soft(scale)
 	}
