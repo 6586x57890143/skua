@@ -11,6 +11,14 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.10.3",
+	Date:    "2026-10-25",
+	Balance: "8b0d7b",
+	Lines: []string{
+		"a selfie that's up no longer holds a quest slot: the day's quest still comes while it waits out its day, and it can't be rerolled until it pays",
+		"take a selfie down and you can post one more; take that one down too and the quest is gone",
+	},
+}, {
 	Version: "0.10.2",
 	Date:    "2026-10-25",
 	Balance: "369e4c",
