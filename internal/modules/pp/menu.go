@@ -82,6 +82,10 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 	if guild == nil {
 		return errNotServer
 	}
+	// Anything but a buy or its confirm voids a confirm still open.
+	if id := e.Data.CustomID(); !buys(id) && !strings.HasSuffix(id, sure) {
+		m.forget(*guild, e.User().ID)
+	}
 	switch id := e.Data.CustomID(); {
 	case id == "pp:beta":
 		return m.setBeta(ctx, *guild, e)
@@ -131,7 +135,7 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.startPact(*guild, e)
 	case buys(id):
 		return m.confirm(*guild, e)
-	case m.stale(*guild, e):
+	case strings.HasSuffix(id, sure) && !m.spend(*guild, e):
 		return errStale
 	}
 	id = pressed(e)

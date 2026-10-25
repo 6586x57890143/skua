@@ -61,7 +61,7 @@ func TestLadder(t *testing.T) {
 	c, asked := coretest.Button(t, "pp:climb", func(p map[string]any) {
 		p["member"].(map[string]any)["user"] = map[string]any{"id": a.String(), "username": "member"}
 	})
-	if err := m.press(context.Background(), c); err != nil || mem.rung != 2 || len(*asked) != 1 || !strings.Contains(js((*asked)[0]), "pp:climb:2:sure") {
+	if err := m.press(context.Background(), c); err != nil || mem.rung != 2 || len(*asked) != 1 || !strings.HasPrefix(sureID.FindString(js((*asked)[0])), "pp:climb:") {
 		t.Fatalf("the climb didn't ask first: %v, rung %d", err, mem.rung)
 	}
 	c, _ = coretest.Button(t, sureID.FindString(js((*asked)[0])), func(p map[string]any) {

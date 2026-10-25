@@ -58,7 +58,10 @@ func (d *deskRest) press(t *testing.T, m *Module, id, who string, perms discord.
 		u, _ := strconv.ParseUint(who, 10, 64)
 		s := m.st.server(3)
 		s.mu.Lock()
-		id += ":" + buyToken(s, snowflake.ID(u), id) + sure
+		mem := m.st.member(s, 3, snowflake.ID(u), DayOf(m.now()))
+		s.tickets++
+		mem.ticket = s.tickets
+		id += ":" + strconv.FormatInt(mem.ticket, 10) + sure
 		s.mu.Unlock()
 	}
 	e, _ := coretest.Button(t, id, func(p map[string]any) {

@@ -48,16 +48,16 @@ func TestChirograph(t *testing.T) {
 	if _, err := st.post(s, guild, a, true, today); !errors.Is(err, errPactHeld) {
 		t.Errorf("a second notice: %v", err)
 	}
-	if _, err := st.sign(s, guild, a, today, a, today); !errors.Is(err, errPactYours) {
+	if _, err := st.sign(s, guild, pactKey{opener: a, day: today}, a, today); !errors.Is(err, errPactYours) {
 		t.Errorf("signing your own: %v", err)
 	}
-	if _, err := st.sign(s, guild, a, today, snowflake.New(t0), today); !errors.Is(err, errPactYoung) {
+	if _, err := st.sign(s, guild, pactKey{opener: a, day: today}, snowflake.New(t0), today); !errors.Is(err, errPactYoung) {
 		t.Errorf("a fresh account: %v", err)
 	}
-	if _, err := st.sign(s, guild, a, today, b, today); err != nil {
+	if _, err := st.sign(s, guild, pactKey{opener: a, day: today}, b, today); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.sign(s, guild, a, today, c, today); !errors.Is(err, errPactHeld) && !errors.Is(err, errPactFull) {
+	if _, err := st.sign(s, guild, pactKey{opener: a, day: today}, c, today); !errors.Is(err, errPactHeld) && !errors.Is(err, errPactFull) {
 		t.Errorf("a third signature: %v", err)
 	}
 	before := s.members[a].purse
@@ -92,7 +92,7 @@ func TestRoundRobin(t *testing.T) {
 	a, b, c, d, e := old(1), old(2), old(3), old(4), old(5)
 	p, _ := st.post(s, guild, a, true, today)
 	for _, u := range []snowflake.ID{b, c} {
-		if _, err := st.sign(s, guild, a, today, u, today); err != nil {
+		if _, err := st.sign(s, guild, pactKey{opener: a, day: today}, u, today); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -113,7 +113,7 @@ func TestRoundRobin(t *testing.T) {
 		t.Fatal(err)
 	}
 	at = together(st, s, at, 1, a, b, c)
-	if _, err := st.sign(s, guild, a, today, d, today); !errors.Is(err, errPactActive) {
+	if _, err := st.sign(s, guild, pactKey{opener: a, day: today}, d, today); !errors.Is(err, errPactActive) {
 		t.Errorf("a signature once work started: %v", err)
 	}
 	together(st, s, at, int(Default.PactGoal)-1, a, b, c, e)
@@ -141,7 +141,7 @@ func TestFullRing(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, u := range us[1:4] {
-		if _, err := st.sign(s, guild, us[0], today, u, today); err != nil {
+		if _, err := st.sign(s, guild, pactKey{opener: us[0], day: today}, u, today); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -161,7 +161,7 @@ func TestFullRing(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, u := range us[1:4] {
-		if _, err := st.sign(s, guild, us[0], DayOf(next), u, DayOf(next)); err != nil {
+		if _, err := st.sign(s, guild, pactKey{opener: us[0], day: DayOf(next)}, u, DayOf(next)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -302,7 +302,7 @@ func TestLateSignerPaidToday(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, u := range []snowflake.ID{b, c, d} {
-		if _, err := st.sign(s, guild, a, DayOf(start), u, DayOf(start)); err != nil {
+		if _, err := st.sign(s, guild, pactKey{opener: a, day: DayOf(start)}, u, DayOf(start)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -339,7 +339,7 @@ func TestOnePostADay(t *testing.T) {
 	if _, err := m.st.post(s, 3, 5, false, today); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.st.sign(s, 3, 5, today, old(6), today); err != nil {
+	if _, err := m.st.sign(s, 3, pactKey{opener: 5, day: today}, old(6), today); err != nil {
 		t.Fatal(err)
 	}
 	s.members[5].pact, s.members[old(6)].pact = nil, nil
@@ -354,7 +354,7 @@ func TestOnePostADay(t *testing.T) {
 	if _, err := m.st.post(s, 3, 5, false, next); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.st.sign(s, 3, 5, next, old(6), next); err != nil {
+	if _, err := m.st.sign(s, 3, pactKey{opener: 5, day: next}, old(6), next); err != nil {
 		t.Fatal(err)
 	}
 	s.mu.Unlock()
@@ -387,7 +387,7 @@ func TestJoinderNews(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.channel = 77
-	if _, err := m.st.sign(s, guild, a, today, b, today); err != nil {
+	if _, err := m.st.sign(s, guild, pactKey{opener: a, day: today}, b, today); err != nil {
 		t.Fatal(err)
 	}
 	s.members[b].signs.chirographs = 1 // b has the first page already
@@ -450,7 +450,7 @@ func TestWithdraw(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, u := range []snowflake.ID{b, c} {
-		if _, err := st.sign(s, guild, a, today, u, today); err != nil {
+		if _, err := st.sign(s, guild, pactKey{opener: a, day: today}, u, today); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -458,7 +458,7 @@ func TestWithdraw(t *testing.T) {
 	if err := st.withdraw(s, c, DayOf(t0)); err != nil || s.members[c].pact != nil || len(p.signers) != 2 || s.members[a].pact != p || !p.rallied.IsZero() {
 		t.Fatalf("a signer leaving before the work: %v %+v", err, p.signers)
 	}
-	if _, err := st.sign(s, guild, a, today, c, today); err != nil {
+	if _, err := st.sign(s, guild, pactKey{opener: a, day: today}, c, today); err != nil {
 		t.Fatalf("signing again after withdrawing: %v", err)
 	}
 	if err := st.withdraw(s, a, DayOf(t0)); err != nil || s.members[b].pact != nil || s.members[c].pact != nil {
@@ -471,7 +471,7 @@ func TestWithdraw(t *testing.T) {
 	at := dayStart(next).Add(time.Hour)
 	p, _ = st.post(s, guild, b, true, next)
 	for _, u := range []snowflake.ID{a, c, d} {
-		if _, err := st.sign(s, guild, b, next, u, next); err != nil {
+		if _, err := st.sign(s, guild, pactKey{opener: b, day: next}, u, next); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -486,7 +486,7 @@ func TestWithdraw(t *testing.T) {
 	if _, err := st.post(s, guild, d, false, next); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.sign(s, guild, d, next, old(5), next); err != nil {
+	if _, err := st.sign(s, guild, pactKey{opener: d, day: next}, old(5), next); err != nil {
 		t.Fatal(err)
 	}
 	together(st, s, at.Add(time.Hour), 1, d, old(5))
@@ -533,7 +533,7 @@ func TestStartAndFreeWithdraws(t *testing.T) {
 	us := []snowflake.ID{old(1), old(2), old(3), old(4)}
 	p, _ := st.post(s, guild, us[0], true, today)
 	for _, u := range us[1:] {
-		if _, err := st.sign(s, guild, us[0], today, u, today); err != nil {
+		if _, err := st.sign(s, guild, pactKey{opener: us[0], day: today}, u, today); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -541,7 +541,7 @@ func TestStartAndFreeWithdraws(t *testing.T) {
 		t.Error("a full ring didn't start")
 	}
 	c, _ := st.post(s, guild, old(5), false, today)
-	if _, err := st.sign(s, guild, old(5), today, old(6), today); err != nil || !c.started {
+	if _, err := st.sign(s, guild, pactKey{opener: old(5), day: today}, old(6), today); err != nil || !c.started {
 		t.Errorf("a chirograph with two didn't start: %v", err)
 	}
 	// Post and tear up twice: the post comes back each time. The third
@@ -571,7 +571,7 @@ func TestStartButton(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, u := range []snowflake.ID{old(2), old(3)} {
-		if _, err := m.st.sign(s, 3, 5, today, u, today); err != nil {
+		if _, err := m.st.sign(s, 3, pactKey{opener: 5, day: today}, u, today); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -617,5 +617,45 @@ func TestKeysApart(t *testing.T) {
 	}
 	if k, ok := parseKey(a.String() + ":" + strconv.FormatInt(today, 10)); !ok || pactOf(s, k) != second {
 		t.Error("a post from before keys had a time doesn't name its notice")
+	}
+}
+
+// The review's edges: a ring its poster left is still found by its key; a
+// sign as the day turns on a lapsing notice finds it gone rather than
+// stranding the signer; a post says nothing of a board it doesn't show.
+func TestReviewEdges(t *testing.T) {
+	st := newState(&Default, 42)
+	s := st.server(guild)
+	today := DayOf(t0)
+	us := []snowflake.ID{old(1), old(2), old(3), old(4)}
+	p, _ := st.post(s, guild, us[0], true, today)
+	for _, u := range us[1:] {
+		if _, err := st.sign(s, guild, pactKey{opener: us[0], day: today}, u, today); err != nil {
+			t.Fatal(err)
+		}
+	}
+	k, _ := parseKey(p.key())
+	if err := st.withdraw(s, us[0], today); err != nil || pactOf(s, k) != p {
+		t.Fatalf("a ring its poster left isn't found: %v", err)
+	}
+
+	// Last day: posted PactLife-1 days ago, and the sign comes as the day
+	// turns it over.
+	day := today - Default.PactLife + 1
+	if _, err := st.post(s, guild, old(5), false, day); err != nil {
+		t.Fatal(err)
+	}
+	st.rollServer(s, day)
+	if _, err := st.sign(s, guild, pactKey{opener: old(5), day: day}, old(6), today+1); !errors.Is(err, errPactGone) || s.members[old(6)].pact != nil {
+		t.Errorf("a sign onto a lapsing notice: %v, holds %v", err, s.members[old(6)].pact)
+	}
+
+	checkLayout(t, "a post", noticesCanvas("x", &Notice{Places: 2, Goal: 30, Signers: []NoticeSigner{{Name: "a"}}}, nil))
+	m := testModule(&fakeDB{})
+	if alt := m.noticesAlt(&Notice{Places: 2, Goal: 30, Signers: []NoticeSigner{{Name: "a", Mark: "x"}, {Name: "b", Mark: "y"}}}, nil); strings.Contains(alt, "board") {
+		t.Errorf("a post's alt speaks of the board: %s", alt)
+	}
+	if andList([]string{"a", "b", "c"}) != "a, b and c" {
+		t.Error("andList")
 	}
 }
