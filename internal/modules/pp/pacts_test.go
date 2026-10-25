@@ -375,7 +375,8 @@ func TestOnePostADay(t *testing.T) {
 // learned a page of their lore, once its rows are saved; one posted
 // nowhere tells nobody. A pact saved before pacts kept a channel reads.
 func TestJoinderNews(t *testing.T) {
-	m := testModule(&fakeDB{})
+	db := &fakeDB{}
+	m := testModule(db)
 	r := &postRest{}
 	m.rest, m.Guard = r, guard.New()
 	s := m.st.server(guild)
@@ -395,8 +396,20 @@ func TestJoinderNews(t *testing.T) {
 	if len(s.joinders) != 1 {
 		t.Fatalf("%d joinders to tell", len(s.joinders))
 	}
-	s.pending = nil
 	s.mu.Unlock()
+	// Not told until a flush has committed the rows that paid it.
+	m.postJoinders()
+	if len(r.posts) != 0 {
+		t.Fatal("told before its rows were saved")
+	}
+	db.fail = errors.New("down")
+	m.Save()
+	m.postJoinders()
+	if len(r.posts) != 0 {
+		t.Fatal("told after a save that failed")
+	}
+	db.fail = nil
+	m.Save()
 	m.postJoinders()
 	if len(r.posts) != 1 || r.to[0] != 77 || !strings.Contains(r.posts[0], "teeth match") || !strings.Contains(r.posts[0], "60 pp each to") ||
 		!strings.Contains(r.posts[0], "**learned** \\u003c@"+a.String()) || strings.Contains(r.posts[0], "learned** \\u003c@"+b.String()) {

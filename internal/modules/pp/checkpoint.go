@@ -32,7 +32,8 @@ type prize struct {
 type checkpointNews struct {
 	week   int64
 	prizes []prize
-	short  bool // the treasury couldn't pay every place, so each got a share
+	short  bool  // the treasury couldn't pay every place, so each got a share
+	seq    int64 // the last ledger row it tells of
 }
 
 // checkpoint pays week's places. s.mu held.
@@ -91,6 +92,7 @@ func (st *state) checkpoint(s *server, week, today int64) {
 		m.dirty, s.dirty = true, true
 	}
 	if len(news.prizes) > 0 || news.short {
+		news.seq = s.seq
 		s.checkpoints = append(s.checkpoints, news)
 	}
 }
@@ -121,17 +123,15 @@ func checkpointText(n checkpointNews) string {
 	return b.String()
 }
 
-// postCheckpoints posts what each server's checkpoints paid. It runs from
-// the loop, after the save that wrote them.
+// postCheckpoints posts what each server's checkpoints paid, once a flush
+// has committed the rows that paid them.
 func (m *Module) postCheckpoints() {
 	for g, s := range m.st.servers() {
 		s.mu.Lock()
-		news, ready := s.checkpoints, len(s.pending) == 0
-		if ready {
-			s.checkpoints = nil
-		}
+		var news []checkpointNews
+		news, s.checkpoints = told(s.checkpoints, s.saved, func(n checkpointNews) int64 { return n.seq })
 		s.mu.Unlock()
-		if !ready || !m.enabled(g) {
+		if !m.enabled(g) {
 			continue
 		}
 		for _, n := range news {
@@ -140,20 +140,18 @@ func (m *Module) postCheckpoints() {
 	}
 }
 
-// postJoinders tells each finished pact's channel who was paid, once the
-// rows that paid them are saved.
+// postJoinders tells each finished pact's channel who was paid, once a
+// flush has committed the rows that paid them.
 func (m *Module) postJoinders() {
 	if m.rest == nil {
 		return
 	}
 	for g, s := range m.st.servers() {
 		s.mu.Lock()
-		news, ready := s.joinders, len(s.pending) == 0
-		if ready {
-			s.joinders = nil
-		}
+		var news []joinderNews
+		news, s.joinders = told(s.joinders, s.saved, func(n joinderNews) int64 { return n.seq })
 		s.mu.Unlock()
-		if !ready || !m.enabled(g) {
+		if !m.enabled(g) {
 			continue
 		}
 		var later []joinderNews
@@ -173,4 +171,17 @@ func (m *Module) postJoinders() {
 			s.mu.Unlock()
 		}
 	}
+}
+
+// told splits news into what may be told now, every piece whose rows are
+// committed by saved, and what waits. s.mu held.
+func told[N any](news []N, saved int64, seq func(N) int64) (now, wait []N) {
+	for _, n := range news {
+		if seq(n) <= saved {
+			now = append(now, n)
+		} else {
+			wait = append(wait, n)
+		}
+	}
+	return now, wait
 }

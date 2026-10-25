@@ -111,7 +111,7 @@ func (st *state) loadLedger(ctx context.Context, db DB) error {
 		}
 		s := st.server(snowflake.ID(guild))
 		s.mu.Lock()
-		s.seq, s.head = seq, head
+		s.seq, s.head, s.saved = seq, head, seq
 		s.mu.Unlock()
 	}
 	return rows.Err()

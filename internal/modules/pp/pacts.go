@@ -444,6 +444,7 @@ func (st *state) finish(s *server, p *pact, today int64) {
 	}
 	s.count(today, statJoined, bit(p.ring), len(news.paid))
 	if news.channel != 0 && len(news.paid) > 0 {
+		news.seq = s.seq
 		s.joinders = append(s.joinders, news)
 	}
 }
@@ -455,6 +456,7 @@ type joinderNews struct {
 	ring          bool
 	got           int64
 	paid, learned []snowflake.ID
+	seq           int64 // the last ledger row it tells of
 }
 
 // joinderText is n as its channel reads it.

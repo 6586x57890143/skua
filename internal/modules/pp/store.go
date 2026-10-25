@@ -279,6 +279,12 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 		remark()
 		return 0, err
 	}
+	// What's committed now may be told.
+	for s, es := range took {
+		s.mu.Lock()
+		s.saved = max(s.saved, es[len(es)-1].seq)
+		s.mu.Unlock()
+	}
 	return len(rows.user), nil
 }
 

@@ -134,6 +134,9 @@ type server struct {
 	// joinders the pacts finished and not yet told.
 	checkpoints []checkpointNews
 	joinders    []joinderNews
+	// saved is the last ledger row a flush has committed: news waits for
+	// the rows it tells of.
+	saved int64
 	// stats are the day counters not yet saved, and tickets the last
 	// confirm ticket handed out.
 	stats   map[statKey]int64
