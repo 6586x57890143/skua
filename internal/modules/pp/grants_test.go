@@ -210,7 +210,7 @@ func TestGrantApproval(t *testing.T) {
 	if err := press("pp:approve:"+id, 6); err != nil {
 		t.Fatal(err)
 	}
-	if s.treasury != 37*pd || s.members[winner].purse != 3*pd {
+	if paid := 3 * pd / unit * unit; s.treasury != 40*pd-paid || s.members[winner].purse != paid {
 		t.Errorf("approved: treasury %d, purse %d", s.treasury, s.members[winner].purse)
 	}
 	if err := press("pp:approve:"+id, 6); !errors.Is(err, errGrantGone) {
