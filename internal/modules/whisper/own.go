@@ -66,7 +66,7 @@ func (m *Module) byMember(msg discord.Message, user snowflake.ID) (string, bool)
 		return "", false
 	}
 	line := msg.Content[at:]
-	if strings.HasPrefix(line, "\n-# whispered through skua by [@") &&
+	if line == marker(user) || strings.HasPrefix(line, "\n-# whispered through skua by [@") &&
 		strings.HasSuffix(line, "](<https://discord.com/users/"+user.String()+">)") {
 		return msg.Content[:at], true
 	}
@@ -208,7 +208,7 @@ func (m *Module) submitEdit(ctx context.Context, e *events.ModalSubmitInteractio
 	if _, mine := m.byMember(*msg, member.User.ID); !mine {
 		return errNotYours
 	}
-	content := v.Text + marker(member.User.Username, member.User.ID)
+	content := v.Text + marker(member.User.ID)
 	update := discord.WebhookMessageUpdate{Content: &content, AllowedMentions: core.NoPings()}
 	if !member.Permissions.Has(discord.PermissionEmbedLinks) {
 		update.Flags = new(discord.MessageFlagSuppressEmbeds)
