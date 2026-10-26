@@ -10,6 +10,7 @@ import (
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/core/coretest"
 )
 
@@ -37,7 +38,7 @@ func TestOnlyBreakGlassActsForOthers(t *testing.T) {
 	every := map[string]any{"name": "every", "type": 3, "value": "1d"}
 	for _, bootstrap := range []snowflake.ID{0, 99} {
 		m := newModule()
-		m.bootstrap = bootstrap
+		m.bootstrap = core.Admins{bootstrap}
 		for _, c := range []struct {
 			sub   string
 			extra []map[string]any
@@ -64,7 +65,7 @@ func TestMemberYourselfIsYourself(t *testing.T) {
 // deletes the member's messages, not the admin's.
 func TestBreakGlassPurgesTheMember(t *testing.T) {
 	m := newModule()
-	m.bootstrap = me
+	m.bootstrap = core.Admins{me}
 	m.tick = time.Hour
 	var modal discord.ModalCreate
 	e, _ := coretest.Event(t, "purge", func(p map[string]any) {
@@ -108,7 +109,7 @@ func TestBreakGlassPurgesTheMember(t *testing.T) {
 // refused.
 func TestForgedBoxIsRefused(t *testing.T) {
 	m := newModule()
-	m.bootstrap = 99
+	m.bootstrap = core.Admins{99}
 	for id, want := range map[string]string{
 		fmt.Sprintf("%s:%d", confirmModal, them): string(errNotYours),
 		confirmModal + ":nonsense":               "that box is out of date; run /purge now again",
@@ -129,7 +130,7 @@ func TestForgedBoxIsRefused(t *testing.T) {
 func TestBreakGlassSetsTheMembersRow(t *testing.T) {
 	db := testDB(t)
 	m := liveModule()
-	m.db, m.bootstrap = db, me
+	m.db, m.bootstrap = db, core.Admins{me}
 	g := freshGuild()
 	cmd := func(sub string, extra ...map[string]any) string {
 		return command(t, m, sub, func(p map[string]any) {

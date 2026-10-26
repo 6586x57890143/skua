@@ -102,7 +102,7 @@ func (r *recordingRest) setError(err error) {
 }
 func route(t *testing.T, m *Module) *core.Router {
 	t.Helper()
-	r := core.NewRouter(0, nil, slog.New(slog.DiscardHandler))
+	r := core.NewRouter(nil, nil, slog.New(slog.DiscardHandler))
 	if err := r.Add(m); err != nil {
 		t.Fatal(err)
 	}

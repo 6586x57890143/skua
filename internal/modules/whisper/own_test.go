@@ -110,7 +110,7 @@ func TestOwnershipSurvivesRenamesAndRefusesReusedNames(t *testing.T) {
 				e, _ := target(t, command, c.content, 701, ctApp)
 				f := &fake{owned: []discord.Webhook{incoming("701", ctApp)}}
 				e.Client().Rest = f
-				r := core.NewRouter(0, nil, slog.New(slog.DiscardHandler))
+				r := core.NewRouter(nil, nil, slog.New(slog.DiscardHandler))
 				if err := r.Add(m); err != nil {
 					t.Fatal(err)
 				}
@@ -223,7 +223,7 @@ func TestWhisperOffersItsOwnershipCommandsAndModal(t *testing.T) {
 // Edit refusals go through core.Router like command refusals, so they must
 // be Tells: checked as the reply the member gets, not as a returned error.
 func TestEditRefusalsReachTheMemberThroughTheRouter(t *testing.T) {
-	r := core.NewRouter(0, nil, slog.New(slog.DiscardHandler))
+	r := core.NewRouter(nil, nil, slog.New(slog.DiscardHandler))
 	if err := r.Add(newWhisper()); err != nil {
 		t.Fatal(err)
 	}

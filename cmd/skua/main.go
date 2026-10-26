@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -97,13 +98,19 @@ func run(log *slog.Logger) error {
 	if token == "" {
 		return errors.New("DISCORD_BOT_TOKEN is not set")
 	}
-	var bootstrap snowflake.ID
-	if v := os.Getenv("SKUA_BOOTSTRAP_ADMIN_USER_ID"); v != "" {
+	// The break glass: one ID or several, comma separated.
+	var bootstrap core.Admins
+	for _, v := range strings.Split(os.Getenv("SKUA_BOOTSTRAP_ADMIN_USER_ID"), ",") {
+		if v = strings.TrimSpace(v); v == "" {
+			continue
+		}
 		id, err := snowflake.Parse(v)
 		if err != nil {
 			return fmt.Errorf("SKUA_BOOTSTRAP_ADMIN_USER_ID: %w", err)
 		}
-		bootstrap = id
+		if !bootstrap.Has(id) {
+			bootstrap = append(bootstrap, id)
+		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

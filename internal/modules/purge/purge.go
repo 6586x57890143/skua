@@ -77,9 +77,9 @@ type DB interface {
 }
 
 type Module struct {
-	// bootstrap is the break-glass admin, the one user who can run /purge
+	// bootstrap is the break-glass admins, the users who can run /purge
 	// for someone else. 0 is nobody.
-	bootstrap snowflake.ID
+	bootstrap core.Admins
 	guard     *guard.Guard
 	db        DB // nil without SKUA_DATABASE_URL: only /purge now works
 	idx       index
@@ -114,7 +114,7 @@ type Module struct {
 
 // New takes the process's one guard, the database (which may be nil) and
 // the break-glass admin (0 for none).
-func New(g *guard.Guard, db DB, log *slog.Logger, bootstrap snowflake.ID) *Module {
+func New(g *guard.Guard, db DB, log *slog.Logger, bootstrap core.Admins) *Module {
 	m := &Module{
 		bootstrap: bootstrap, guard: g, log: log, on: func(snowflake.ID) bool { return true }, pace: newPacer(rate), now: time.Now, tick: 5 * time.Second, dmTick: dmTick,
 		queues: map[snowflake.ID]*queue{}, window: batchWindow, schedTick: scheduleTick,
@@ -319,7 +319,7 @@ var errNotYours = core.Tell("only skua's break-glass admin can do that for someo
 // Server admins and owners get nothing here: a member's messages are
 // theirs. Every use is logged.
 func (m *Module) breakGlass(by, user, guild snowflake.ID, sub string) error {
-	if m.bootstrap == 0 || by != m.bootstrap {
+	if !m.bootstrap.Has(by) {
 		return errNotYours
 	}
 	m.log.Warn("purge: break-glass", "sub", sub, "by", by, "for", user, "guild", guild)

@@ -25,7 +25,7 @@ var errJobsNotYours = core.Tell("only skua's break-glass admin can see every pur
 // scheduled or live. Every use is logged.
 func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error {
 	by := e.User().ID
-	if m.bootstrap == 0 || by != m.bootstrap {
+	if !m.bootstrap.Has(by) {
 		return errJobsNotYours
 	}
 	m.log.Warn("purge: break-glass", "sub", "jobs", "by", by)

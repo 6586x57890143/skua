@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/disgoorg/snowflake/v2"
+
+	"github.com/6586x57890143/skua/internal/core"
 )
 
 func TestJobsIsBreakGlassOnly(t *testing.T) {
@@ -15,7 +17,7 @@ func TestJobsIsBreakGlassOnly(t *testing.T) {
 	if got := subCmd(t, m, "jobs", "", "", guildID); got != "✗ "+string(errJobsNotYours) {
 		t.Errorf("no admin set: %q", got)
 	}
-	m.bootstrap = them
+	m.bootstrap = core.Admins{them}
 	if got := subCmd(t, m, "jobs", "", "", guildID); got != "✗ "+string(errJobsNotYours) {
 		t.Errorf("someone else is the admin: %q", got)
 	}
@@ -24,7 +26,7 @@ func TestJobsIsBreakGlassOnly(t *testing.T) {
 // Every running purge and catch-up, in every guild, without a database.
 func TestJobsListsWhatIsRunning(t *testing.T) {
 	m := liveModule()
-	m.bootstrap = me
+	m.bootstrap = core.Admins{me}
 	f := newFake()
 	j := m.newJob(f, 40, []snowflake.ID{them}, "test purge for")
 	j.sweep.authors[them].Store(12)
@@ -59,7 +61,7 @@ func TestJobsListsWhatIsRunning(t *testing.T) {
 // A reply never passes Discord's limit: what doesn't fit is counted.
 func TestJobsFitsOneReply(t *testing.T) {
 	m := liveModule()
-	m.bootstrap = me
+	m.bootstrap = core.Admins{me}
 	f := newFake()
 	for i := range 200 {
 		g := snowflake.ID(1000 + i)
@@ -76,7 +78,7 @@ func TestJobsListsWhatIsComingUp(t *testing.T) {
 	db := testDB(t)
 	m := liveModule()
 	m.useDB(db)
-	m.bootstrap = me
+	m.bootstrap = core.Admins{me}
 	g := freshGuild()
 	if got := subCmd(t, m, "every", "every", "1d", g); !strings.HasPrefix(got, "**purge** · every\n✓") {
 		t.Fatal(got)

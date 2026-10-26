@@ -425,7 +425,7 @@ func newPanel(t *testing.T, src *fake) *panelTest {
 	m := module(t, src)
 	pt := &panelTest{t: t, m: m, admin: true}
 	m.admin = func(discord.Interaction) bool { return pt.admin }
-	pt.r = core.NewRouter(5, func(snowflake.ID) (snowflake.ID, bool) { return 0, false }, quiet())
+	pt.r = core.NewRouter(core.Admins{5}, func(snowflake.ID) (snowflake.ID, bool) { return 0, false }, quiet())
 	if err := pt.r.Add(m); err != nil {
 		t.Fatal(err)
 	}

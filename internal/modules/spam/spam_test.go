@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/core/coretest"
 	"github.com/6586x57890143/skua/internal/flood"
 	"github.com/6586x57890143/skua/internal/guard"
@@ -100,7 +101,7 @@ func (h *history) Record(context.Context, sanction.Sentence) error { h.priors++;
 
 func module(t *testing.T, s ...sanction.Sanction) *Module {
 	t.Helper()
-	m, err := New(context.Background(), slog.New(slog.DiscardHandler), guard.New(), nil, &history{}, func(snowflake.ID) (snowflake.ID, bool) { return 1, true }, 2, s...)
+	m, err := New(context.Background(), slog.New(slog.DiscardHandler), guard.New(), nil, &history{}, func(snowflake.ID) (snowflake.ID, bool) { return 1, true }, core.Admins{2}, s...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +416,7 @@ func (*rows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
 
 func TestTheScopeOutlivesARestart(t *testing.T) {
 	db := &fakeDB{rows: [][2]int64{{3, 4}, {3, 5}, {8, 0}}}
-	m, err := New(context.Background(), slog.New(slog.DiscardHandler), guard.New(), db, nil, nil, 0)
+	m, err := New(context.Background(), slog.New(slog.DiscardHandler), guard.New(), db, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +430,7 @@ func TestTheScopeOutlivesARestart(t *testing.T) {
 	if m.everywhere(context.Background(), 3, true) == nil || m.watched(3, 99) {
 		t.Fatal("memory took a scope the store refused")
 	}
-	if _, err := New(context.Background(), slog.New(slog.DiscardHandler), guard.New(), db, nil, nil, 0); err == nil {
+	if _, err := New(context.Background(), slog.New(slog.DiscardHandler), guard.New(), db, nil, nil, nil); err == nil {
 		t.Fatal("a scope that couldn't be read booted")
 	}
 }
