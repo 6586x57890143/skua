@@ -121,7 +121,9 @@ func (m *Module) observe(ctx context.Context, p Poster, k key, items []item, src
 	var fresh []item
 	if known {
 		for _, it := range items {
-			if !slices.Contains(prev, it.ID) {
+			// Polls and push-triggered refreshes both pass here. Only a
+			// livestream starting may create a notification on any platform.
+			if it.live() && !slices.Contains(prev, it.ID) {
 				fresh = append(fresh, it)
 			}
 		}
@@ -129,11 +131,7 @@ func (m *Module) observe(ctx context.Context, p Poster, k key, items []item, src
 	// Oldest first, so cards land in the order things happened.
 	fresh = fresh[:min(len(fresh), burst)]
 	slices.Reverse(fresh)
-	kp, _ := src.(keeper)
 	for _, it := range fresh {
-		if kp != nil && !it.live() && !kp.keep(ctx, it) {
-			continue
-		}
 		m.announce(ctx, p, k, it)
 		m.unpushed(k, it, src)
 	}

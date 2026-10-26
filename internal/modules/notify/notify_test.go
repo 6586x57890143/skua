@@ -32,7 +32,6 @@ type fake struct {
 	mu    sync.Mutex
 	shows map[string][]item
 	err   error
-	drop  string // an ID keep refuses
 	known map[string]string
 }
 
@@ -60,8 +59,6 @@ func (f *fake) check(_ context.Context, accounts []string) (map[string][]item, e
 	}
 	return got, f.err
 }
-
-func (f *fake) keep(_ context.Context, it item) bool { return it.ID != f.drop }
 
 func (f *fake) show(account string, items ...item) {
 	f.mu.Lock()
@@ -137,6 +134,12 @@ func post(id string) item {
 	return item{ID: id, Title: "t " + id, URL: "https://p/" + id, Author: "Bird"}
 }
 
+func livePost(id string) item {
+	it := post(id)
+	it.ID = "live:" + id
+	return it
+}
+
 func ids(p *poster) []string {
 	var out []string
 	for _, s := range p.sent {
@@ -163,13 +166,13 @@ func TestPollBaselinesThenAnnouncesWhatIsNew(t *testing.T) {
 	p := &poster{}
 	ctx := context.Background()
 
-	src.show("bird", post("b"), post("a"))
+	src.show("bird", livePost("b"), livePost("a"))
 	m.poll(ctx, p, "fake", src)
 	if len(p.sent) != 0 {
 		t.Fatalf("the first look is a baseline: %v", ids(p))
 	}
 
-	src.show("bird", post("c"), post("b"), post("a"))
+	src.show("bird", livePost("c"), livePost("b"), livePost("a"))
 	m.poll(ctx, p, "fake", src)
 	if len(p.sent) != 2 || !slices.Equal(ids(p), []string{"c"}) {
 		t.Fatalf("c, to guilds 1 and 2 but not the one with notify off: %v", ids(p))
@@ -178,20 +181,19 @@ func TestPollBaselinesThenAnnouncesWhatIsNew(t *testing.T) {
 		t.Fatal("only the follow with a role pings it")
 	}
 
-	// Nothing new, then a deleted post doesn't bring an older one back.
+	// Streams still on never send another alert.
 	p.sent = nil
 	m.poll(ctx, p, "fake", src)
-	src.show("bird", post("b"), post("a"))
+	src.show("bird", livePost("b"), livePost("a"))
 	m.poll(ctx, p, "fake", src)
 	if len(p.sent) != 0 {
 		t.Fatalf("nothing is new: %v", ids(p))
 	}
 
-	// A burst is capped and comes oldest first; keep can veto one.
-	src.drop = "g"
-	src.show("bird", post("h"), post("g"), post("f"), post("e"), post("d"), post("b"))
+	// Uploads cannot consume a stream's place in the capped burst.
+	src.show("bird", post("upload1"), post("upload2"), post("upload3"), livePost("h"), livePost("g"), livePost("f"), livePost("e"), livePost("d"), livePost("b"))
 	m.poll(ctx, p, "fake", src)
-	if got := ids(p); !slices.Equal(got, []string{"f", "h"}) {
+	if got := ids(p); !slices.Equal(got, []string{"f", "g", "h"}) {
 		t.Fatalf("burst: %v", got)
 	}
 }
@@ -206,7 +208,6 @@ func TestPollAnnouncesEachStreamOnce(t *testing.T) {
 
 	src.show("bird")
 	m.poll(ctx, p, "fake", src)
-	src.drop = "live:1" // keep is for posts; a stream is never vetoed
 	src.show("bird", stream)
 	m.poll(ctx, p, "fake", src)
 	m.poll(ctx, p, "fake", src)
@@ -225,6 +226,32 @@ func TestPollAnnouncesEachStreamOnce(t *testing.T) {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("the live card has no %q: %s", want, b)
 		}
+	}
+}
+
+func TestAllPlatformsNotifyOnlyLivestreams(t *testing.T) {
+	for _, platform := range []string{"youtube", "twitch", "kick", "x", "tiktok"} {
+		t.Run(platform, func(t *testing.T) {
+			src := newFake()
+			m := module(t, src)
+			m.follows = []follow{{guild: 1, channel: 10, platform: platform, account: "bird", name: "Bird", role: 7}}
+			k := key{platform, "bird"}
+			p := &poster{}
+			ctx := context.Background()
+			m.observe(ctx, p, k, []item{post("old")}, src)
+			m.observe(ctx, p, k, []item{post("upload"), post("old")}, src)
+			if len(p.sent) != 0 {
+				t.Fatal("an upload or post sent an alert")
+			}
+			m.observe(ctx, p, k, []item{post("upload"), livePost("stream"), post("old")}, src)
+			if len(p.sent) != 1 || len(m.live) != 1 {
+				t.Fatalf("one livestream alert: %d cards, %d live streams", len(p.sent), len(m.live))
+			}
+			m.observe(ctx, p, k, []item{post("stream"), post("upload"), post("old")}, src)
+			if len(p.sent) != 1 || len(p.edits) != 1 || len(m.live) != 0 {
+				t.Fatalf("an archive only edits the live card: %d cards, %d edits, %d live streams", len(p.sent), len(p.edits), len(m.live))
+			}
+		})
 	}
 }
 
@@ -250,7 +277,7 @@ func TestPollRecordsHealthAndFailures(t *testing.T) {
 	}
 	src.show("bird")
 	m.poll(ctx, p, "fake", src)
-	src.show("bird", post("a"))
+	src.show("bird", livePost("a"))
 	m.poll(ctx, p, "fake", src)
 	now = now.Add(2 * time.Minute)
 	r := m.Report(1)
@@ -284,7 +311,7 @@ func TestPollRecordsHealthAndFailures(t *testing.T) {
 	// A channel that works again loses its note.
 	delete(p.fail, 10)
 	src.err = nil
-	src.show("bird", post("b"), post("a"))
+	src.show("bird", livePost("b"), livePost("a"))
 	m.poll(ctx, p, "fake", src)
 	if strings.Contains(strings.Join(m.Report(1).Notes, ""), "<#10>") {
 		t.Fatal("a fixed channel still has its note")
@@ -723,10 +750,10 @@ func TestModule(t *testing.T) {
 	if m.Name() != "notify" || m.Perms() == 0 || m.Want().Required == 0 {
 		t.Fatal("contract")
 	}
-	if h := m.Help(); !strings.Contains(h.About, "youtube, x, tiktok") {
+	if h := m.Help(); !strings.Contains(h.About, "when one of them goes live") {
 		t.Fatal(h.About)
 	}
-	if got := js(m.panel(1, "")); strings.Count(got, `"description":"new posts"`) != 2 || !strings.Contains(got, "youtube, x, tiktok") {
+	if got := js(m.panel(1, "")); strings.Count(got, `"description":"when they go live"`) != 1 || strings.Contains(got, "uploads and streams") || strings.Contains(got, `"value":"x"`) || strings.Contains(got, `"value":"tiktok"`) {
 		t.Fatalf("a choice per platform set up: %s", got)
 	}
 

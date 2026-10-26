@@ -42,12 +42,6 @@ type source interface {
 	every() time.Duration
 }
 
-// keeper is a source that can veto an item before it is announced: one
-// network call per new item, never per poll.
-type keeper interface {
-	keep(ctx context.Context, it item) bool
-}
-
 var errUnknown = errors.New("notify: no such account")
 
 // statusError is a platform answering something other than 2xx or 404.
@@ -316,13 +310,14 @@ func (y *youtube) check(ctx context.Context, accounts []string) (map[string][]it
 	return got, errors.Join(errs...)
 }
 
-// channel is a channel's stream, while it is live, then its uploads.
+// channel returns only a channel's current livestream. The feed supplies
+// its display name; uploads and archived streams never become alerts.
 func (y *youtube) channel(ctx context.Context, id string) ([]item, error) {
 	body, err := get(ctx, y.c, y.base+"/feeds/videos.xml?channel_id="+id, nil, nil)
 	if err != nil {
 		return nil, err
 	}
-	name, items, err := parseFeed(body)
+	name, _, err := parseFeed(body)
 	if err != nil {
 		return nil, err
 	}
@@ -333,26 +328,18 @@ func (y *youtube) channel(ctx context.Context, id string) ([]item, error) {
 	// videoDetails.isLive: absent on an upcoming stream and on a channel
 	// page, which is where /live lands when nothing is on.
 	if !strings.Contains(string(page), `"isLive":true`) {
-		return items, nil
+		return nil, nil
 	}
 	m := canonical.FindSubmatch(page)
 	if m == nil || len(m[2]) == 0 {
-		return items, nil
+		return nil, nil
 	}
 	v := string(m[2])
 	live := item{ID: "live:" + v, URL: y.base + "/watch?v=" + v, Image: y.img + "/vi/" + v + "/maxresdefault_live.jpg", Author: name}
 	if t := metaTitle.FindSubmatch(page); t != nil {
 		live.Title = html.UnescapeString(string(t[1]))
 	}
-	return append([]item{live}, items...), nil
-}
-
-// keep drops a stream's own feed entry, which appears as soon as it is
-// scheduled: the /live check announces it when it starts. A page that
-// can't be read is kept, since an extra card beats a lost one.
-func (y *youtube) keep(ctx context.Context, it item) bool {
-	page, err := get(ctx, y.c, y.base+"/watch?v="+url.QueryEscape(it.ID), consent, nil)
-	return err != nil || !strings.Contains(string(page), `"isLiveContent":true`)
+	return []item{live}, nil
 }
 
 // app is an OAuth client credentials token, fetched when first needed and

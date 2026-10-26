@@ -207,7 +207,7 @@ func TestYoutube(t *testing.T) {
 	}
 
 	got, err := y.check(ctx, []string{ytID})
-	if err != nil || len(got[ytID]) != 2 {
+	if err != nil || len(got[ytID]) != 0 {
 		t.Fatalf("offline: %v %v", got, err)
 	}
 	live.Store(true)
@@ -216,16 +216,10 @@ func TestYoutube(t *testing.T) {
 		t.Fatal("a missing channel is an error")
 	}
 	want := item{ID: "live:livevideo01", Title: "on air & loud", URL: srv.URL + "/watch?v=livevideo01", Image: "https://img/vi/livevideo01/maxresdefault_live.jpg", Author: "Bird Channel"}
-	if len(got[ytID]) != 3 || got[ytID][0] != want {
+	if len(got[ytID]) != 1 || got[ytID][0] != want {
 		t.Fatalf("live:\n got %+v\nwant %+v", got[ytID], want)
 	}
 
-	if y.keep(ctx, item{ID: "streamvideo"}) {
-		t.Fatal("a stream's own entry is kept")
-	}
-	if !y.keep(ctx, item{ID: "vid00000002"}) {
-		t.Fatal("an upload is dropped")
-	}
 	if y.every() <= 0 {
 		t.Fatal("every")
 	}
@@ -371,14 +365,8 @@ func TestSourcesFollowConfig(t *testing.T) {
 		t.Fatalf("youtube alone without settings: %v", s)
 	}
 	s = sources(Config{RSSHub: "https://hub", TwitchID: "a", TwitchSecret: "b", KickID: "c", KickSecret: "d"}, http.DefaultClient)
-	if len(s) != 5 {
-		t.Fatalf("all five: %v", s)
-	}
-	if p := s["tiktok"].(feed).path("bird"); p != "/tiktok/user/@bird" {
-		t.Fatal(p)
-	}
-	if p := s["x"].(feed).path("bird"); p != "/twitter/user/bird" {
-		t.Fatal(p)
+	if len(s) != 3 || s["youtube"] == nil || s["twitch"] == nil || s["kick"] == nil {
+		t.Fatalf("only livestream sources, even with legacy RSSHub configured: %v", s)
 	}
 	t.Setenv("SKUA_NOTIFY_RSSHUB", "https://hub/")
 	if c := FromEnv(); c.RSSHub != "https://hub" {
