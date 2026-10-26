@@ -11,6 +11,8 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
+
+	"github.com/6586x57890143/skua/internal/core/coretest"
 )
 
 // inviteRest serves the server's invites as they stand; down refuses.
@@ -234,5 +236,54 @@ func TestLeaveFirstAndRejoin(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(db.execs, "\n"), "pp_guest") || len(s.seenGuests) != 0 {
 		t.Errorf("the seen day wasn't flushed: %q", db.execs)
+	}
+}
+
+// A guest someone vouched for gets a button on the closed card that lets
+// them into the beta on that word; a bird nobody vouched for, or a guest
+// who left, gets only the key.
+func TestJoinOnWord(t *testing.T) {
+	m := testModule(&fakeDB{})
+	m.Admin = func(discord.Interaction) bool { return false }
+	ctx := context.Background()
+	var granted []snowflake.ID
+	m.Grant = func(_ context.Context, guild, user, role snowflake.ID) error {
+		granted = append(granted, guild, user, role)
+		return nil
+	}
+	s := m.st.server(guild)
+	s.beta = 77
+	card := func() string {
+		e, sent := coretest.Event(t, "pp", nil)
+		if err := m.Commands()[0].Run(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+		return js(*sent)
+	}
+	press := func() ([]discord.MessageUpdate, error) {
+		e, _ := coretest.Button(t, "pp:vouched", nil)
+		r := &redeemRest{}
+		e.Client().Rest = r
+		return r.updates, m.press(ctx, e)
+	}
+	if got := card(); strings.Contains(got, "pp:vouched") {
+		t.Errorf("nobody's guest got the button: %s", got)
+	}
+	if _, err := press(); !errors.Is(err, errNoWord) {
+		t.Errorf("nobody's guest pressed: %v", err)
+	}
+
+	s.enter(5, &guest{by: old(1), day: DayOf(t0)})
+	if got := card(); !strings.Contains(got, "pp:vouched") || !strings.Contains(got, "@"+old(1).String()) {
+		t.Errorf("the guest's card: %s", got)
+	}
+	updates, err := press()
+	if err != nil || len(granted) != 3 || granted[1] != 5 || granted[2] != 77 || !strings.Contains(js(updates), "you're in the beta") {
+		t.Errorf("joining: %v %v %s", err, granted, js(updates))
+	}
+
+	s.guests[5].gone = DayOf(t0)
+	if got := card(); strings.Contains(got, "pp:vouched") {
+		t.Errorf("a guest who left got the button: %s", got)
 	}
 }

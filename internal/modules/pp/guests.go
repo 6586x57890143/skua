@@ -6,9 +6,13 @@ import (
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/6586x57890143/skua/internal/brand"
+	"github.com/6586x57890143/skua/internal/core"
 )
 
 // A member stands surety for the guests their own invite brings in
@@ -335,3 +339,55 @@ func (r *guestRows) write(ctx context.Context, tx pgx.Tx) error {
 	_, err := tx.Exec(ctx, upsertGuests, r.guild, r.user, r.by, r.day, r.gone, r.seen)
 	return err
 }
+
+// suretyOf is who stands surety for user in guild while they're here, 0
+// for nobody.
+func (m *Module) suretyOf(guild, user snowflake.ID) snowflake.ID {
+	s := m.st.server(guild)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if g, ok := s.guests[user]; ok && g.gone == 0 {
+		return g.by
+	}
+	return 0
+}
+
+// joinOnWord lets a guest into the beta on their surety's word: the beta
+// role, asked of merlin as a redeemed key is, with no key to pass round.
+func (m *Module) joinOnWord(ctx context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate) error {
+	if m.plays(e) {
+		return errInAlready
+	}
+	role := m.betaRole(guild)
+	if m.Grant == nil || role == 0 {
+		return errBeta
+	}
+	user := e.User().ID
+	if m.suretyOf(guild, user) == 0 {
+		return errNoWord
+	}
+	if !m.redeems.take(user, m.now()) {
+		return errTooMany
+	}
+	if err := e.DeferUpdateMessage(); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if err := m.Grant(ctx, guild, user, role); err != nil {
+		return fmt.Errorf("%w: %w", errNoWordRole, err)
+	}
+	m.log.Info("pp: in on a surety's word", "guild", guild, "user", user)
+	components := []discord.LayoutComponent{brand.Card(brand.ColorOK, "pp", "closed beta", "✓ you're in the beta: run /pp to begin")}
+	_, err := e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(), discord.MessageUpdate{
+		Components:      &components,
+		Flags:           new(discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2),
+		AllowedMentions: core.NoPings(),
+	}, rest.WithCtx(ctx))
+	return err
+}
+
+var (
+	errNoWord     = core.Tell("nobody's word brings you in here; a key still does")
+	errNoWordRole = core.Tell("the beta role didn't come through; try again in a few minutes")
+)

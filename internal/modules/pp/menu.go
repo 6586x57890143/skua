@@ -55,7 +55,7 @@ func (m *Module) Commands() []core.Command {
 				return errNotServer
 			}
 			if !m.plays(e) {
-				msg, err := m.closedMessage(*guild)
+				msg, err := m.closedMessage(*guild, e.User().ID)
 				if err != nil {
 					return err
 				}
@@ -101,6 +101,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.openYard(ctx, *guild, e)
 	case id == "pp:keys":
 		return m.openKeys(e)
+	case id == "pp:vouched":
+		return m.joinOnWord(ctx, *guild, e)
 	case id == "pp:redeem":
 		if m.Grant == nil {
 			return errBeta
