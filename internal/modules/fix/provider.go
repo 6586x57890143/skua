@@ -19,6 +19,7 @@ import (
 type Post struct {
 	Title, Text, Author, Handle, Avatar, Stats, Context, Timestamp, Provider string
 	AuthorURL                                                                string
+	TranslatedFrom                                                           string // source language, only after a successful English translation
 	Sensitive                                                                bool
 	Incomplete                                                               bool // metadata could not establish whether source media is missing
 	Media                                                                    []Media
@@ -31,6 +32,7 @@ type Media struct {
 type Section struct {
 	Kind, Author, Handle, AuthorURL string
 	Title, Text, URL                string
+	TranslatedFrom                  string
 	Media                           []Media
 	Sensitive                       bool
 }
@@ -172,6 +174,10 @@ type fixData struct {
 	} `json:"sections"`
 	MediaOrigin string `json:"mediaOrigin"`
 	Direct      bool   `json:"-"` // identity or caption recovered directly from Instagram
+	Translation *struct {
+		Source string `json:"sourceLanguage"`
+		Target string `json:"targetLanguage"`
+	} `json:"translation"`
 }
 
 func (d fixData) media() []Media {
@@ -203,6 +209,9 @@ func (a *API) fix(ctx context.Context, l Link) (Post, error) {
 		text = d.Description
 	}
 	p := Post{Title: d.Title, Text: text, Author: d.Author, AuthorURL: d.AuthorURL, Handle: d.Handle, Avatar: d.Avatar, Stats: d.Stats, Context: d.Context, Timestamp: d.Timestamp, Provider: "fixembed", Sensitive: d.Sensitive || len(d.Sensitivity) > 0}
+	if d.Translation != nil {
+		p.TranslatedFrom = translationSource(d.Translation.Source, d.Translation.Target)
+	}
 	if d.Direct {
 		p.Provider += " + instagram"
 	}

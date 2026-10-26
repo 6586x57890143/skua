@@ -20,8 +20,8 @@ var (
 	twitchReserved = map[string]bool{"directory": true, "downloads": true, "inventory": true, "jobs": true, "p": true, "search": true, "settings": true, "subscriptions": true, "videos": true, "wallet": true}
 	shortPath      = regexp.MustCompile(`^/[A-Za-z0-9_-]+/?$`)
 	commentID      = regexp.MustCompile(`^[A-Za-z0-9]+$`)
-	xPost          = regexp.MustCompile(`^/(?:([A-Za-z0-9_]{1,15})/status|i/(?:web/)?status)/([0-9]+)(?:/(?:photo|video)/[0-9]+)?/?$`)
-	bskyPost       = regexp.MustCompile(`^/profile/([A-Za-z0-9.:-]+)/post/([A-Za-z0-9]+)/?$`)
+	xPost          = regexp.MustCompile(`^/(?:([A-Za-z0-9_]{1,15})/status|i/(?:web/)?status)/([0-9]+)(?:/(?:photo|video)/[0-9]+)?(?:/en)?/?$`)
+	bskyPost       = regexp.MustCompile(`^/profile/([A-Za-z0-9.:-]+)/post/([A-Za-z0-9]+)(?:/en)?/?$`)
 	postPaths      = map[string]*regexp.Regexp{
 		"instagram":  regexp.MustCompile(`^/(?:p|reel|reels)/[A-Za-z0-9_-]+/?$|^/share/(?:p|reel)/[A-Za-z0-9_-]+/?$`),
 		"reddit":     regexp.MustCompile(`^/(?:r/[^/]+/(?:comments|s)/[^/]+|comments/[^/]+)(?:/.*)?$`),

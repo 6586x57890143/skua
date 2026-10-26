@@ -148,7 +148,11 @@ func card(l Link, p Post) discord.MessageCreate {
 	if t, err := time.Parse(time.RFC3339, p.Timestamp); err == nil {
 		stamp = fmt.Sprintf(" · <t:%d:R>", t.Unix())
 	}
-	meta := clean(p.Provider, 30) + stamp
+	meta := clean(p.Provider, 30)
+	if translated := translationCredit(l, p); translated != "" {
+		meta += " · " + translated
+	}
+	meta += stamp
 	footer := clip(statLine(p.Stats), 500-len(utf16.Encode([]rune(meta)))-8)
 	if footer != "" {
 		footer += " · "
