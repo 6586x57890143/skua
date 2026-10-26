@@ -74,7 +74,7 @@ func TestChirograph(t *testing.T) {
 		t.Errorf("signs %+v %+v", ma.signs, mb.signs)
 	}
 	last := s.pending[len(s.pending)-1]
-	if last.reason != reasonJoinder || last.inputs[0] != 2 || last.inputs[1] != Default.Joinder[0] || ma.purse <= before {
+	if last.reason != reasonJoinder || last.inputs[0] != 2 || last.inputs[1] != Default.JoinderPay(2) || ma.purse <= before {
 		t.Errorf("the joinder: %+v", last)
 	}
 	if _, err := st.post(s, guild, a, false, today); !errors.Is(err, errPactPaid) {
@@ -125,7 +125,7 @@ func TestRoundRobin(t *testing.T) {
 			t.Errorf("%v signs %+v", u, m.signs)
 		}
 	}
-	if last := s.pending[len(s.pending)-1]; last.inputs[0] != 3 || last.inputs[1] != Default.Joinder[1] {
+	if last := s.pending[len(s.pending)-1]; last.inputs[0] != 3 || last.inputs[1] != Default.JoinderPay(3) {
 		t.Errorf("three paid: %+v", last)
 	}
 }
@@ -151,7 +151,7 @@ func TestFullRing(t *testing.T) {
 			t.Errorf("%v signs %+v", u, s.members[u].signs)
 		}
 	}
-	if last := s.pending[len(s.pending)-1]; last.inputs[0] != 4 || last.inputs[1] != Default.Joinder[2] {
+	if last := s.pending[len(s.pending)-1]; last.inputs[0] != 4 || last.inputs[1] != Default.JoinderPay(4) {
 		t.Errorf("four paid: %+v", last)
 	}
 
@@ -411,7 +411,7 @@ func TestJoinderNews(t *testing.T) {
 	db.fail = nil
 	m.Save()
 	m.postJoinders()
-	if len(r.posts) != 1 || r.to[0] != 77 || !strings.Contains(r.posts[0], "teeth match") || !strings.Contains(r.posts[0], "60 pp each to") ||
+	if len(r.posts) != 1 || r.to[0] != 77 || !strings.Contains(r.posts[0], "teeth match") || !strings.Contains(r.posts[0], grouped(Default.JoinderPay(2)/unit)+" pp each to") ||
 		!strings.Contains(r.posts[0], "**learned** \\u003c@"+a.String()) || strings.Contains(r.posts[0], "learned** \\u003c@"+b.String()) {
 		t.Errorf("posted %v to %v", r.posts, r.to)
 	}
@@ -421,7 +421,7 @@ func TestJoinderNews(t *testing.T) {
 	}
 	// Discord down: the news waits for the next tick rather than going.
 	s.mu.Lock()
-	s.joinders = []joinderNews{{channel: 77, got: Default.Joinder[0], paid: []snowflake.ID{a, b}}}
+	s.joinders = []joinderNews{{channel: 77, got: Default.JoinderPay(2), paid: []snowflake.ID{a, b}}}
 	s.mu.Unlock()
 	r.down = true
 	m.postJoinders()

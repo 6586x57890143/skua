@@ -17,7 +17,7 @@ import "strconv"
 //   - the contest fund, in the treasury, is the one pp made beside time,
 //     and only out of it: FundShare of every quest paid, until it holds
 //     FundHold of the biggest prize; it starts full, once
-//   - grants come out of the contest fund: PrizeMax golden quests at most,
+//   - grants come out of the contest fund: PrizeMax pot days at most,
 //     GrantSeason pot days a season to anyone, never to an admin, a second
 //     admin above GrantSecond pot days, every one posted
 //   - spending is burned; members never trade pp; nothing pp buys is
@@ -40,7 +40,7 @@ type Charter struct {
 
 	FundShare int64 // basis points of every quest paid
 	FundHold  int64 // of the biggest prize
-	PrizeMax  int64 // golden quests
+	PrizeMax  int64 // pot days
 
 	GrantSeason, GrantSecond int64
 
@@ -59,12 +59,12 @@ type Charter struct {
 
 // Rules is the charter in force.
 var Rules = Charter{
-	Version:       "4",
+	Version:       "5",
 	Levy:          350,
 	TreasuryWeeks: 8,
 	FundShare:     300,
 	FundHold:      3,
-	PrizeMax:      5,
+	PrizeMax:      9,
 	GrantSeason:   10,
 	GrantSecond:   1,
 	SinkFloor:     5,
@@ -105,5 +105,5 @@ func (c Charter) levy(got int64) int64 { return got * c.Levy / 10000 }
 // LevyPct is the levy as members read it, like 3.5%.
 func (c Charter) LevyPct() string { return strconv.FormatFloat(float64(c.Levy)/100, 'f', -1, 64) + "%" }
 
-// Prize is the biggest grant: PrizeMax golden quests under b.
-func (c Charter) Prize(b *Balance) int64 { return c.PrizeMax * b.QuestPP[len(b.QuestPP)-1] }
+// Prize is the biggest grant: PrizeMax pot days under b.
+func (c Charter) Prize(b *Balance) int64 { return c.PrizeMax * b.PotDay(c) }

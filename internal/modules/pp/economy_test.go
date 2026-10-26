@@ -309,8 +309,8 @@ func runEconomy(b *Balance, a activityData, e econ) outcome {
 					r -= pactSize[n]
 					n++
 				}
-				got += b.Joinder[n]
-				pactMint += b.Joinder[n]
+				got += b.JoinderPay(n + 2)
+				pactMint += b.JoinderPay(n + 2)
 			}
 			c.prev, c.prevPools, c.seen = d, pools, day
 			for i, act := range d.Activity() {

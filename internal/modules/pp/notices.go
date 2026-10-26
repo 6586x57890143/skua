@@ -190,9 +190,9 @@ func postedRows(c *pixel.Canvas, r image.Rectangle, board []Posted) {
 func (m *Module) noticeOf(s *server, p *pact) *Notice {
 	b := m.st.bal()
 	n := &Notice{Ring: p.ring, Started: p.started, Places: p.size(), Together: p.minutes, Goal: b.PactGoal,
-		Pays: grouped(b.Joinder[0]/unit) + " pp each"}
+		Pays: grouped(b.JoinderPay(2)/unit) + " pp each"}
 	if p.ring {
-		n.Pays = fmt.Sprintf("%s / %s pp each", grouped(b.Joinder[1]/unit), grouped(b.Joinder[2]/unit))
+		n.Pays = fmt.Sprintf("%s / %s pp each", grouped(b.JoinderPay(3)/unit), grouped(b.JoinderPay(4)/unit))
 	}
 	for _, g := range p.signers {
 		sig := NoticeSigner{Name: "a bird", Mark: classMarks["wanderer"], Minutes: g.minutes, Portrait: Portrait(ClassOf("wanderer"))}
