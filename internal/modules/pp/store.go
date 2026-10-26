@@ -387,8 +387,12 @@ func writeFlush(ctx context.Context, tx pgx.Tx, rows *memberRows, ledger *ledger
 }
 
 // loadBalance sets the balance today runs under: the one saved for today,
-// if this boot is a deploy mid-day, or else next, which it saves for today.
-// The saved one is read over next, so a field it predates keeps next's value.
+// if this boot is a deploy mid-day of the same version, or else next, which
+// it saves for today. A saved balance of another version is never run: its
+// numbers were written for that build's code, and this build may read a
+// field in other units (a joinder saved in pp, read as a share of a pot
+// day, once paid 700 times over). The saved one is read over next, so a
+// field it predates keeps next's value.
 func (st *state) loadBalance(ctx context.Context, db DB, next *Balance, today int64) error {
 	rows, err := db.Query(ctx, `select day, body from pp_balance`)
 	if err != nil {
@@ -409,8 +413,10 @@ func (st *state) loadBalance(ctx context.Context, db DB, next *Balance, today in
 		if err := json.Unmarshal(body, &b); err != nil {
 			return err
 		}
-		st.use(&b)
-		return nil
+		if b.Version == next.Version {
+			st.use(&b)
+			return nil
+		}
 	}
 	st.use(next)
 	return saveBalance(ctx, db, today, next)
