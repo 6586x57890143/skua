@@ -153,7 +153,7 @@ func card(l Link, p Post) discord.MessageCreate {
 		meta += " · " + translated
 	}
 	meta += stamp
-	footer := clip(statLine(p.Stats), 500-len(utf16.Encode([]rune(meta)))-8)
+	footer := statLineLimit(p.Stats, 500-len(utf16.Encode([]rune(meta)))-8)
 	if footer != "" {
 		footer += " · "
 	}

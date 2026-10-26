@@ -798,6 +798,10 @@ func writeEmoji(b *image.NRGBA) {
 	bare(out, "stat_repost", socialGlyphs["repost"])
 	bare(out, "stat_views", socialGlyphs["views"])
 	bare(out, "stat_likes", socialGlyphs["like"])
+	bare(out, "stat_bookmarks", socialGlyphs["bookmark"])
+	bare(out, "stat_downloads", socialGlyphs["download"])
+	bare(out, "stat_notes", socialGlyphs["note"])
+	bare(out, "stat_coins", moduleGlyphs["pp"])
 	writeFixLoading(out, bird)
 	gameIcons(out)
 }
@@ -841,6 +845,48 @@ func tiles(out, prefix string, glyphs map[string][]string, inks map[string]color
 
 // Social actions drawn on the same two-cell grid as the platform glyphs.
 var socialGlyphs = map[string][]string{
+	"bookmark": doubleSocialGlyph([]string{
+		"............",
+		"..wwwwwwww..",
+		"..w......w..",
+		"..w......w..",
+		"..w......w..",
+		"..w......w..",
+		"..w......w..",
+		"..w......w..",
+		"..w..ww..w..",
+		"..w.w..w.w..",
+		"..ww....ww..",
+		"............",
+	}),
+	"download": doubleSocialGlyph([]string{
+		"............",
+		".....ww.....",
+		".....ww.....",
+		".....ww.....",
+		"..w..ww..w..",
+		"...w.ww.w...",
+		"....wwww....",
+		".....ww.....",
+		".w........w.",
+		".w........w.",
+		".wwwwwwwwww.",
+		"............",
+	}),
+	"note": doubleSocialGlyph([]string{
+		"..wwwwww....",
+		"..w....ww...",
+		"..w....www..",
+		"..w......w..",
+		"..w.wwww.w..",
+		"..w......w..",
+		"..w.wwww.w..",
+		"..w......w..",
+		"..w.ww...w..",
+		"..w......w..",
+		"..wwwwwwww..",
+		"............",
+	}),
 	"views": {
 		"........................",
 		"........................",
