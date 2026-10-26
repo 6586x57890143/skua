@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
 	"github.com/disgoorg/disgo/discord"
 )
@@ -126,7 +127,17 @@ func card(l Link, p Post) discord.MessageCreate {
 		appendMedia(s.Media, p.Sensitive || s.Sensitive)
 	}
 	if p.Context != "" {
-		addText(clean(p.Context, 160))
+		context := clean(p.Context, 160)
+		key := ""
+		if p.Provider == "unavailable" {
+			key = "skua_error"
+		} else if p.Incomplete {
+			key = "skua_warn"
+		}
+		if mark := brand.Mention(key); mark != "" {
+			context = mark + " " + context
+		}
+		addText(context)
 	}
 	if truncated {
 		addText("-# more media on the original post")
