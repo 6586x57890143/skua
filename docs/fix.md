@@ -224,6 +224,12 @@ Only fix changes in this revision; notify remains the visual reference. Reddit
 uses a linked post title with a smaller author/profile line. Other platforms use
 a linked author with a smaller handle/profile line where the provider supplies a
 valid X or Bluesky profile. Quote blocks keep their own identity and media.
+Names and titles containing emoji or link delimiters stay plain, followed by a
+short linked `post` or `profile` label. Discord otherwise displays these masked
+links as literal Markdown, exposing the destination across multiple lines.
+Quoted identities use the same platform emoji as the main header. Vote counts
+use the engagement emoji set and incomplete or unavailable previews use Skua's
+warning or error emoji. Missing emoji sync still falls back to readable text.
 Engagement is ordered replies, reposts, likes, views, with notify-style counts
 such as 7.2k. Views are shown only when supplied. The footer reserves its share of
 the 4000 UTF-16 text budget and uses Discord relative time with the exact time

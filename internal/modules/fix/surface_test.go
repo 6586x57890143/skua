@@ -77,7 +77,7 @@ func TestLinkedTextCannotInjectMarkdown(t *testing.T) {
 			t.Fatalf("%d: %q", limit, got)
 		}
 	}
-	if got := statLine("3 votes · 1.2K likes · 5 views · unknown"); !strings.Contains(got, "3 votes") || !strings.Contains(got, "1.2K") || !strings.Contains(got, "5") {
+	if got := statLine("3 votes · 1.2K likes · 5 views · unknown"); !strings.Contains(got, "**3** votes") || !strings.Contains(got, "1.2K") || !strings.Contains(got, "5") {
 		t.Fatal(got)
 	}
 }
@@ -193,6 +193,77 @@ func TestEverySupportedPlatformHasAnIcon(t *testing.T) {
 	for p := range platforms {
 		if brand.Mention("pf_"+p) == "" {
 			t.Errorf("no header icon for %s", p)
+		}
+		l := Link{Platform: p, URL: "https://example.com/post"}
+		mark := brand.Mention("pf_" + p)
+		if !strings.HasPrefix(identity(l, Post{Author: "creator"}), mark+" ") || !strings.Contains(sectionText(l, Section{Kind: "quote", Author: "quoted creator", URL: l.URL}, 500), mark+" ") {
+			t.Errorf("%s does not use its platform emoji on both identities", p)
+		}
+	}
+}
+
+func TestDecoratedIdentitiesUseSafeLinkLabels(t *testing.T) {
+	for _, name := range []string{"[🔍 Juicy 🎁]", "[🍄 shroom specialist]", "creator 🏳️‍🌈", "creator 1️⃣", "[creator]", "creator `name`", `creator\name`, "https://example.com/name"} {
+		t.Run(name, func(t *testing.T) {
+			l, _ := Parse("https://x.com/shroomsocialist/status/2114682962465710561")
+			p := Post{Author: name, Handle: "shroomsocialist"}
+			head := identity(l, p)
+			if !strings.Contains(head, clean(name, 100)+" · [post](<"+l.URL+">)") || strings.Contains(head, "["+linkLabel(name, 100)+"](<") {
+				t.Fatal(head)
+			}
+			section := Section{Kind: "quote", Author: name, Handle: p.Handle, URL: l.URL, Text: "quoted words"}
+			got := sectionText(l, section, 500)
+			if !strings.Contains(got, "[post](<"+l.URL+">)") || !strings.Contains(got, "["+linkLabel("@"+p.Handle, 70)+"](<https://x.com/"+p.Handle+">)") {
+				t.Fatal(got)
+			}
+			for limit := 20; limit <= 500; limit++ {
+				got := sectionText(l, section, limit)
+				if len(utf16.Encode([]rune(got))) > limit || strings.Count(got, "](<") != strings.Count(got, ">)") {
+					t.Fatalf("limit %d: %s", limit, got)
+				}
+			}
+			l, _ = Parse("https://reddit.com/r/test/comments/abc/title/")
+			got = identity(l, Post{Title: name, Author: name, AuthorURL: "https://www.reddit.com/user/creator/"})
+			if !strings.Contains(got, "[post](<"+l.URL+">)") || !strings.Contains(got, "[profile](<https://www.reddit.com/user/creator/>)") {
+				t.Fatal(got)
+			}
+		})
+	}
+	// Keep ordinary names, underscores and handles directly clickable.
+	if got := linkedText("creator_name", "https://x.com/creator_name", 100, "profile"); got != "[creator_name](<https://x.com/creator_name>)" {
+		t.Fatal(got)
+	}
+	if got := linkedText("creator\nname", "https://x.com/creator", 100, "post"); got != "[creator name](<https://x.com/creator>)" {
+		t.Fatal(got)
+	}
+}
+
+func TestCardStatesAndVotesUseAppEmoji(t *testing.T) {
+	if err := brand.Sync(context.Background(), iconRest{}, 9, guard.New()); err != nil {
+		t.Fatal(err)
+	}
+	l, _ := Parse("https://x.com/creator/status/123")
+	for _, tc := range []struct {
+		post Post
+		key  string
+	}{
+		{Post{Provider: "unavailable", Context: "preview unavailable"}, "skua_error"},
+		{Post{Incomplete: true, Context: "media may be silent"}, "skua_warn"},
+	} {
+		box := card(l, tc.post).Components[0].(discord.ContainerComponent)
+		found := false
+		for _, c := range box.Components {
+			if text, ok := c.(discord.TextDisplayComponent); ok && strings.HasPrefix(text.Content, brand.Mention(tc.key)+" ") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("missing %s", tc.key)
+		}
+	}
+	for _, stat := range []string{"3 votes", "1 upvote", "2200 upvotes", "1 vote"} {
+		if got := statLine(stat); !strings.HasPrefix(got, brand.Mention("stat_likes")+" **") || !strings.HasSuffix(got, strings.Fields(stat)[1]) {
+			t.Fatal(got)
 		}
 	}
 }
