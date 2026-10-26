@@ -35,7 +35,7 @@ var personas = []persona{
 	{name: "farmer", muted: 600, engage: 20, messages: 30},
 	{name: "talker", unmuted: 180},
 	{name: "hwmute", unmuted: 600},
-	{name: "wearer", unmuted: 120, messages: 40, quests: 1, every: 1, wears: Wearing{true, true, true}},
+	{name: "wearer", unmuted: 120, messages: 40, quests: 1, every: 1, wears: Wearing{Crest: true, Banner: true, Plume: true, Guests: 5}},
 }
 
 // result is one persona's month.

@@ -11,6 +11,16 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.12.0",
+	Date:    "2026-10-26",
+	Balance: "5cbf9a",
+	Lines: []string{
+		"surety, a new buff: bring a newcomer into the server on your own invite and the gate book enters them under your name",
+		"a guest counts once they've stayed a week and joined in, and keeps counting while they're still about. each one who counts adds a little to your buff, up to a cap. the buffs card has the numbers",
+		"every guest who ever counted grows your key, shown on your status screen: iron, then gold, then the freedom of the city",
+		"only newcomers count: a bird who was here before, or comes back after leaving, can't be entered twice",
+	},
+}, {
 	Version: "0.11.0",
 	Date:    "2026-10-26",
 	Balance: "d7723e",

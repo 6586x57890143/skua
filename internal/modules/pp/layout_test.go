@@ -56,7 +56,7 @@ func TestStatusLayout(t *testing.T) {
 		for i, from := range titleFrom {
 			s := Sheet{Portrait: image.NewNRGBA(image.Rect(0, 0, 32, 48)), Name: "a very long display name for a sheet", Class: cl, Level: from,
 				Into: 99999 * unit, Need: 999999 * unit, Purse: 9999999 * unit, Vigor: 50, Phase: "fresh", Buffs: buffs[:i%5], Season: 12, Week: 4,
-				Place: 1234, Laurels: 12, Held: 3}
+				Place: 1234, Laurels: 12, Held: 3, Vouched: 999, Key: "freedom", Surety: true}
 			checkLayout(t, cl.Name()+" "+cl.Titles[i], statusCanvas(s))
 		}
 	}

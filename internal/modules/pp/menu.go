@@ -437,6 +437,9 @@ func (m *Module) sheet(s *server, mem *member, guild, user snowflake.ID, today i
 			sh.Buffs = append(sh.Buffs, Buff{Icon: w.name, Label: w.name})
 		}
 	}
+	_, ever := m.st.vouched(s, user, today)
+	sh.Key, _ = keyOf(ever)
+	sh.Vouched, sh.Surety = int(ever), mem.wear.Guests > 0
 	if tier := s.hearth(); tier > 0 {
 		sh.Buffs = append(sh.Buffs, Buff{Icon: "hearth", Label: hearthWord(tier)})
 	}

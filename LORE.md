@@ -110,6 +110,29 @@ work poured in at the rim, and leave the notices on the board out of the
 count. The fire has three heights, and once lit it isn't let down until the
 next day is out, whatever the city does after.
 
+### The gate book
+
+Every bird who comes up the cliff road passes **the north gate**, where the
+wardens of the wood keep **the gate book**. It is how they number the
+rookery. A newcomer can be entered under the name of a bird already in the
+city, who then stands **surety** for them. A surety answers for their
+guest's debts and manners for as long as the guest stays, and in return the
+pot pays the surety a little more on everything they pour in.
+
+The wardens don't pay for a name, only for a bird. A guest counts once they
+have slept a week against the pot's warm side and been seen about the city,
+and they stop counting when they go quiet. A bird entered once is never
+entered again, so one who leaves and comes back belongs to nobody. The
+wardens also won't enter a bird who has only just learned to fly, and they
+stop paying a surety past a handful of guests at once, because a bird
+vouching for a whole ship's crew is selling the vouch.
+
+A surety carries a **key** to show for it. The wardens hand out an iron one
+for the first guest who counts, and a gold one once three have. Past ten the
+city grants **the freedom of the city**, a gold key on a red ribbon. Its
+holder may enter any guildhall below the gilt without knocking, and few
+bother to.
+
 ### Chirographs and round robins
 
 The day's notices on the board are one bird's work, dealt to them alone.
@@ -369,6 +392,9 @@ more as it fills.
 | the levy and treasury | the pot's share, kept for the city |
 | the shop and the stair | buying a perch higher up the spire; what's spent goes back into the pot |
 | the hearth | the herons' public fire, lit on a day the city earns it |
+| inviting someone to the server | standing surety for a newcomer in the gate book |
+| the surety buff | the pot paying a surety for each guest still about the city |
+| the guest badge | a surety's key: iron, gold, then the freedom of the city |
 | laurels | the choir's monday names |
 | quests | notices on the board at the pot's rim |
 | two players together in voice | a chirograph, cut in two through a word and fitted back together |

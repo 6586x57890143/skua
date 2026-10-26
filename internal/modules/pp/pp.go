@@ -76,18 +76,24 @@ func New(ctx context.Context, log *slog.Logger, db DB, seed uint64, info GuildIn
 		return nil, err
 	}
 	m.st.regrant(DayOf(m.now()))
+	for _, s := range m.st.servers() {
+		s.mu.Lock()
+		m.st.sureties(s, DayOf(m.now()))
+		s.mu.Unlock()
+	}
 	return m, nil
 }
 
 func (*Module) Name() string { return "pp" }
 
 // Want: messages and voice states earn. Content tells a real message from
-// a repeat, and presences carry the custom status the banner buff reads;
-// without either, /pp still runs.
+// a repeat, presences carry the custom status the banner buff reads, and
+// members' joins and leaves keep the gate book; without any of them, /pp
+// still runs.
 func (*Module) Want() intents.Want {
 	return intents.Want{
 		Required: gateway.IntentGuilds | gateway.IntentGuildMessages | gateway.IntentGuildVoiceStates,
-		Optional: gateway.IntentMessageContent | gateway.IntentGuildPresences,
+		Optional: gateway.IntentMessageContent | gateway.IntentGuildPresences | gateway.IntentGuildMembers,
 	}
 }
 
@@ -141,6 +147,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 	savings := m.savings(s, DayOf(m.now()))
 	grants := grantsRow(s)
 	sinks := sinksRow(s)
+	gate := m.gateRow(s)
 	s.mu.Unlock()
 	next := "none yet"
 	season, _ := m.st.bal().Season(DayOf(m.now()))
@@ -170,6 +177,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"sinks", sinks},
 		{"banners", strconv.Itoa(banners)},
 		{"presences", presence},
+		{"gate book", gate},
 	}, Controls: slices.Concat(m.betaControls(guild), m.keyControls(), m.logControls(guild), m.selfieControls(guild), m.liveryControls(), m.grantControls())}
 }
 
@@ -261,6 +269,10 @@ func (m *Module) OnEvent(ev bot.Event) {
 		if mem, ok := s.members[e.VoiceState.UserID]; ok {
 			seen(mem, &e.Member, e.Member.User, e.VoiceState.GuildID)
 		}
+	case *events.GuildMemberJoin:
+		m.aside(func() { m.joined(e.GuildID, e.Member) })
+	case *events.GuildMemberLeave:
+		m.aside(func() { m.left(e.GuildID, e.User.ID) })
 	case *events.PresenceUpdate:
 		_, vanity := m.info(e.GuildID)
 		on := bannerOf(e.Activities, vanity)
@@ -274,6 +286,16 @@ func (m *Module) OnEvent(ev bot.Event) {
 	}
 }
 
+// aside runs work that calls Discord off the event loop, or in place for
+// tests.
+func (m *Module) aside(work func()) {
+	if m.inline {
+		work()
+		return
+	}
+	go work()
+}
+
 // clearVoice drops transient occupancy when Discord can no longer tell us
 // who is present. Balances stay; a ready/available event reseats members.
 func (m *Module) clearVoice(guild snowflake.ID) {
@@ -285,8 +307,10 @@ func (m *Module) clearVoice(guild snowflake.ID) {
 }
 
 // ready seats everyone already in voice when skua (re)connects, and reads
-// the custom statuses Discord sends with the server.
+// the custom statuses Discord sends with the server, and takes a first look
+// at its invites for the gate book.
 func (m *Module) ready(guild snowflake.ID, g discord.GatewayGuild) {
+	m.aside(func() { m.primeInvites(guild) })
 	bots := map[snowflake.ID]bool{}
 	for _, mem := range g.Members {
 		bots[mem.User.ID] = mem.User.Bot

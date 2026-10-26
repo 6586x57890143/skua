@@ -99,6 +99,9 @@ func (st *state) load(ctx context.Context, db DB) error {
 	if _, err := db.Exec(ctx, `update pp_grant set state = 'waiting', second_id = 0 where state = 'paying'`); err != nil {
 		return err
 	}
+	if err := st.loadGuests(ctx, db); err != nil {
+		return err
+	}
 	return st.loadSeeds(ctx, db)
 }
 
