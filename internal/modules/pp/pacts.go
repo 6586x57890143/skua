@@ -376,6 +376,7 @@ func (st *state) withdraw(s *server, user snowflake.ID, today int64) error {
 	p.signers = slices.DeleteFunc(p.signers, func(g signer) bool { return g.user == user })
 	m.pact, m.dirty = nil, true
 	if !p.started && p.opener == user || p.started && len(p.signers) < p.need() {
+		s.count(today, statEnded, p.kind(), bit(p.started))
 		for _, g := range p.signers {
 			if o := s.members[g.user]; o != nil {
 				o.pact, o.dirty = nil, true

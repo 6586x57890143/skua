@@ -4,12 +4,15 @@ import "github.com/disgoorg/snowflake/v2"
 
 // Stats are counts of what members do that the ledger doesn't hold, a day
 // at a time, for tuning: quests dealt, rerolled and finished by tier and
-// kind, and notices posted, finished and lapsed by kind. They're saved
+// kind, and notices posted, finished, lapsed, left and ended by kind.
+// A notice that didn't finish either lapsed or was ended by a withdrawal,
+// so those two over the three give its abandon rate. They're saved
 // with the next flush into pp_stat, added to what's there, and read only
 // by hand, as aggregates.
 
 // What a stat counts. For a quest a and b are its tier and kind; for a
-// notice a is 1 for a round robin and b how many signed or were paid.
+// notice a is its kind (pact.kind: 0 a chirograph, 1 a round robin, 2 a
+// correspondence, 3 a round letter) and b how many signed or were paid.
 const (
 	statDealt    = "quest_dealt"
 	statRerolled = "quest_rerolled" // the quest a reroll replaced
@@ -18,6 +21,7 @@ const (
 	statJoined   = "notice_finished"  // b is how many were paid
 	statLapsed   = "notice_lapsed"    // b is how many had signed
 	statLeft     = "notice_withdrawn" // b is 1 once its work had started
+	statEnded    = "notice_ended"     // a withdrawal ended it for everyone; b as statLeft
 )
 
 // statKey is one counter: a day, what it counts and its two particulars.

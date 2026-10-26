@@ -3,6 +3,8 @@ package pp
 import (
 	"errors"
 	"testing"
+
+	"github.com/disgoorg/snowflake/v2"
 )
 
 // Quests dealt and rerolled and notices posted and lapsed are counted by
@@ -21,7 +23,39 @@ func TestStats(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.lapse(s, today+Default.PactLife)
+	// A withdrawal that ends a notice, before its work and during it; one
+	// that leaves a ring going doesn't.
+	b, c, d, e := old(2), old(3), old(4), old(5)
+	if _, err := st.post(s, guild, b, false, true, today); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.withdraw(s, b, today); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := st.post(s, guild, c, false, false, today)
+	if _, err := st.sign(s, guild, pactKey{opener: c, day: today, at: p.at}, d, today); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.withdraw(s, d, today); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.post(s, guild, e, true, false, today); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []snowflake.ID{old(6), old(7), old(8)} {
+		if _, err := st.sign(s, guild, pactKey{opener: e, day: today}, u, today); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.withdraw(s, old(8), today); err != nil {
+		t.Fatal(err)
+	}
+	if s.stats[statKey{today, statEnded, 1, 1}] != 0 {
+		t.Error("a ring left with three counted as ended")
+	}
 	for k, want := range map[statKey]int64{
+		{today, statEnded, 2, 0}:                     1,
+		{today, statEnded, 0, 1}:                     1,
 		{today, statDealt, q.tier, q.kind}:           1,
 		{today, statRerolled, q.tier, q.kind}:        1,
 		{today, statPosted, 1, 0}:                    1,
