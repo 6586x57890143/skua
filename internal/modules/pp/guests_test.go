@@ -9,6 +9,7 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
@@ -62,6 +63,12 @@ func TestAttribute(t *testing.T) {
 	}
 	if got := s.attribute([]discord.ExtendedInvite{inv("bb", b, 1, 0), inv("cc", b, 1, 0)}); got != a {
 		t.Errorf("a single use went at its use: %d", got)
+	}
+	// A single use invite made and spent between looks, known from its
+	// creation.
+	s.created("ff", &discord.User{ID: b}, 0, 1)
+	if got := s.attribute([]discord.ExtendedInvite{inv("bb", b, 1, 0), inv("cc", b, 1, 0)}); got != b {
+		t.Errorf("a single use made since the last look: %d", got)
 	}
 	bot := inv("ee", a, 1, 0)
 	bot.Inviter.Bot = true
@@ -285,5 +292,24 @@ func TestJoinOnWord(t *testing.T) {
 	s.guests[5].gone = DayOf(t0)
 	if got := card(); strings.Contains(got, "pp:vouched") {
 		t.Errorf("a guest who left got the button: %s", got)
+	}
+}
+
+// An invite made before the first look is left for it, and one made after
+// arrives as an event.
+func TestInviteCreate(t *testing.T) {
+	m := testModule(&fakeDB{})
+	s := m.st.server(guild)
+	made := func(code string) {
+		m.OnEvent(&events.InviteCreate{EventInviteCreate: gateway.EventInviteCreate{GuildID: &s.id, Code: code, Inviter: &discord.User{ID: old(1)}, MaxUses: 1}})
+	}
+	made("aa")
+	if s.invites != nil {
+		t.Error("an invite before the first look primed the server")
+	}
+	s.invites = map[string]invite{}
+	made("bb")
+	if got := s.invites["bb"]; got != (invite{by: old(1), max: 1}) {
+		t.Errorf("made: %+v", got)
 	}
 }

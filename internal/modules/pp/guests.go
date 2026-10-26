@@ -21,6 +21,8 @@ import (
 // That takes Manage Server, which skua doesn't ask for at install: a server
 // that wants sureties gives it to her. Without it, or the server members
 // intent, nobody is ever entered under anyone and the buff stays off.
+// Manage Channels as well brings each invite as it's made, so a single use
+// one spent before the next look is still credited.
 
 // lookAgain is how long a server that refused skua its invites waits
 // before she asks again, so a server without Manage Server costs Discord
@@ -134,18 +136,17 @@ func (s *server) attribute(invs []discord.ExtendedInvite) snowflake.ID {
 	var by snowflake.ID
 	hits := 0
 	for _, inv := range invs {
-		var who snowflake.ID
-		if inv.Inviter != nil && !inv.Inviter.Bot {
-			who = inv.Inviter.ID
-		}
+		who := inviter(inv.Inviter)
 		next[inv.Code] = invite{by: who, uses: inv.Uses, max: inv.MaxUses}
 		if d := inv.Uses - s.invites[inv.Code].uses; d > 0 {
 			hits += d
 			by = who
 		}
 	}
-	// ponytail: a limited invite that expired one short of its last use
-	// looks used; it only ever makes a join nobody's, never someone else's.
+	// ponytail: a limited invite deleted or expired one short of its last
+	// use looks used, so a join by the vanity link, which nothing else
+	// accounts for, goes to its maker; telling them apart takes the vanity
+	// link's uses.
 	for code, old := range s.invites {
 		if _, ok := next[code]; !ok && old.max > 0 && old.uses == old.max-1 {
 			hits++
@@ -157,6 +158,23 @@ func (s *server) attribute(invs []discord.ExtendedInvite) snowflake.ID {
 		return 0
 	}
 	return by
+}
+
+// created notes an invite made since the last look, so a single use one
+// spent before the next look is still known. Before the first look there's
+// nothing to add to: that look takes it in. s.mu held.
+func (s *server) created(code string, by *discord.User, uses, most int) {
+	if s.invites != nil {
+		s.invites[code] = invite{by: inviter(by), uses: uses, max: most}
+	}
+}
+
+// inviter is who made an invite, 0 for nobody or a bot.
+func inviter(u *discord.User) snowflake.ID {
+	if u == nil || u.Bot {
+		return 0
+	}
+	return u.ID
 }
 
 // admit enters user in the gate book with by standing surety, as long as
