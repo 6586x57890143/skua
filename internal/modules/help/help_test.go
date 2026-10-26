@@ -85,7 +85,7 @@ func newRouter(t *testing.T, sw Toggles, mods ...core.Module) *core.Router {
 	t.Helper()
 	var r *core.Router
 	h := New(func() []core.Module { return mods }, func(i discord.Interaction) bool { return r.Admin(i) }, sw)
-	r = core.NewRouter(0, func(snowflake.ID) (snowflake.ID, bool) { return 0, false }, slog.New(slog.DiscardHandler))
+	r = core.NewRouter(nil, func(snowflake.ID) (snowflake.ID, bool) { return 0, false }, slog.New(slog.DiscardHandler))
 	if err := r.Add(h); err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +426,7 @@ func TestEveryPageKeepsTheVoice(t *testing.T) {
 		status.New(nil, nil, nil, nil),
 		whisper.New(nil, nil, nil),
 		bird.New(nil, nil, nil, ""),
-		purge.New(nil, nil, slog.New(slog.DiscardHandler), snowflake.ID(0)),
+		purge.New(nil, nil, slog.New(slog.DiscardHandler), nil),
 		preen.New(nil, obs.New(), nil),
 		perf.New(obs.New()),
 		watcher,

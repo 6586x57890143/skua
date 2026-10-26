@@ -163,7 +163,7 @@ func TestPressingPingMe(t *testing.T) {
 	m := module(t, newFake())
 	m.self = 2
 	m.follows = []follow{{guild: 3, platform: "fake", account: "bird", role: 7}}
-	r := core.NewRouter(0, func(snowflake.ID) (snowflake.ID, bool) { return 0, false }, quiet())
+	r := core.NewRouter(nil, func(snowflake.ID) (snowflake.ID, bool) { return 0, false }, quiet())
 	if err := r.Add(m); err != nil {
 		t.Fatal(err)
 	}

@@ -77,7 +77,7 @@ func TestOptInStartsOff(t *testing.T) {
 
 func TestToggledOffModuleIsRefusedAndUnregistered(t *testing.T) {
 	ran := 0
-	r := NewRouter(0, nil, slog.New(slog.DiscardHandler))
+	r := NewRouter(nil, nil, slog.New(slog.DiscardHandler))
 	if err := r.Add(compMod{mod: mod{[]Command{{Create: discord.SlashCommandCreate{Name: "a"}, Tier: Public,
 		Run: func(context.Context, *events.ApplicationCommandInteractionCreate) error { ran++; return nil }}}},
 		comps: []Component{{ID: "b", Run: func(context.Context, *events.ComponentInteractionCreate) error { ran++; return nil }}},

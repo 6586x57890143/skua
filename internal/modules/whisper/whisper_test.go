@@ -356,7 +356,7 @@ func TestRefusalsReachTheMemberThroughTheRouter(t *testing.T) {
 			"✗ you can't send messages in this channel"},
 	}
 	for _, c := range cases {
-		r := core.NewRouter(0, nil, slog.New(slog.DiscardHandler))
+		r := core.NewRouter(nil, nil, slog.New(slog.DiscardHandler))
 		if err := r.Add(newWhisper()); err != nil {
 			t.Fatal(err)
 		}

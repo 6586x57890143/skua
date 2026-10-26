@@ -134,7 +134,7 @@ func TestStatusCommand(t *testing.T) {
 
 func TestStatusOutsideAServer(t *testing.T) {
 	m := testModule(&fakeDB{})
-	r := core.NewRouter(0, func(snowflake.ID) (snowflake.ID, bool) { return 0, false }, m.log)
+	r := core.NewRouter(nil, func(snowflake.ID) (snowflake.ID, bool) { return 0, false }, m.log)
 	if err := r.Add(m); err != nil {
 		t.Fatal(err)
 	}

@@ -165,7 +165,7 @@ func (p *fakePoster) Delete(_ context.Context, _ rest.Rest, _, channel, _, hook,
 // router.
 func run(t *testing.T, m *Module, minutes int, isBot bool, r rest.Rest) []discord.MessageCreate {
 	t.Helper()
-	router := core.NewRouter(0, nil, slog.New(slog.DiscardHandler))
+	router := core.NewRouter(nil, nil, slog.New(slog.DiscardHandler))
 	if err := router.Add(m); err != nil {
 		t.Fatal(err)
 	}
