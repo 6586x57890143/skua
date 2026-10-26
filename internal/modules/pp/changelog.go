@@ -11,6 +11,14 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.10.8",
+	Date:    "2026-10-26",
+	Balance: "8257eb",
+	Lines: []string{
+		"a pot day is now what a member takes home on a day they finish a quest, 632 pp, up from 408. everything priced in pot days costs about half again as much: rungs, liveries, class changes",
+		"weekly prizes and joinders pay what they did. the biggest contest prize and what anyone can be granted in a season grow with the pot day",
+	},
+}, {
 	Version: "0.10.7",
 	Date:    "2026-10-26",
 	Balance: "118f76",

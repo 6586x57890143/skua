@@ -159,7 +159,7 @@ func potDay(b *Balance, a activityData, quests int64) int64 {
 	for range a.Reference.Messages {
 		got += b.Earn(&d, p, true, (b.ChatMin+b.ChatMax)/2, 0)
 	}
-	return got + b.QuestEV()*quests/100
+	return (got + b.QuestEV()*quests/100) * Rules.Engaged / 100
 }
 
 // floor is the raw pp a day must reach before its quest pays: the

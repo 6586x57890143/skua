@@ -15,6 +15,7 @@ var charterHashes = map[string]string{
 	"3": "38ff3b827608",
 	"4": "c1240740934f",
 	"5": "bdc362200adf",
+	"6": "46cca2a33e57",
 }
 
 func TestCharterPinned(t *testing.T) {
@@ -51,9 +52,10 @@ func TestLevyPauses(t *testing.T) {
 	}
 }
 
-// The pot day is a core member's median day and a quest.
+// The pot day is an engaged member's day: a core member's median day and a
+// quest, at what a quest day takes home.
 func TestPotDay(t *testing.T) {
-	if pd := Default.PotDay(Rules); pd/unit < 300 || pd/unit > 600 {
+	if pd := Default.PotDay(Rules); pd/unit < 500 || pd/unit > 800 {
 		t.Errorf("a pot day is %d pp", pd/unit)
 	}
 	if ev := Default.QuestEV(); ev <= Default.QuestPP[0] || ev >= Default.QuestPP[2] {
