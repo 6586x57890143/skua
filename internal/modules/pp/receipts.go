@@ -57,6 +57,8 @@ func journalLine(reason string, inputs []int64) (icon, what string) {
 		return "laurel", "a weekly prize"
 	case reasonGrant:
 		return "envelope", "a grant"
+	case reasonCorrect:
+		return "scales", "a correction"
 	}
 	return "lantern", "purse carried over"
 }
