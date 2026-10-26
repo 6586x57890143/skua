@@ -95,7 +95,11 @@ type Balance struct {
 	// Chirographs and round robins: PactGoal minutes together finish one,
 	// it lapses PactLife days after it was posted, and Joinder is what each
 	// signer paid gets when two, three or four were, in percent of a pot day.
+	// Their written kin, correspondences and round letters, finish at
+	// PactLetters letters a signer: paying messages answering another
+	// signer. One who wrote under half of PactLetters isn't paid.
 	PactGoal, PactLife int64
+	PactLetters        int64
 	Joinder            [3]int64
 
 	// Classes: the first pick of a season is free, and so is changing it
@@ -114,7 +118,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.10.9",
+	Version: "0.11.0",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -179,9 +183,10 @@ var Default = Balance{
 		},
 	},
 
-	PactGoal: 30,
-	PactLife: 2,
-	Joinder:  [3]int64{13, 15, 17},
+	PactGoal:    30,
+	PactLife:    2,
+	PactLetters: 15,
+	Joinder:     [3]int64{13, 15, 17},
 
 	ClassGrace: 2,
 	ClassWait:  7,

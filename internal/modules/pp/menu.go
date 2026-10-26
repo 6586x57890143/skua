@@ -123,8 +123,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 	switch {
 	case strings.HasPrefix(id, "pp:reroll:"):
 		return m.rerollPicked(*guild, e)
-	case id == "pp:pact:2", id == "pp:pact:4":
-		return m.postPact(*guild, e, id == "pp:pact:4")
+	case id == "pp:post":
+		return m.postPact(*guild, e)
 	case strings.HasPrefix(id, "pp:sign:"), id == "pp:signpick":
 		return m.signPact(*guild, e)
 	case id == "pp:rally":

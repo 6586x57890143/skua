@@ -11,6 +11,16 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.11.0",
+	Date:    "2026-10-26",
+	Balance: "d7723e",
+	Lines: []string{
+		"correspondences and round letters: chirographs and round robins by post. sign one and the work is letters, replies to the others who signed, instead of time in voice",
+		"a correspondence takes two and a round letter three or four. each signer writes 15 letters, and one who wrote under half of that isn't paid",
+		"they pay the same joinder as the voice kind and share its limits: one notice held at a time, one joinder a day",
+		"post any of the four from the notices with the new pick",
+	},
+}, {
 	Version: "0.10.9",
 	Date:    "2026-10-26",
 	Balance: "5d1953",

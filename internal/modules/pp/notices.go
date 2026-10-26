@@ -25,17 +25,42 @@ var classMarks = map[string]string{
 }
 
 // pactName is what a pact is called.
-func pactName(ring bool) string {
-	if ring {
+func pactName(ring, written bool) string {
+	switch {
+	case ring && written:
+		return "round letter"
+	case written:
+		return "correspondence"
+	case ring:
 		return "round robin"
 	}
 	return "chirograph"
 }
 
+// pactIcon is a pact's icon on the board.
+func pactIcon(ring, written bool) string {
+	switch {
+	case written:
+		return "quill"
+	case ring:
+		return "beads"
+	}
+	return "envelope"
+}
+
+// work is what a pact's progress counts, and its unit beside a signer.
+func work(written bool) (name, unit string) {
+	if written {
+		return "letters", "letters"
+	}
+	return "together", "min"
+}
+
 // Notice is a pact as the notices screen shows it: its signers' portraits
-// and places, how far the time together has come and what it pays.
+// and places, how far the time together or the letters have come and what
+// it pays.
 type Notice struct {
-	Ring           bool
+	Ring, Written  bool
 	Started        bool
 	Signers        []NoticeSigner
 	Places         int // how many may sign
@@ -44,7 +69,7 @@ type Notice struct {
 }
 
 // NoticeSigner is one signature: who, their class's portrait and mark, and
-// their minutes in the time together.
+// their minutes in the time together, or letters written.
 type NoticeSigner struct {
 	Name     string
 	Portrait image.Image
@@ -55,6 +80,7 @@ type NoticeSigner struct {
 // Posted is a notice up on the board, waiting for signatures.
 type Posted struct {
 	Ring   bool
+	Writ   bool // in writing
 	By     string
 	Places int // still open
 }
@@ -78,7 +104,7 @@ func noticesCanvas(name string, held *Notice, board []Posted) *pixel.Canvas {
 		tabName(c, top, name)
 		postedRows(c, top, board)
 	} else {
-		c.Tab(top, pactName(held.Ring))
+		c.Tab(top, pactName(held.Ring, held.Written))
 		tabName(c, top, name)
 		party(c, top, held)
 	}
@@ -96,9 +122,14 @@ func noticesCanvas(name string, held *Notice, board []Posted) *pixel.Canvas {
 		label(c, 16+pixel.IconCells+4, y, wait)
 	} else if held != nil {
 		c.Icon("hearth", image.Pt(16, y-iconLift))
-		x := label(c, 16+pixel.IconCells+4, y, "together") + pixel.Advance
+		what, unit := work(held.Written)
+		x := label(c, 16+pixel.IconCells+4, y, what) + pixel.Advance
 		c.Bar(image.Rect(x, y+4, x+80, y+9), held.Together, held.Goal, pixel.Blue)
-		label(c, x+86, y, fmt.Sprintf("%d / %d min", min(held.Together, held.Goal), held.Goal))
+		count := fmt.Sprintf("%d / %d", min(held.Together, held.Goal), held.Goal)
+		if !held.Written {
+			count += " " + unit
+		}
+		label(c, x+86, y, count)
 		right(c, 368, y, held.Pays, pixel.Gold)
 	} else {
 		c.Icon("envelope", image.Pt(16, y-iconLift))
@@ -147,7 +178,8 @@ func party(c *pixel.Canvas, r image.Rectangle, n *Notice) {
 			c.Portrait(s.Portrait, at, 1)
 		}
 		centred(c, x, under, s.Name, pixel.Ink)
-		centred(c, x, under+13, fmt.Sprintf("%d min", s.Minutes), pixel.Dim)
+		_, unit := work(n.Written)
+		centred(c, x, under+13, fmt.Sprintf("%d %s", s.Minutes, unit), pixel.Dim)
 	}
 }
 
@@ -164,16 +196,14 @@ func postedRows(c *pixel.Canvas, r image.Rectangle, board []Posted) {
 	if len(board) == 0 {
 		label(c, x, y, "a chirograph is two birds, a round robin three or four")
 		label(c, x, y+16, "the work is time together in voice")
+		label(c, x, y+36, "a correspondence or a round letter is the same by post")
+		label(c, x, y+52, "the work is letters: replies to the others who signed")
 		return
 	}
 	for i, p := range board[:min(len(board), 5)] {
-		icon := "envelope"
-		if p.Ring {
-			icon = "beads"
-		}
-		c.Icon(icon, image.Pt(x, y-iconLift))
+		c.Icon(pactIcon(p.Ring, p.Writ), image.Pt(x, y-iconLift))
 		end := c.FitIn(pixel.Bold, x+pixel.IconCells+4, y, p.By, pixel.Ink, 150)
-		label(c, end+pixel.Advance, y, pactName(p.Ring))
+		label(c, end+pixel.Advance, y, pactName(p.Ring, p.Writ))
 		places := "1 place"
 		if p.Places != 1 {
 			places = fmt.Sprintf("%d places", p.Places)
@@ -189,7 +219,7 @@ func postedRows(c *pixel.Canvas, r image.Rectangle, board []Posted) {
 // noticeOf is p as the screen shows it. s.mu held.
 func (m *Module) noticeOf(s *server, p *pact) *Notice {
 	b := m.st.bal()
-	n := &Notice{Ring: p.ring, Started: p.started, Places: p.size(), Together: p.minutes, Goal: b.PactGoal,
+	n := &Notice{Ring: p.ring, Written: p.written, Started: p.started, Places: p.size(), Together: p.minutes, Goal: p.goal(b),
 		Pays: grouped(b.JoinderPay(2)/unit) + " pp each"}
 	if p.ring {
 		n.Pays = fmt.Sprintf("%s / %s pp each", grouped(b.JoinderPay(3)/unit), grouped(b.JoinderPay(4)/unit))
@@ -239,9 +269,9 @@ func (m *Module) noticesMessage(guild snowflake.ID, who *discord.ResolvedMember)
 		if o := s.members[p.opener]; o.name != "" {
 			by = o.name
 		}
-		board[i] = Posted{Ring: p.ring, By: by, Places: p.size() - len(p.signers)}
+		board[i] = Posted{Ring: p.ring, Writ: p.written, By: by, Places: p.size() - len(p.signers)}
 		if i < 25 {
-			opts = append(opts, discord.NewStringSelectMenuOption(clip(by+"'s "+pactName(p.ring), 100), p.key()))
+			opts = append(opts, discord.NewStringSelectMenuOption(clip(by+"'s "+pactName(p.ring, p.written), 100), p.key()))
 		}
 	}
 	canPost := m.st.mayPost(mem, user, DayOf(m.now())) == nil
@@ -260,14 +290,13 @@ func (m *Module) noticesMessage(guild snowflake.ID, who *discord.ResolvedMember)
 	if len(opts) > 0 && canSign {
 		extra = append(extra, discord.NewActionRow(discord.NewStringSelectMenu("pp:signpick", "sign a notice on the board", opts...)))
 	}
-	post := func(label, id, icon string) discord.InteractiveComponent {
-		b := withIcon(discord.NewSecondaryButton(label, id), icon)
-		if !canPost {
-			b = b.AsDisabled()
-		}
-		return b
+	// Four kinds to post, so they're picked rather than buttoned.
+	var kinds []discord.StringSelectMenuOption
+	for _, k := range postKinds {
+		kinds = append(kinds, discord.NewStringSelectMenuOption(k.label, k.value).WithDescription(k.about))
 	}
-	row := discord.NewActionRow(post("post a chirograph", "pp:pact:2", "envelope"), post("post a round robin", "pp:pact:4", "beads"))
+	extra = append(extra, discord.NewActionRow(discord.NewStringSelectMenu("pp:post", "post a notice", kinds...).WithDisabled(!canPost)))
+	row := discord.NewActionRow()
 	if held != nil && len(held.Signers) < held.Places && !held.Started {
 		row = row.AddComponents(withIcon(discord.NewSecondaryButton("put it up here", "pp:rally"), "bell"))
 	}
@@ -278,12 +307,17 @@ func (m *Module) noticesMessage(guild snowflake.ID, who *discord.ResolvedMember)
 		// Withdrawing as the city does it: a chirograph's half is torn up,
 		// a name is struck from a ring.
 		leave := "tear up your half"
-		if held.Ring {
+		switch {
+		case held.Written:
+			leave = "lay down your pen"
+		case held.Ring:
 			leave = "strike your name"
 		}
 		row = row.AddComponents(discord.NewDangerButton(leave, "pp:withdraw"))
 	}
-	extra = append(extra, row)
+	if len(row.Components) > 0 {
+		extra = append(extra, row)
+	}
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "notices", "", extra...)},
 		Files:           []*discord.File{screenAttachment(pic, alt)},
@@ -302,6 +336,9 @@ func (m *Module) noticesAlt(held *Notice, board []Posted) string {
 			names = append(names, g.Name+" with "+g.Mark)
 		}
 		state := fmt.Sprintf("%d of %d minutes together", min(held.Together, held.Goal), held.Goal)
+		if held.Written {
+			state = fmt.Sprintf("%d of %d letters", min(held.Together, held.Goal), held.Goal)
+		}
 		if !held.Started {
 			state = fmt.Sprintf("waiting to start, %d of %d places signed", len(held.Signers), held.Places)
 			if held.Ring && len(held.Signers) >= 3 {
@@ -309,7 +346,7 @@ func (m *Module) noticesAlt(held *Notice, board []Posted) string {
 			}
 		}
 		parts = append(parts, fmt.Sprintf("your %s, signed by %s, %s, pays %s",
-			pactName(held.Ring), andList(names), state, held.Pays))
+			pactName(held.Ring, held.Written), andList(names), state, held.Pays))
 	}
 	if board == nil {
 		// A channel post carries no board.
@@ -317,7 +354,7 @@ func (m *Module) noticesAlt(held *Notice, board []Posted) string {
 	}
 	var up []string
 	for _, p := range board {
-		up = append(up, fmt.Sprintf("%s's %s with %d open", p.By, pactName(p.Ring), p.Places))
+		up = append(up, fmt.Sprintf("%s's %s with %d open", p.By, pactName(p.Ring, p.Writ), p.Places))
 	}
 	if len(up) > 0 {
 		parts = append(parts, "on the board: "+strings.Join(up, ", "))
@@ -363,7 +400,7 @@ func (m *Module) postMessage(v postView) (discord.MessageCreate, error) {
 		row = row.AddComponents(withIcon(discord.NewSuccessButton("start the ring", "pp:start:"+v.key), "beads"))
 	}
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", pactName(v.notice.Ring), "",
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", pactName(v.notice.Ring, v.notice.Written), "",
 			discord.NewMediaGallery(screenItem(pic, clip(alt, altLimit))),
 			row)},
 		Files:           []*discord.File{screenAttachment(pic, alt)},
@@ -372,12 +409,34 @@ func (m *Module) postMessage(v postView) (discord.MessageCreate, error) {
 	}, nil
 }
 
-// postPact posts a new chirograph, or a round robin if ring, and puts it up
-// in the channel for others to sign.
-func (m *Module) postPact(guild snowflake.ID, e *events.ComponentInteractionCreate, ring bool) error {
+// postKind is one kind of notice to post, as the pick names it.
+type postKind struct {
+	label, value, about string
+	ring, written       bool
+}
+
+// postKinds are the notices a bird can post.
+var postKinds = []postKind{
+	{"a chirograph", "2", "two birds, time together in voice", false, false},
+	{"a round robin", "4", "three or four, time together in voice", true, false},
+	{"a correspondence", "2w", "two birds, letters back and forth", false, true},
+	{"a round letter", "4w", "three or four, letters round the ring", true, true},
+}
+
+// postPact posts the kind of notice picked and puts it up in the channel
+// for others to sign.
+func (m *Module) postPact(guild snowflake.ID, e *events.ComponentInteractionCreate) error {
+	data, ok := e.Data.(discord.StringSelectMenuInteractionData)
+	if !ok || len(data.Values) == 0 {
+		return errPactGone
+	}
+	i := slices.IndexFunc(postKinds, func(k postKind) bool { return k.value == data.Values[0] })
+	if i < 0 {
+		return errPactGone
+	}
 	s := m.st.server(guild)
 	s.mu.Lock()
-	p, err := m.st.post(s, guild, e.User().ID, ring, DayOf(m.now()))
+	p, err := m.st.post(s, guild, e.User().ID, postKinds[i].ring, postKinds[i].written, DayOf(m.now()))
 	if err != nil {
 		s.mu.Unlock()
 		return err

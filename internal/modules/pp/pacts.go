@@ -17,9 +17,11 @@ import (
 // a round robin three or four. The work is time together: a minute counts
 // when PactNeed of its signers, or more, earn in voice in the same room.
 // At PactGoal minutes each signer there for at least half of them is paid
-// the joinder for how many were, as labour. A bird holds one at a time, is
-// paid one a day, and an unfinished one lapses PactLife days after it was
-// posted.
+// the joinder for how many were, as labour. A correspondence and a round
+// letter are the same in writing: the work is letters, paying messages
+// that answer another signer, PactLetters for each who signed. A bird
+// holds one of any kind at a time, is paid one a day, and an unfinished
+// one lapses PactLife days after it was posted.
 
 // pact is one chirograph or round robin. Each signer's member holds the
 // same pointer, and every signer's row saves it whole.
@@ -29,8 +31,9 @@ type pact struct {
 	// at is when it was posted, unix milliseconds, so a bird's two posts
 	// in a day never share a key. Saved in pact_at; 0 on one from before.
 	at      int64
-	ring    bool  // a round robin, not a chirograph
-	minutes int64 // minutes together so far
+	ring    bool  // three or four, not two
+	written bool  // a correspondence or round letter: the work is letters
+	minutes int64 // minutes together so far, or letters
 	signers []signer
 	// channel is where it was last put up, which hears when it's done; 0
 	// for nowhere. It's saved in its own column, pact_channel, so the
@@ -47,7 +50,8 @@ type pact struct {
 	rallied time.Time
 }
 
-// signer is one signature on a pact and the minutes they were there for.
+// signer is one signature on a pact and the minutes they were there for,
+// or the letters they wrote.
 type signer struct {
 	user    snowflake.ID
 	minutes int64
@@ -70,6 +74,18 @@ func (p *pact) need() int {
 	return 2
 }
 
+// goal is the minutes or letters that finish p.
+func (p *pact) goal(b *Balance) int64 {
+	if p.written {
+		return b.PactLetters * int64(len(p.signers))
+	}
+	return b.PactGoal
+}
+
+// kind is p's ring and writing as stats count them: 0 a chirograph, 1 a
+// round robin, 2 a correspondence, 3 a round letter.
+func (p *pact) kind() int { return bit(p.ring) + 2*bit(p.written) }
+
 // working is whether p has enough signatures to count minutes.
 func (p *pact) working() bool { return len(p.signers) >= p.need() }
 
@@ -87,17 +103,13 @@ func (p *pact) signed(user snowflake.ID) bool {
 	return false
 }
 
-// encodePact is p as a member's row saves it: opener, day, ring, minutes,
+// encodePact is p as a member's row saves it: opener, day, kind, minutes,
 // then a user and their minutes per signer, comma separated.
 func encodePact(p *pact) string {
 	if p == nil {
 		return ""
 	}
-	ring := 0
-	if p.ring {
-		ring = 1
-	}
-	parts := []string{p.opener.String(), strconv.FormatInt(p.day, 10), strconv.Itoa(ring), strconv.FormatInt(p.minutes, 10)}
+	parts := []string{p.opener.String(), strconv.FormatInt(p.day, 10), strconv.Itoa(p.kind()), strconv.FormatInt(p.minutes, 10)}
 	for _, s := range p.signers {
 		parts = append(parts, s.user.String(), strconv.FormatInt(s.minutes, 10))
 	}
@@ -118,7 +130,7 @@ func decodePact(s string) *pact {
 		}
 		n[i] = v
 	}
-	p := &pact{opener: snowflake.ID(n[0]), day: n[1], ring: n[2] == 1, minutes: n[3]}
+	p := &pact{opener: snowflake.ID(n[0]), day: n[1], ring: n[2]&1 == 1, written: n[2]&2 == 2, minutes: n[3]}
 	for i := 4; i < len(n); i += 2 {
 		p.signers = append(p.signers, signer{snowflake.ID(n[i]), n[i+1]})
 	}
@@ -220,18 +232,18 @@ func (st *state) mayPost(m *member, user snowflake.ID, today int64) error {
 	return nil
 }
 
-// post opens a pact by user: a round robin if ring, else a chirograph.
-// s.mu held.
-func (st *state) post(s *server, guild, user snowflake.ID, ring bool, today int64) (*pact, error) {
+// post opens a pact by user: three or four if ring, else two, in writing
+// if written. s.mu held.
+func (st *state) post(s *server, guild, user snowflake.ID, ring, written bool, today int64) (*pact, error) {
 	m := st.member(s, guild, user, today)
 	if err := st.mayPost(m, user, today); err != nil {
 		return nil, err
 	}
 	// Each post a moment after the bird's last, so two never share a key.
 	m.lastPost = max(time.Now().UnixMilli(), m.lastPost+1)
-	m.pact = &pact{opener: user, day: today, at: m.lastPost, ring: ring, signers: []signer{{user: user}}}
+	m.pact = &pact{opener: user, day: today, at: m.lastPost, ring: ring, written: written, signers: []signer{{user: user}}}
 	m.signs.postedDay, m.dirty = today, true
-	s.count(today, statPosted, bit(ring), 0)
+	s.count(today, statPosted, m.pact.kind(), 0)
 	return m.pact, nil
 }
 
@@ -360,7 +372,7 @@ func (st *state) withdraw(s *server, user snowflake.ID, today int64) error {
 		m.signs.postedDay = 0
 		m.withdrawn++
 	}
-	s.count(today, statLeft, bit(p.ring), bit(p.started))
+	s.count(today, statLeft, p.kind(), bit(p.started))
 	p.signers = slices.DeleteFunc(p.signers, func(g signer) bool { return g.user == user })
 	m.pact, m.dirty = nil, true
 	if !p.started && p.opener == user || p.started && len(p.signers) < p.need() {
@@ -396,13 +408,13 @@ func (st *state) touchPact(s *server, p *pact) {
 	}
 }
 
-// together counts a minute for every pact with enough of its signers among
-// earning, those who earned this minute in one room, and pays any that
-// reaches its goal. s.mu held.
+// together counts a minute for every pact in voice with enough of its
+// signers among earning, those who earned this minute in one room, and
+// pays any that reaches its goal. s.mu held.
 func (st *state) together(s *server, earning []snowflake.ID, minute int64) {
 	here := map[*pact][]snowflake.ID{}
 	for _, u := range earning {
-		if m := s.members[u]; m != nil && m.pact != nil && m.pact.started && m.pact.working() {
+		if m := s.members[u]; m != nil && m.pact != nil && !m.pact.written && m.pact.started && m.pact.working() {
 			here[m.pact] = append(here[m.pact], u)
 		}
 	}
@@ -426,13 +438,32 @@ func (st *state) together(s *server, earning []snowflake.ID, minute int64) {
 	}
 }
 
+// wrote counts a letter on user's written pact when their paying message
+// answered to, another of its signers, and pays it at its goal. s.mu held.
+func (st *state) wrote(s *server, user, to snowflake.ID, today int64) {
+	p := s.members[user].pact
+	if p == nil || !p.written || !p.started || !p.working() || !p.signed(to) {
+		return
+	}
+	p.minutes++
+	for i := range p.signers {
+		if p.signers[i].user == user {
+			p.signers[i].minutes++
+		}
+	}
+	st.touchPact(s, p)
+	if p.minutes >= p.goal(st.bal()) {
+		st.finish(s, p, today)
+	}
+}
+
 // finish pays p's joinder today to each signer there for at least half
-// its minutes, at the rate for how many were, and frees every signer.
-// s.mu held.
+// its minutes, or who wrote at least half their letters, at the rate for
+// how many were, and frees every signer. s.mu held.
 func (st *state) finish(s *server, p *pact, today int64) {
 	var paid []snowflake.ID
 	for _, g := range p.signers {
-		if g.minutes*2 >= p.minutes {
+		if p.written && g.minutes*2 >= st.bal().PactLetters || !p.written && g.minutes*2 >= p.minutes {
 			paid = append(paid, g.user)
 		}
 	}
@@ -440,7 +471,7 @@ func (st *state) finish(s *server, p *pact, today int64) {
 	if n := len(paid); n >= 2 {
 		got = st.bal().JoinderPay(min(n, 4))
 	}
-	news := joinderNews{channel: p.channel, ring: p.ring, got: got}
+	news := joinderNews{channel: p.channel, ring: p.ring, written: p.written, got: got}
 	for _, g := range p.signers {
 		if _, ok := s.members[g.user]; !ok {
 			continue
@@ -466,7 +497,7 @@ func (st *state) finish(s *server, p *pact, today int64) {
 			news.learned = append(news.learned, g.user)
 		}
 	}
-	s.count(today, statJoined, bit(p.ring), len(news.paid))
+	s.count(today, statJoined, p.kind(), len(news.paid))
 	if news.channel != 0 && len(news.paid) > 0 {
 		news.seq = s.seq
 		s.joinders = append(s.joinders, news)
@@ -477,7 +508,7 @@ func (st *state) finish(s *server, p *pact, today int64) {
 // was paid, what each got and who learned something of their own kind.
 type joinderNews struct {
 	channel       snowflake.ID
-	ring          bool
+	ring, written bool
 	got           int64
 	paid, learned []snowflake.ID
 	seq           int64 // the last ledger row it tells of
@@ -486,7 +517,12 @@ type joinderNews struct {
 // joinderText is n as its channel reads it.
 func joinderText(n joinderNews) string {
 	head := "the ravens fit the two halves together, and the teeth match"
-	if n.ring {
+	switch {
+	case n.ring && n.written:
+		head = "the round letter comes home with every page filled, and the ravens pay on it without asking whose page came first"
+	case n.written:
+		head = "the pigeons bring in the last letter, and the counting house pays on the copies"
+	case n.ring:
 		head = "the ring closes, and the ravens enter it without saying who led"
 	}
 	lines := []string{head, fmt.Sprintf("**joinder** %s pp each to %s", grouped(n.got/unit), mentions(n.paid))}
@@ -521,7 +557,7 @@ func (st *state) lapse(s *server, today int64) {
 		if m.pact != nil && today-m.pact.day >= st.bal().PactLife {
 			if !gone[m.pact] {
 				gone[m.pact] = true
-				s.count(today, statLapsed, bit(m.pact.ring), len(m.pact.signers))
+				s.count(today, statLapsed, m.pact.kind(), len(m.pact.signers))
 			}
 			m.pact, m.dirty = nil, true
 		}
