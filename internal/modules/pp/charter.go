@@ -30,6 +30,8 @@ import "strconv"
 //   - the backstop: if the shop burns under SinkFloor of what's minted two
 //     seasons running, a purse past Line pot days keeps Keep of new earning
 //     from the next season on
+//   - prices are in pot days, an engaged member's day; when a mechanic
+//     becomes part of that day it is measured again, never quietly
 //   - every pp is in the ledger, and every roll comes from a seed committed
 //     a season ahead
 type Charter struct {
@@ -53,13 +55,18 @@ type Charter struct {
 	// A pot day is what this day earns under the live Balance, unbuffed and
 	// unrested: Voice minutes with the mic open, Messages at the mean pay,
 	// and a quest, rerolled when plain. It is a core member's median day on
-	// the melting pot (merlin's statistics, september to october 2026).
+	// the melting pot (merlin's statistics, september to october 2026),
+	// times Engaged percent: what a member takes home on the median day they
+	// finish a quest, over that reference day, measured on the melting pot's
+	// ledger. When a mechanic becomes part of an engaged day, Engaged is
+	// measured again, in a new version, and every price moves with it.
 	RefVoice, RefMessages int64
+	Engaged               int64
 }
 
 // Rules is the charter in force.
 var Rules = Charter{
-	Version:       "5",
+	Version:       "6",
 	Levy:          350,
 	TreasuryWeeks: 8,
 	FundShare:     300,
@@ -73,6 +80,7 @@ var Rules = Charter{
 	RollRise:      200,
 	RefVoice:      4,
 	RefMessages:   27,
+	Engaged:       155,
 }
 
 // PotDay is the unit prices are set in, in hundredths of a pp.
@@ -85,7 +93,7 @@ func (b *Balance) PotDay(c Charter) int64 {
 	for range c.RefMessages {
 		got += b.Earn(&d, p, true, (b.ChatMin+b.ChatMax)/2, 0)
 	}
-	return got + b.QuestEV()
+	return (got + b.QuestEV()) * c.Engaged / 100
 }
 
 // QuestEV is what a quest pays on average when a plain one is rerolled.

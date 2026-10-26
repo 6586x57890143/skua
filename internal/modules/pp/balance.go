@@ -114,7 +114,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.10.7",
+	Version: "0.10.8",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -181,7 +181,7 @@ var Default = Balance{
 
 	PactGoal: 30,
 	PactLife: 2,
-	Joinder:  [3]int64{15, 22, 29},
+	Joinder:  [3]int64{10, 14, 19},
 
 	ClassGrace: 2,
 	ClassWait:  7,
@@ -189,5 +189,5 @@ var Default = Balance{
 
 	SeasonStart: DayOf(time.Date(2026, 11, 2, 5, 30, 0, 0, time.UTC)),
 	SeasonWeeks: 4,
-	Prizes:      [5]int64{367, 245, 184, 122, 61},
+	Prizes:      [5]int64{237, 158, 119, 79, 39},
 }
