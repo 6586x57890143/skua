@@ -12,6 +12,7 @@ func targets() {
 	obs.Default.SetTarget("fix build", obs.Run, 5*time.Millisecond)
 	obs.Default.SetTarget("fix media", obs.HTTP, 8*time.Second)
 	obs.Default.SetTarget("fix source", obs.HTTP, 4*time.Second)
+	obs.Default.SetTarget("fix instagram direct", obs.HTTP, time.Second)
 	obs.Default.SetTarget("fix reddit audio", obs.HTTP, 2*time.Second)
 	obs.Default.SetTarget("fix end-to-end", obs.Run, 6*time.Second)
 }

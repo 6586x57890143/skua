@@ -1,10 +1,36 @@
 package fix
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 )
+
+// A healthy Instagram lookup must stay a single request with no retry wait.
+// The fake transport isolates local HTTP, decode and policy overhead.
+func BenchmarkResolveInstagramHealthy(b *testing.B) {
+	a, err := NewAPI(Config{})
+	if err != nil {
+		b.Fatal(err)
+	}
+	calls := 0
+	a.c.Transport = transport(func(*http.Request) (*http.Response, error) {
+		calls++
+		return response(instagramFull), nil
+	})
+	l, _ := Parse("https://instagram.com/reel/De5kQ-IJ60z/")
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := a.Resolve(context.Background(), l); err != nil {
+			b.Fatal(err)
+		}
+	}
+	if calls != b.N {
+		b.Fatalf("healthy lookups made %d requests for %d posts", calls, b.N)
+	}
+}
 
 func TestOrdinaryMessageDoesNotAllocate(t *testing.T) {
 	text := "a normal message with no link " + strings.Repeat("hello ", 300)

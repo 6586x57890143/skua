@@ -57,6 +57,41 @@ member input. The provider client has deadlines, a 2 MiB response limit, a fixed
 User-Agent and no redirect following. It checks response success, platform and
 post ID where the API exposes one. No provider error body is sent to Discord.
 
+FixEmbed metadata gets at most two attempts, before any linked-media recovery.
+Each attempt has a four-second deadline inside a nine-second metadata budget;
+the caller's existing fetch deadline always wins. Successful complete responses
+make one request. Transport interruptions, HTTP 408/429/500/502/503/504 and empty
+or unsuccessful extraction responses may retry once, with 100-200 ms of jitter.
+Rate limits wait at least one second and respect a longer `Retry-After`, including
+HTTP dates. A wait that leaves less than 500 ms for recovery is skipped. Auth,
+permission, not-found, redirect, certificate, malformed JSON, oversized response
+and platform-validation failures do not retry. X and Bluesky retain their fast
+FxEmbed-to-FixEmbed fallback; retries never repeat that whole chain or media work.
+
+Instagram responses missing usable media or a creator identity also get one
+recovery attempt. Captionless posts with a creator and media are valid. The hosted
+FixEmbed recovery uses its supported cache bypass so a cached partial response
+does not defeat the retry; custom endpoints keep their existing query contract.
+Recovery retains earlier video, caption and sensitivity when the second response
+is worse or fails. Still-partial previews explain the missing details and keep
+native previews visible. Permanent failures log a bounded reason and HTTP status
+where available, without post URLs, response bodies or captions. Retries stay in
+the existing worker slot and cause no extra Discord writes.
+When Instagram is still incomplete, one anonymous request to the exact post on
+`www.instagram.com` can recover its creator and caption. This request has a
+1.5-second deadline and a 1 MiB HTML limit, shares the nine-second metadata
+budget and is skipped with less than 500 ms remaining. It follows no redirects,
+uses no login session and fetches no URLs found in the document. HTML is tokenized
+without building a DOM; Open Graph or JSON-LD must identify the exact shortcode.
+Login/challenge forms, generic shells, other posts and invalid author URLs
+contribute nothing. Direct recovery only fills missing identity and caption;
+provider media and sensitivity remain intact. Recovered cards credit
+`fixembed + instagram`. `/perf` records `fix instagram direct` separately with a
+one-second soft p99 target.
+`TestLiveInstagramRecovery` checks the reported `De5kQ-IJ60z` reel against the
+public service when `SKUA_FIX_LIVE=1`, accepting a partial preview only when its
+media is retained and it is explicitly marked incomplete.
+
 Supported link shapes are tested in `links_test.go`. YouTube support is for
 community posts, not ordinary videos that Discord already handles. Short links
 are resolved by the maintained metadata service, not by unrestricted local fetches.

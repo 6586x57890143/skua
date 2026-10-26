@@ -180,6 +180,7 @@ func (m *Module) previewResult(ctx context.Context, g snowflake.ID, l Link) (dis
 	if err != nil {
 		if !errors.Is(ctx.Err(), context.Canceled) {
 			m.count(g, func(c *counts) { c.Fallbacks++ })
+			m.log.Warn("fix: metadata unavailable", "platform", l.Platform, "err", err)
 		}
 		return fallback(l), false
 	}
