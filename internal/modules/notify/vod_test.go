@@ -188,48 +188,62 @@ func TestForgettingDropsLiveCards(t *testing.T) {
 	}
 }
 
-// kick's VOD comes from the list its own site reads, shaped as it answered
-// on 2026-10-09: the session matching the stream's start, linked straight
-// to, with its own preview.
+// Match the session in the legacy list, then resolve the replay's distinct
+// vod_id from its metadata. These IDs reproduce the 2026-10-26 report.
 func TestKickVOD(t *testing.T) {
 	var answer string
+	detail := `{"livestream":{"vod_id":"01a177ce-0990-7099-847e-4479d9244909"}}`
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v2/channels/munkiki/videos" || r.Header.Get("Accept") != "application/json" {
-			http.NotFound(w, r)
-			return
+		if r.Header.Get("Accept") != "application/json" {
+			t.Error("Kick requests must accept JSON")
 		}
-		_, _ = w.Write([]byte(answer))
+		switch r.URL.Path {
+		case "/api/v2/channels/munkiki/videos":
+			_, _ = w.Write([]byte(answer))
+		case "/api/v1/video/21dc4cda-c9a9-446e-8dc0-c388acc54b9b":
+			_, _ = w.Write([]byte(detail))
+		case "/api/v1/video/older":
+			_, _ = w.Write([]byte(`{"livestream":{"vod_id":"older-replay"}}`))
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	defer srv.Close()
 	k := &kick{app: &app{c: srv.Client()}, site: srv.URL}
 	ctx := context.Background()
 	started := time.Date(2026, 10, 9, 18, 50, 57, 0, time.UTC)
 	answer = `[
-		{"id":2,"start_time":"2026-10-09 18:50:57","duration":0,"thumbnail":{"src":"https://images.kick.com/video_thumbnails/B/J/720.webp?versionId=x"},"video":{"uuid":"c1f94dd2-7d6f-4319-ac52-4888a12bb351"}},
+		{"id":2,"start_time":"2026-10-09 18:50:57","duration":0,"thumbnail":{"src":"https://images.kick.com/video_thumbnails/B/J/720.webp?versionId=x"},"video":{"uuid":"21dc4cda-c9a9-446e-8dc0-c388acc54b9b"}},
 		{"id":1,"start_time":"2026-10-08 12:00:00","duration":5400000,"thumbnail":{"src":"https://images.kick.com/old.webp"},"video":{"uuid":"older"}}]`
 
 	v, ok := k.vod(ctx, "munkiki", item{Started: started.Add(30 * time.Second)})
-	if !ok || v.url != srv.URL+"/munkiki/videos/c1f94dd2-7d6f-4319-ac52-4888a12bb351" || v.image != "https://images.kick.com/video_thumbnails/B/J/720.webp?versionId=x" || v.length != 0 {
+	if !ok || v.url != srv.URL+"/munkiki/videos/01a177ce-0990-7099-847e-4479d9244909" || v.image != "https://images.kick.com/video_thumbnails/B/J/720.webp?versionId=x" || v.length != 0 {
 		t.Fatalf("the stream's own: %+v %v", v, ok)
 	}
-	if v, ok := k.vod(ctx, "munkiki", item{Started: time.Date(2026, 10, 8, 12, 0, 1, 0, time.UTC)}); !ok || !strings.HasSuffix(v.url, "/older") || v.length != 90*time.Minute {
+	if v, ok := k.vod(ctx, "munkiki", item{Started: time.Date(2026, 10, 8, 12, 0, 1, 0, time.UTC)}); !ok || !strings.HasSuffix(v.url, "/older-replay") || v.length != 90*time.Minute {
 		t.Fatalf("an older one, by its start: %+v %v", v, ok)
 	}
-	if v, ok := k.vod(ctx, "munkiki", item{}); !ok || !strings.HasSuffix(v.url, "c1f94dd2-7d6f-4319-ac52-4888a12bb351") {
-		t.Fatalf("no start: the newest: %+v", v)
+	if _, ok := k.vod(ctx, "munkiki", item{}); ok {
+		t.Fatal("without a start, do not guess which session ended")
+	}
+	for _, body := range []string{`{}`, `{"livestream":null}`, `{"livestream":{"vod_id":""}}`, `not json`} {
+		detail = body
+		if _, ok := k.vod(ctx, "munkiki", item{Started: started}); ok {
+			t.Errorf("no replay ID: must not use the legacy UUID for %s", body)
+		}
 	}
 	if _, ok := k.vod(ctx, "munkiki", item{Started: started.Add(time.Hour)}); ok {
 		t.Fatal("no session near the stream's start")
 	}
-	if _, ok := k.vod(ctx, "nobody", item{}); ok {
+	if _, ok := k.vod(ctx, "nobody", item{Started: started}); ok {
 		t.Fatal("a refused list")
 	}
 	answer = `[{"start_time":"yesterday","video":{"uuid":"x"}},{"start_time":"2026-10-09 18:50:57","video":{}}]`
-	if _, ok := k.vod(ctx, "munkiki", item{}); ok {
+	if _, ok := k.vod(ctx, "munkiki", item{Started: started}); ok {
 		t.Fatal("entries kick shaped differently are skipped")
 	}
 	answer = `{"not":"a list"}`
-	if _, ok := k.vod(ctx, "munkiki", item{}); ok {
+	if _, ok := k.vod(ctx, "munkiki", item{Started: started}); ok {
 		t.Fatal("a changed answer")
 	}
 }
@@ -237,8 +251,18 @@ func TestKickVOD(t *testing.T) {
 // A kick stream's card goes straight to its VOD; a length kick hasn't
 // written yet comes from the stream's start.
 func TestKickEndsOnItsVOD(t *testing.T) {
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`[{"start_time":"2026-10-09 18:50:57","duration":0,"thumbnail":{"src":"https://k/vod.webp"},"video":{"uuid":"u1"}}]`))
+	detail := `{"livestream":{"vod_id":"01a177ce-0990-7099-847e-4479d9244909"}}`
+	status := http.StatusOK
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/channels/munkiki/videos":
+			_, _ = w.Write([]byte(`[{"start_time":"2026-10-09 18:50:57","duration":0,"thumbnail":{"src":"https://k/vod.webp"},"video":{"uuid":"21dc4cda-c9a9-446e-8dc0-c388acc54b9b"}}]`))
+		case "/api/v1/video/21dc4cda-c9a9-446e-8dc0-c388acc54b9b":
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(detail))
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	defer srv.Close()
 	k := &kick{app: &app{c: srv.Client()}, site: srv.URL}
@@ -259,9 +283,19 @@ func TestKickEndsOnItsVOD(t *testing.T) {
 	if len(asked) == 0 || asked[0] != "https://k/vod.webp" {
 		t.Errorf("the picture is drawn on the VOD's own frame: %q", asked)
 	}
-	for _, want := range []string{srv.URL + "/munkiki/videos/u1", "attachment://stream.jpg", `"label":"vod"`, "1h 30m"} {
+	for _, want := range []string{srv.URL + "/munkiki/videos/01a177ce-0990-7099-847e-4479d9244909", "attachment://stream.jpg", `"label":"vod"`, "1h 30m"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("no %q in %s", want, got)
+		}
+	}
+	for _, code := range []int{http.StatusOK, http.StatusNotFound, http.StatusServiceUnavailable} {
+		status, detail = code, `{"livestream":{"vod_id":null}}`
+		m.keepLive(ctx, posted{k: key{"kick", "munkiki"}, guild: 1, channel: 10, message: 5, at: now,
+			it: item{ID: "live:x", Started: now.Add(-90 * time.Minute)}})
+		m.end(ctx, p, key{"kick", "munkiki"}, "live:x", k)
+		got := js(p.edits[len(p.edits)-1].msg)
+		if !strings.Contains(got, "https://kick.com/munkiki/videos") || !strings.Contains(got, `"label":"videos"`) || strings.Contains(got, "21dc4cda") {
+			t.Errorf("missing replay or metadata HTTP %d must use the videos page: %s", code, got)
 		}
 	}
 }
