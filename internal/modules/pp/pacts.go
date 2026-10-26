@@ -310,10 +310,34 @@ func (st *state) sign(s *server, guild snowflake.ID, k pactKey, user snowflake.I
 	return p, nil
 }
 
-// freeWithdraws is how many times a day a poster taking their notice down
-// before its work gets the day's post back. Past them a bird may still
-// withdraw, but the post stays spent.
+// freeWithdraws is how many times a day a poster leaving their notice,
+// before its work or during it, gets the day's post back. Past them a bird
+// may still withdraw, but the post stays spent.
 const freeWithdraws = 2
+
+// regrant gives today's post back, as a free withdraw, to a poster left
+// without one: posted today, holds no notice and wasn't paid. It runs at
+// boot, so one who left a started notice before withdraw allowed it isn't
+// stuck until 05:30.
+//
+// ponytail: it also forgives a notice that lapsed or that others ended,
+// once per boot within freeWithdraws; drop it once nobody is owed.
+func (st *state) regrant(today int64) {
+	for _, s := range st.servers() {
+		s.mu.Lock()
+		for _, m := range s.members {
+			if m.withdrawDay != today {
+				m.withdrawDay, m.withdrawn = today, 0
+			}
+			if m.signs.postedDay == today && m.pact == nil && m.signs.paidDay != today && m.withdrawn < freeWithdraws {
+				m.signs.postedDay = 0
+				m.withdrawn++
+				m.dirty = true
+			}
+		}
+		s.mu.Unlock()
+	}
+}
 
 // withdraw takes user's name off the pact they hold: tearing up their half
 // of a chirograph, or striking their name from a round robin. Before the
@@ -330,9 +354,9 @@ func (st *state) withdraw(s *server, user snowflake.ID, today int64) error {
 	if m.withdrawDay != today {
 		m.withdrawDay, m.withdrawn = today, 0
 	}
-	// The poster taking down today's notice before its work gets the post
-	// back, freeWithdraws times a day.
-	if !p.started && p.opener == user && p.day == today && m.withdrawn < freeWithdraws {
+	// The poster leaving today's notice gets the post back, freeWithdraws
+	// times a day.
+	if p.opener == user && p.day == today && m.withdrawn < freeWithdraws {
 		m.signs.postedDay = 0
 		m.withdrawn++
 	}

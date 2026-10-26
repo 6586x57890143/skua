@@ -557,12 +557,17 @@ func TestStartAndFreeWithdraws(t *testing.T) {
 	if _, err := st.sign(s, guild, pactKey{opener: old(5), day: today}, old(6), today); err != nil || !c.started {
 		t.Errorf("a chirograph with two didn't start: %v", err)
 	}
-	// Post and tear up twice: the post comes back each time. The third
-	// time it stays spent.
+	// Post and tear up twice, the second once its work has started: the
+	// post comes back each time. The third time it stays spent.
 	b := old(7)
 	for i := range 3 {
 		if _, err := st.post(s, guild, b, false, today); err != nil {
 			t.Fatalf("post %d: %v", i+1, err)
+		}
+		if i == 1 {
+			if _, err := st.sign(s, guild, pactKey{opener: b, day: today}, old(8), today); err != nil {
+				t.Fatal(err)
+			}
 		}
 		if err := st.withdraw(s, b, today); err != nil {
 			t.Fatal(err)
@@ -670,5 +675,28 @@ func TestReviewEdges(t *testing.T) {
 	}
 	if andList([]string{"a", "b", "c"}) != "a, b and c" {
 		t.Error("andList")
+	}
+}
+
+// A poster who lost today's post leaving a started notice gets it back at
+// boot; one still holding a notice, or already paid, does not.
+func TestRegrant(t *testing.T) {
+	st := newState(&Default, 42)
+	s := st.server(guild)
+	today := DayOf(t0)
+	b, held, paid := old(1), old(2), old(3)
+	for _, u := range []snowflake.ID{b, held, paid} {
+		if _, err := st.post(s, guild, u, false, today); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.members[b].pact = nil
+	s.members[paid].pact, s.members[paid].signs.paidDay = nil, today
+	st.regrant(today)
+	if _, err := st.post(s, guild, b, false, today); err != nil {
+		t.Errorf("the poster didn't get their post back: %v", err)
+	}
+	if s.members[held].signs.postedDay != today || s.members[paid].signs.postedDay != today {
+		t.Error("a held or paid post came back")
 	}
 }
