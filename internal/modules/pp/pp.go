@@ -88,12 +88,12 @@ func (*Module) Name() string { return "pp" }
 
 // Want: messages and voice states earn. Content tells a real message from
 // a repeat, presences carry the custom status the banner buff reads, and
-// members' joins and leaves keep the gate book; without any of them, /pp
-// still runs.
+// members' joins and leaves and invites made keep the gate book; without
+// any of them, /pp still runs.
 func (*Module) Want() intents.Want {
 	return intents.Want{
 		Required: gateway.IntentGuilds | gateway.IntentGuildMessages | gateway.IntentGuildVoiceStates,
-		Optional: gateway.IntentMessageContent | gateway.IntentGuildPresences | gateway.IntentGuildMembers,
+		Optional: gateway.IntentMessageContent | gateway.IntentGuildPresences | gateway.IntentGuildMembers | gateway.IntentGuildInvites,
 	}
 }
 
@@ -273,6 +273,13 @@ func (m *Module) OnEvent(ev bot.Event) {
 		m.later(context.Background(), func(ctx context.Context) { m.joined(ctx, e.GuildID, e.Member) })
 	case *events.GuildMemberLeave:
 		m.later(context.Background(), func(ctx context.Context) { m.left(ctx, e.GuildID, e.User.ID) })
+	case *events.InviteCreate:
+		if e.GuildID != nil {
+			s := m.st.server(*e.GuildID)
+			s.mu.Lock()
+			s.created(e.Code, e.Inviter, e.Uses, e.MaxUses)
+			s.mu.Unlock()
+		}
 	case *events.PresenceUpdate:
 		_, vanity := m.info(e.GuildID)
 		on := bannerOf(e.Activities, vanity)
