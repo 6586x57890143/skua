@@ -138,7 +138,7 @@ func (m *Module) checkGrant(s *server, g grant) error {
 		return errNoLedger
 	}
 	if most := Rules.Prize(m.st.bal()); g.amount > most {
-		return core.Tell(fmt.Sprintf("a prize is at most %s pp, %d golden quests", grouped(most/unit), Rules.PrizeMax))
+		return core.Tell(fmt.Sprintf("a prize is at most %s pp, %d pot days", grouped(most/unit), Rules.PrizeMax))
 	}
 	if g.amount > s.fund {
 		return core.Tell(fmt.Sprintf("the contest fund holds %s pp: it grows with every quest paid", grouped(s.fund/unit)))

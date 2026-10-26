@@ -94,7 +94,7 @@ type Balance struct {
 
 	// Chirographs and round robins: PactGoal minutes together finish one,
 	// it lapses PactLife days after it was posted, and Joinder is what each
-	// signer paid gets when two, three or four were.
+	// signer paid gets when two, three or four were, in percent of a pot day.
 	PactGoal, PactLife int64
 	Joinder            [3]int64
 
@@ -105,7 +105,8 @@ type Balance struct {
 
 	// Seasons: SeasonWeeks long, the first starting on day SeasonStart (a
 	// Monday). Each week ends in a checkpoint paying the top places on each
-	// board (voice and chat) Prizes, which never count toward the season.
+	// board (voice and chat) Prizes, in percent of a pot day, which never
+	// count toward the season.
 	SeasonStart int64
 	SeasonWeeks int64
 	Prizes      [5]int64
@@ -113,7 +114,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.10.6",
+	Version: "0.10.7",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -180,7 +181,7 @@ var Default = Balance{
 
 	PactGoal: 30,
 	PactLife: 2,
-	Joinder:  [3]int64{60 * unit, 90 * unit, 120 * unit},
+	Joinder:  [3]int64{15, 22, 29},
 
 	ClassGrace: 2,
 	ClassWait:  7,
@@ -188,5 +189,5 @@ var Default = Balance{
 
 	SeasonStart: DayOf(time.Date(2026, 11, 2, 5, 30, 0, 0, time.UTC)),
 	SeasonWeeks: 4,
-	Prizes:      [5]int64{1500 * unit, 1000 * unit, 750 * unit, 500 * unit, 250 * unit},
+	Prizes:      [5]int64{367, 245, 184, 122, 61},
 }

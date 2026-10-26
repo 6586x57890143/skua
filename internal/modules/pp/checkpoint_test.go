@@ -27,8 +27,13 @@ func TestCheckpoint(t *testing.T) {
 		}
 	}
 	// The contest fund is in the treasury, but no prize comes out of it.
+	var owed int64
+	for place := 1; place <= 5; place++ {
+		owed += Default.Prize(place)
+	}
+	free := owed * 3 / 4
 	s.fund = 900 * unit
-	s.treasury = 3000*unit + s.fund
+	s.treasury = free + s.fund
 	before := map[int]int64{}
 	for i := range 6 {
 		m := s.members[old(i+1)]
@@ -47,14 +52,15 @@ func TestCheckpoint(t *testing.T) {
 	if top.total != totals {
 		t.Error("a prize counted toward the level")
 	}
-	// 3,000 pp can't pay the 4,000 the five places are owed, so each gets
-	// three quarters of its prize.
+	// Three quarters of what the five places are owed can't pay them, so
+	// each gets that share of its prize.
 	for i := 1; i < 6; i++ {
-		if got, want := s.members[old(i+1)].purse-before[i], Default.Prizes[5-i]*3/4; got != want {
+		if got, want := s.members[old(i+1)].purse-before[i], Default.Prize(6-i)*free/owed; got != want {
 			t.Errorf("place %d got %d; want %d", 6-i, got, want)
 		}
 	}
-	if s.treasury != s.fund || s.fund != 900*unit || s.members[old(1)].purse != before[0] {
+	// What rounding leaves, a hundredth a place at most, stays.
+	if s.treasury-s.fund > 5 || s.fund != 900*unit || s.members[old(1)].purse != before[0] {
 		t.Errorf("a short treasury paid: treasury %d, sixth %d", s.treasury, s.members[old(1)].purse-before[0])
 	}
 	var prizes int
@@ -81,7 +87,7 @@ func TestCheckpoint(t *testing.T) {
 	m.now = func() time.Time { return monday.Add(time.Minute) }
 	m.tick(t.Context(), &last)
 	all := strings.Join(r.posts, " ")
-	if !strings.Contains(all, "the week of") || !strings.Contains(all, "+1,125 pp") || !strings.Contains(all, "ran short") || !strings.Contains(all, "**chat**") {
+	if !strings.Contains(all, "the week of") || !strings.Contains(all, "+"+grouped(Default.Prize(1)*free/owed/unit)+" pp") || !strings.Contains(all, "ran short") || !strings.Contains(all, "**chat**") {
 		t.Errorf("posted %v", r.posts)
 	}
 	if len(s.checkpoints) != 0 {
@@ -95,10 +101,10 @@ func TestCheckpoint(t *testing.T) {
 	}
 
 	// A full treasury pays each place its own prize.
-	s.treasury = 5000 * unit
+	s.treasury = owed + 1000*unit
 	before[5] = top.purse
 	st.checkpoint(s, top.week, DayOf(monday))
-	if got := top.purse - before[5]; got != Default.Prizes[0] || s.treasury != 1000*unit {
+	if got := top.purse - before[5]; got != Default.Prize(1) || s.treasury != 1000*unit {
 		t.Errorf("a full treasury paid first %d and kept %d", got/unit, s.treasury/unit)
 	}
 }

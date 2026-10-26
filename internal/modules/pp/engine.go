@@ -331,8 +331,11 @@ func (b *Balance) Prize(place int) int64 {
 	if place < 1 || place > len(b.Prizes) {
 		return 0
 	}
-	return b.Prizes[place-1]
+	return b.Prizes[place-1] * b.PotDay(Rules) / 100
 }
+
+// JoinderPay is what each signer gets when n of them, 2 to 4, were paid.
+func (b *Balance) JoinderPay(n int) int64 { return b.Joinder[n-2] * b.PotDay(Rules) / 100 }
 
 // QuestTiers names the tiers, as members see them.
 var QuestTiers = [3]string{"good", "great", "golden"}

@@ -11,6 +11,14 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.10.7",
+	Date:    "2026-10-26",
+	Balance: "118f76",
+	Lines: []string{
+		"weekly prizes and joinders are set in pot days, so they grow when the pot day does. today they pay what they did, within two pp",
+		"a contest prize is at most nine pot days, about what five golden quests were",
+	},
+}, {
 	Version: "0.10.6",
 	Date:    "2026-10-25",
 	Balance: "c79e9a",

@@ -438,7 +438,7 @@ func (st *state) finish(s *server, p *pact, today int64) {
 	}
 	got := int64(0)
 	if n := len(paid); n >= 2 {
-		got = st.bal().Joinder[min(n, 4)-2]
+		got = st.bal().JoinderPay(min(n, 4))
 	}
 	news := joinderNews{channel: p.channel, ring: p.ring, got: got}
 	for _, g := range p.signers {

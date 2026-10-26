@@ -108,9 +108,9 @@ func TestGrantRefusals(t *testing.T) {
 			t.Errorf("%s: %v", c.name, err)
 		}
 	}
-	// No prize past PrizeMax golden quests.
+	// No prize past PrizeMax pot days.
 	over := strconv.FormatInt(Rules.Prize(&Default)/unit+1, 10)
-	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, over, false, false)); err == nil || !strings.Contains(err.Error(), "golden quests") {
+	if err := m.submitGrant(ctx, grantFor(t, g, 5, winner, over, false, false)); err == nil || !strings.Contains(err.Error(), "pot days") {
 		t.Errorf("a prize past the biggest: %v", err)
 	}
 	// A season's room for one member.
