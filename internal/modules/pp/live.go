@@ -197,6 +197,9 @@ type state struct {
 	flushing sync.Mutex
 	srv      map[snowflake.ID]*server
 	seeds    map[int64]*seasonSeed
+	// alarm logs what should never happen, a payout past its ceiling
+	// among it; nil in tests.
+	alarm func(msg string, args ...any)
 }
 
 // era is the balance the day runs under and its pot day under the charter,
@@ -571,4 +574,11 @@ func (st *state) minute(s *server, guild, afk snowflake.ID, now time.Time) int {
 		st.together(s, paid, now.Unix()/60)
 	}
 	return earning
+}
+
+// warn raises an alarm, if anyone listens.
+func (st *state) warn(msg string, args ...any) {
+	if st.alarm != nil {
+		st.alarm(msg, args...)
+	}
 }
