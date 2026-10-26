@@ -182,15 +182,21 @@ func (m *Module) betaRole(guild snowflake.ID) snowflake.ID {
 }
 
 // closedMessage is what /pp shows a member who isn't in the beta: what it
-// is, and while keys can hand the role out, the button to redeem one.
-func (m *Module) closedMessage(guild snowflake.ID) (discord.MessageCreate, error) {
+// is, and while keys can hand the role out, the button to redeem one. A
+// guest someone stands surety for is let in on their word too.
+func (m *Module) closedMessage(guild, user snowflake.ID) (discord.MessageCreate, error) {
 	if m.Grant == nil || m.betaRole(guild) == 0 {
 		return discord.MessageCreate{}, errBeta
 	}
+	text := "/pp is in closed beta here for now\n-# have a key? redeem it and you're in"
+	row := discord.NewActionRow(withIcon(discord.NewPrimaryButton("redeem a key", "pp:redeem"), "envelope"))
+	if by := m.suretyOf(guild, user); by != 0 {
+		text = "/pp is in closed beta here for now\nyou came in on <@" + by.String() + ">'s word, so you're welcome in\n-# or redeem a key if you have one"
+		row = discord.NewActionRow(withIcon(discord.NewPrimaryButton("join on their word", "pp:vouched"), "key"),
+			withIcon(discord.NewSecondaryButton("redeem a key", "pp:redeem"), "envelope"))
+	}
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "closed beta",
-			"/pp is in closed beta here for now\n-# have a key? redeem it and you're in",
-			discord.NewActionRow(withIcon(discord.NewPrimaryButton("redeem a key", "pp:redeem"), "envelope")))},
+		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "closed beta", text, row)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	}, nil
