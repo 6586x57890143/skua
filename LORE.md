@@ -112,8 +112,10 @@ next day is out, whatever the city does after.
 
 ### Chirographs and round robins
 
-Most notices on the board are one bird's work. Some are taken in company,
-and the rookery has two ways of signing for that.
+The day's notices on the board are one bird's work, dealt to them alone.
+Work taken in company is posted separately, by any bird who wants
+company, with no notice of their own needed to post it or to sign one. The
+rookery has two ways of signing for that.
 
 A **chirograph** is a notice taken by two. The board's clerk writes it out
 twice on one sheet, writes a word across the gap between the copies and cuts
@@ -369,10 +371,10 @@ more as it fills.
 | the hearth | the herons' public fire, lit on a day the city earns it |
 | laurels | the choir's monday names |
 | quests | notices on the board at the pot's rim |
-| two players on one quest | a chirograph, cut in two through a word and fitted back together |
-| three or four players on one quest | a round robin, signed in a ring |
-| two players on one quest, in text | a correspondence, letters by the penny post |
-| three or four players on one quest, in text | a round letter, passed round a ring with a page from each |
+| two players together in voice | a chirograph, cut in two through a word and fitted back together |
+| three or four players together in voice | a round robin, signed in a ring |
+| two players writing to each other | a correspondence, letters by the penny post |
+| three or four players writing to each other | a round letter, passed round a ring with a page from each |
 | classes | who you are in the city, and what you came from |
 | seasons | the city's years, counted in tides |
 | colour roles | liveries, leased from the dyers' yard by the week |
