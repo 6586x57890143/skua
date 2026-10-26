@@ -30,7 +30,7 @@ func TestFxEnglishTranslationKeepsMediaAndSource(t *testing.T) {
 			box := card(l, p).Components[0].(discord.ContainerComponent)
 			body := box.Components[1].(discord.TextDisplayComponent).Content
 			footer := box.Components[len(box.Components)-1].(discord.TextDisplayComponent).Content
-			if body != "Hello everyone" || !strings.HasPrefix(footer, "-# ") || !strings.Contains(footer, "fxembed · [translated from](<"+l.URL+">) 🇫🇷 🇯🇵") {
+			if body != "Hello everyone" || !strings.HasPrefix(footer, "-# ") || !strings.Contains(footer, "fxembed · [tl from:](<"+l.URL+">) 🇫🇷 🇯🇵") {
 				t.Fatalf("body=%q footer=%q", body, footer)
 			}
 			encoded, _ := json.Marshal(box)
@@ -138,7 +138,7 @@ func TestTranslationCreditIsCompactAndBounded(t *testing.T) {
 		t.Fatal(got)
 	}
 	l.URL += strings.Repeat("a", 1000)
-	if credit := translationCredit(l, p); strings.Contains(credit, "](<") || !strings.Contains(credit, "translated from") {
+	if credit := translationCredit(l, p); strings.Contains(credit, "](<") || !strings.Contains(credit, "tl from:") {
 		t.Fatal(credit)
 	}
 	for code, country := range languageCountries {

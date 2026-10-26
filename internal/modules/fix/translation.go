@@ -73,7 +73,7 @@ func translationCredit(l Link, p Post) string {
 	for _, source := range sources[:min(len(sources), 6)] {
 		marks = append(marks, languageMark(source))
 	}
-	label := "translated from"
+	label := "tl from:"
 	// Emoji remain outside the masked link: Discord can render pictographs in
 	// link labels as literal Markdown. Very long URLs keep the footer bounded;
 	// the card's author/title still links to the original source.
