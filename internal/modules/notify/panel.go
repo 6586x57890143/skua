@@ -279,7 +279,7 @@ func (m *Module) panel(guild snowflake.ID, note string) discord.MessageCreate {
 	if icon != nil {
 		files = append(files, icon)
 	}
-	head := "## notify\n-# tells a channel when someone posts or goes live"
+	head := "## notify\n-# tells a channel when someone goes live"
 	if note != "" {
 		head += "\n" + note
 	}
@@ -359,9 +359,7 @@ func following(fs []follow, failed map[snowflake.ID]string) string {
 // does is what following someone on p brings.
 func does(p string) string {
 	switch p {
-	case "youtube":
-		return "uploads and streams"
-	case "twitch", "kick":
+	case "youtube", "twitch", "kick":
 		return "when they go live"
 	}
 	return "new posts"

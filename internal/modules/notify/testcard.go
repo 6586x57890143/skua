@@ -40,7 +40,7 @@ func profile(platform, account string) string {
 
 func testCard(f follow, grant bool) discord.MessageCreate {
 	what := "posts"
-	if f.platform == "twitch" || f.platform == "kick" {
+	if f.platform == "youtube" || f.platform == "twitch" || f.platform == "kick" {
 		what = "goes live"
 	}
 	it := item{

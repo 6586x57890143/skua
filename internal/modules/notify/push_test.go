@@ -308,7 +308,7 @@ func TestYoutubePush(t *testing.T) {
 		h.ServeHTTP(w, r)
 		return w.Code
 	}
-	src.show(ytID, item{ID: "v1", URL: "https://y/v1"})
+	src.show(ytID, item{ID: "live:v1", URL: "https://y/v1"})
 	feed := `<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015"><entry><yt:videoId>v1</yt:videoId><yt:channelId>` + ytID + `</yt:channelId></entry></feed>`
 	if code := push(feed, "wrong"); code != http.StatusNoContent {
 		t.Fatal(code)
@@ -603,7 +603,7 @@ func TestPushHealth(t *testing.T) {
 	// A push clears it; a card it brings isn't a miss.
 	pf.show("bird", item{ID: "live:3", URL: "https://k/3"})
 	m.refresh("fake", "bird")
-	waitFor(t, p, 4)
+	waitFor(t, p, 3)
 	clock.Lock()
 	now = now.Add(3 * time.Minute)
 	clock.Unlock()

@@ -1,12 +1,11 @@
 // Package notify is /notify: a card in a channel when an account a server
-// follows posts on youtube, x or tiktok, or goes live on youtube, twitch or
-// kick. Each account is polled once however many servers follow it, and a
-// platform that breaks only stops its own cards.
+// follows goes live on youtube, twitch or kick. Each account is polled
+// once however many servers follow it, and a platform that breaks only
+// stops its own cards.
 //
-// youtube needs nothing: its feeds and pages are public. x and tiktok come
-// through an RSSHub instance (SKUA_NOTIFY_RSSHUB), since neither has an API
-// a bot can use for free. twitch and kick take a developer app's client
-// credentials. A platform without its setting isn't offered.
+// youtube needs nothing: its feeds and pages are public.
+// twitch and kick take a developer app's client credentials. A platform
+// without its setting isn't offered.
 package notify
 
 import (
@@ -42,7 +41,7 @@ const perGuild = 25
 
 // Config is what the platforms beyond youtube need. Empty leaves them out.
 type Config struct {
-	RSSHub                 string
+	RSSHub                 string // legacy setting; post feeds are disabled
 	TwitchID, TwitchSecret string
 	KickID, KickSecret     string
 	// HooksURL is where twitch, kick and youtube push to, the tunnel's
@@ -62,10 +61,6 @@ func FromEnv() Config {
 // sources is every platform cfg sets up, against the real hosts.
 func sources(cfg Config, c *http.Client) map[string]source {
 	s := map[string]source{"youtube": &youtube{c: c, base: "https://www.youtube.com", img: "https://i.ytimg.com", hub: "https://pubsubhubbub.appspot.com/subscribe"}}
-	if cfg.RSSHub != "" {
-		s["x"] = feed{c: c, base: cfg.RSSHub, path: func(h string) string { return "/twitter/user/" + h }}
-		s["tiktok"] = feed{c: c, base: cfg.RSSHub, path: func(h string) string { return "/tiktok/user/@" + h }}
-	}
 	if cfg.TwitchID != "" && cfg.TwitchSecret != "" {
 		s["twitch"] = &twitch{app: &app{c: c, url: "https://id.twitch.tv/oauth2/token", id: cfg.TwitchID, secret: cfg.TwitchSecret}, api: "https://api.twitch.tv/helix"}
 	}
@@ -200,8 +195,8 @@ func (m *Module) Gate(on func(guild snowflake.ID) bool) { m.on = on }
 func (m *Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorNotice,
-		Line:  "tells a channel when someone posts or goes live",
-		About: "admins run /notify to open a panel: pick the channel cards go to, add or drop accounts to follow and pick a role to ping. she watches those accounts on " + strings.Join(m.platforms(), ", ") + " and posts a card when one of them posts or goes live. a live card turns into the vod once the stream ends. when she can hand out the role, each card gets a ping me button so members can take it or drop it themselves. a new follow starts from what the account already has, so it never floods the channel with old posts",
+		Line:  "tells a channel when someone goes live",
+		About: "admins run /notify to open a panel: pick the channel cards go to, add or drop accounts to follow and pick a role to ping. she watches those accounts on " + strings.Join(m.platforms(), ", ") + " and posts a card when one of them goes live. uploads and other posts do not send alerts. a live card turns into the vod once the stream ends. when she can hand out the role, each card gets a ping me button so members can take it or drop it themselves. a new follow starts from what the account already has, so it never announces a stream already on",
 	}
 }
 
