@@ -182,8 +182,8 @@ func (t *twitch) vod(ctx context.Context, login string, it item) (vod, bool) {
 	return vod{}, false
 }
 
-// kickVideo is one stream session on kick's site, its VOD from the
-// moment it starts.
+// kickVideo is one stream session on kick's legacy video list. Video.UUID
+// identifies its metadata, not the replay page's VOD.
 type kickVideo struct {
 	Start    string `json:"start_time"` // UTC, "2006-01-02 15:04:05"
 	Duration int64  `json:"duration"`   // ms; 0 while live
@@ -200,6 +200,9 @@ type kickVideo struct {
 // is undocumented: anything it doesn't answer, or answers differently,
 // is false, and the card points at the videos page instead.
 func (k *kick) vod(ctx context.Context, slug string, it item) (vod, bool) {
+	if it.Started.IsZero() {
+		return vod{}, false
+	}
 	var videos []kickVideo
 	h := http.Header{"Accept": {"application/json"}}
 	if _, err := get(ctx, k.app.c, k.site+"/api/v2/channels/"+url.PathEscape(slug)+"/videos", h, &videos); err != nil {
@@ -210,11 +213,20 @@ func (k *kick) vod(ctx context.Context, slug string, it item) (vod, bool) {
 		if err != nil || v.Video.UUID == "" {
 			continue
 		}
-		// Newest first: without a start of its own, the stream is the newest.
-		if !it.Started.IsZero() && start.Sub(it.Started).Abs() > 2*time.Minute {
+		if start.Sub(it.Started).Abs() > 2*time.Minute {
 			continue
 		}
-		out := vod{url: k.site + "/" + url.PathEscape(slug) + "/videos/" + url.PathEscape(v.Video.UUID), image: v.Thumb.Src}
+		// The legacy UUID still resolves metadata after the stream ends, but
+		// Kick's replay page uses livestream.vod_id from that response.
+		var detail struct {
+			Livestream struct {
+				VODID string `json:"vod_id"`
+			} `json:"livestream"`
+		}
+		if _, err := get(ctx, k.app.c, k.site+"/api/v1/video/"+url.PathEscape(v.Video.UUID), h, &detail); err != nil || detail.Livestream.VODID == "" {
+			return vod{}, false
+		}
+		out := vod{url: k.site + "/" + url.PathEscape(slug) + "/videos/" + url.PathEscape(detail.Livestream.VODID), image: v.Thumb.Src}
 		// 0 when it ended moments ago and kick hasn't written it yet.
 		out.length = time.Duration(v.Duration) * time.Millisecond
 		return out, true
