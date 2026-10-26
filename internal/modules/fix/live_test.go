@@ -13,6 +13,40 @@ import (
 	"time"
 )
 
+// A degraded Instagram response is still useful when video recovery succeeds.
+// Keep this separate from canaries that require a caption: Instagram may omit
+// that metadata upstream, which should preserve media and native previews.
+func TestLiveInstagramRecovery(t *testing.T) {
+	if os.Getenv("SKUA_FIX_LIVE") != "1" {
+		t.Skip("set SKUA_FIX_LIVE=1 for public API canaries")
+	}
+	a, err := NewAPI(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	directStatus := 0
+	a.c.Transport = transport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		resp, err := http.DefaultTransport.RoundTrip(r)
+		if r.URL.Host == "www.instagram.com" && resp != nil {
+			directStatus = resp.StatusCode
+		}
+		return resp, err
+	})
+	l, _ := Parse("https://www.instagram.com/reels/De5kQ-IJ60z/")
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	p, err := a.Resolve(ctx, l)
+	if err != nil || len(p.Media) == 0 || remoteURL(p.Media[0].URL) == "" {
+		t.Fatalf("Instagram recovery returned no usable media: %v", err)
+	}
+	if calls > 3 || p.Author == "" && p.Handle == "" && !p.Incomplete {
+		t.Fatalf("Instagram recovery: requests=%d incomplete=%t", calls, p.Incomplete)
+	}
+	t.Logf("Instagram recovery: requests=%d direct_status=%d incomplete=%t", calls, directStatus, p.Incomplete)
+}
+
 // Opt-in canaries exercise live contracts, not just a frozen JSON example.
 // No Discord token is used and no message is posted. Ordinary CI stays offline.
 func TestLiveProviders(t *testing.T) {

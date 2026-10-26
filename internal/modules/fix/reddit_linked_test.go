@@ -16,7 +16,7 @@ func TestRedditLinkedMedia(t *testing.T) {
 		calls             int
 	}{
 		{name: "twitch clip", link: "https://www.twitch.tv/kacey/clip/abc", child: `{"success":true,"platform":"twitch","data":{"title":"clip","video":{"url":"https://cdn.example/clip.mp4"},"sensitive":true}}`, calls: 1},
-		{name: "supported photo", link: "https://instagram.com/p/abc", child: `{"success":true,"platform":"instagram","data":{"title":"post","image":"https://cdn.example/image.jpg"}}`, calls: 1},
+		{name: "supported photo", link: "https://instagram.com/p/abc", child: `{"success":true,"platform":"instagram","data":{"title":"post","authorName":"creator","image":"https://cdn.example/image.jpg"}}`, calls: 1},
 		{name: "failed extraction", link: "https://clips.twitch.tv/abc", fail: true, incomplete: true, calls: 1},
 		{name: "no media", link: "https://clips.twitch.tv/abc", child: `{"success":true,"platform":"twitch","data":{"title":"clip"}}`, incomplete: true, calls: 1},
 		{name: "invalid media", link: "https://clips.twitch.tv/abc", child: `{"success":true,"platform":"twitch","data":{"title":"clip","video":{"url":"http://localhost/video.mp4"}}}`, incomplete: true, calls: 1},
