@@ -74,7 +74,7 @@ func compactCount(raw string) string {
 }
 
 func statLine(stats string) string {
-	var ordered [4]string
+	var ordered [5]string
 	var extra []string
 	for _, part := range strings.SplitN(clip(stats, 500), "·", 6) {
 		fields := engagement.FindStringSubmatch(strings.TrimSpace(part))
@@ -92,8 +92,10 @@ func statLine(stats string) string {
 			key, fallback, index = "stat_repost", "↻", 1
 		case "like", "likes":
 			key, fallback, index = "stat_likes", "♥", 2
+		case "vote", "votes", "upvote", "upvotes":
+			key, fallback, index = "stat_likes", "♥", 3
 		case "view", "views":
-			key, fallback, index = "stat_views", "views", 3
+			key, fallback, index = "stat_views", "views", 4
 		default:
 			extra = append(extra, compactCount(fields[1])+" "+clean(fields[2], 20))
 			continue
@@ -103,8 +105,11 @@ func statLine(stats string) string {
 			mark = fallback
 		}
 		ordered[index] = mark + " **" + compactCount(fields[1]) + "**"
+		if strings.Contains(strings.ToLower(fields[2]), "vote") {
+			ordered[index] += " " + strings.ToLower(fields[2])
+		}
 	}
-	out := make([]string, 0, 4+len(extra))
+	out := make([]string, 0, len(ordered)+len(extra))
 	for _, s := range ordered {
 		if s != "" {
 			out = append(out, s)

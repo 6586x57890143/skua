@@ -4,6 +4,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"unicode"
 	"unicode/utf16"
 
 	"github.com/6586x57890143/skua/internal/brand"
@@ -79,12 +80,17 @@ func profile(l Link, authorURL, handle string) string {
 	return ""
 }
 
+func platformMark(l Link) string {
+	mark := brand.Mention("pf_" + platformName(l))
+	if mark == "" {
+		mark = platformName(l)
+	}
+	return mark
+}
+
 func identity(l Link, p Post) string {
 	platform := platformName(l)
-	mark := brand.Mention("pf_" + platform)
-	if mark == "" {
-		mark = platform
-	}
+	mark := platformMark(l)
 	author := clean(p.Author, 100)
 	if author == "" {
 		author = "post on " + platform
@@ -95,16 +101,16 @@ func identity(l Link, p Post) string {
 			title = "reddit post"
 		}
 		if dest := redditProfile(p); dest != "" {
-			author = "[" + linkLabel(p.Author, 100) + "](<" + dest + ">)"
+			author = linkedText(p.Author, dest, 100, "profile")
 		}
-		return mark + " **[" + linkLabel(title, 200) + "](<" + l.URL + ">)**\n-# " + author
+		return mark + " **" + linkedText(title, l.URL, 200, "post") + "**\n-# " + author
 	}
-	head := mark + " **[" + linkLabel(authorName(p.Author, platform), 100) + "](<" + l.URL + ">)**"
+	head := mark + " **" + linkedText(authorName(p.Author, platform), l.URL, 100, "post") + "**"
 	if p.Handle != "" {
 		handle := "@" + strings.TrimPrefix(p.Handle, "@")
 		shown := clean(handle, 100)
 		if dest := profile(l, p.AuthorURL, p.Handle); dest != "" {
-			shown = "[" + linkLabel(handle, 100) + "](<" + dest + ">)"
+			shown = linkedText(handle, dest, 100, "profile")
 		}
 		head += "\n-# " + shown
 	}
@@ -130,16 +136,22 @@ func sectionText(l Link, s Section, limit int) string {
 	}
 	label := clean(title, min(100, titleBudget))
 	if dest := remoteURL(s.URL); dest != "" {
-		linked := "[" + linkLabel(title, min(100, titleBudget)) + "](<" + dest + ">)"
+		linked := linkedText(title, dest, min(100, titleBudget), "post")
 		if len(utf16.Encode([]rune(linked))) <= titleBudget {
 			label = linked
 		}
 	}
 	heading := prefix + "**" + label + "**"
+	if quoted {
+		marked := prefix + platformMark(l) + " **" + label + "**"
+		if len(utf16.Encode([]rune(marked))) <= limit {
+			heading = marked
+		}
+	}
 	if quoted && s.Handle != "" {
 		shown := clean("@"+strings.TrimPrefix(s.Handle, "@"), 70)
 		if dest := profile(l, s.AuthorURL, s.Handle); dest != "" {
-			shown = "[" + linkLabel("@"+strings.TrimPrefix(s.Handle, "@"), 70) + "](<" + dest + ">)"
+			shown = linkedText("@"+strings.TrimPrefix(s.Handle, "@"), dest, 70, "profile")
 		}
 		if len(utf16.Encode([]rune(heading+" · "+shown))) <= limit-20 {
 			heading += " · " + shown
@@ -164,6 +176,21 @@ func sectionText(l Link, s Section, limit int) string {
 // Other metadata escaping remains intact, including brackets and mentions.
 func linkLabel(s string, limit int) string {
 	return strings.ReplaceAll(clean(s, limit), `\_`, `_`)
+}
+
+// Discord renders masked links containing pictographs as literal Markdown.
+// Keep decorated names intact outside the link and use a short, safe label for
+// their destination. Apply the same rule to post titles and quoted identities.
+func linkedText(text, dest string, limit int, fallback string) string {
+	text = strings.Join(strings.Fields(text), " ")
+	label := linkLabel(text, limit)
+	unsafe := label == "" || strings.ContainsAny(text, "[]\\`") || strings.Contains(text, "://") || strings.ContainsFunc(text, func(r rune) bool {
+		return r >= 0x1f000 || unicode.Is(unicode.So, r) || r == '\u200d' || r == '\ufe0f' || r == '\u20e3'
+	})
+	if unsafe {
+		return clean(text, limit) + " · [" + fallback + "](<" + dest + ">)"
+	}
+	return "[" + label + "](<" + dest + ">)"
 }
 func authorName(author, platform string) string {
 	if author == "" {
