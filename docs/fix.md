@@ -35,6 +35,13 @@ and quote sources are clickable, engagement uses app icons, and Discord renders
 the timestamp in each reader's timezone. Creator names, captions and alt text keep their original
 case, while Skua's own labels follow the shared lowercase voice.
 
+Engagement counters use Skua's application emoji across providers, including
+TikTok's emoji-first stats and the space-separated or bullet-separated formats
+used by other platforms. Replies, reposts, likes, views, bookmarks, coins,
+downloads and notes share the same rendering. Before emoji sync completes they
+use plain text labels. Footer budgets drop whole counters instead of cutting an
+emoji mention in half. Creator-authored emoji in captions stay as written.
+
 Non-English post text is requested in English, including quoted posts where the
 provider supports them. The translation replaces the normal card text; a small
 `tl from:` link and language flag sit beside the provider credit in its

@@ -1,12 +1,9 @@
 package fix
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf16"
-
-	"github.com/6586x57890143/skua/internal/brand"
 )
 
 // Only actual HTTPS URLs become links. Provider markdown stays inert; no
@@ -51,8 +48,6 @@ func sourceText(text string, limit int) string {
 	return clip(b.String(), limit)
 }
 
-var engagement = regexp.MustCompile(`(?i)^([0-9][0-9.,]*[kmb]?)\s+(likes?|reposts?|retweets?|replies|comments?|views?|votes?|upvotes?)$`)
-
 func compactCount(raw string) string {
 	// Preserve upstream abbreviations; only format exact nonnegative integers.
 	n, err := strconv.ParseUint(strings.ReplaceAll(raw, ",", ""), 10, 64)
@@ -71,50 +66,4 @@ func compactCount(raw string) string {
 	default:
 		return strings.TrimSuffix(strconv.FormatFloat(float64(n/100_000_000)/10, 'f', 1, 64), ".0") + "b"
 	}
-}
-
-func statLine(stats string) string {
-	var ordered [5]string
-	var extra []string
-	for _, part := range strings.SplitN(clip(stats, 500), "·", 6) {
-		fields := engagement.FindStringSubmatch(strings.TrimSpace(part))
-		if fields == nil {
-			if strings.TrimSpace(part) != "" {
-				extra = append(extra, clean(strings.TrimSpace(part), 100))
-			}
-			continue
-		}
-		key, fallback, index := "", "", 0
-		switch strings.ToLower(fields[2]) {
-		case "replies", "comment", "comments":
-			key, fallback, index = "stat_reply", "↩", 0
-		case "repost", "reposts", "retweet", "retweets":
-			key, fallback, index = "stat_repost", "↻", 1
-		case "like", "likes":
-			key, fallback, index = "stat_likes", "♥", 2
-		case "vote", "votes", "upvote", "upvotes":
-			key, fallback, index = "stat_likes", "♥", 3
-		case "view", "views":
-			key, fallback, index = "stat_views", "views", 4
-		default:
-			extra = append(extra, compactCount(fields[1])+" "+clean(fields[2], 20))
-			continue
-		}
-		mark := brand.Mention(key)
-		if mark == "" {
-			mark = fallback
-		}
-		ordered[index] = mark + " **" + compactCount(fields[1]) + "**"
-		if strings.Contains(strings.ToLower(fields[2]), "vote") {
-			ordered[index] += " " + strings.ToLower(fields[2])
-		}
-	}
-	out := make([]string, 0, len(ordered)+len(extra))
-	for _, s := range ordered {
-		if s != "" {
-			out = append(out, s)
-		}
-	}
-	out = append(out, extra...)
-	return clip(strings.Join(out, "  "), 500)
 }
