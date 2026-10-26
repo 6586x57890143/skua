@@ -142,3 +142,44 @@ func TestGuestsRoundTrip(t *testing.T) {
 		t.Errorf("came back as %+v", got)
 	}
 }
+
+// Reverse puts a bad joinder right in the database, and the audit after it
+// finds every purse and the treasury agree with their rows.
+func TestReverseInStore(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	g := snowflake.New(time.Now()) + snowflake.ID(time.Now().UnixNano()%4096)
+	st := newState(&Default, 42)
+	s := st.server(g)
+	u := old(1)
+	today := DayOf(time.Now())
+	m := st.member(s, g, u, today)
+	m.purse = 10 * unit
+	s.append(u, today, reasonOpen, m.purse, nil)
+	lv, kept := st.labour(s, m, 7595640)
+	s.append(u, today, reasonJoinder, 7595640-lv-kept, []int64{4, 7595640, lv, kept})
+	from := s.seq
+	if err := st.climb(s, g, u, today); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.flush(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Reverse(ctx, db, g, from, []snowflake.ID{old(2)}); err == nil {
+		t.Error("reversed a member with no joinder")
+	}
+	got, err := Reverse(ctx, db, g, from, []snowflake.ID{u})
+	if err != nil || len(got) != 1 || got[0].RungTo != 0 {
+		t.Fatalf("reversing: %+v %v", got, err)
+	}
+	back := newState(&Default, 42)
+	if err := back.load(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if bad, err := back.audit(ctx, db); err != nil || bad != 0 {
+		t.Errorf("the audit after: %d disagree, %v", bad, err)
+	}
+	if bm := back.server(g).members[u]; bm.purse != 10*unit+got[0].Paid || bm.rung != 0 {
+		t.Errorf("came back with purse %d rung %d", bm.purse, bm.rung)
+	}
+}
