@@ -59,6 +59,10 @@ func (st *state) checkpoint(s *server, week, today int64) {
 		})
 		for _, i := range order {
 			want := st.bal().Prize(places[i])
+			if most := Rules.PrizeMax * st.pot(); want > most {
+				st.warn("pp: a prize past its ceiling, cut to it", "want", want, "most", most)
+				want = most
+			}
 			if want == 0 {
 				break
 			}

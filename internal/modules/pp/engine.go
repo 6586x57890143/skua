@@ -1,6 +1,9 @@
 package pp
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Turn is when a day turns, past 00:00 UTC: a sweet spot between western
 // Europe's morning and the US's night.
@@ -337,6 +340,37 @@ func (b *Balance) Prize(place int) int64 {
 		return 0
 	}
 	return b.Prizes[place-1] * b.PotDay(Rules) / 100
+}
+
+// paysMost is the most, in pot days, one quest or joinder pays. A golden
+// quest is about one; anything near this is a bug, so a balance that
+// would pay past it is never run, and a payout past it is cut to it.
+const paysMost = 3
+
+// Sane says why b must never run: a pot day of nothing, or a quest,
+// joinder or weekly prize that would pay past its ceiling, which is how a
+// number saved in one unit and read in another shows up.
+func (b *Balance) Sane() error {
+	pd := b.PotDay(Rules)
+	if pd <= 0 {
+		return fmt.Errorf("pp: balance %s has a pot day of %d", b.Version, pd)
+	}
+	for i, q := range b.QuestPP {
+		if q <= 0 || q > paysMost*pd {
+			return fmt.Errorf("pp: balance %s pays a %s quest %d, past %d pot days", b.Version, QuestTiers[i], q, paysMost)
+		}
+	}
+	for n := 2; n <= 4; n++ {
+		if p := b.JoinderPay(n); p <= 0 || p > paysMost*pd {
+			return fmt.Errorf("pp: balance %s pays a joinder of %d %d, past %d pot days", b.Version, n, p, paysMost)
+		}
+	}
+	for place := range b.Prizes {
+		if p := b.Prize(place + 1); p < 0 || p > Rules.PrizeMax*pd {
+			return fmt.Errorf("pp: balance %s pays place %d %d, past %d pot days", b.Version, place+1, p, Rules.PrizeMax)
+		}
+	}
+	return nil
 }
 
 // JoinderPay is what each signer gets when n of them, 2 to 4, were paid.

@@ -413,10 +413,13 @@ func (st *state) loadBalance(ctx context.Context, db DB, next *Balance, today in
 		if err := json.Unmarshal(body, &b); err != nil {
 			return err
 		}
-		if b.Version == next.Version {
+		if b.Version == next.Version && b.Sane() == nil {
 			st.use(&b)
 			return nil
 		}
+	}
+	if err := next.Sane(); err != nil {
+		return err
 	}
 	st.use(next)
 	return saveBalance(ctx, db, today, next)

@@ -69,6 +69,7 @@ type Module struct {
 // holds, so there is nothing new to configure.
 func New(ctx context.Context, log *slog.Logger, db DB, seed uint64, info GuildInfo) (*Module, error) {
 	m := &Module{log: log, db: db, st: newState(&Default, seed), info: info, now: time.Now, beacon: drand}
+	m.st.alarm = log.Error
 	if err := m.st.loadBalance(ctx, db, &Default, DayOf(m.now())); err != nil {
 		return nil, err
 	}

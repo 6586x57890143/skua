@@ -97,6 +97,15 @@ func TestBalanceWaitsForTheTurn(t *testing.T) {
 	if b := m.st.bal(); b != &Default {
 		t.Fatalf("a mid-day boot ran the saved %s, joinder %v", b.Version, b.Joinder)
 	}
+	// Nor is one of this version that would pay past a ceiling.
+	insane := Default
+	insane.Joinder = stale.Joinder
+	if err := saveBalance(ctx, db, today, &insane); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.st.loadBalance(ctx, db, &Default, today); err != nil || m.st.bal() != &Default {
+		t.Fatalf("a mid-day boot ran an insane saved balance: %v", err)
+	}
 	// The same version saved for today is kept: a restart mid-day carries on.
 	before := Default
 	before.Pool = 1
@@ -156,8 +165,7 @@ func TestReverseInStore(t *testing.T) {
 	m := st.member(s, g, u, today)
 	m.purse = 10 * unit
 	s.append(u, today, reasonOpen, m.purse, nil)
-	lv, kept := st.labour(s, m, 7595640)
-	s.append(u, today, reasonJoinder, 7595640-lv-kept, []int64{4, 7595640, lv, kept})
+	badJoinder(s, m, u, today)
 	from := s.seq
 	if err := st.climb(s, g, u, today); err != nil {
 		t.Fatal(err)

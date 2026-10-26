@@ -226,6 +226,10 @@ func (st *state) payQuest(s *server, m *member, user snowflake.ID, q heldQuest) 
 // level counts it all. It returns the levy and what was kept back; the
 // caller writes the ledger row. s.mu held.
 func (st *state) labour(s *server, m *member, got int64) (lv, kept int64) {
+	if most := paysMost * st.pot(); got > most {
+		st.warn("pp: a payout past its ceiling, cut to it", "got", got, "most", most)
+		got = most
+	}
 	if s.levying() {
 		lv = Rules.levy(got)
 	}
