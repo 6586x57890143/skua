@@ -35,6 +35,14 @@ and quote sources are clickable, engagement uses app icons, and Discord renders
 the timestamp in each reader's timezone. Creator names, captions and alt text keep their original
 case, while Skua's own labels follow the shared lowercase voice.
 
+Non-English post text is requested in English, including quoted posts where the
+provider supports them. The translation replaces the normal card text; a small
+`translated from` link and language flag sit beside the provider credit in its
+footer. The text links to the original source, without adding a button. Discord
+text links cannot open an ephemeral reply. Missing or unsuccessful translations
+keep the original text and show no translation credit. X and Bluesky `/en` links
+are accepted and still link back to the original post.
+
 ## providers
 
 | platform | primary metadata |
@@ -45,6 +53,11 @@ case, while Skua's own labels follow the shared lowercase voice.
 | bilibili, youtube community posts, pinterest | FixEmbed |
 | tiktok, tumblr, twitch, deviantart / sta.sh | FixEmbed |
 | kick clips | Kick website API; signed MP4 relay for HLS |
+
+FxEmbed API v2 uses `lang=en`, the equivalent of `/en` on its embed URLs.
+FixEmbed also accepts `lang=en` for its supported platforms; Skua uses its
+translation metadata to credit only translations the service actually returned.
+Kick clips do not expose this translation facility.
 
 The defaults need no API secrets. The source URL is sent to the selected service;
 Discord fetches the resulting remote media. Credentials from notify are therefore

@@ -98,7 +98,7 @@ type fixResponse struct {
 func (a *API) fixMetadata(ctx context.Context, l Link) (*fixData, error) {
 	ctx, cancel := context.WithTimeout(ctx, metadataBudget)
 	defer cancel()
-	query := url.Values{"url": {l.URL}, "renderer": {"components-v2"}}
+	query := url.Values{"url": {l.URL}, "renderer": {"components-v2"}, "lang": {"en"}}
 	endpoint := a.cfg.FixEmbed + "/api/embed?" + query.Encode()
 	var best *fixData
 	last := errMetadata

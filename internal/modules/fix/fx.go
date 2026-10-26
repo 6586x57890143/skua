@@ -4,20 +4,22 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 )
 
 // Wire shapes follow FxEmbed API v2 at the revision in upstreams.json.
 // Only the fields used by skua are decoded; additive upstream fields are safe.
 type fxStatus struct {
-	ID        string  `json:"id"`
-	Text      string  `json:"text"`
-	Timestamp float64 `json:"created_timestamp"`
-	Sensitive bool    `json:"possibly_sensitive"`
-	Type      string  `json:"type"`
-	Message   string  `json:"message"`
-	URL       string  `json:"url"`
-	Author    struct {
+	ID          string         `json:"id"`
+	Text        string         `json:"text"`
+	Translation *fxTranslation `json:"translation"`
+	Timestamp   float64        `json:"created_timestamp"`
+	Sensitive   bool           `json:"possibly_sensitive"`
+	Type        string         `json:"type"`
+	Message     string         `json:"message"`
+	URL         string         `json:"url"`
+	Author      struct {
 		Name   string `json:"name"`
 		Handle string `json:"screen_name"`
 		Avatar string `json:"avatar_url"`
@@ -45,6 +47,23 @@ type fxStatus struct {
 		Text string `json:"text"`
 	} `json:"community_note"`
 }
+
+type fxTranslation struct {
+	Text   string `json:"text"`
+	Source string `json:"source_lang"`
+	Target string `json:"target_lang"`
+}
+
+func (s fxStatus) translatedText() (string, string) {
+	if t := s.Translation; t != nil {
+		source := translationSource(t.Source, t.Target)
+		if source != "" && strings.TrimSpace(t.Text) != "" && strings.TrimSpace(t.Text) != strings.TrimSpace(s.Text) {
+			return t.Text, source
+		}
+	}
+	return s.Text, ""
+}
+
 type fxMedia struct {
 	URL     string `json:"url"`
 	Type    string `json:"type"`
@@ -82,6 +101,9 @@ func (a *API) fx(ctx context.Context, l Link) (Post, error) {
 	if l.Platform == "bluesky" {
 		endpoint = a.cfg.Bluesky + "/2/status/" + url.PathEscape(l.Account) + "/" + l.ID
 	}
+	// API v2 uses lang=en for the same translation requested by /en on embed URLs.
+	// A suffix here would select the legacy tweet envelope instead of status.
+	endpoint += "?lang=en"
 	var body struct {
 		Code   int       `json:"code"`
 		Status *fxStatus `json:"status"`
@@ -94,6 +116,7 @@ func (a *API) fx(ctx context.Context, l Link) (Post, error) {
 		return Post{}, errMetadata
 	}
 	p := Post{Text: s.Text, Author: s.Author.Name, AuthorURL: s.Author.URL, Handle: s.Author.Handle, Avatar: s.Author.Avatar, Provider: "fxembed", Sensitive: s.Sensitive, Media: s.media(), Stats: fmt.Sprintf("%d likes · %d reposts · %d replies", s.Likes, s.Reposts, s.Replies)}
+	p.Text, p.TranslatedFrom = s.translatedText()
 	if s.Views != nil && *s.Views >= 0 {
 		p.Stats += fmt.Sprintf(" · %d views", *s.Views)
 	}
@@ -103,8 +126,9 @@ func (a *API) fx(ctx context.Context, l Link) (Post, error) {
 	if s.Quote != nil {
 		q := s.Quote
 		title := "quote · " + q.Author.Name
-		text := q.Text
+		text, translatedFrom := q.translatedText()
 		if q.Type == "tombstone" {
+			text, translatedFrom = q.Text, ""
 			title = "quote unavailable"
 			if text == "" {
 				text = q.Message
@@ -113,7 +137,7 @@ func (a *API) fx(ctx context.Context, l Link) (Post, error) {
 				}
 			}
 		}
-		p.Sections = append(p.Sections, Section{Kind: "quote", Author: q.Author.Name, Handle: q.Author.Handle, AuthorURL: q.Author.URL, Title: title, Text: text, URL: q.URL, Media: q.media(), Sensitive: s.Sensitive || q.Sensitive})
+		p.Sections = append(p.Sections, Section{Kind: "quote", Author: q.Author.Name, Handle: q.Author.Handle, AuthorURL: q.Author.URL, Title: title, Text: text, TranslatedFrom: translatedFrom, URL: q.URL, Media: q.media(), Sensitive: s.Sensitive || q.Sensitive})
 	}
 	if s.Poll != nil {
 		text := ""
