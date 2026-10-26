@@ -81,7 +81,7 @@ services:
   cloudflared:
     # Pinned by release tag and digest: it holds the tunnel token and stands
     # in front of the bot, so it changes only when bumped here.
-    image: cloudflare/cloudflared:2026.10.0@sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+    image: cloudflare/cloudflared:latest
     profiles: [tunnel]
     command: tunnel --no-autoupdate run
     environment:
