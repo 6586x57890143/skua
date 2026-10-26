@@ -74,8 +74,8 @@ type Balance struct {
 	// Surety is the buff for each guest a member's own invite brought in
 	// who counts now, up to SuretyMax. A guest is new to the server and to
 	// /pp, and their account was GuestAge old when they joined. They count
-	// once they've stayed GuestStay days and done anything at all, while
-	// they stay and were last seen within GuestSeen days.
+	// once they've stayed GuestStay days and earned, while they stay and
+	// last earned within GuestSeen days.
 	Surety, SuretyMax    int64
 	GuestStay, GuestSeen int64
 	GuestAge             time.Duration

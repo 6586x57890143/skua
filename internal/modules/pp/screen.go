@@ -40,11 +40,11 @@ type Sheet struct {
 	// Vouched is how many guests ever counted for them, Key the icon of
 	// the badge it earns, "" before the first, and Surety whether any
 	// count now, which lights it as a buff.
-	Vouched int
-	Key     string
-	Surety  bool
-	Held         int // quests open
-	RerollReady  bool
+	Vouched     int
+	Key         string
+	Surety      bool
+	Held        int // quests open
+	RerollReady bool
 }
 
 // Buff is one buff as the status screen shows it: its icon and its word.

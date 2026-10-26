@@ -270,9 +270,9 @@ func (m *Module) OnEvent(ev bot.Event) {
 			seen(mem, &e.Member, e.Member.User, e.VoiceState.GuildID)
 		}
 	case *events.GuildMemberJoin:
-		m.aside(func() { m.joined(e.GuildID, e.Member) })
+		m.later(context.Background(), func(ctx context.Context) { m.joined(ctx, e.GuildID, e.Member) })
 	case *events.GuildMemberLeave:
-		m.aside(func() { m.left(e.GuildID, e.User.ID) })
+		m.later(context.Background(), func(ctx context.Context) { m.left(ctx, e.GuildID, e.User.ID) })
 	case *events.PresenceUpdate:
 		_, vanity := m.info(e.GuildID)
 		on := bannerOf(e.Activities, vanity)
@@ -284,16 +284,6 @@ func (m *Module) OnEvent(ev bot.Event) {
 			m.log.Info("pp: banner", "guild", e.GuildID, "user", e.PresenceUser.ID, "on", on)
 		}
 	}
-}
-
-// aside runs work that calls Discord off the event loop, or in place for
-// tests.
-func (m *Module) aside(work func()) {
-	if m.inline {
-		work()
-		return
-	}
-	go work()
 }
 
 // clearVoice drops transient occupancy when Discord can no longer tell us
@@ -310,7 +300,7 @@ func (m *Module) clearVoice(guild snowflake.ID) {
 // the custom statuses Discord sends with the server, and takes a first look
 // at its invites for the gate book.
 func (m *Module) ready(guild snowflake.ID, g discord.GatewayGuild) {
-	m.aside(func() { m.primeInvites(guild) })
+	m.later(context.Background(), func(ctx context.Context) { m.primeInvites(ctx, guild) })
 	bots := map[snowflake.ID]bool{}
 	for _, mem := range g.Members {
 		bots[mem.User.ID] = mem.User.Bot

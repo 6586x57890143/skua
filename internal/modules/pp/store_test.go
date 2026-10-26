@@ -116,13 +116,14 @@ func TestGuestsRoundTrip(t *testing.T) {
 	db := testDB(t)
 	m := testModule(db)
 	g := snowflake.New(time.Now()) + snowflake.ID(time.Now().UnixNano()%4096)
-	m.saveGuest(g, old(1), &guest{by: old(2), day: 5})
-	m.saveGuest(g, old(1), &guest{by: old(2), day: 5, gone: 9})
+	ctx := context.Background()
+	m.saveGuest(ctx, g, old(1), guest{by: old(2), day: 5, seen: 6})
+	m.saveGuest(ctx, g, old(1), guest{by: old(2), day: 5, gone: 9})
 	back := newState(&Default, 42)
 	if err := back.load(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	if got := back.server(g).guests[old(1)]; got == nil || *got != (guest{by: old(2), day: 5, gone: 9}) {
+	if got := back.server(g).guests[old(1)]; got == nil || *got != (guest{by: old(2), day: 5, gone: 9, seen: 6}) {
 		t.Errorf("came back as %+v", got)
 	}
 }

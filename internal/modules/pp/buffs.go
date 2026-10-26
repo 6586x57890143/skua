@@ -36,7 +36,7 @@ func (st *state) buffList(s *server, mem *member, vanity string, ever int64) []B
 	}
 	if n := mem.wear.Guests; n > 0 {
 		surety.Effect, surety.On = fmt.Sprintf("+%d%%", min(n*b.Surety, b.SuretyMax)), true
-		surety.How = fmt.Sprintf("%d of your guests count, up to %d", n, b.SuretyMax/b.Surety)
+		surety.How = fmt.Sprintf("%d of your guests count, up to %d", n, b.SuretyMax/max(b.Surety, 1))
 	}
 	return []BuffInfo{
 		{Icon: "crest", Name: "crest", Effect: fmt.Sprintf("+%d%%", b.Crest), How: "wear this server's tag as yours", On: mem.wear.Crest},

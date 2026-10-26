@@ -1,6 +1,7 @@
 package pp
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -126,7 +127,7 @@ func TestSuretyLifecycle(t *testing.T) {
 	m.st.chat(s, guild, fresh, "back again", quiet)
 	s.mu.Unlock()
 	m.now = func() time.Time { return quiet }
-	m.left(guild, fresh)
+	m.left(context.Background(), guild, fresh)
 	s.mu.Lock()
 	m.st.sureties(s, DayOf(quiet))
 	if s.members[host].wear.Guests != 0 || s.guests[fresh].gone == 0 {
@@ -172,9 +173,16 @@ func TestGateRow(t *testing.T) {
 	if got := row(); !strings.Contains(got, "manage server") || s.guests[old(7)].by != 0 {
 		t.Errorf("refused: %q", got)
 	}
-	m.rest = &inviteRest{}
+	// The next join within the hour doesn't ask again; one after it does.
+	r := &inviteRest{invs: []discord.ExtendedInvite{inv("aa", old(1), 1, 0)}}
+	m.rest = r
 	m.OnEvent(joinEvent(old(8), t0))
-	if got := row(); got != "2 joined · 0 vouched for · 0 counting" {
+	if got := row(); !strings.Contains(got, "manage server") {
+		t.Errorf("asked again within the hour: %q", got)
+	}
+	m.now = func() time.Time { return t0.Add(lookAgain) }
+	m.OnEvent(joinEvent(old(9), t0))
+	if got := row(); got != "3 in the book · 0 vouched for · 0 counting" {
 		t.Errorf("after: %q", got)
 	}
 }
@@ -187,5 +195,44 @@ func TestSuretyCard(t *testing.T) {
 	b := st.buffList(s, mem, "", 3)[3]
 	if !b.On || b.Icon != "key_gold" || b.Effect != "+10%" || !strings.HasPrefix(b.How, "9 of your guests count") {
 		t.Errorf("surety: %+v", b)
+	}
+}
+
+// A leave handled before its join closes the book on them, and a bird
+// Discord says was here before is nobody's guest.
+func TestLeaveFirstAndRejoin(t *testing.T) {
+	m := testModule(&fakeDB{})
+	host := old(1)
+	r := &inviteRest{invs: []discord.ExtendedInvite{inv("aa", host, 0, 0)}}
+	m.rest = r
+	m.ready(guild, discord.GatewayGuild{})
+	s := m.st.server(guild)
+	m.OnEvent(&events.GuildMemberLeave{GuildID: guild, User: discord.User{ID: old(2)}})
+	r.invs[0].Uses = 1
+	m.OnEvent(joinEvent(old(2), t0))
+	if g := s.guests[old(2)]; g.by != 0 || g.gone == 0 {
+		t.Errorf("a leave before its join: %+v", g)
+	}
+	r.invs[0].Uses = 2
+	back := joinEvent(old(3), t0)
+	back.Member.Flags = discord.MemberFlagDidRejoin
+	m.OnEvent(back)
+	if g := s.guests[old(3)]; g.by != 0 {
+		t.Errorf("a rejoin was vouched for: %+v", g)
+	}
+	// Flushed, a guest's seen day goes with the members.
+	s.mu.Lock()
+	r.invs[0].Uses = 3
+	s.mu.Unlock()
+	m.OnEvent(joinEvent(old(4), t0))
+	s.mu.Lock()
+	m.st.chat(s, guild, old(4), "hello all", t0)
+	s.mu.Unlock()
+	db := &fakeDB{}
+	if _, err := m.st.flush(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(db.execs, "\n"), "pp_guest") || len(s.seenGuests) != 0 {
+		t.Errorf("the seen day wasn't flushed: %q", db.execs)
 	}
 }
