@@ -11,6 +11,13 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.10.9",
+	Date:    "2026-10-26",
+	Balance: "5d1953",
+	Lines: []string{
+		"a chirograph pays 82 pp each, up from 63. a round robin pays 94 with three, up from 88, and 107 with four, down from 120, so a pair is nearly worth a full ring",
+	},
+}, {
 	Version: "0.10.8",
 	Date:    "2026-10-26",
 	Balance: "8257eb",

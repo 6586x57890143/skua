@@ -114,7 +114,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.10.8",
+	Version: "0.10.9",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -181,7 +181,7 @@ var Default = Balance{
 
 	PactGoal: 30,
 	PactLife: 2,
-	Joinder:  [3]int64{10, 14, 19},
+	Joinder:  [3]int64{13, 15, 17},
 
 	ClassGrace: 2,
 	ClassWait:  7,
