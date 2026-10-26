@@ -83,18 +83,33 @@ func TestBalanceWaitsForTheTurn(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
 	today := DayOf(t0)
-	before := Default
-	before.Pool, before.Version = 1, "before"
-	if err := saveBalance(ctx, db, today, &before); err != nil {
+	// Another version saved for today is never run: its numbers may be in
+	// units this build reads otherwise. Today runs this build's.
+	stale := Default
+	stale.Joinder, stale.Version = [3]int64{6000, 9000, 12000}, "0.10.6"
+	if err := saveBalance(ctx, db, today, &stale); err != nil {
 		t.Fatal(err)
 	}
 	m := testModule(db)
 	if err := m.st.loadBalance(ctx, db, &Default, today); err != nil {
 		t.Fatal(err)
 	}
-	if b := m.st.bal(); b.Pool != 1 || b.Version != "before" || len(b.QuestKinds) != len(Default.QuestKinds) {
-		t.Fatalf("a mid-day boot runs %s with pool %d; want the saved balance", b.Version, b.Pool)
+	if b := m.st.bal(); b != &Default {
+		t.Fatalf("a mid-day boot ran the saved %s, joinder %v", b.Version, b.Joinder)
 	}
+	// The same version saved for today is kept: a restart mid-day carries on.
+	before := Default
+	before.Pool = 1
+	if err := saveBalance(ctx, db, today, &before); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.st.loadBalance(ctx, db, &Default, today); err != nil {
+		t.Fatal(err)
+	}
+	if b := m.st.bal(); b.Pool != 1 || len(b.QuestKinds) != len(Default.QuestKinds) {
+		t.Fatalf("a mid-day boot runs pool %d; want the saved balance", b.Pool)
+	}
+	before.Version = "before"
 
 	last := today
 	m.now = func() time.Time { return t0.Add(24 * time.Hour) }

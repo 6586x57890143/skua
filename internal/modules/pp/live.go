@@ -200,7 +200,8 @@ type state struct {
 }
 
 // era is the balance the day runs under and its pot day under the charter,
-// worked out once. A deploy's new balance waits for the next day to turn.
+// worked out once. A deploy's new balance waits for the next day to turn,
+// unless its version differs from the one saved for today (loadBalance).
 type era struct {
 	b      *Balance
 	potDay int64
