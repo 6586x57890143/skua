@@ -91,8 +91,12 @@ func TestPanes(t *testing.T) {
 		{Icon: "crest", Name: "crest", Effect: "+10%", How: "wear this server's tag as yours", On: true},
 		{Icon: "banner", Name: "banner", Effect: "+10%", How: "put .gg/melted in your custom status"},
 		{Icon: "plume", Name: "plume", Effect: "+5%", How: "boost the server; it lasts while you boost", On: true, Left: 50 * time.Hour},
+		{Icon: "key_gold", Name: "surety", Effect: "+6%", How: "3 of your guests count, up to 5", On: true},
 		{Icon: "hearth", Name: "hearth", Effect: "+5 to 15%", How: "lit for all when the server beats its usual day", Off: "unlit"},
 	}))
+	save("status_key.jpg", statusCanvas(Sheet{Name: "heavywinds", Class: ClassOf("knight"), Level: 12, Into: 300 * unit, Need: 900 * unit,
+		Purse: 4200 * unit, Vigor: 60, Phase: "fresh", Buffs: []Buff{{"crest", "crest"}, {"hearth", "hearth ii"}},
+		Season: 1, Week: 2, Place: 3, Laurels: 2, Held: 2, Vouched: 4, Key: "key_gold", Surety: true}))
 
 	save("journal.jpg", journalCanvas("heavywinds", []JournalRow{
 		{"2026-10-16", "pot", "a day's earning", 612 * unit}, {"2026-10-16", "compass", "great quest", 392 * unit},

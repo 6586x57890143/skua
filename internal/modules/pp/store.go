@@ -99,6 +99,9 @@ func (st *state) load(ctx context.Context, db DB) error {
 	if _, err := db.Exec(ctx, `update pp_grant set state = 'waiting', second_id = 0 where state = 'paying'`); err != nil {
 		return err
 	}
+	if err := st.loadGuests(ctx, db); err != nil {
+		return err
+	}
 	return st.loadSeeds(ctx, db)
 }
 
@@ -182,6 +185,8 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 	var ledger ledgerRows
 	took := map[*server][]entry{}
 	var stats statRows
+	var guests guestRows
+	tookGuests := map[*server][]snowflake.ID{}
 	tookStats := map[*server]map[statKey]int64{}
 	var guilds, days, raws, lits, before []int64
 	var treasuries, open, full, funds, smint, sburn, slast []int64
@@ -218,6 +223,12 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 				marked = append(marked, mark{m: m})
 			}
 		}
+		for _, u := range s.seenGuests {
+			guests.add(g, u, s.guests[u])
+		}
+		if len(s.seenGuests) > 0 {
+			tookGuests[s], s.seenGuests = s.seenGuests, nil
+		}
 		if s.dirty {
 			guilds = append(guilds, int64(g))
 			days = append(days, s.day)
@@ -253,6 +264,11 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			s.paid = append(ids, s.paid...)
 			s.mu.Unlock()
 		}
+		for s, ids := range tookGuests {
+			s.mu.Lock()
+			s.seenGuests = append(ids, s.seenGuests...)
+			s.mu.Unlock()
+		}
 		// Counters taken go back onto whatever's counted since.
 		for s, kept := range tookStats {
 			s.mu.Lock()
@@ -265,13 +281,16 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			s.mu.Unlock()
 		}
 	}
-	if len(rows.user) == 0 && len(ledger.seq) == 0 && len(guilds) == 0 && len(paid) == 0 && len(stats.n) == 0 {
+	if len(rows.user) == 0 && len(ledger.seq) == 0 && len(guilds) == 0 && len(paid) == 0 && len(stats.n) == 0 && len(guests.user) == 0 {
 		return 0, nil
 	}
 	if err := pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
 		if err := writeFlush(ctx, tx, &rows, &ledger, paid, guilds, func(i int) []any {
 			return []any{guilds[i], days[i], raws[i], histories[i], lits[i], before[i], treasuries[i], open[i], full[i], levyDays[i], funds[i], seeded[i], smint[i], sburn[i], slast[i], heavy[i]}
 		}); err != nil {
+			return err
+		}
+		if err := guests.write(ctx, tx); err != nil {
 			return err
 		}
 		return writeStats(ctx, tx, &stats)

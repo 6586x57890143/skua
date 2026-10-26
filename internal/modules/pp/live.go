@@ -165,10 +165,22 @@ type server struct {
 	// slots is how many names the heralds' roll holds before a livery of
 	// one's own is at its dearest, 0 for rollSlots.
 	slots int64
+	// guests is the gate book, by bird, vouchers each surety's guests, and
+	// seenGuests the guests whose seen day moved since the last flush.
+	// invites is the server's invites as the last look saw them, nil
+	// before the first, and invitesErr whether the look at invitesAt was
+	// refused. inviting keeps looks one at a time.
+	guests     map[snowflake.ID]*guest
+	vouchers   map[snowflake.ID][]snowflake.ID
+	seenGuests []snowflake.ID
+	invites    map[string]invite
+	invitesErr bool
+	invitesAt  time.Time
+	inviting   sync.Mutex
 }
 
 func newServer(id snowflake.ID) *server {
-	return &server{id: id, members: map[snowflake.ID]*member{}, seats: map[snowflake.ID]*seat{}, banners: map[snowflake.ID]bool{}, sinkLast: -1}
+	return &server{id: id, members: map[snowflake.ID]*member{}, seats: map[snowflake.ID]*seat{}, banners: map[snowflake.ID]bool{}, guests: map[snowflake.ID]*guest{}, vouchers: map[snowflake.ID][]snowflake.ID{}, sinkLast: -1}
 }
 
 // weekOf is the week day falls in, counted from a Monday (1970-01-05 is
@@ -245,6 +257,7 @@ func (st *state) member(s *server, guild, user snowflake.ID, today int64) *membe
 		m = &member{class: Classes[0].Key, classSeason: -1, dayN: today}
 		m.wear.Banner = s.banners[user]
 		delete(s.banners, user)
+		m.wear.Guests, _ = st.vouched(s, user, today)
 		s.members[user] = m
 	}
 	st.roll(s, m, guild, user, today)
@@ -315,6 +328,7 @@ func (st *state) rollServer(s *server, today int64) {
 		s.litBefore = s.lit
 	}
 	st.lapse(s, today)
+	st.sureties(s, today)
 	s.day, s.raw, s.lit, s.dirty = today, 0, 0, true
 }
 
@@ -364,6 +378,7 @@ func (st *state) earn(s *server, m *member, guild, user snowflake.ID, chat bool,
 	m.purse += credit
 	m.seasonPP += got
 	s.seasonMint += got
+	st.earned(s, user, m.dayN)
 	for i, a := range m.day.Activity() {
 		m.weekAct[i] += a - act[i]
 	}

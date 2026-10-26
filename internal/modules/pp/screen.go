@@ -37,8 +37,14 @@ type Sheet struct {
 	Season, Week int64
 	Place        int // on the board the season box names, 0 for none yet
 	Laurels      int // checkpoints placed at this season
-	Held         int // quests open
-	RerollReady  bool
+	// Vouched is how many guests ever counted for them, Key the icon of
+	// the badge it earns, "" before the first, and Surety whether any
+	// count now, which lights it as a buff.
+	Vouched     int
+	Key         string
+	Surety      bool
+	Held        int // quests open
+	RerollReady bool
 }
 
 // Buff is one buff as the status screen shows it: its icon and its word.
@@ -190,6 +196,17 @@ func statusCanvas(s Sheet) *pixel.Canvas {
 	buffs := image.Rect(4, 152, 236, 212)
 	c.Window(buffs)
 	c.Tab(buffs, "buffs")
+	// The surety's key and how many guests ever counted, at the tab's
+	// end: gold while some count now, its buff worn.
+	if s.Key != "" {
+		n, ink := fmt.Sprintf("x%d", s.Vouched), pixel.Dim
+		if s.Surety {
+			ink = pixel.Gold
+		}
+		end := buffs.Max.X - 12
+		right(c, end, buffs.Min.Y+3, n, ink)
+		c.Icon(s.Key, image.Pt(end-pixel.Regular.Width(n)-pixel.IconCells-2, buffs.Min.Y+3-iconLift))
+	}
 	drawBuffs(c, s.Buffs, image.Rect(16, buffs.Min.Y+pixel.TabDrop, buffs.Max.X-12, buffs.Max.Y-4))
 
 	// The tab names the season and week, or the preseason; under it,

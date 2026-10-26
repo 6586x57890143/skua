@@ -71,6 +71,14 @@ type Balance struct {
 	// Buffs, in percent on everything but quests: the server tag worn,
 	// .gg/melted in the status, and boosting the server.
 	Crest, Banner, Plume int64
+	// Surety is the buff for each guest a member's own invite brought in
+	// who counts now, up to SuretyMax. A guest is new to the server and to
+	// /pp, and their account was GuestAge old when they joined. They count
+	// once they've stayed GuestStay days and earned, while they stay and
+	// last earned within GuestSeen days.
+	Surety, SuretyMax    int64
+	GuestStay, GuestSeen int64
+	GuestAge             time.Duration
 	// Hearth tiers, reached at HearthAt percent of the server's usual day
 	// (HearthFloor until it has one).
 	Hearth, HearthAt [3]int64
@@ -118,7 +126,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.11.0",
+	Version: "0.12.0",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -149,6 +157,11 @@ var Default = Balance{
 	Crest:       10,
 	Banner:      10,
 	Plume:       5,
+	Surety:      2,
+	SuretyMax:   10,
+	GuestStay:   7,
+	GuestSeen:   14,
+	GuestAge:    30 * 24 * time.Hour,
 	Hearth:      [3]int64{5, 10, 15},
 	HearthAt:    [3]int64{100, 115, 130},
 	HearthFloor: 3000 * unit,

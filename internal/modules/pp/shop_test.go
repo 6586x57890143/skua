@@ -200,8 +200,8 @@ func TestBuffsCard(t *testing.T) {
 	mem := m.st.member(s, guild, old(1), DayOf(t0))
 	mem.wear.Crest = true
 	s.lit = 2
-	buffs := m.st.buffList(s, mem, "Melted")
-	if len(buffs) != 4 || !buffs[0].On || buffs[1].On || buffs[1].How != "put .gg/melted in your custom status" || buffs[3].Name != "hearth ii" || !buffs[3].On || !strings.Contains(buffs[3].How, "of its day, rises at") {
+	buffs := m.st.buffList(s, mem, "Melted", 0)
+	if len(buffs) != 5 || !buffs[0].On || buffs[1].On || buffs[1].How != "put .gg/melted in your custom status" || buffs[3].Name != "surety" || buffs[3].On || buffs[4].Name != "hearth ii" || !buffs[4].On || !strings.Contains(buffs[4].How, "of its day, rises at") {
 		t.Errorf("buffs: %+v", buffs)
 	}
 	// A fire left from yesterday, nothing earned yet today: the next
