@@ -452,12 +452,12 @@ var hashSeed = maphash.MakeSeed()
 // once per cooldown, neither when it is too short or the last one again.
 // It returns what it paid. s.mu held.
 func (st *state) chat(s *server, guild, user snowflake.ID, content string, now time.Time) int64 {
-	return st.talk(s, guild, user, content, now, false)
+	return st.talk(s, guild, user, content, now, 0)
 }
 
-// talk is chat for a message that may be a reply to another bird, which
-// counts toward reply quests when it pays. s.mu held.
-func (st *state) talk(s *server, guild, user snowflake.ID, content string, now time.Time, reply bool) int64 {
+// talk is chat for a message that may answer to, another bird, which
+// counts toward reply quests and a written pact when it pays. s.mu held.
+func (st *state) talk(s *server, guild, user snowflake.ID, content string, now time.Time, to snowflake.ID) int64 {
 	m := st.member(s, guild, user, DayOf(now))
 	runes, repeat := -1, false
 	if content != "" {
@@ -477,8 +477,9 @@ func (st *state) talk(s *server, guild, user snowflake.ID, content string, now t
 	m.lastPay = now
 	r := Roll(st.seedOf(m.dayN), uint64(guild), uint64(user), m.dayN, uint64(m.day.Paid))
 	got := st.earn(s, m, guild, user, true, st.bal().ChatRaw(r))
-	if reply {
+	if to != 0 {
 		st.progress(s, m, user, taskReply)
+		st.wrote(s, user, to, m.dayN)
 	}
 	return got
 }

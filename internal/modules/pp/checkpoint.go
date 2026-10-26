@@ -156,7 +156,7 @@ func (m *Module) postJoinders() {
 		}
 		var later []joinderNews
 		for _, n := range news {
-			again, err := m.sendCard(g, n.channel, brand.ColorNotice, pactName(n.ring), joinderText(n))
+			again, err := m.sendCard(g, n.channel, brand.ColorNotice, pactName(n.ring, n.written), joinderText(n))
 			if err != nil {
 				m.log.Warn("pp: telling a finished notice", "guild", g, "channel", n.channel, "err", err, "again", again)
 			}

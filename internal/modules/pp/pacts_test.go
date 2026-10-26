@@ -41,11 +41,11 @@ func TestChirograph(t *testing.T) {
 	s := st.server(guild)
 	today := DayOf(t0)
 	a, b, c := old(1), old(2), old(3)
-	p, err := st.post(s, guild, a, false, today)
+	p, err := st.post(s, guild, a, false, false, today)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.post(s, guild, a, true, today); !errors.Is(err, errPactHeld) {
+	if _, err := st.post(s, guild, a, true, false, today); !errors.Is(err, errPactHeld) {
 		t.Errorf("a second notice: %v", err)
 	}
 	if _, err := st.sign(s, guild, pactKey{opener: a, day: today}, a, today); !errors.Is(err, errPactYours) {
@@ -77,7 +77,7 @@ func TestChirograph(t *testing.T) {
 	if last.reason != reasonJoinder || last.inputs[0] != 2 || last.inputs[1] != Default.JoinderPay(2) || ma.purse <= before {
 		t.Errorf("the joinder: %+v", last)
 	}
-	if _, err := st.post(s, guild, a, false, today); !errors.Is(err, errPactPaid) {
+	if _, err := st.post(s, guild, a, false, false, today); !errors.Is(err, errPactPaid) {
 		t.Errorf("a second joinder the same day: %v", err)
 	}
 }
@@ -90,7 +90,7 @@ func TestRoundRobin(t *testing.T) {
 	s := st.server(guild)
 	today := DayOf(t0)
 	a, b, c, d, e := old(1), old(2), old(3), old(4), old(5)
-	p, _ := st.post(s, guild, a, true, today)
+	p, _ := st.post(s, guild, a, true, false, today)
 	for _, u := range []snowflake.ID{b, c} {
 		if _, err := st.sign(s, guild, pactKey{opener: a, day: today}, u, today); err != nil {
 			t.Fatal(err)
@@ -137,7 +137,7 @@ func TestFullRing(t *testing.T) {
 	s := st.server(guild)
 	today := DayOf(t0)
 	us := []snowflake.ID{old(1), old(2), old(3), old(4), old(5)}
-	if _, err := st.post(s, guild, us[0], true, today); err != nil {
+	if _, err := st.post(s, guild, us[0], true, false, today); err != nil {
 		t.Fatal(err)
 	}
 	for _, u := range us[1:4] {
@@ -157,7 +157,7 @@ func TestFullRing(t *testing.T) {
 
 	// The next day a fourth who sits out is signed but unpaid.
 	next := t0.Add(24 * time.Hour)
-	if _, err := st.post(s, guild, us[0], true, DayOf(next)); err != nil {
+	if _, err := st.post(s, guild, us[0], true, false, DayOf(next)); err != nil {
 		t.Fatal(err)
 	}
 	for _, u := range us[1:4] {
@@ -177,7 +177,7 @@ func TestPactLapses(t *testing.T) {
 	s := st.server(guild)
 	a := old(1)
 	st.rollServer(s, DayOf(t0))
-	if _, err := st.post(s, guild, a, false, DayOf(t0)); err != nil {
+	if _, err := st.post(s, guild, a, false, false, DayOf(t0)); err != nil {
 		t.Fatal(err)
 	}
 	st.rollServer(s, DayOf(t0)+Default.PactLife-1)
@@ -225,6 +225,9 @@ func TestNoticeButtons(t *testing.T) {
 	m.st.member(s, 3, 5, DayOf(t0)).classSeason = 0
 	press := func(id string, user string) (*[]discord.MessageCreate, string, error) {
 		e, sent := coretest.Button(t, id, func(p map[string]any) {
+			if v, ok := strings.CutPrefix(id, "pp:post="); ok {
+				p["data"] = map[string]any{"custom_id": "pp:post", "component_type": 3, "values": []any{v}}
+			}
 			if user != "" {
 				p["member"].(map[string]any)["user"].(map[string]any)["id"] = user
 			}
@@ -243,10 +246,10 @@ func TestNoticeButtons(t *testing.T) {
 		t.Fatalf("the quests card: %v", err)
 	}
 	sent, _, err := press("pp:notices", "")
-	if err != nil || !strings.Contains(js((*sent)[0]), "pp:pact:4") || !strings.Contains(js((*sent)[0]), "nothing on the board") {
+	if err != nil || !strings.Contains(js((*sent)[0]), "pp:post") || !strings.Contains(js((*sent)[0]), "nothing on the board") {
 		t.Fatalf("the notices with nothing up: %v", err)
 	}
-	sent, _, err = press("pp:pact:4", "")
+	sent, _, err = press("pp:post=4", "")
 	if err != nil || (*sent)[0].Flags.Has(discord.MessageFlagEphemeral) || !strings.Contains(js((*sent)[0]), s.members[5].pact.key()) || len((*sent)[0].Files) != 1 {
 		t.Fatalf("the posted round robin: %v", err)
 	}
@@ -298,7 +301,7 @@ func TestLateSignerPaidToday(t *testing.T) {
 	s := st.server(guild)
 	start := dayStart(DayOf(t0) + 1).Add(-20 * time.Minute)
 	a, b, c, d := old(1), old(2), old(3), old(4)
-	if _, err := st.post(s, guild, a, true, DayOf(start)); err != nil {
+	if _, err := st.post(s, guild, a, true, false, DayOf(start)); err != nil {
 		t.Fatal(err)
 	}
 	for _, u := range []snowflake.ID{b, c, d} {
@@ -312,7 +315,7 @@ func TestLateSignerPaidToday(t *testing.T) {
 	if md := s.members[d]; md.signs.paidDay != today || md.dayN != today {
 		t.Fatalf("the one who left: paid day %d in day %d, want %d", md.signs.paidDay, md.dayN, today)
 	}
-	if _, err := st.post(s, guild, d, false, today); !errors.Is(err, errPactPaid) {
+	if _, err := st.post(s, guild, d, false, false, today); !errors.Is(err, errPactPaid) {
 		t.Errorf("a second joinder the same day: %v", err)
 	}
 }
@@ -336,14 +339,14 @@ func TestOnePostADay(t *testing.T) {
 	s := m.st.server(3)
 	today := DayOf(t0)
 	s.mu.Lock()
-	if _, err := m.st.post(s, 3, 5, false, today); err != nil {
+	if _, err := m.st.post(s, 3, 5, false, false, today); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.st.sign(s, 3, pactKey{opener: 5, day: today}, old(6), today); err != nil {
 		t.Fatal(err)
 	}
 	s.members[5].pact, s.members[old(6)].pact = nil, nil
-	if _, err := m.st.post(s, 3, 5, true, today); !errors.Is(err, errPactPosted) {
+	if _, err := m.st.post(s, 3, 5, true, false, today); !errors.Is(err, errPactPosted) {
 		t.Errorf("a second post the same day: %v", err)
 	}
 	s.mu.Unlock()
@@ -351,7 +354,7 @@ func TestOnePostADay(t *testing.T) {
 	next := today + 1
 	m.now = func() time.Time { return dayStart(next).Add(time.Hour) }
 	s.mu.Lock()
-	if _, err := m.st.post(s, 3, 5, false, next); err != nil {
+	if _, err := m.st.post(s, 3, 5, false, false, next); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.st.sign(s, 3, pactKey{opener: 5, day: next}, old(6), next); err != nil {
@@ -383,7 +386,7 @@ func TestJoinderNews(t *testing.T) {
 	today := DayOf(t0)
 	a, b := old(1), old(2)
 	s.mu.Lock()
-	p, err := m.st.post(s, guild, a, false, today)
+	p, err := m.st.post(s, guild, a, false, false, today)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +461,7 @@ func TestWithdraw(t *testing.T) {
 	if err := st.withdraw(s, a, DayOf(t0)); !errors.Is(err, errPactNone) {
 		t.Errorf("withdrawing nothing: %v", err)
 	}
-	p, err := st.post(s, guild, a, true, today)
+	p, err := st.post(s, guild, a, true, false, today)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +485,7 @@ func TestWithdraw(t *testing.T) {
 	// without paying them; then one more leaves and it ends.
 	next := today + 1
 	at := dayStart(next).Add(time.Hour)
-	p, _ = st.post(s, guild, b, true, next)
+	p, _ = st.post(s, guild, b, true, false, next)
 	for _, u := range []snowflake.ID{a, c, d} {
 		if _, err := st.sign(s, guild, pactKey{opener: b, day: next}, u, next); err != nil {
 			t.Fatal(err)
@@ -496,7 +499,7 @@ func TestWithdraw(t *testing.T) {
 	if s.members[d].signs.signatures != 0 || s.members[a].signs.signatures != 1 {
 		t.Errorf("one who left was paid, or the rest weren't: %+v %+v", s.members[d].signs, s.members[a].signs)
 	}
-	if _, err := st.post(s, guild, d, false, next); err != nil {
+	if _, err := st.post(s, guild, d, false, false, next); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.sign(s, guild, pactKey{opener: d, day: next}, old(5), next); err != nil {
@@ -514,7 +517,7 @@ func TestWithdrawButton(t *testing.T) {
 	m := testModule(&fakeDB{})
 	s := m.st.server(3)
 	s.mu.Lock()
-	if _, err := m.st.post(s, 3, 5, true, DayOf(t0)); err != nil {
+	if _, err := m.st.post(s, 3, 5, true, false, DayOf(t0)); err != nil {
 		t.Fatal(err)
 	}
 	s.mu.Unlock()
@@ -544,7 +547,7 @@ func TestStartAndFreeWithdraws(t *testing.T) {
 	s := st.server(guild)
 	today := DayOf(t0)
 	us := []snowflake.ID{old(1), old(2), old(3), old(4)}
-	p, _ := st.post(s, guild, us[0], true, today)
+	p, _ := st.post(s, guild, us[0], true, false, today)
 	for _, u := range us[1:] {
 		if _, err := st.sign(s, guild, pactKey{opener: us[0], day: today}, u, today); err != nil {
 			t.Fatal(err)
@@ -553,7 +556,7 @@ func TestStartAndFreeWithdraws(t *testing.T) {
 	if !p.started {
 		t.Error("a full ring didn't start")
 	}
-	c, _ := st.post(s, guild, old(5), false, today)
+	c, _ := st.post(s, guild, old(5), false, false, today)
 	if _, err := st.sign(s, guild, pactKey{opener: old(5), day: today}, old(6), today); err != nil || !c.started {
 		t.Errorf("a chirograph with two didn't start: %v", err)
 	}
@@ -561,7 +564,7 @@ func TestStartAndFreeWithdraws(t *testing.T) {
 	// post comes back each time. The third time it stays spent.
 	b := old(7)
 	for i := range 3 {
-		if _, err := st.post(s, guild, b, false, today); err != nil {
+		if _, err := st.post(s, guild, b, false, false, today); err != nil {
 			t.Fatalf("post %d: %v", i+1, err)
 		}
 		if i == 1 {
@@ -585,7 +588,7 @@ func TestStartButton(t *testing.T) {
 	s := m.st.server(3)
 	today := DayOf(t0)
 	s.mu.Lock()
-	if _, err := m.st.post(s, 3, 5, true, today); err != nil {
+	if _, err := m.st.post(s, 3, 5, true, false, today); err != nil {
 		t.Fatal(err)
 	}
 	for _, u := range []snowflake.ID{old(2), old(3)} {
@@ -617,12 +620,12 @@ func TestKeysApart(t *testing.T) {
 	s := st.server(guild)
 	today := DayOf(t0)
 	a := old(1)
-	first, _ := st.post(s, guild, a, false, today)
+	first, _ := st.post(s, guild, a, false, false, today)
 	old := first.key()
 	if err := st.withdraw(s, a, today); err != nil {
 		t.Fatal(err)
 	}
-	second, err := st.post(s, guild, a, true, today)
+	second, err := st.post(s, guild, a, true, false, today)
 	if err != nil {
 		t.Fatalf("posting again after taking one down: %v", err)
 	}
@@ -646,7 +649,7 @@ func TestReviewEdges(t *testing.T) {
 	s := st.server(guild)
 	today := DayOf(t0)
 	us := []snowflake.ID{old(1), old(2), old(3), old(4)}
-	p, _ := st.post(s, guild, us[0], true, today)
+	p, _ := st.post(s, guild, us[0], true, false, today)
 	for _, u := range us[1:] {
 		if _, err := st.sign(s, guild, pactKey{opener: us[0], day: today}, u, today); err != nil {
 			t.Fatal(err)
@@ -660,7 +663,7 @@ func TestReviewEdges(t *testing.T) {
 	// Last day: posted PactLife-1 days ago, and the sign comes as the day
 	// turns it over.
 	day := today - Default.PactLife + 1
-	if _, err := st.post(s, guild, old(5), false, day); err != nil {
+	if _, err := st.post(s, guild, old(5), false, false, day); err != nil {
 		t.Fatal(err)
 	}
 	st.rollServer(s, day)
@@ -686,17 +689,104 @@ func TestRegrant(t *testing.T) {
 	today := DayOf(t0)
 	b, held, paid := old(1), old(2), old(3)
 	for _, u := range []snowflake.ID{b, held, paid} {
-		if _, err := st.post(s, guild, u, false, today); err != nil {
+		if _, err := st.post(s, guild, u, false, false, today); err != nil {
 			t.Fatal(err)
 		}
 	}
 	s.members[b].pact = nil
 	s.members[paid].pact, s.members[paid].signs.paidDay = nil, today
 	st.regrant(today)
-	if _, err := st.post(s, guild, b, false, today); err != nil {
+	if _, err := st.post(s, guild, b, false, false, today); err != nil {
 		t.Errorf("the poster didn't get their post back: %v", err)
 	}
 	if s.members[held].signs.postedDay != today || s.members[paid].signs.postedDay != today {
 		t.Error("a held or paid post came back")
+	}
+}
+
+// A correspondence is a chirograph by post: replies between its two
+// signers count as letters, time together in voice doesn't, nor a reply
+// to someone outside it, and at PactLetters each it pays both. A round
+// letter pays only those who wrote half their letters.
+func TestCorrespondence(t *testing.T) {
+	st := newState(&Default, 42)
+	s := st.server(guild)
+	today := DayOf(t0)
+	a, b, c := old(1), old(2), old(3)
+	p, err := st.post(s, guild, a, false, true, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.channel = 77
+	if _, err := st.sign(s, guild, pactKey{opener: a, day: today}, b, today); err != nil {
+		t.Fatal(err)
+	}
+	at := together(st, s, t0, int(Default.PactGoal), a, b)
+	if p.minutes != 0 {
+		t.Fatalf("voice counted on a correspondence: %d", p.minutes)
+	}
+	n := 0
+	write := func(from, to snowflake.ID) {
+		n++
+		at = at.Add(Default.ChatCooldown + time.Second)
+		st.talk(s, guild, from, "a letter that says something "+strconv.Itoa(n), at, to)
+	}
+	write(a, c)
+	write(a, 0)
+	if p.minutes != 0 {
+		t.Fatalf("a letter to an outsider counted: %d", p.minutes)
+	}
+	goal := p.goal(&Default)
+	for i := 0; p.minutes < goal-1; i++ {
+		if i%2 == 0 {
+			write(a, b)
+		} else {
+			write(b, a)
+		}
+	}
+	if s.members[a].pact == nil {
+		t.Fatal("finished early")
+	}
+	before := s.members[b].purse
+	write(b, a)
+	if s.members[a].pact != nil || s.members[b].pact != nil {
+		t.Fatal("a finished correspondence wasn't let go")
+	}
+	last := s.pending[len(s.pending)-1]
+	if last.reason != reasonJoinder || last.inputs[0] != 2 || s.members[b].purse <= before || s.members[a].signs.chirographs != 1 {
+		t.Errorf("the joinder: %+v", last)
+	}
+	if len(s.joinders) != 1 || !strings.Contains(joinderText(s.joinders[0]), "pigeons") {
+		t.Errorf("the news: %+v", s.joinders)
+	}
+
+	// A round letter of three: one who wrote too little isn't paid.
+	next := today + 1
+	d, e, f := old(4), old(5), old(6)
+	r, _ := st.post(s, guild, d, true, true, next)
+	for _, u := range []snowflake.ID{e, f} {
+		if _, err := st.sign(s, guild, pactKey{opener: d, day: next}, u, next); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.start(s, d); err != nil {
+		t.Fatal(err)
+	}
+	if decoded := decodePact(encodePact(r)); decoded == nil || !decoded.ring || !decoded.written {
+		t.Fatalf("a round letter read back as %+v", decoded)
+	}
+	at = dayStart(next).Add(time.Hour)
+	for range Default.PactLetters/2 - 1 {
+		write(f, d)
+	}
+	for r.minutes < r.goal(&Default) {
+		write(d, e)
+		write(e, d)
+	}
+	if s.members[f].signs.signatures != 0 || s.members[d].signs.signatures != 1 || s.members[e].signs.signatures != 1 {
+		t.Errorf("paid %+v %+v %+v", s.members[d].signs, s.members[e].signs, s.members[f].signs)
+	}
+	if last := s.pending[len(s.pending)-1]; last.inputs[0] != 2 {
+		t.Errorf("paid at the rate for %d", last.inputs[0])
 	}
 }

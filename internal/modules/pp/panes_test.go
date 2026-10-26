@@ -70,7 +70,7 @@ func TestPanes(t *testing.T) {
 	}
 	// The notices: the board with nothing held, a chirograph half signed
 	// and a round robin under way.
-	board := []Posted{{Ring: true, By: "steve", Places: 2}, {By: "tester", Places: 1}, {Ring: true, By: names[3], Places: 1}}
+	board := []Posted{{Ring: true, By: "steve", Places: 2}, {By: "tester", Places: 1}, {Ring: true, Writ: true, By: names[3], Places: 1}, {Writ: true, By: names[4], Places: 1}}
 	save("notices_board.jpg", noticesCanvas("heavywinds", nil, board))
 	save("notices_empty.jpg", noticesCanvas("heavywinds", nil, nil))
 	sig := func(i int, min int64) NoticeSigner {
@@ -78,6 +78,7 @@ func TestPanes(t *testing.T) {
 	}
 	save("notices_pair.jpg", noticesCanvas("heavywinds", &Notice{Signers: []NoticeSigner{sig(0, 0)}, Places: 2, Goal: 30, Pays: "60 pp each"}, board))
 	save("notices_ring.jpg", noticesCanvas("heavywinds", &Notice{Ring: true, Started: true, Signers: []NoticeSigner{sig(1, 17), sig(3, 17), sig(6, 12)}, Places: 4, Together: 17, Goal: 30, Pays: "90 / 120 pp each"}, nil))
+	save("notices_letters.jpg", noticesCanvas("heavywinds", &Notice{Ring: true, Written: true, Started: true, Signers: []NoticeSigner{sig(2, 14), sig(5, 9), sig(7, 4)}, Places: 4, Together: 27, Goal: 45, Pays: "94 / 107 pp each"}, nil))
 	save("notices_waiting.jpg", noticesCanvas("heavywinds", &Notice{Ring: true, Signers: []NoticeSigner{sig(1, 0), sig(3, 0), sig(6, 0)}, Places: 4, Goal: 30, Pays: "90 / 120 pp each"}, nil))
 	var named []BoardRow
 	for n := range int64(10) {

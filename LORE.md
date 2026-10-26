@@ -155,6 +155,32 @@ all:
 - **The knight** writes their name and their rung in order blue, as the
   order requires on every writ, and dates it by the drowned bell.
 
+### Correspondences and round letters
+
+Not every bird can stand at the rim for an evening, and the board has taken
+written work since **the penny post** opened. The post is the pigeons' trade:
+a loft on every gallery, a penny a letter whatever the height, and a copy of
+every letter kept in the sorting house under the counting house, where the
+ravens can read it. The ravens call the copies the second ledger. The
+pigeons call them the reason the post costs a penny.
+
+A **correspondence** is a chirograph by post. The clerk cuts the sheet the
+same way, but instead of meeting at the rim the two birds write to each
+other, each letter answering the last. When enough letters have gone back
+and forth, the sorting house sends the copies up, and the counting house pays
+the joinder on them as if the two halves had been fitted at the rim.
+
+A **round letter** is a round robin by post. One letter goes round a ring of
+three or four, and each bird adds a page answering the others before passing
+it on, so that nobody's page stands first. The ferrymen invented it for
+crews on different tides. The counting house pays on it when it comes home
+full, and pays only those whose pages are in it.
+
+The clerks count a correspondence as a chirograph and a round letter as a
+round robin. A bird may hold one notice in company at a time, by voice or
+by post, and the pot pays one joinder a day either way. The tally board
+has never fined anyone for a letter. It reads them.
+
 Signing in company teaches a bird things about their own kind that nobody
 says out loud. Each class learns three, one at a time: the first time they
 sign a chirograph, at their tenth signature, and the first time they close a
@@ -345,6 +371,8 @@ more as it fills.
 | quests | notices on the board at the pot's rim |
 | two players on one quest | a chirograph, cut in two through a word and fitted back together |
 | three or four players on one quest | a round robin, signed in a ring |
+| two players on one quest, in text | a correspondence, letters by the penny post |
+| three or four players on one quest, in text | a round letter, passed round a ring with a page from each |
 | classes | who you are in the city, and what you came from |
 | seasons | the city's years, counted in tides |
 | colour roles | liveries, leased from the dyers' yard by the week |

@@ -240,8 +240,11 @@ func (m *Module) OnEvent(ev bot.Event) {
 		// A reply counts toward reply quests when it answers another bird
 		// old enough to be company, never yourself or a bot.
 		r := msg.ReferencedMessage
-		reply := r != nil && !r.Author.Bot && r.Author.ID != msg.Author.ID && m.st.bal().old(r.Author.ID, now)
-		m.st.talk(s, e.GuildID, msg.Author.ID, msg.Content, now, reply)
+		var to snowflake.ID
+		if r != nil && !r.Author.Bot && r.Author.ID != msg.Author.ID && m.st.bal().old(r.Author.ID, now) {
+			to = r.Author.ID
+		}
+		m.st.talk(s, e.GuildID, msg.Author.ID, msg.Content, now, to)
 		m.st.selfie(s, mem, msg, now)
 	case *events.GuildMessageDelete:
 		s := m.st.server(e.GuildID)

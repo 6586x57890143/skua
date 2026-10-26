@@ -17,7 +17,7 @@ func TestStats(t *testing.T) {
 	if err := st.reroll(s, m, guild, a, 0, today); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.post(s, guild, a, true, today); err != nil {
+	if _, err := st.post(s, guild, a, true, false, today); err != nil {
 		t.Fatal(err)
 	}
 	st.lapse(s, today+Default.PactLife)
