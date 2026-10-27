@@ -82,11 +82,12 @@ type Module struct {
 	// Admin is the router's check, for the controls on spam's /help page.
 	Admin func(discord.Interaction) bool
 
-	flood   flood.Detector
-	mu      sync.Mutex // one scope change at a time
-	watches sync.Map   // guild -> *watch
-	trips   sync.Map   // guild -> *atomic.Int64, since boot
-	now     func() time.Time
+	flood    flood.Detector
+	mu       sync.Mutex // one scope change at a time
+	watches  sync.Map   // guild -> *watch
+	trips    sync.Map   // guild -> *atomic.Int64, since boot
+	failures sync.Map   // guild -> *atomic.Int64, containment failures since boot
+	now      func() time.Time
 }
 
 // New loads every guild's scope. history is nil without a database, and
@@ -365,23 +366,36 @@ func (m *Module) act(r rest.Rest, guild snowflake.ID, msg discord.Message, burst
 	}
 	overflow = m.flood.TakeOverflow(guild, user) || overflow
 	fellBehind := overflow || m.flood.Pending(guild, user) || cleared < uniqueMessages(all)
-	if fellBehind {
-		until := m.now().Add(verdict.For)
-		if verdict.For > 0 && m.guard.Allow(guild, guard.SpamTimeout) == nil {
-			timeoutCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			_, err := r.UpdateMember(guild, user, discord.MemberUpdate{
-				CommunicationDisabledUntil: omit.New(&until),
-			}, rest.WithCtx(timeoutCtx), rest.WithReason("spam: cleanup could not keep up"))
-			stop()
-			m.guard.Done(guild, err)
-			if err != nil {
-				m.log.Warn("spam: cleanup fell behind and timeout failed", "guild", guild, "user", user, "for", verdict.For, "err", err)
-			} else {
-				m.log.Info("spam: cleanup fell behind; timed out", "guild", guild, "user", user, "for", verdict.For)
-			}
-		} else if verdict.For > 0 {
-			m.log.Warn("spam: cleanup fell behind and timeout was rate limited", "guild", guild, "user", user, "for", verdict.For)
+	timeoutAttempted, timedOut := false, false
+	applyTimeout := func() {
+		if timeoutAttempted {
+			return
 		}
+		timeoutAttempted = true
+		if verdict.For <= 0 {
+			m.alert(guild, user, "invalid_timeout_duration", nil)
+			return
+		}
+		if m.guard.Allow(guild, guard.SpamTimeout) != nil {
+			m.alert(guild, user, "timeout_rate_limited", nil)
+			return
+		}
+		until := m.now().Add(verdict.For)
+		timeoutCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		_, err := r.UpdateMember(guild, user, discord.MemberUpdate{
+			CommunicationDisabledUntil: omit.New(&until),
+		}, rest.WithCtx(timeoutCtx), rest.WithReason("spam: cleanup could not keep up"))
+		stop()
+		m.guard.Done(guild, err)
+		if err != nil {
+			m.alert(guild, user, "timeout_failed", err)
+			return
+		}
+		timedOut = true
+		m.log.Info("spam: cleanup fell behind; timed out", "guild", guild, "user", user, "for", verdict.For)
+	}
+	if fellBehind {
+		applyTimeout()
 		// A timeout stops the source of new messages. Use a fresh budget to
 		// finish deleting the captured backlog after Discord has applied it.
 		cleanupCtx, stop := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -396,11 +410,24 @@ func (m *Module) act(r rest.Rest, guild snowflake.ID, msg discord.Message, burst
 			}
 		}
 		stop()
-		if m.flood.Pending(guild, user) {
-			m.log.Warn("spam: messages remain queued after cleanup", "guild", guild, "user", user, "cleared", cleared)
+	}
+	// Close queueing and take a final batch under the detector's member lock.
+	// An Observe before this point is in tail; one after it sees cleanup off.
+	tail, finalOverflow := m.flood.FinishCleanup(guild, user, verdict.Said == "" && !timedOut)
+	if len(tail) > 0 || finalOverflow {
+		if !timedOut {
+			applyTimeout()
 		}
 	}
-	m.flood.DiscardPending(guild, user)
+	if len(tail) > 0 {
+		tailCtx, stop := context.WithTimeout(context.Background(), 2*time.Minute)
+		tailCleared := m.clear(tailCtx, r, guild, tail, gone)
+		stop()
+		cleared += tailCleared
+		if tailCleared < uniqueMessages(tail) {
+			m.alert(guild, user, "delete_backlog_remains", fmt.Errorf("cleared %d of %d queued messages", tailCleared, uniqueMessages(tail)))
+		}
+	}
 	m.log.Info("spam: tripped", "guild", guild, "user", user, "cleared", cleared, "priors", verdict.Priors,
 		"for", verdict.For, "by", verdict.By, "err", verdict.Err)
 	if verdict.Said == "" || m.guard.Allow(guild, guard.MessageSend) != nil {
@@ -412,6 +439,13 @@ func (m *Module) act(r rest.Rest, guild snowflake.ID, msg discord.Message, burst
 		Flags:           discord.MessageFlagSuppressEmbeds,
 	}, rest.WithCtx(ctx))
 	m.guard.Done(guild, err)
+}
+
+func (m *Module) alert(guild, user snowflake.ID, stage string, err error) {
+	v, _ := m.failures.LoadOrStore(guild, new(atomic.Int64))
+	failures := v.(*atomic.Int64).Add(1)
+	m.log.Error("spam: containment failure", "alert", "spam_containment_failure", "guild", guild, "user", user,
+		"stage", stage, "failures", failures, "err", err)
 }
 
 func uniqueMessages(seen []flood.Seen) int {
@@ -529,8 +563,13 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 	if v, ok := m.trips.Load(guild); ok {
 		caught = v.(*atomic.Int64).Load()
 	}
+	var failures int64
+	if v, ok := m.failures.Load(guild); ok {
+		failures = v.(*atomic.Int64).Load()
+	}
 	return core.Report{
-		Rows:     [][2]string{{"watching", where}, {"caught", fmt.Sprintf("%d since she woke", caught)}},
+		Rows: [][2]string{{"watching", where}, {"caught", fmt.Sprintf("%d since she woke", caught)},
+			{"containment failures", fmt.Sprintf("%d since she woke", failures)}},
 		Controls: m.controls(guild),
 	}
 }

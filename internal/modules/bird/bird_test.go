@@ -294,6 +294,30 @@ func TestReplaceKeepsTheMessageWhenThePostFails(t *testing.T) {
 	}
 }
 
+func TestReplaceRetriesAfterAPostFailureCooldown(t *testing.T) {
+	clock := time.Now()
+	m, p := pranked(clock)
+	m.now = func() time.Time { return clock }
+	p.err = errors.New("temporary webhook failure")
+	r := &fakeRest{}
+	prank := mustPrank(t, m)
+	msg := message(r, 7, nil).Message
+	m.replace(r, 2, 3, msg, prank)
+	if len(p.sent) != 0 || len(r.deleted) != 0 {
+		t.Fatal("a failed replacement deleted the source or reported a successful post")
+	}
+	m.replace(r, 2, 3, msg, prank)
+	if len(p.sent) != 0 {
+		t.Fatal("retry bypassed the cooldown")
+	}
+	p.err = nil
+	clock = clock.Add(retryBirdAfter)
+	m.replace(r, 2, 3, msg, prank)
+	if len(p.sent) != 1 || len(r.deleted) != 1 {
+		t.Fatalf("after retry, posted %d and deleted %v", len(p.sent), r.deleted)
+	}
+}
+
 func TestOnEventLeavesOthersAlone(t *testing.T) {
 	now := time.Now()
 	m, p := pranked(now)

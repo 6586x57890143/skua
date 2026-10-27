@@ -207,6 +207,33 @@ func TestCleanupQueueLifecycleAndMissingMembers(t *testing.T) {
 	}
 }
 
+func TestFinishCleanupTakesTailAndClosesQueueAtomically(t *testing.T) {
+	d := &Detector{}
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 1, At: t0, Pings: []snowflake.ID{1, 2, 3, 4, 5}})
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 2, At: t0.Add(time.Second)})
+	final, overflow := d.FinishCleanup(3, 7, false)
+	if overflow || len(final) != 2 || final[0].ID != 1 || final[1].ID != 2 {
+		t.Fatalf("final batch %v, overflow %v", final, overflow)
+	}
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 3, At: t0.Add(2 * time.Second)})
+	if d.Pending(3, 7) {
+		t.Fatal("message arrived after the atomic close and reopened cleanup")
+	}
+	if final, overflow = d.FinishCleanup(3, 7, false); len(final) != 0 || overflow {
+		t.Fatalf("closed cleanup returned %v, overflow %v", final, overflow)
+	}
+}
+
+func TestFinishCleanupResumesScoringWhenNoSanctionApplied(t *testing.T) {
+	d := &Detector{}
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 1, At: t0, Pings: []snowflake.ID{1, 2, 3, 4, 5}})
+	d.FinishCleanup(3, 7, true)
+	trip, _ := d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 2, At: t0.Add(time.Second), Pings: []snowflake.ID{1, 2, 3, 4, 5}})
+	if !trip {
+		t.Fatal("scoring stayed quiet after no sanction was applied")
+	}
+}
+
 func TestCleanupQueueOverflowAndRecentHistoryCompaction(t *testing.T) {
 	now := t0.Add(2 * time.Minute)
 	s := &member{}

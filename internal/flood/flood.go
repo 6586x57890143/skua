@@ -285,6 +285,28 @@ func (d *Detector) Pending(guild, user snowflake.ID) bool {
 	return len(s.pending) > 0
 }
 
+// FinishCleanup atomically stops queueing and returns messages not yet
+// drained. Observe either appends before this transition or sees cleanup off.
+func (d *Detector) FinishCleanup(guild, user snowflake.ID, resumeScoring bool) ([]Seen, bool) {
+	v, ok := d.members.Load(who{guild, user})
+	if !ok {
+		return nil, false
+	}
+	s := v.(*member)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.pending
+	overflow := s.overflow
+	s.pending = nil
+	s.cleanup = false
+	s.overflow = false
+	if resumeScoring {
+		s.quiet = time.Time{}
+		s.score = 0
+	}
+	return out, overflow
+}
+
 // DiscardPending releases a trip's cleanup queue when policy lets the member go.
 func (d *Detector) DiscardPending(guild, user snowflake.ID) {
 	v, ok := d.members.Load(who{guild, user})

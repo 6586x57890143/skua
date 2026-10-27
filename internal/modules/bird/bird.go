@@ -46,6 +46,8 @@ import (
 // query is short, top quality bird recordings.
 const query = "grp:birds q:A len:3-15"
 
+const retryBirdAfter = 30 * time.Second
+
 // maxAudio is under Discord's attachment limit with room to spare; a 15s
 // recording is a few hundred KB.
 const maxAudio = 8 << 20
@@ -76,10 +78,11 @@ type prank struct {
 	audio []byte
 	about about
 
-	mu        sync.Mutex
-	until     time.Time // moved only by extend once stored
-	attempted bool
-	posted    bool // only one replacement is posted per prank
+	mu      sync.Mutex
+	until   time.Time // moved only by extend once stored
+	posting bool
+	posted  bool
+	retryAt time.Time
 }
 
 func (p *prank) end() time.Time {
@@ -369,18 +372,21 @@ func (m *Module) OnEvent(ev bot.Event) {
 func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Message, p *prank) {
 	ctx, cancel := context.WithTimeout(context.Background(), replaceBy)
 	defer cancel()
-	// Only the first message needs a webhook replacement. Serialize that
-	// first send so a fast sender cannot create a flock of identical birds.
+	// Only one send may be in flight. Failed sends can retry after a cooldown.
 	p.mu.Lock()
-	if p.attempted {
-		posted := p.posted
+	if p.posted {
 		p.mu.Unlock()
-		if posted {
-			m.deleteOriginal(ctx, r, guild, msg, p.by)
-		}
+		m.deleteOriginal(ctx, r, guild, msg, p.by)
 		return
 	}
-	p.attempted = true
+	now := m.now()
+	if p.posting || now.Before(p.retryAt) {
+		p.mu.Unlock()
+		return
+	}
+	p.posting = true
+	until := p.until
+	p.mu.Unlock()
 	name := msg.Author.EffectiveName()
 	if msg.Member != nil && msg.Member.Nick != nil {
 		name = *msg.Member.Nick
@@ -393,7 +399,7 @@ func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Messa
 		files = append(files, discord.NewFile(p.about.photoName, "", bytes.NewReader(p.about.photo)))
 	}
 	post := discord.WebhookMessageCreate{
-		Content:         marker(msg.Author.Username, p.until.Sub(m.now()), p.rec) + p.about.lines(),
+		Content:         marker(msg.Author.Username, until.Sub(now), p.rec) + p.about.lines(),
 		Username:        m.screen.Check(name).Text,
 		AvatarURL:       msg.Author.EffectiveAvatarURL(),
 		AllowedMentions: core.NoPings(),
@@ -401,7 +407,10 @@ func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Messa
 		Files:           files,
 	}
 	_, err := m.post.Send(ctx, r, guild, msg.ChannelID, app, post)
+	p.mu.Lock()
+	p.posting = false
 	if err != nil {
+		p.retryAt = m.now().Add(retryBirdAfter)
 		p.mu.Unlock()
 		return
 	}
