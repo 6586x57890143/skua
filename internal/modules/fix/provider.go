@@ -201,6 +201,8 @@ func instagramMediaPreview(d fixData, media []Media) []Media {
 	poster := Media{URL: d.Image, Type: "photo", Sensitive: d.Sensitive || len(d.Sensitivity) > 0}
 	if len(media) > 0 {
 		poster.Alt = media[0].Alt
+		media[0] = poster
+		return media
 	}
 	return []Media{poster}
 }
