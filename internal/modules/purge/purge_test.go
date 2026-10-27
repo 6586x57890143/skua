@@ -201,7 +201,7 @@ func TestModuleDeclares(t *testing.T) {
 			t.Errorf("Perms lacks %v", p)
 		}
 	}
-	if cs := m.Components(); len(cs) != 2 || cs[0].ID != progressButton || cs[1].ID != jobsDropButton {
+	if cs := m.Components(); len(cs) != 2 || cs[0].ID != progressButton || cs[1].ID != jobsDropMenu {
 		t.Errorf("components %+v", cs)
 	}
 }
