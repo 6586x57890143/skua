@@ -130,9 +130,7 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 		text += "\n-# no database here, so nothing is scheduled or live"
 	}
 	var lines []line
-	for _, l := range append(running, catching...) {
-		lines = append(lines, l)
-	}
+	lines = append(lines, append(running, catching...)...)
 	lines = append(lines, upcoming...)
 	var users []snowflake.ID
 	seen := map[snowflake.ID]bool{}
