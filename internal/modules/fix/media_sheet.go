@@ -256,7 +256,7 @@ func fetchGalleryImage(ctx context.Context, platform, raw string) (image.Image, 
 	if err != nil {
 		return nil, errMetadata
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK || resp.ContentLength > sheetMaxBytes {
 		return nil, errMetadata
 	}
