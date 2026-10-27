@@ -122,7 +122,8 @@ func TestTranslationCreditIsCompactAndBounded(t *testing.T) {
 	p := Post{Author: "Author", Text: strings.Repeat("😀 translated text\n", 2000), Stats: strings.Repeat("1 likes · ", 1000), Provider: "fxembed", Timestamp: "2026-10-22T10:13:00Z", TranslatedFrom: "ja", Sections: []Section{{TranslatedFrom: "ja"}, {TranslatedFrom: "fr"}}}
 	box := card(l, p).Components[0].(discord.ContainerComponent)
 	footer := box.Components[len(box.Components)-1].(discord.TextDisplayComponent).Content
-	if strings.Count(footer, "🇯🇵") != 1 || !strings.Contains(footer, "🇫🇷") || !strings.HasSuffix(footer, " · <t:1792663980:R>") || len(utf16.Encode([]rune(footer))) > 500 {
+	header := box.Components[0].(discord.TextDisplayComponent).Content
+	if strings.Count(footer, "🇯🇵") != 1 || !strings.Contains(footer, "🇫🇷") || !strings.Contains(header, "<t:1792663980:R>") || len(utf16.Encode([]rune(footer))) > 500 {
 		t.Fatal(footer)
 	}
 	units := 0

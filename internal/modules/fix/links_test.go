@@ -154,7 +154,7 @@ func TestCardIsBoundedV2WithMixedMediaAndSpoilers(t *testing.T) {
 	p.Media = []Media{{URL: "http://evil.test/x"}, {URL: "https://cdn.example/a.png"}, {URL: "https://cdn.example/a.png"}}
 	p.Sections = nil
 	raw, _ = json.Marshal(card(l, p))
-	if strings.Contains(string(raw), `"type":9`) || strings.Contains(string(raw), "evil.test") {
+	if !strings.Contains(string(raw), `"type":9`) || !strings.Contains(string(raw), "avatar.png") || strings.Contains(string(raw), "evil.test") {
 		t.Fatal(string(raw))
 	}
 	p.Author = ""

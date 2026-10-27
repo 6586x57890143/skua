@@ -1,14 +1,13 @@
 package fix
 
 import (
-	"fmt"
-	"github.com/6586x57890143/skua/internal/obs"
 	"strings"
 	"time"
 	"unicode/utf16"
 
 	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
+	"github.com/6586x57890143/skua/internal/obs"
 	"github.com/disgoorg/disgo/discord"
 )
 
@@ -41,7 +40,6 @@ func clean(s string, limit int) string {
 	}
 	return b.String()
 }
-func quote(text string) string { return "> " + strings.ReplaceAll(text, "\n", "\n> ") }
 
 // clip budgets the final formatted UTF-16 text, including quote prefixes and
 // escapes. It never cuts a surrogate pair and leaves room for its truncation.
@@ -67,9 +65,8 @@ func card(l Link, p Post) discord.MessageCreate {
 	if platform == "twitter" {
 		platform = "x"
 	}
-	heading := identity(l, p)
 	parts := []discord.ContainerSubComponent{}
-	remaining := 3500 // reserve footer room so long source text cannot hide time or attribution
+	remaining := 3500 // reserve footer room so long source text cannot hide stats or attribution
 	addText := func(text string) {
 		if remaining < 4 || text == "" {
 			return
@@ -78,7 +75,9 @@ func card(l Link, p Post) discord.MessageCreate {
 		parts = append(parts, discord.NewTextDisplay(text))
 		remaining -= len(utf16.Encode([]rune(text)))
 	}
-	addText(heading)
+	heading := clip(cardIdentity(l, p), remaining)
+	parts = append(parts, cardHeader(l, p, heading))
+	remaining -= len(utf16.Encode([]rune(heading)))
 	// Instagram titles are generated caption summaries, not separate headlines.
 	if platform != "reddit" && (platform != "instagram" || p.Text == "") && p.Title != "" && p.Title != p.Text {
 		addText("**" + clean(p.Title, 200) + "**")
@@ -121,9 +120,11 @@ func card(l Link, p Post) discord.MessageCreate {
 			break
 		}
 		block := sectionText(l, s, min(500, left))
-		parts = append(parts, discord.NewSmallSeparator().WithDivider(false))
-		addText(block)
-		left -= len(utf16.Encode([]rune(block)))
+		if block != "" {
+			parts = append(parts, discord.NewSmallSeparator().WithDivider(false))
+			addText(block)
+			left -= len(utf16.Encode([]rune(block)))
+		}
 		appendMedia(s.Media, p.Sensitive || s.Sensitive)
 	}
 	if p.Context != "" {
@@ -144,15 +145,10 @@ func card(l Link, p Post) discord.MessageCreate {
 	}
 	// Compact footer: engagement and attribution share one text component.
 	parts = append(parts, discord.NewSmallSeparator())
-	stamp := ""
-	if t, err := time.Parse(time.RFC3339, p.Timestamp); err == nil {
-		stamp = fmt.Sprintf(" · <t:%d:R>", t.Unix())
-	}
 	meta := clean(p.Provider, 30)
 	if translated := translationCredit(l, p); translated != "" {
 		meta += " · " + translated
 	}
-	meta += stamp
 	footer := statLineLimit(p.Stats, 500-len(utf16.Encode([]rune(meta)))-8)
 	if footer != "" {
 		footer += " · "

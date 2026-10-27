@@ -1,13 +1,16 @@
 package fix
 
 import (
+	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf16"
 
 	"github.com/6586x57890143/skua/internal/brand"
+	"github.com/disgoorg/disgo/discord"
 )
 
 var twitterHandle = regexp.MustCompile(`^[A-Za-z0-9_]{1,15}$`)
@@ -117,20 +120,64 @@ func identity(l Link, p Post) string {
 	return head
 }
 
+func cardIdentity(l Link, p Post) string {
+	text := identity(l, p)
+	if t, err := time.Parse(time.RFC3339, p.Timestamp); err == nil {
+		stamp := fmt.Sprintf("<t:%d:R>", t.Unix())
+		if strings.Contains(text, "\n") {
+			text += " · " + stamp
+		} else {
+			text += "\n-# " + stamp
+		}
+	}
+	return text
+}
+
+func cardHeader(l Link, p Post, content string) discord.ContainerSubComponent {
+	text := discord.NewTextDisplay(content)
+	avatar := remoteURL(p.Avatar)
+	if avatar == "" || p.Sensitive {
+		return text
+	}
+	description := clean(p.Author, 100)
+	if description == "" {
+		description = platformName(l) + " author"
+	}
+	return discord.NewSection(text).WithAccessory(discord.NewThumbnail(avatar).WithDescription(description + " avatar"))
+}
+
 // Keep generated links atomic: a tight budget drops optional identity pieces
 // instead of cutting a URL into visible Markdown.
 func sectionText(l Link, s Section, limit int) string {
-	quoted := s.Kind == "quote" || strings.HasPrefix(s.Title, "quote · ")
+	kind := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(s.Kind)), "_", "-")
+	quoted := kind == "quote" || kind == "repost" || kind == "quoted-post" || strings.HasPrefix(strings.ToLower(s.Title), "quote · ")
+	icon := ""
+	switch kind {
+	case "community-note", "note":
+		icon = sectionIcon("stat_notes", "📝")
+	case "reply", "comment":
+		icon = sectionIcon("stat_reply", "↩️")
+	case "poll":
+		return iconSource(sectionIcon("stat_poll", "▥"), s.Text, limit, false)
+	case "link-card", "linked-post":
+		return linkedSectionText(s, kind, limit)
+	}
+	if icon != "" {
+		return iconSource(icon, s.Text, limit, true)
+	}
 	prefix := ""
 	title := s.Title
 	if quoted {
-		prefix = "-# quoted post\n"
 		title = s.Author
 		if title == "" {
 			title = strings.TrimPrefix(s.Title, "quote · ")
 		}
 	}
-	titleBudget := limit - len(prefix) - 4
+	reserve := 0
+	if quoted {
+		reserve = len(utf16.Encode([]rune(sectionIcon("stat_repost", "🔁") + " ")))
+	}
+	titleBudget := limit - len(prefix) - reserve - 4
 	if titleBudget < 4 {
 		return ""
 	}
@@ -142,26 +189,23 @@ func sectionText(l Link, s Section, limit int) string {
 		}
 	}
 	heading := prefix + "**" + label + "**"
-	if quoted {
-		marked := prefix + platformMark(l) + " **" + label + "**"
-		if len(utf16.Encode([]rune(marked))) <= limit {
-			heading = marked
-		}
-	}
 	if quoted && s.Handle != "" {
 		shown := clean("@"+strings.TrimPrefix(s.Handle, "@"), 70)
 		if dest := profile(l, s.AuthorURL, s.Handle); dest != "" {
 			shown = linkedText("@"+strings.TrimPrefix(s.Handle, "@"), dest, 70, "profile")
 		}
-		if len(utf16.Encode([]rune(heading+" · "+shown))) <= limit-20 {
+		if len(utf16.Encode([]rune(heading+" · "+shown))) <= limit-reserve {
 			heading += " · " + shown
 		}
+	}
+	if quoted {
+		heading = sectionIcon("stat_repost", "🔁") + " " + heading
 	}
 	left := limit - len(utf16.Encode([]rune(heading))) - 1
 	for budget := min(300, left); budget >= 4; {
 		body := sourceText(s.Text, budget)
 		if quoted {
-			body = quote(body)
+			body = muted(body)
 		}
 		units := len(utf16.Encode([]rune(body)))
 		if units <= left {
@@ -170,6 +214,95 @@ func sectionText(l Link, s Section, limit int) string {
 		budget -= max(1, units-left)
 	}
 	return heading
+}
+
+func muted(text string) string {
+	if text == "" {
+		return ""
+	}
+	return "-# " + strings.ReplaceAll(text, "\n", "\n-# ")
+}
+
+func iconSource(icon, source string, limit int, small bool) string {
+	prefix := icon + " "
+	if small {
+		prefix = "-# " + prefix
+	}
+	for budget := limit - len(utf16.Encode([]rune(prefix))); budget >= 1; {
+		body := sourceText(source, budget)
+		if small {
+			body = muted(body)
+			body = strings.TrimPrefix(body, "-# ")
+		}
+		text := prefix + body
+		units := len(utf16.Encode([]rune(text)))
+		if units <= limit {
+			return text
+		}
+		budget -= max(1, units-limit)
+	}
+	if len(utf16.Encode([]rune(prefix))) <= limit {
+		return strings.TrimSpace(prefix)
+	}
+	return ""
+}
+
+func linkedSectionText(s Section, kind string, limit int) string {
+	dest := remoteURL(s.URL)
+	if dest == "" {
+		return ""
+	}
+	icon := sectionIcon("stat_link", "↗")
+	label := strings.TrimSpace(s.Title)
+	if kind == "linked-post" {
+		icon = sectionIcon("stat_link", "↗")
+		if target, ok := Parse(s.URL); ok {
+			icon = platformMark(target)
+		}
+		label = "post"
+		if strings.HasPrefix(strings.ToLower(s.Title), "clip on ") {
+			label = "clip"
+		}
+	} else {
+		lower := strings.ToLower(label)
+		if strings.HasPrefix(lower, "open linked ") || strings.HasPrefix(lower, "view linked ") || lower == "open link" || lower == "view link" {
+			u, _ := url.Parse(dest)
+			label = u.Hostname()
+		}
+	}
+	if label == "" {
+		u, _ := url.Parse(dest)
+		label = u.Hostname()
+	}
+	budget := limit - len(utf16.Encode([]rune(icon+" ")))
+	if budget < 4 {
+		return ""
+	}
+	link := linkedText(label, dest, min(160, budget-4), "link")
+	if len(utf16.Encode([]rune(icon+" "+link))) > limit {
+		return ""
+	}
+	text := icon + " " + link
+	if s.Text == "" {
+		return text
+	}
+	for bodyBudget := max(0, limit-len(utf16.Encode([]rune(text)))-5); bodyBudget > 0; {
+		body := muted(sourceText(s.Text, bodyBudget))
+		result := text + "\n" + body
+		units := len(utf16.Encode([]rune(result)))
+		if units <= limit {
+			return result
+		}
+		bodyBudget -= max(1, units-limit)
+	}
+	return text
+}
+
+func sectionIcon(key, fallback string) string {
+	if mark := brand.Mention(key); mark != "" {
+		return mark
+	}
+	return fallback
 }
 
 // Discord displays escaped underscores literally inside masked-link labels.
