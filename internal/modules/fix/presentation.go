@@ -133,17 +133,8 @@ func cardIdentity(l Link, p Post) string {
 	return text
 }
 
-func cardHeader(l Link, p Post, content string) discord.ContainerSubComponent {
-	text := discord.NewTextDisplay(content)
-	avatar := remoteURL(p.Avatar)
-	if avatar == "" || p.Sensitive {
-		return text
-	}
-	description := clean(p.Author, 100)
-	if description == "" {
-		description = platformName(l) + " author"
-	}
-	return discord.NewSection(text).WithAccessory(discord.NewThumbnail(avatar).WithDescription(description + " avatar"))
+func cardHeader(content string) discord.ContainerSubComponent {
+	return discord.NewTextDisplay(content)
 }
 
 // Keep generated links atomic: a tight budget drops optional identity pieces
