@@ -10,9 +10,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"image"
-	"image/color"
 	"image/draw"
-	"image/jpeg"
+	"image/png"
 	"io"
 	"net"
 	"net/http"
@@ -101,7 +100,7 @@ func (m *mediaRelay) galleryLink(platform string, media []Media) string {
 		return ""
 	}
 	token := base64.RawURLEncoding.EncodeToString(aead.Seal(nonce, nonce, plain, []byte("skua/fix/gallery/v1")))
-	link := m.base + "/fix/media/gallery/" + token + "/" + m.signature("gallery", token) + ".jpg"
+	link := m.base + "/fix/media/gallery/" + token + "/" + m.signature("gallery", token) + ".png"
 	if len(link) > 2048 {
 		return ""
 	}
@@ -291,7 +290,6 @@ func composeGallery(images []image.Image) ([]byte, error) {
 		return nil, errMetadata
 	}
 	canvas := image.NewRGBA(image.Rect(0, 0, sheetWidth, sheetHeight))
-	draw.Draw(canvas, canvas.Bounds(), &image.Uniform{C: color.RGBA{R: 35, G: 26, B: 43, A: 255}}, image.Point{}, draw.Src)
 	tileWidth := (sheetWidth - 3*sheetGap) / 4
 	for i, img := range images {
 		x := i * (tileWidth + sheetGap)
@@ -300,7 +298,7 @@ func composeGallery(images []image.Image) ([]byte, error) {
 		xdraw.CatmullRom.Scale(canvas, tile, img, crop, draw.Over, nil)
 	}
 	var out bytes.Buffer
-	if err := jpeg.Encode(&out, canvas, &jpeg.Options{Quality: 84}); err != nil || out.Len() > sheetMaxBytes {
+	if err := png.Encode(&out, canvas); err != nil || out.Len() > sheetMaxBytes {
 		return nil, errMetadata
 	}
 	return out.Bytes(), nil

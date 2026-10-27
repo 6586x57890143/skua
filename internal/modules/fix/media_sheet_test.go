@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/color"
-	"image/jpeg"
+	"image/png"
 	"net/url"
 	"strconv"
 	"strings"
@@ -32,12 +32,16 @@ func TestComposeGalleryMakesFourColumnContactSheet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := jpeg.Decode(bytes.NewReader(raw))
+	got, err := png.Decode(bytes.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Bounds().Dx() != sheetWidth || got.Bounds().Dy() != sheetHeight {
 		t.Fatalf("got %v, want %dx%d", got.Bounds(), sheetWidth, sheetHeight)
+	}
+	_, _, _, gapAlpha := got.At((sheetWidth-3*sheetGap)/4+sheetGap/2, sheetHeight/2).RGBA()
+	if gapAlpha != 0 {
+		t.Fatalf("gallery gutter alpha = %d, want transparent", gapAlpha)
 	}
 	for i, want := range colors {
 		tileWidth := (sheetWidth - 3*sheetGap) / 4
