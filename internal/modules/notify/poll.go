@@ -110,6 +110,16 @@ func (m *Module) accounts(platform string) []string {
 // observe announces what an account shows that wasn't seen last time. The
 // first look at an account is a baseline: its backlog isn't news.
 func (m *Module) observe(ctx context.Context, p Poster, k key, items []item, src source) {
+	m.observeItems(ctx, p, k, items, src, false)
+}
+
+// observePush handles a check requested by a push. The push itself proves
+// delivery, so cards found by this check must not count as missed pushes.
+func (m *Module) observePush(ctx context.Context, p Poster, k key, items []item, src source) {
+	m.observeItems(ctx, p, k, items, src, true)
+}
+
+func (m *Module) observeItems(ctx context.Context, p Poster, k key, items []item, src source, fromPush bool) {
 	if turn := m.turns[k.platform]; turn != nil {
 		turn.Lock()
 		defer turn.Unlock()
@@ -133,7 +143,9 @@ func (m *Module) observe(ctx context.Context, p Poster, k key, items []item, src
 	slices.Reverse(fresh)
 	for _, it := range fresh {
 		m.announce(ctx, p, k, it)
-		m.unpushed(k, it, src)
+		if !fromPush {
+			m.unpushed(k, it, src)
+		}
 	}
 	// A stream still on keeps its cards current.
 	for _, it := range items {
