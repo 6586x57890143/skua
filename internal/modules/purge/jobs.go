@@ -258,7 +258,7 @@ func memberOptionName(e *events.ApplicationCommandInteractionCreate, user snowfl
 	}
 	id := user.String()
 	if len(id) > 6 {
-		id = id[:3] + "…" + id[len(id)-3:]
+		id = id[:3] + "..." + id[len(id)-3:]
 	}
 	return name + " · " + id
 }
