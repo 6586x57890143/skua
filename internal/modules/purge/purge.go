@@ -44,6 +44,7 @@ import (
 const (
 	confirmModal   = "purge-now"
 	progressButton = "purge-progress"
+	jobsDropButton = "purge-jobs-drop"
 )
 
 // tokenLife is how long an interaction's token can edit its response:
@@ -178,7 +179,7 @@ func (m *Module) Commands() []core.Command {
 					}, member, in},
 				},
 				discord.ApplicationCommandOptionSubCommand{Name: "status", Description: "what's set up here and how your last sweep went", Options: forMember()},
-				discord.ApplicationCommandOptionSubCommand{Name: "jobs", Description: "break-glass admin only: view or drop a member's purge jobs", Options: forMember()},
+				discord.ApplicationCommandOptionSubCommand{Name: "jobs", Description: "break-glass admin only: every purge running or coming up, in every server"},
 			},
 		},
 		Tier: core.Public,
@@ -193,7 +194,7 @@ func (m *Module) Modals() []core.Modal {
 
 // Components is the progress button.
 func (m *Module) Components() []core.Component {
-	return []core.Component{{ID: progressButton, Run: m.progress}}
+	return []core.Component{{ID: progressButton, Run: m.progress}, {ID: jobsDropButton, Run: m.dropJob}}
 }
 
 // progress opens a fresh readout of a running purge, on the token of the
@@ -328,9 +329,9 @@ func (m *Module) breakGlass(by, user, guild snowflake.ID, sub string) error {
 
 // reply is an ephemeral card (UX.md): what the reply is in its head, body
 // below it.
-func reply(e *events.ApplicationCommandInteractionCreate, color int, what, body string) error {
+func reply(e *events.ApplicationCommandInteractionCreate, color int, what, body string, extra ...discord.ContainerSubComponent) error {
 	return e.CreateMessage(discord.MessageCreate{
-		Components:      []discord.LayoutComponent{brand.Card(color, "purge", what, body)},
+		Components:      []discord.LayoutComponent{brand.Card(color, "purge", what, body, extra...)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
 	})
