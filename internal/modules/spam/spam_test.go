@@ -30,15 +30,17 @@ import (
 // fakeRest is the REST spam calls: roles, the deletes and its line.
 type fakeRest struct {
 	rest.Rest
-	mu       sync.Mutex
-	roles    []discord.Role
-	rolesErr error
-	deleted  []snowflake.ID
-	bulk     [][]snowflake.ID
-	bulkErr  error
-	gone     map[snowflake.ID]bool // deleted before skua got to them
-	posted   []discord.MessageCreate
-	done     chan struct{}
+	mu        sync.Mutex
+	roles     []discord.Role
+	rolesErr  error
+	deleted   []snowflake.ID
+	deleteErr error
+	timeout   *time.Time
+	bulk      [][]snowflake.ID
+	bulkErr   error
+	gone      map[snowflake.ID]bool // deleted before skua got to them
+	posted    []discord.MessageCreate
+	done      chan struct{}
 }
 
 func (f *fakeRest) GetRoles(snowflake.ID, ...rest.RequestOpt) ([]discord.Role, error) {
@@ -48,11 +50,24 @@ func (f *fakeRest) GetRoles(snowflake.ID, ...rest.RequestOpt) ([]discord.Role, e
 func (f *fakeRest) DeleteMessage(_, id snowflake.ID, _ ...rest.RequestOpt) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	if f.gone[id] {
 		return &rest.Error{Response: &http.Response{StatusCode: http.StatusNotFound}}
 	}
 	f.deleted = append(f.deleted, id)
 	return nil
+}
+
+func (f *fakeRest) UpdateMember(_, _ snowflake.ID, update discord.MemberUpdate, _ ...rest.RequestOpt) (*discord.Member, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if update.CommunicationDisabledUntil.Value != nil {
+		until := *update.CommunicationDisabledUntil.Value
+		f.timeout = &until
+	}
+	return &discord.Member{}, nil
 }
 
 func (f *fakeRest) BulkDeleteMessages(_ snowflake.ID, ids []snowflake.ID, _ ...rest.RequestOpt) error {
@@ -275,6 +290,34 @@ func TestClearSplitsByChannel(t *testing.T) {
 	// What is already cleared isn't asked for twice.
 	if n := m.clear(context.Background(), r, 3, []flood.Seen{{Channel: 4, ID: 1}, {Channel: 4, ID: 9}}, gone); n != 1 || r.deleted[len(r.deleted)-1] != 9 {
 		t.Fatalf("second pass cleared %d, single %v", n, r.deleted)
+	}
+}
+
+func TestClearBulkDeletesInDiscordSizedChunks(t *testing.T) {
+	m := module(t)
+	r := &fakeRest{}
+	burst := make([]flood.Seen, 250)
+	for i := range burst {
+		burst[i] = flood.Seen{Channel: 4, ID: snowflake.ID(i + 1)}
+	}
+	n := m.clear(context.Background(), r, 3, burst, map[snowflake.ID]bool{})
+	var sizes []int
+	for _, batch := range r.bulk {
+		sizes = append(sizes, len(batch))
+	}
+	if n != 250 || !slices.Equal(sizes, []int{100, 100, 50}) {
+		t.Fatalf("cleared %d in chunks %v", n, sizes)
+	}
+}
+
+func TestCleanupFailureTimesOutForTheBirdSentence(t *testing.T) {
+	m := module(t, &bird{})
+	m.now = func() time.Time { return t0 }
+	r := &fakeRest{roles: []discord.Role{{ID: 50}}, deleteErr: errors.New("delete refused")}
+	msg := message(r, 0, nil).Message
+	m.act(r, 3, msg, []flood.Seen{{Channel: 4, ID: msg.ID}})
+	if r.timeout == nil || !r.timeout.Equal(t0.Add(10*time.Minute)) {
+		t.Fatalf("timeout until %v, want %v", r.timeout, t0.Add(10*time.Minute))
 	}
 }
 

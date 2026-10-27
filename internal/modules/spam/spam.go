@@ -30,6 +30,7 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/disgo/rest"
+	"github.com/disgoorg/omit"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -333,18 +334,73 @@ func (m *Module) act(r rest.Rest, guild snowflake.ID, msg discord.Message, burst
 	defer cancel()
 	user := msg.Author.ID
 	if is, err := m.staff(r, guild, user, msg.Member); is || err != nil {
+		m.flood.DiscardPending(guild, user)
 		m.log.Info("spam: tripped, let go", "guild", guild, "user", user, "staff", is, "err", err)
 		return
 	}
 	v, _ := m.trips.LoadOrStore(guild, new(atomic.Int64))
 	v.(*atomic.Int64).Add(1)
+	overflow := m.flood.TakeOverflow(guild, user)
 	// The burst comes down at once, then, once the sanction holds, whatever
 	// they sent while it was being applied: all of it, in case any of it
 	// is something no one should be left looking at.
 	gone := map[snowflake.ID]bool{}
-	cleared := m.clear(ctx, r, guild, burst, gone)
+	initial := m.flood.DrainSince(guild, user)
+	if len(initial) == 0 {
+		initial = burst
+	}
+	cleared := m.clear(ctx, r, guild, initial, gone)
 	verdict := sanction.Judge(ctx, m.history, Ladder, sanction.Offence{Guild: guild, User: user, Channel: msg.ChannelID, Rule: Name, At: msg.CreatedAt}, m.sanctions...)
-	cleared += m.clear(ctx, r, guild, m.flood.Since(guild, user, msg.CreatedAt), gone)
+	all := append([]flood.Seen(nil), initial...)
+	for {
+		remaining := m.flood.DrainSince(guild, user)
+		if len(remaining) == 0 {
+			break
+		}
+		all = append(all, remaining...)
+		cleared += m.clear(ctx, r, guild, remaining, gone)
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	overflow = m.flood.TakeOverflow(guild, user) || overflow
+	fellBehind := overflow || m.flood.Pending(guild, user) || cleared < uniqueMessages(all)
+	if fellBehind {
+		until := m.now().Add(verdict.For)
+		if verdict.For > 0 && m.guard.Allow(guild, guard.SpamTimeout) == nil {
+			timeoutCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			_, err := r.UpdateMember(guild, user, discord.MemberUpdate{
+				CommunicationDisabledUntil: omit.New(&until),
+			}, rest.WithCtx(timeoutCtx), rest.WithReason("spam: cleanup could not keep up"))
+			stop()
+			m.guard.Done(guild, err)
+			if err != nil {
+				m.log.Warn("spam: cleanup fell behind and timeout failed", "guild", guild, "user", user, "for", verdict.For, "err", err)
+			} else {
+				m.log.Info("spam: cleanup fell behind; timed out", "guild", guild, "user", user, "for", verdict.For)
+			}
+		} else if verdict.For > 0 {
+			m.log.Warn("spam: cleanup fell behind and timeout was rate limited", "guild", guild, "user", user, "for", verdict.For)
+		}
+		// A timeout stops the source of new messages. Use a fresh budget to
+		// finish deleting the captured backlog after Discord has applied it.
+		cleanupCtx, stop := context.WithTimeout(context.Background(), 2*time.Minute)
+		for {
+			remaining := m.flood.DrainSince(guild, user)
+			if len(remaining) == 0 {
+				break
+			}
+			cleared += m.clear(cleanupCtx, r, guild, remaining, gone)
+			if cleanupCtx.Err() != nil {
+				break
+			}
+		}
+		stop()
+		if m.flood.Pending(guild, user) {
+			m.log.Warn("spam: messages remain queued after cleanup", "guild", guild, "user", user, "cleared", cleared)
+		}
+	}
+	m.flood.DiscardPending(guild, user)
 	m.log.Info("spam: tripped", "guild", guild, "user", user, "cleared", cleared, "priors", verdict.Priors,
 		"for", verdict.For, "by", verdict.By, "err", verdict.Err)
 	if verdict.Said == "" || m.guard.Allow(guild, guard.MessageSend) != nil {
@@ -356,6 +412,16 @@ func (m *Module) act(r rest.Rest, guild snowflake.ID, msg discord.Message, burst
 		Flags:           discord.MessageFlagSuppressEmbeds,
 	}, rest.WithCtx(ctx))
 	m.guard.Done(guild, err)
+}
+
+func uniqueMessages(seen []flood.Seen) int {
+	ids := make(map[snowflake.ID]struct{}, len(seen))
+	for _, s := range seen {
+		if s.ID != 0 {
+			ids[s.ID] = struct{}{}
+		}
+	}
+	return len(ids)
 }
 
 // staff is whether user is beyond the module. The roles are read here,
@@ -389,8 +455,9 @@ func (m *Module) staff(r rest.Rest, guild, user snowflake.ID, member *discord.Me
 // MessageDelete from the guard, a bulk delete of many included; the burst
 // is under a minute old, well inside bulk delete's two weeks. Discord turns
 // a whole bulk delete down for one message it can't take (one the member
-// or the bird already deleted), so a refused one goes again a message at a
-// time, and a message already gone counts as cleared.
+// or the bird already deleted), so a refused batch goes again a message at
+// a time, and a message already gone counts as cleared. Each bulk call uses
+// the SpamMessageDelete budget.
 func (m *Module) clear(ctx context.Context, r rest.Rest, guild snowflake.ID, burst []flood.Seen, gone map[snowflake.ID]bool) int {
 	by := map[snowflake.ID][]snowflake.ID{}
 	var order []snowflake.ID
@@ -405,7 +472,7 @@ func (m *Module) clear(ctx context.Context, r rest.Rest, guild snowflake.ID, bur
 	}
 	why := rest.WithReason("spam: a burst from one member")
 	del := func(ch, id snowflake.ID) bool {
-		if m.guard.Allow(guild, guard.MessageDelete) != nil {
+		if m.guard.Allow(guild, guard.SpamMessageDelete) != nil {
 			return false
 		}
 		err := r.DeleteMessage(ch, id, rest.WithCtx(ctx), why)
@@ -415,21 +482,24 @@ func (m *Module) clear(ctx context.Context, r rest.Rest, guild snowflake.ID, bur
 	n := 0
 	for _, ch := range order {
 		ids := by[ch]
-		if len(ids) > 1 && m.guard.Allow(guild, guard.MessageDelete) == nil {
-			err := r.BulkDeleteMessages(ch, ids, rest.WithCtx(ctx), why)
-			m.guard.Done(guild, err)
-			if err == nil {
-				for _, id := range ids {
-					gone[id] = true
+		for start := 0; start < len(ids); start += 100 {
+			chunk := ids[start:min(start+100, len(ids))]
+			if len(chunk) > 1 && m.guard.Allow(guild, guard.SpamMessageDelete) == nil {
+				err := r.BulkDeleteMessages(ch, chunk, rest.WithCtx(ctx), why)
+				m.guard.Done(guild, err)
+				if err == nil {
+					for _, id := range chunk {
+						gone[id] = true
+					}
+					n += len(chunk)
+					continue
 				}
-				n += len(ids)
-				continue
 			}
-		}
-		for _, id := range ids {
-			if del(ch, id) {
-				gone[id] = true
-				n++
+			for _, id := range chunk {
+				if del(ch, id) {
+					gone[id] = true
+					n++
+				}
 			}
 		}
 	}

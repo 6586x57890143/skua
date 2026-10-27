@@ -3,10 +3,10 @@
 // xeno-canto, posted through skua's webhook wearing their name and avatar.
 //
 // One recording per prank: the member is that bird until it wears off, so
-// /bird makes one API call and one download, and each replaced message costs
-// a webhook post and a delete, both spent through the guard. The post goes
-// up before the original comes down, so a failure leaves their message where
-// it was, and only the newest bird stays up: each one takes down the last. Like whisper, every post carries a subtext marker saying what
+// /bird makes one API call and one download. The first message gets the bird;
+// later messages are deleted, keeping one recording up. The post goes up
+// before the original comes down, so a failure leaves their message where
+// it was. Like whisper, every post carries a subtext marker saying what
 // happened, the species linking to the recording's xeno-canto entry, which
 // carries its credit and licence. The species' photo and a line about it
 // come with it when two databases agree on the bird (about.go).
@@ -76,9 +76,10 @@ type prank struct {
 	audio []byte
 	about about
 
-	mu    sync.Mutex
-	until time.Time        // moved only by extend once stored
-	last  *discord.Message // the newest bird posted, the only one kept up
+	mu        sync.Mutex
+	until     time.Time // moved only by extend once stored
+	attempted bool
+	posted    bool // only one replacement is posted per prank
 }
 
 func (p *prank) end() time.Time {
@@ -175,7 +176,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorOK,
 		Line:  "turns a member into a bird for a while",
-		About: "an admin runs /bird on a member for up to 60 minutes. until the time runs out each message they send is swapped for a single real bird call from xeno-canto, posted under their name with the species linked to its recording. an openly licensed photo of it comes along from inaturalist or else its wikipedia article. so does a line from wikipedia, both only when the two agree on which bird it is. run it again with 0 minutes to turn them back early",
+		About: "an admin runs /bird on a member for up to 60 minutes. the first message they send is swapped for a real bird call from xeno-canto, posted under their name with the species linked to its recording. later messages are removed while one recording stays up. an openly licensed photo of it comes along from inaturalist or else its wikipedia article. so does a line from wikipedia, both only when the two agree on which bird it is. run it again with 0 minutes to turn them back early",
 	}
 }
 
@@ -362,13 +363,24 @@ func (m *Module) OnEvent(ev bot.Event) {
 	go m.replace(e.Client().Rest, e.Client().ApplicationID, e.GuildID, msg, p)
 }
 
-// replace posts the bird, then deletes the original and the bird before
-// it, so a member who spams leaves one bird behind, not a flock. In a
-// thread the webhook lookup fails and the message stays, as it does on any
-// failure.
+// replace posts the bird for the first message, then removes that original.
+// Later messages are removed without another webhook post. In a thread the
+// webhook lookup fails and the message stays, as it does on any failure.
 func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Message, p *prank) {
 	ctx, cancel := context.WithTimeout(context.Background(), replaceBy)
 	defer cancel()
+	// Only the first message needs a webhook replacement. Serialize that
+	// first send so a fast sender cannot create a flock of identical birds.
+	p.mu.Lock()
+	if p.attempted {
+		posted := p.posted
+		p.mu.Unlock()
+		if posted {
+			m.deleteOriginal(ctx, r, guild, msg, p.by)
+		}
+		return
+	}
+	p.attempted = true
 	name := msg.Author.EffectiveName()
 	if msg.Member != nil && msg.Member.Nick != nil {
 		name = *msg.Member.Nick
@@ -381,30 +393,28 @@ func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Messa
 		files = append(files, discord.NewFile(p.about.photoName, "", bytes.NewReader(p.about.photo)))
 	}
 	post := discord.WebhookMessageCreate{
-		Content:         marker(msg.Author.Username, p.end().Sub(m.now()), p.rec) + p.about.lines(),
+		Content:         marker(msg.Author.Username, p.until.Sub(m.now()), p.rec) + p.about.lines(),
 		Username:        m.screen.Check(name).Text,
 		AvatarURL:       msg.Author.EffectiveAvatarURL(),
 		AllowedMentions: core.NoPings(),
 		Flags:           discord.MessageFlagSuppressEmbeds,
 		Files:           files,
 	}
-	posted, err := m.post.Send(ctx, r, guild, msg.ChannelID, app, post)
+	_, err := m.post.Send(ctx, r, guild, msg.ChannelID, app, post)
 	if err != nil {
-		return
-	}
-	if posted != nil && posted.WebhookID != nil {
-		p.mu.Lock()
-		prev := p.last
-		p.last = posted
 		p.mu.Unlock()
-		if prev != nil {
-			_ = m.post.Delete(ctx, r, guild, prev.ChannelID, app, *prev.WebhookID, prev.ID)
-		}
-	}
-	if m.guard.Allow(guild, guard.MessageDelete) != nil {
 		return
 	}
-	err = r.DeleteMessage(msg.ChannelID, msg.ID, rest.WithCtx(ctx), rest.WithReason("bird: replaced with a recording, started by "+p.by))
+	p.posted = true
+	p.mu.Unlock()
+	m.deleteOriginal(ctx, r, guild, msg, p.by)
+}
+
+func (m *Module) deleteOriginal(ctx context.Context, r rest.Rest, guild snowflake.ID, msg discord.Message, by string) {
+	if m.guard.Allow(guild, guard.SpamMessageDelete) != nil {
+		return
+	}
+	err := r.DeleteMessage(msg.ChannelID, msg.ID, rest.WithCtx(ctx), rest.WithReason("bird: replaced with a recording, started by "+by))
 	m.guard.Done(guild, err)
 }
 

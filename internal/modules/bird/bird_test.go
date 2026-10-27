@@ -273,14 +273,14 @@ func TestOnEventReplacesThenDeletes(t *testing.T) {
 	}
 }
 
-func TestReplaceKeepsOnlyTheNewestBird(t *testing.T) {
+func TestReplacePostsOneBirdAndDeletesLaterMessages(t *testing.T) {
 	m, p := pranked(time.Now())
 	r := &fakeRest{}
 	for range 3 {
 		m.replace(r, 2, 3, message(r, 7, nil).Message, mustPrank(t, m))
 	}
-	if len(p.sent) != 3 || len(p.gone) != 2 || p.gone[0] != 1 || p.gone[1] != 2 {
-		t.Fatalf("posted %d, took down %v; want 3 and [1 2]", len(p.sent), p.gone)
+	if len(p.sent) != 1 || len(r.deleted) != 3 {
+		t.Fatalf("posted %d birds and deleted %d messages; want one bird and three deletions", len(p.sent), len(r.deleted))
 	}
 }
 

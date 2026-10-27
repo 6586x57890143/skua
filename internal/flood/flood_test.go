@@ -159,6 +159,92 @@ func TestATripHandsBackTheBurstThenGoesQuiet(t *testing.T) {
 	}
 }
 
+func TestTripCleanupRetainsTheFullInitialWindow(t *testing.T) {
+	d := &Detector{}
+	for i := range 20 {
+		d.Observe(Message{
+			Guild: 3, User: 7, Channel: 4, ID: snowflake.ID(i + 1),
+			At: t0.Add(time.Duration(i*3) * time.Second),
+		})
+	}
+	trip, burst := d.Observe(Message{
+		Guild: 3, User: 7, Channel: 4, ID: 21, At: t0.Add(59 * time.Second),
+		Pings: []snowflake.ID{1, 2, 3, 4, 5},
+	})
+	if !trip || len(burst) > ring {
+		t.Fatalf("trip %v with scoring burst %d", trip, len(burst))
+	}
+	initial := d.DrainSince(3, 7)
+	if len(initial) != 21 || initial[0].ID != 1 || initial[len(initial)-1].ID != 21 {
+		t.Fatalf("cleanup retained %d initial messages: first %v, last %v", len(initial), initial[0].ID, initial[len(initial)-1].ID)
+	}
+}
+
+func TestCleanupQueueLifecycleAndMissingMembers(t *testing.T) {
+	d := &Detector{}
+	if d.TakeOverflow(3, 7) || d.DrainSince(3, 7) != nil || d.Pending(3, 7) {
+		t.Fatal("an unknown member had cleanup state")
+	}
+	d.DiscardPending(3, 7)
+
+	s := &member{overflow: true}
+	d.members.Store(who{3, 7}, s)
+	if !d.TakeOverflow(3, 7) || d.TakeOverflow(3, 7) {
+		t.Fatal("overflow wasn't taken and cleared")
+	}
+
+	trip, _ := d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 1, At: t0, Pings: []snowflake.ID{1, 2, 3, 4, 5}})
+	if !trip || !d.Pending(3, 7) {
+		t.Fatal("trip didn't open a cleanup queue")
+	}
+	if got := d.DrainSince(3, 7); len(got) != 1 || got[0].ID != 1 || d.Pending(3, 7) {
+		t.Fatalf("drain returned %v; queue pending %v", got, d.Pending(3, 7))
+	}
+	d.DiscardPending(3, 7)
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 2, At: t0.Add(time.Second)})
+	if d.Pending(3, 7) || d.DrainSince(3, 7) != nil {
+		t.Fatal("cleanup queue reopened after it was discarded")
+	}
+}
+
+func TestCleanupQueueOverflowAndRecentHistoryCompaction(t *testing.T) {
+	now := t0.Add(2 * time.Minute)
+	s := &member{}
+	s.recent = make([]seen, pendingLimit)
+	for i := range s.recent {
+		s.recent[i].at = now
+	}
+	s.remember(seen{Seen: Seen{Channel: 4, ID: 1}, at: now})
+	if !s.overflow {
+		t.Fatal("recent history cap didn't mark overflow")
+	}
+	s.remember(seen{Seen: Seen{Channel: 4, ID: 2}, at: now.Add(2 * time.Minute)})
+	if s.overflow {
+		t.Fatal("expired overflow stayed active")
+	}
+
+	d := &Detector{}
+	queued := &member{quiet: now.Add(time.Minute), cleanup: true, pending: make([]Seen, pendingLimit)}
+	d.members.Store(who{3, 7}, queued)
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 4, At: now})
+	if !d.TakeOverflow(3, 7) {
+		t.Fatal("cleanup queue cap didn't mark overflow")
+	}
+
+	compacted := &member{}
+	compacted.recent = make([]seen, 2048)
+	for i := range compacted.recent {
+		compacted.recent[i].at = now.Add(-2 * time.Minute)
+	}
+	for i := 1024; i < len(compacted.recent); i++ {
+		compacted.recent[i].at = now
+	}
+	compacted.remember(seen{Seen: Seen{Channel: 4, ID: 3}, at: now})
+	if compacted.recentStart != 0 || len(compacted.recent) != 1025 {
+		t.Fatalf("recent history wasn't compacted: start %d len %d", compacted.recentStart, len(compacted.recent))
+	}
+}
+
 func TestSweepForgetsTheQuiet(t *testing.T) {
 	d := &Detector{}
 	d.Observe(Message{Guild: 3, User: 7, At: t0, Text: "hello there"})
