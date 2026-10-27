@@ -35,9 +35,11 @@ type fakeRest struct {
 	rolesErr      error
 	deleted       []snowflake.ID
 	deleteErr     error
+	deleteErrors  []error
 	timeout       *time.Time
 	timeoutErr    error
 	timeoutErrors []error
+	timeoutCalls  int
 	bulk          [][]snowflake.ID
 	bulkErr       error
 	gone          map[snowflake.ID]bool // deleted before skua got to them
@@ -52,6 +54,13 @@ func (f *fakeRest) GetRoles(snowflake.ID, ...rest.RequestOpt) ([]discord.Role, e
 func (f *fakeRest) DeleteMessage(_, id snowflake.ID, _ ...rest.RequestOpt) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if len(f.deleteErrors) > 0 {
+		err := f.deleteErrors[0]
+		f.deleteErrors = f.deleteErrors[1:]
+		if err != nil {
+			return err
+		}
+	}
 	if f.deleteErr != nil {
 		return f.deleteErr
 	}
@@ -65,6 +74,7 @@ func (f *fakeRest) DeleteMessage(_, id snowflake.ID, _ ...rest.RequestOpt) error
 func (f *fakeRest) UpdateMember(_, _ snowflake.ID, update discord.MemberUpdate, _ ...rest.RequestOpt) (*discord.Member, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.timeoutCalls++
 	if len(f.timeoutErrors) > 0 {
 		err := f.timeoutErrors[0]
 		f.timeoutErrors = f.timeoutErrors[1:]
@@ -333,20 +343,46 @@ func TestCleanupFailureTimesOutForTheBirdSentence(t *testing.T) {
 	}
 }
 
-func TestFailedTimeoutIsRetriedWithoutClosingCleanup(t *testing.T) {
+func TestTransientTimeoutFailureIsRetried(t *testing.T) {
 	var logs strings.Builder
 	m := module(t, &bird{})
 	m.log = slog.New(slog.NewTextHandler(&logs, nil))
 	r := &fakeRest{
 		roles:         []discord.Role{{ID: 50}},
-		deleteErr:     errors.New("delete refused"),
+		deleteErrors:  []error{errors.New("temporary delete error"), nil},
 		timeoutErrors: []error{errors.New("temporary Discord error"), nil},
 	}
 	msg := message(r, 0, nil).Message
-	m.act(r, 3, msg, []flood.Seen{{Channel: 4, ID: msg.ID}})
+	trip, burst := m.flood.Observe(flood.Message{Guild: 3, User: 7, Channel: 4, ID: msg.ID, At: msg.CreatedAt, Pings: []snowflake.ID{1, 2, 3, 4, 5}})
+	if !trip {
+		t.Fatal("test message didn't trip the detector")
+	}
+	m.act(r, 3, msg, burst)
 	report := m.Report(3)
-	if r.timeout == nil || report.Rows[2][1] != "1 since she woke" || !strings.Contains(logs.String(), "spam_containment_failure") || !strings.Contains(logs.String(), "timeout_failed") {
+	if r.timeout == nil || r.timeoutCalls != 2 || report.Rows[2][1] != "1 since she woke" || !strings.Contains(logs.String(), "spam_containment_failure") || !strings.Contains(logs.String(), "timeout_failed") {
 		t.Fatalf("failed timeout wasn't retried and surfaced: timeout %v report %+v logs %q", r.timeout, report, logs.String())
+	}
+}
+
+func TestPermanentTimeoutFailureLeavesBoundedUnresolvedCleanup(t *testing.T) {
+	var logs strings.Builder
+	m := module(t, &bird{})
+	m.log = slog.New(slog.NewTextHandler(&logs, nil))
+	m.wait = func(time.Duration) {}
+	r := &fakeRest{
+		roles:      []discord.Role{{ID: 50}},
+		deleteErr:  errors.New("delete refused"),
+		timeoutErr: errors.New("missing Moderate Members permission"),
+	}
+	msg := message(r, 0, nil).Message
+	trip, burst := m.flood.Observe(flood.Message{Guild: 3, User: 7, Channel: 4, ID: msg.ID, At: msg.CreatedAt, Pings: []snowflake.ID{1, 2, 3, 4, 5}})
+	if !trip {
+		t.Fatal("test message didn't trip the detector")
+	}
+	m.act(r, 3, msg, burst)
+	if r.timeoutCalls != timeoutRetryLimit || m.Report(3).Rows[3][1] != "1; manual action required" ||
+		!m.flood.Pending(3, 7) || !strings.Contains(logs.String(), "timeout_unresolved_manual_intervention") {
+		t.Fatalf("permanent timeout failure wasn't bounded and retained: attempts %d report %+v pending %v logs %q", r.timeoutCalls, m.Report(3), m.flood.Pending(3, 7), logs.String())
 	}
 }
 

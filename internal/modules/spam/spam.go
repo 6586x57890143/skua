@@ -54,6 +54,11 @@ var Ladder = sanction.Ladder{Base: 10 * time.Minute, Doublings: 7, Max: 24 * tim
 // actBy bounds one trip: the roles, the deletes, the sanction and the line.
 const actBy = 30 * time.Second
 
+const (
+	timeoutRetryLimit = 3
+	timeoutRetryAfter = 5 * time.Second
+)
+
 // staff is the permissions that put a member beyond the module.
 const staff = discord.PermissionAdministrator | discord.PermissionManageGuild | discord.PermissionManageMessages |
 	discord.PermissionModerateMembers | discord.PermissionKickMembers | discord.PermissionBanMembers
@@ -82,20 +87,24 @@ type Module struct {
 	// Admin is the router's check, for the controls on spam's /help page.
 	Admin func(discord.Interaction) bool
 
-	flood    flood.Detector
-	mu       sync.Mutex // one scope change at a time
-	watches  sync.Map   // guild -> *watch
-	trips    sync.Map   // guild -> *atomic.Int64, since boot
-	failures sync.Map   // guild -> *atomic.Int64, containment failures since boot
-	now      func() time.Time
+	flood      flood.Detector
+	mu         sync.Mutex // one scope change at a time
+	watches    sync.Map   // guild -> *watch
+	trips      sync.Map   // guild -> *atomic.Int64, since boot
+	failures   sync.Map   // guild -> *atomic.Int64, containment failures since boot
+	unresolved sync.Map   // incidentKey -> struct{}, requires manual intervention
+	now        func() time.Time
+	wait       func(time.Duration)
 }
+
+type incidentKey struct{ guild, user snowflake.ID }
 
 // New loads every guild's scope. history is nil without a database, and
 // then a record lasts only as long as the process. owner reads a guild's
 // owner from the cache. sanctions are tried in order.
 func New(ctx context.Context, log *slog.Logger, g *guard.Guard, db DB, history sanction.History,
 	owner func(snowflake.ID) (snowflake.ID, bool), bootstrap core.Admins, sanctions ...sanction.Sanction) (*Module, error) {
-	m := &Module{log: log, guard: g, db: db, history: history, owner: owner, bootstrap: bootstrap, sanctions: sanctions, now: time.Now}
+	m := &Module{log: log, guard: g, db: db, history: history, owner: owner, bootstrap: bootstrap, sanctions: sanctions, now: time.Now, wait: time.Sleep}
 	if db == nil {
 		return m, nil
 	}
@@ -394,35 +403,66 @@ func (m *Module) act(r rest.Rest, guild snowflake.ID, msg discord.Message, burst
 		m.log.Info("spam: cleanup fell behind; timed out", "guild", guild, "user", user, "for", verdict.For)
 		return true
 	}
-	containAndDrain := func() {
-		for !timedOut {
-			applyTimeout()
-			cleanupCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
-			for {
-				remaining := m.flood.DrainSince(guild, user)
-				if len(remaining) == 0 {
-					break
-				}
-				cleared += m.clear(cleanupCtx, r, guild, remaining, gone)
-				if cleanupCtx.Err() != nil {
-					break
-				}
+	drainAndClear := func() {
+		cleanupCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
+		for {
+			remaining := m.flood.DrainSince(guild, user)
+			if len(remaining) == 0 {
+				break
 			}
-			stop()
-			if !timedOut {
-				time.Sleep(5 * time.Second)
+			all = append(all, remaining...)
+			cleared += m.clear(cleanupCtx, r, guild, remaining, gone)
+			if cleanupCtx.Err() != nil {
+				break
 			}
 		}
+		stop()
+	}
+	containAndDrain := func() bool {
+		for attempt := 0; attempt < timeoutRetryLimit; attempt++ {
+			if applyTimeout() {
+				drainAndClear()
+				return true
+			}
+			drainAndClear()
+			if attempt+1 < timeoutRetryLimit {
+				m.wait(timeoutRetryAfter)
+			}
+		}
+		return false
+	}
+	retainUnresolved := func(stage string, cause error, extra []flood.Seen) {
+		all = append(all, extra...)
+		all = append(all, m.flood.DrainSince(guild, user)...)
+		failed := make([]flood.Seen, 0, len(all))
+		for _, message := range all {
+			if !gone[message.ID] {
+				failed = append(failed, message)
+			}
+		}
+		if m.flood.RetainPending(guild, user, failed) {
+			m.alert(guild, user, "unresolved_queue_overflow", fmt.Errorf("failed message IDs exceed the bounded cleanup queue"))
+		}
+		m.unresolved.Store(incidentKey{guild, user}, struct{}{})
+		m.alert(guild, user, stage, cause)
 	}
 	if fellBehind {
-		// Keep cleanup intake active until Discord confirms the timeout. If
-		// timeout application fails, keep draining and retrying; closing the
-		// queue here would let the member send messages outside containment.
-		containAndDrain()
+		// Try a bounded number of times. On permanent permission or API
+		// failure, retain the incident and its queue for manual intervention;
+		// never leave a per-member retry loop running indefinitely.
+		if !containAndDrain() {
+			retainUnresolved("timeout_unresolved_manual_intervention", fmt.Errorf("timeout failed after %d attempts; grant Moderate Members and resolve this incident manually", timeoutRetryLimit), nil)
+			return
+		}
 		// Discord has applied the timeout, so no new message can escape the
 		// still-open queue. Drain the final captured backlog before closing it.
 		cleanupCtx, stop := context.WithTimeout(context.Background(), 2*time.Minute)
 		cleared += m.clear(cleanupCtx, r, guild, all, gone)
+		if remaining := uniqueMessages(all) - cleared; remaining > 0 {
+			stop()
+			retainUnresolved("delete_unresolved_manual_intervention", fmt.Errorf("%d messages remain after timeout and a retry; resolve this incident manually", remaining), nil)
+			return
+		}
 		for {
 			remaining := m.flood.DrainSince(guild, user)
 			if len(remaining) == 0 {
@@ -444,17 +484,22 @@ func (m *Module) act(r rest.Rest, guild snowflake.ID, msg discord.Message, burst
 			m.alert(guild, user, "cleanup_queue_overflow", fmt.Errorf("some message IDs exceeded the bounded cleanup history"))
 		}
 		if len(tail) > 0 || finalOverflow {
-			if !timedOut {
-				containAndDrain()
+			if !timedOut && !containAndDrain() {
+				retainUnresolved("timeout_unresolved_manual_intervention", fmt.Errorf("timeout failed after %d attempts; grant Moderate Members and resolve this incident manually", timeoutRetryLimit), tail)
+				return
 			}
 		}
 		if len(tail) > 0 {
 			tailCtx, stop := context.WithTimeout(context.Background(), 2*time.Minute)
 			tailCleared := m.clear(tailCtx, r, guild, tail, gone)
+			if tailCleared < uniqueMessages(tail) {
+				tailCleared += m.clear(tailCtx, r, guild, tail, gone)
+			}
 			stop()
 			cleared += tailCleared
 			if tailCleared < uniqueMessages(tail) {
-				m.alert(guild, user, "delete_backlog_remains", fmt.Errorf("cleared %d of %d queued messages", tailCleared, uniqueMessages(tail)))
+				retainUnresolved("delete_unresolved_manual_intervention", fmt.Errorf("cleared %d of %d queued messages after timeout; resolve this incident manually", tailCleared, uniqueMessages(tail)), tail)
+				return
 			}
 		}
 		if finished {
@@ -600,9 +645,17 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 	if v, ok := m.failures.Load(guild); ok {
 		failures = v.(*atomic.Int64).Load()
 	}
+	unresolved := 0
+	m.unresolved.Range(func(k, _ any) bool {
+		if k.(incidentKey).guild == guild {
+			unresolved++
+		}
+		return true
+	})
 	return core.Report{
 		Rows: [][2]string{{"watching", where}, {"caught", fmt.Sprintf("%d since she woke", caught)},
-			{"containment failures", fmt.Sprintf("%d since she woke", failures)}},
+			{"containment failures", fmt.Sprintf("%d since she woke", failures)},
+			{"unresolved incidents", fmt.Sprintf("%d; manual action required", unresolved)}},
 		Controls: m.controls(guild),
 	}
 }

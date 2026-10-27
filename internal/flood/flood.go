@@ -273,6 +273,40 @@ func (d *Detector) DrainSince(guild, user snowflake.ID) []Seen {
 	return out
 }
 
+// RetainPending puts failed deletions back into an active cleanup queue. It
+// is used when containment enters manual-intervention mode after bounded
+// timeout retries, so the incident's remaining IDs and later messages stay
+// attached to the detector state.
+func (d *Detector) RetainPending(guild, user snowflake.ID, messages []Seen) bool {
+	v, ok := d.members.Load(who{guild, user})
+	if !ok {
+		return len(messages) > 0
+	}
+	s := v.(*member)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.cleanup {
+		return len(messages) > 0
+	}
+	known := make(map[Seen]struct{}, len(s.pending)+len(messages))
+	for _, message := range s.pending {
+		known[message] = struct{}{}
+	}
+	for _, message := range messages {
+		if _, ok := known[message]; ok {
+			continue
+		}
+		if len(s.pending) >= pendingLimit {
+			s.overflow = true
+			s.overflowAt = s.last
+			continue
+		}
+		s.pending = append(s.pending, message)
+		known[message] = struct{}{}
+	}
+	return s.overflow
+}
+
 // Pending is whether cleanup still has queued messages for this member.
 func (d *Detector) Pending(guild, user snowflake.ID) bool {
 	v, ok := d.members.Load(who{guild, user})

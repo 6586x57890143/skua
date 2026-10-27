@@ -258,6 +258,20 @@ func TestCleanupIntakeOutlivesQuietWindowUntilContainmentFinishes(t *testing.T) 
 	}
 }
 
+func TestRetainPendingKeepsFailedDeletesAttachedToOpenIncident(t *testing.T) {
+	d := &Detector{}
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 1, At: t0, Pings: []snowflake.ID{1, 2, 3, 4, 5}})
+	d.DrainSince(3, 7)
+	if overflow := d.RetainPending(3, 7, []Seen{{Channel: 4, ID: 1}}); overflow {
+		t.Fatal("small unresolved queue overflowed")
+	}
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 2, At: t0.Add(time.Second)})
+	got := d.DrainSince(3, 7)
+	if len(got) != 2 || got[0].ID != 1 || got[1].ID != 2 {
+		t.Fatalf("unresolved incident retained %v, want failed ID 1 and new ID 2", got)
+	}
+}
+
 func TestCleanupQueueOverflowAndRecentHistoryCompaction(t *testing.T) {
 	now := t0.Add(2 * time.Minute)
 	s := &member{}

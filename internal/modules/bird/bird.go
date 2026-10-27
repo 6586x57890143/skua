@@ -84,13 +84,13 @@ type prank struct {
 	audio []byte
 	about about
 
-	mu      sync.Mutex
-	until   time.Time // moved only by extend once stored
-	posting bool
-	posted  bool
-	retryAt time.Time
-	pending []original
-	queued  map[snowflake.ID]struct{}
+	mu       sync.Mutex
+	until    time.Time // moved only by extend once stored
+	posting  bool
+	posted   bool
+	retryAt  time.Time
+	pending  []original
+	queued   map[snowflake.ID]struct{}
 	overflow bool
 }
 
@@ -447,11 +447,15 @@ func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Messa
 }
 
 func (m *Module) deleteOriginal(ctx context.Context, r rest.Rest, guild, channel, id snowflake.ID, by string) {
-	if m.guard.Allow(guild, guard.SpamMessageDelete) != nil {
+	if err := m.guard.Allow(guild, guard.SpamMessageDelete); err != nil {
+		slog.Error("bird: original deletion failed", "alert", "bird_original_delete_failure", "guild", guild, "channel", channel, "message", id, "err", err)
 		return
 	}
 	err := r.DeleteMessage(channel, id, rest.WithCtx(ctx), rest.WithReason("bird: replaced with a recording, started by "+by))
 	m.guard.Done(guild, err)
+	if err != nil {
+		slog.Error("bird: original deletion failed", "alert", "bird_original_delete_failure", "guild", guild, "channel", channel, "message", id, "err", err)
+	}
 }
 
 // markdown escapes brackets too, so a name cannot close the species link.
