@@ -76,7 +76,7 @@ func card(l Link, p Post) discord.MessageCreate {
 		remaining -= len(utf16.Encode([]rune(text)))
 	}
 	heading := clip(cardIdentity(l, p), remaining)
-	parts = append(parts, cardHeader(l, p, heading))
+	parts = append(parts, cardHeader(heading))
 	remaining -= len(utf16.Encode([]rune(heading)))
 	// Instagram titles are generated caption summaries, not separate headlines.
 	if platform != "reddit" && (platform != "instagram" || p.Text == "") && p.Title != "" && p.Title != p.Text {
@@ -92,7 +92,13 @@ func card(l Link, p Post) discord.MessageCreate {
 	truncated := false
 	seen := map[string]bool{}
 	appendMedia := func(media []Media, sensitive bool) {
-		var items []discord.MediaGalleryItem
+		var grid []discord.MediaGalleryItem
+		flush := func() {
+			if len(grid) > 0 {
+				parts = append(parts, discord.NewMediaGallery(grid...))
+				grid = nil
+			}
+		}
 		for _, m := range media {
 			u := remoteURL(m.URL)
 			if mediaLeft == 0 {
@@ -104,15 +110,19 @@ func card(l Link, p Post) discord.MessageCreate {
 			}
 			seen[u] = true
 			mediaLeft--
-			items = append(items, discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: u}, Description: clean(m.Alt, 1000), Spoiler: sensitive || m.Sensitive})
-			if len(items) == 10 {
-				parts = append(parts, discord.NewMediaGallery(items...))
-				items = nil
+			item := discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: u}, Description: clean(m.Alt, 1000), Spoiler: sensitive || m.Sensitive}
+			if m.Width > 0 && m.Height > m.Width {
+				// Separate portrait media so Discord can show its full frame.
+				flush()
+				parts = append(parts, discord.NewMediaGallery(item))
+				continue
+			}
+			grid = append(grid, item)
+			if len(grid) == 10 {
+				flush()
 			}
 		}
-		if len(items) > 0 {
-			parts = append(parts, discord.NewMediaGallery(items...))
-		}
+		flush()
 	}
 	appendMedia(p.Media, p.Sensitive)
 	for i, s := range p.Sections {

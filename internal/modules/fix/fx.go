@@ -68,6 +68,8 @@ type fxMedia struct {
 	URL     string `json:"url"`
 	Type    string `json:"type"`
 	Alt     string `json:"altText"`
+	Width   int    `json:"width"`
+	Height  int    `json:"height"`
 	Formats []struct {
 		URL       string `json:"url"`
 		Container string `json:"container"`
@@ -92,7 +94,7 @@ func (s fxStatus) media() []Media {
 				}
 			}
 		}
-		out = append(out, Media{URL: u, Alt: m.Alt, Sensitive: s.Sensitive})
+		out = append(out, Media{URL: u, Alt: m.Alt, Width: m.Width, Height: m.Height, Sensitive: s.Sensitive})
 	}
 	return out
 }
