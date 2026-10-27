@@ -87,6 +87,31 @@ func TestMediaURLAndTextSafety(t *testing.T) {
 		}
 	}
 }
+func TestPortraitMediaGetsItsOwnGalleryRow(t *testing.T) {
+	l, _ := Parse("https://x.com/creator/status/123")
+	p := Post{Media: []Media{
+		{URL: "https://cdn.example/landscape-before.jpg", Width: 1280, Height: 720},
+		{URL: "https://cdn.example/portrait-one.jpg", Width: 720, Height: 1280},
+		{URL: "https://cdn.example/portrait-two.jpg", Width: 720, Height: 1280},
+		{URL: "https://cdn.example/landscape-after.jpg", Width: 1280, Height: 720},
+	}}
+	box := card(l, p).Components[0].(discord.ContainerComponent)
+	var galleries []discord.MediaGalleryComponent
+	for _, c := range box.Components {
+		if g, ok := c.(discord.MediaGalleryComponent); ok {
+			galleries = append(galleries, g)
+		}
+	}
+	if len(galleries) != 4 {
+		t.Fatalf("portrait assets should each get a full-width row; got %d galleries", len(galleries))
+	}
+	for _, g := range galleries {
+		if len(g.Items) != 1 {
+			t.Fatalf("expected one media item per gallery row, got %d", len(g.Items))
+		}
+	}
+}
+
 func TestCardIsBoundedV2WithMixedMediaAndSpoilers(t *testing.T) {
 	l, _ := Parse("https://reddit.com/r/test/comments/abc/title")
 	p := Post{Title: strings.Repeat("😀", 300), Text: strings.Repeat("Text **bold**\n", 500), Author: "Creator", Handle: "User", Avatar: "https://cdn.example/avatar.png", Stats: strings.Repeat("stats", 100), Context: strings.Repeat("context", 100), Provider: "fixembed", Timestamp: "2026-10-23T12:00:00Z", Sensitive: true}
@@ -154,7 +179,7 @@ func TestCardIsBoundedV2WithMixedMediaAndSpoilers(t *testing.T) {
 	p.Media = []Media{{URL: "http://evil.test/x"}, {URL: "https://cdn.example/a.png"}, {URL: "https://cdn.example/a.png"}}
 	p.Sections = nil
 	raw, _ = json.Marshal(card(l, p))
-	if !strings.Contains(string(raw), `"type":9`) || !strings.Contains(string(raw), "avatar.png") || strings.Contains(string(raw), "evil.test") {
+	if strings.Contains(string(raw), `"type":9`) || strings.Contains(string(raw), "avatar.png") || strings.Contains(string(raw), "evil.test") || !strings.Contains(string(raw), "https://cdn.example/a.png") {
 		t.Fatal(string(raw))
 	}
 	p.Author = ""

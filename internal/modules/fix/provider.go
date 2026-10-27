@@ -26,8 +26,9 @@ type Post struct {
 	Sections                                                                 []Section
 }
 type Media struct {
-	URL, Alt  string
-	Sensitive bool
+	URL, Alt      string
+	Width, Height int
+	Sensitive     bool
 }
 type Section struct {
 	Kind, Author, Handle, AuthorURL string

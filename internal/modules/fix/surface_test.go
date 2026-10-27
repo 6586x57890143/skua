@@ -33,20 +33,16 @@ func TestCompactLinkedCard(t *testing.T) {
 	p := Post{Author: "calle", Handle: "callebtc", Avatar: "https://cdn.example/large.png", Text: "I'm tired boss\nhttps://example.com/story", Stats: "7215 likes · 737 reposts · 135 replies", Timestamp: "2026-10-22T10:13:00Z", Provider: "fxembed", Sections: []Section{{Title: "quote · Author", Text: "Quoted words", URL: "https://x.com/author/status/100"}}}
 	msg := card(l, p)
 	box := msg.Components[0].(discord.ContainerComponent)
-	header := box.Components[0].(discord.SectionComponent)
-	head := header.Components[0].(discord.TextDisplayComponent).Content
+	head := box.Components[0].(discord.TextDisplayComponent).Content
 	if !strings.Contains(head, "<:pf_x_") || !strings.Contains(head, "**[calle](<"+l.URL+">)**") {
 		t.Fatal(head)
-	}
-	if _, ok := header.Accessory.(discord.ThumbnailComponent); !ok {
-		t.Fatalf("expected avatar accessory, got %T", header.Accessory)
 	}
 	body := box.Components[1].(discord.TextDisplayComponent).Content
 	if strings.HasPrefix(body, ">") || strings.HasPrefix(body, "-#") || !strings.Contains(body, "<https://example.com/story>") || strings.Contains(body, "](<") {
 		t.Fatal(body)
 	}
 	raw, _ := json.Marshal(msg)
-	for _, unwanted := range []string{"open original", `"type":2`, " utc"} {
+	for _, unwanted := range []string{"open original", `"type":2`, `"type":9`, `"type":11`, "avatar.jpg", "large.png", " utc"} {
 		if strings.Contains(string(raw), unwanted) {
 			t.Fatal(unwanted, string(raw))
 		}
@@ -479,16 +475,9 @@ func TestSharedCardHeaderAcrossPlatforms(t *testing.T) {
 			l := Link{Platform: platform, URL: "https://example.com/post"}
 			p := Post{Author: "creator", Handle: "creator", Avatar: "https://cdn.example/avatar.jpg", Timestamp: "2026-10-22T10:13:00Z", Provider: "fxembed"}
 			box := card(l, p).Components[0].(discord.ContainerComponent)
-			header, ok := box.Components[0].(discord.SectionComponent)
-			if !ok {
-				t.Fatalf("header type %T", box.Components[0])
-			}
-			text := header.Components[0].(discord.TextDisplayComponent).Content
+			text := box.Components[0].(discord.TextDisplayComponent).Content
 			if !strings.Contains(text, platformMark(l)) || !strings.Contains(text, "<t:1792663980:R>") {
 				t.Fatalf("header missing shared identity or time: %s", text)
-			}
-			if _, ok := header.Accessory.(discord.ThumbnailComponent); !ok {
-				t.Fatalf("avatar accessory type %T", header.Accessory)
 			}
 		})
 	}
@@ -558,15 +547,19 @@ func TestPlatformSectionTypesStayCompactAndDistinct(t *testing.T) {
 	}
 }
 
-func TestAvatarThumbnailRequiresSafeURLAndNonsensitivePost(t *testing.T) {
+func TestCardHeaderOmitsAuthorAvatar(t *testing.T) {
 	l := Link{Platform: "instagram", URL: "https://instagram.com/p/example"}
 	for _, p := range []Post{
 		{Author: "creator", Avatar: "javascript:alert(1)"},
-		{Author: "creator", Avatar: "https://cdn.example/avatar.jpg", Sensitive: true},
+		{Author: "creator", Avatar: "https://cdn.example/avatar.jpg"},
 	} {
 		box := card(l, p).Components[0].(discord.ContainerComponent)
 		if _, ok := box.Components[0].(discord.TextDisplayComponent); !ok {
-			t.Fatalf("unsafe or sensitive avatar created a thumbnail: %T", box.Components[0])
+			t.Fatalf("header should be text without an avatar accessory: %T", box.Components[0])
+		}
+		raw, _ := json.Marshal(box)
+		if strings.Contains(string(raw), "avatar.jpg") || strings.Contains(string(raw), "javascript:") || strings.Contains(string(raw), `"type":11`) {
+			t.Fatalf("card included author avatar: %s", raw)
 		}
 	}
 }
