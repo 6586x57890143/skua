@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/snowflake/v2"
 
@@ -28,11 +29,6 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 	if !m.bootstrap.Has(by) {
 		return errJobsNotYours
 	}
-	data := e.SlashCommandInteractionData()
-	if user, ok := data.OptSnowflake("member"); ok {
-		m.log.Warn("purge: break-glass", "sub", "jobs drop", "by", by, "for", user)
-		return m.dropJobsCmd(ctx, e, user)
-	}
 	m.log.Warn("purge: break-glass", "sub", "jobs", "by", by)
 	name := func(g snowflake.ID) string {
 		if c := e.Client().Caches; c != nil {
@@ -47,6 +43,7 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 	type line struct {
 		key  string
 		text string
+		user snowflake.ID
 	}
 	var running, catching []line
 	m.running.Range(func(k, v any) bool {
@@ -68,8 +65,8 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 				state = fmt.Sprintf("%d of %d deleted %s", n, s.total.Load(), bar(s.handled.Load(), s.total.Load()))
 			}
 		}
-		running = append(running, line{name(t.guild) + t.user.String(), fmt.Sprintf("<@%d> in %s · %s · %s · %s",
-			t.user, name(t.guild), how, span(now.Sub(r.job.began)), state)})
+		running = append(running, line{key: name(t.guild) + t.user.String(), text: fmt.Sprintf("<@%d> in %s · %s · %s · %s",
+			t.user, name(t.guild), how, span(now.Sub(r.job.began)), state), user: t.user})
 		return true
 	})
 	m.catching.Range(func(k, v any) bool {
@@ -78,14 +75,14 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 		if c.scan.listed.Load() {
 			progress = fmt.Sprintf("channels %s · %d scanned", c.scan.progress(), c.scan.scanned.Load())
 		}
-		catching = append(catching, line{name(g), fmt.Sprintf("reading %s · %s", name(g), progress)})
+		catching = append(catching, line{key: name(g), text: fmt.Sprintf("reading %s · %s", name(g), progress)})
 		return true
 	})
 	for _, l := range [][]line{running, catching} {
 		slices.SortFunc(l, func(a, b line) int { return strings.Compare(a.key, b.key) })
 	}
 
-	var upcoming []string
+	var upcoming []line
 	var scheduled, live int
 	if m.db != nil {
 		rows, err := m.db.Query(ctx, `select guild_id, user_id, every_s, next_run, live_delay_s from purge_subs
@@ -115,7 +112,7 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 				live++
 				facts = append(facts, "live "+choiceName(delays, liveS))
 			}
-			upcoming = append(upcoming, fmt.Sprintf("<@%d> in %s · %s", u, name(snowflake.ID(g)), strings.Join(facts, " · ")))
+			upcoming = append(upcoming, line{key: name(snowflake.ID(g)) + snowflake.ID(u).String(), text: fmt.Sprintf("<@%d> in %s · %s", u, name(snowflake.ID(g)), strings.Join(facts, " · ")), user: snowflake.ID(u)})
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
@@ -132,45 +129,88 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 	if m.db == nil {
 		text += "\n-# no database here, so nothing is scheduled or live"
 	}
-	var lines []string
+	var lines []line
 	for _, l := range append(running, catching...) {
-		lines = append(lines, l.text)
+		lines = append(lines, l)
 	}
 	lines = append(lines, upcoming...)
+	var users []snowflake.ID
+	seen := map[snowflake.ID]bool{}
 	for i, l := range lines {
-		if len(text)+len(l)+4 > replyMax {
+		if len(text)+len(l.text)+4 > replyMax {
 			text += fmt.Sprintf("\n-# and %d more", len(lines)-i)
 			break
 		}
-		text += "\n-# " + l
+		text += "\n-# " + l.text
+		if l.user != 0 && !seen[l.user] {
+			seen[l.user] = true
+			users = append(users, l.user)
+		}
 	}
-	return reply(e, brand.ColorInfo, "jobs", text)
+	var extra []discord.ContainerSubComponent
+	if len(users) > 25 {
+		extra = append(extra, discord.NewTextDisplay("-# drop buttons for the first 25 listed members"))
+		users = users[:25]
+	}
+	for i := 0; i < len(users); i += 5 {
+		end := min(i+5, len(users))
+		buttons := make([]discord.InteractiveComponent, 0, end-i)
+		for _, user := range users[i:end] {
+			buttons = append(buttons, discord.NewDangerButton("drop "+user.String(), fmt.Sprintf("%s:%d", jobsDropButton, user)))
+		}
+		extra = append(extra, discord.NewActionRow(buttons...))
+	}
+	return reply(e, brand.ColorInfo, "jobs", text, extra...)
 }
 
-// dropJobsCmd withdraws every queued purge for one member, across servers.
+// dropJob withdraws every queued purge for one member, across servers.
 // Historical sweep results remain available to /purge status.
-func (m *Module) dropJobsCmd(ctx context.Context, e *events.ApplicationCommandInteractionCreate, user snowflake.ID) error {
+func (m *Module) dropJob(ctx context.Context, e *events.ComponentInteractionCreate) error {
+	by := e.User().ID
+	if !m.bootstrap.Has(by) {
+		return errJobsNotYours
+	}
+	_, raw, ok := strings.Cut(e.Data.CustomID(), ":")
+	user, err := snowflake.Parse(raw)
+	if !ok || err != nil || user == 0 {
+		return core.Tell("that jobs card is out of date; run /purge jobs again")
+	}
+	m.log.Warn("purge: break-glass", "sub", "jobs drop", "by", by, "for", user)
+	dropped, err := m.dropJobs(ctx, user)
+	if err != nil {
+		return err
+	}
+	text := fmt.Sprintf("✓ dropped <@%d>'s purge jobs across servers · %d saved settings cleared, %d live timers removed, %d running purges stopped; messages already deleted stay deleted", user, dropped.settings, dropped.live, dropped.running)
+	components := []discord.LayoutComponent{brand.Card(brand.ColorWarn, "purge", "jobs", text)}
+	return e.UpdateMessage(core.Edit(discord.MessageUpdate{Components: &components, AllowedMentions: core.NoPings()}))
+}
+
+type dropCount struct {
+	settings      int64
+	live, running int
+}
+
+func (m *Module) dropJobs(ctx context.Context, user snowflake.ID) (dropCount, error) {
 	m.settings.Lock()
 	defer m.settings.Unlock()
 
-	var settings int64
+	var dropped dropCount
 	if m.db != nil {
 		tag, err := m.db.Exec(ctx, `update purge_subs set live_delay_s = null, every_s = null,
 			next_run = null, claimed = false, now_since = null,
 			live_channels = '{}', every_channels = '{}'
 			where user_id = $1 and (live_delay_s is not null or every_s is not null or next_run is not null or claimed or now_since is not null)`, int64(user))
 		if err != nil {
-			return err
+			return dropCount{}, err
 		}
-		settings = tag.RowsAffected()
+		dropped.settings = tag.RowsAffected()
 	}
 
-	var live, running int
 	m.live.Range(func(key, _ any) bool {
 		k := key.(target)
 		if k.user == user {
 			m.setLive(k, 0, nil)
-			live++
+			dropped.live++
 		}
 		return true
 	})
@@ -178,11 +218,11 @@ func (m *Module) dropJobsCmd(ctx context.Context, e *events.ApplicationCommandIn
 		k := key.(target)
 		if k.user == user {
 			value.(*run).cancel()
-			running++
+			dropped.running++
 		}
 		return true
 	})
 
-	return reply(e, brand.ColorWarn, "jobs", fmt.Sprintf("✓ dropped <@%d>'s purge jobs across servers · %d saved settings cleared, %d live timers removed, %d running purges stopped; messages already deleted stay deleted", user, settings, live, running))
+	return dropped, nil
 }
 
