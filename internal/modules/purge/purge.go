@@ -178,7 +178,7 @@ func (m *Module) Commands() []core.Command {
 					}, member, in},
 				},
 				discord.ApplicationCommandOptionSubCommand{Name: "status", Description: "what's set up here and how your last sweep went", Options: forMember()},
-				discord.ApplicationCommandOptionSubCommand{Name: "jobs", Description: "break-glass admin only: every purge running or coming up, in every server"},
+				discord.ApplicationCommandOptionSubCommand{Name: "jobs", Description: "break-glass admin only: view or drop a member's purge jobs", Options: forMember()},
 			},
 		},
 		Tier: core.Public,
@@ -788,3 +788,4 @@ func span(d time.Duration) string {
 	}
 	return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
 }
+
