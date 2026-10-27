@@ -170,7 +170,7 @@ func ytServer(t *testing.T, live *atomic.Bool) *httptest.Server {
 			_, _ = w.Write([]byte(atom))
 		case r.URL.Path == "/channel/"+ytID+"/live":
 			if live.Load() {
-				_, _ = w.Write([]byte(`<link rel="canonical" href="https://www.youtube.com/watch?v=livevideo01"><meta name="title" content="on air &amp; loud">"isLive":true`))
+				_, _ = w.Write([]byte(`<link rel="canonical" href="https://www.youtube.com/watch?v=livevideo01"><meta name="title" content="on air &amp; loud">"videoDetails":{"videoId":"livevideo01","isLive":true},"playabilityStatus":{"status":"OK"}`))
 				return
 			}
 			_, _ = w.Write([]byte(`<link rel="canonical" href="https://www.youtube.com/channel/` + ytID + `">`))
@@ -389,3 +389,4 @@ func TestStatusErrorSaysWhy(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+

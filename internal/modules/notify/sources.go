@@ -325,13 +325,27 @@ func (y *youtube) channel(ctx context.Context, id string) ([]item, error) {
 	if err != nil {
 		return nil, err
 	}
-	// videoDetails.isLive: absent on an upcoming stream and on a channel
-	// page, which is where /live lands when nothing is on.
-	if !strings.Contains(string(page), `"isLive":true`) {
+	// /live can keep the last scheduled or ended event as its canonical
+	// watch URL. Only trust the current player's own live flag, and only
+	// when YouTube says that player is playable. In particular, an offline
+	// scheduled event has a canonical watch URL and isLiveContent=true.
+	detailsJSON := jsonObjectAfter(page, `"videoDetails":`)
+	var details struct {
+		VideoID string `json:"videoId"`
+		IsLive  bool   `json:"isLive"`
+	}
+	if len(detailsJSON) == 0 || json.Unmarshal(detailsJSON, &details) != nil || !details.IsLive {
+		return nil, nil
+	}
+	statusJSON := jsonObjectAfter(page, `"playabilityStatus":`)
+	var status struct {
+		Status string `json:"status"`
+	}
+	if len(statusJSON) == 0 || json.Unmarshal(statusJSON, &status) != nil || status.Status != "OK" {
 		return nil, nil
 	}
 	m := canonical.FindSubmatch(page)
-	if m == nil || len(m[2]) == 0 {
+	if m == nil || len(m[2]) == 0 || string(m[2]) != details.VideoID {
 		return nil, nil
 	}
 	v := string(m[2])
@@ -340,6 +354,49 @@ func (y *youtube) channel(ctx context.Context, id string) ([]item, error) {
 		live.Title = html.UnescapeString(string(t[1]))
 	}
 	return []item{live}, nil
+}
+
+// jsonObjectAfter returns the JSON object immediately after key in an
+// embedded page response. It balances braces while respecting quoted strings,
+// so nested player fields and braces in titles don't truncate the object.
+func jsonObjectAfter(page []byte, key string) []byte {
+	i := bytes.Index(page, []byte(key))
+	if i < 0 {
+		return nil
+	}
+	i += len(key)
+	for i < len(page) && (page[i] == ' ' || page[i] == '\n' || page[i] == '\r' || page[i] == '\t') {
+		i++
+	}
+	if i == len(page) || page[i] != '{' {
+		return nil
+	}
+	start, depth, quoted, escaped := i, 0, false, false
+	for ; i < len(page); i++ {
+		c := page[i]
+		if quoted {
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				quoted = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			quoted = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return page[start : i+1]
+			}
+		}
+	}
+	return nil
 }
 
 // app is an OAuth client credentials token, fetched when first needed and
@@ -567,3 +624,4 @@ func (k *kick) check(ctx context.Context, accounts []string) (map[string][]item,
 	}
 	return got, errors.Join(errs...)
 }
+
