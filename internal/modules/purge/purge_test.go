@@ -201,7 +201,7 @@ func TestModuleDeclares(t *testing.T) {
 			t.Errorf("Perms lacks %v", p)
 		}
 	}
-	if cs := m.Components(); len(cs) != 1 || cs[0].ID != progressButton {
+	if cs := m.Components(); len(cs) != 2 || cs[0].ID != progressButton || cs[1].ID != jobsDropButton {
 		t.Errorf("components %+v", cs)
 	}
 }
@@ -254,3 +254,4 @@ func TestReadoutFillsIn(t *testing.T) {
 		t.Errorf("quick deletes:\n%s", got)
 	}
 }
+
