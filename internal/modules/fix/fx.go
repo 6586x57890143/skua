@@ -94,7 +94,7 @@ func (s fxStatus) media() []Media {
 				}
 			}
 		}
-		out = append(out, Media{URL: u, Alt: m.Alt, Width: m.Width, Height: m.Height, Sensitive: s.Sensitive})
+		out = append(out, Media{URL: u, Alt: m.Alt, Type: m.Type, Width: m.Width, Height: m.Height, Sensitive: s.Sensitive})
 	}
 	return out
 }

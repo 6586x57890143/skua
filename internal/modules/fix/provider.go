@@ -26,7 +26,7 @@ type Post struct {
 	Sections                                                                 []Section
 }
 type Media struct {
-	URL, Alt      string
+	URL, Alt, Type string
 	Width, Height int
 	Sensitive     bool
 }
@@ -130,20 +130,22 @@ func (a *API) Resolve(ctx context.Context, l Link) (Post, error) {
 		return Post{}, errMetadata
 	}
 	if l.Platform == "kick" {
-		return a.kick(ctx, l)
+		p, err := a.kick(ctx, l)
+		return a.prepareGalleries(p, l.Platform), err
 	}
 	if l.Platform == "twitter" || l.Platform == "bluesky" {
 		first, cancel := context.WithTimeout(ctx, 6*time.Second)
 		p, err := a.fx(first, l)
 		cancel()
 		if err == nil {
-			return p, nil
+			return a.prepareGalleries(p, l.Platform), nil
 		}
 		if ctx.Err() != nil {
 			return Post{}, errMetadata
 		}
 	}
-	return a.fix(ctx, l)
+	p, err := a.fix(ctx, l)
+	return a.prepareGalleries(p, l.Platform), err
 }
 
 type fixData struct {
@@ -184,13 +186,13 @@ type fixData struct {
 func (d fixData) media() []Media {
 	var m []Media
 	if d.Video != nil {
-		m = append(m, Media{URL: d.Video.URL})
+		m = append(m, Media{URL: d.Video.URL, Type: "video"})
 	}
 	for _, u := range d.Images {
-		m = append(m, Media{URL: u})
+		m = append(m, Media{URL: u, Type: "photo"})
 	}
 	if len(m) == 0 && d.Image != "" {
-		m = append(m, Media{URL: d.Image})
+		m = append(m, Media{URL: d.Image, Type: "photo"})
 	}
 	for i := range m {
 		if i < len(d.Descriptions) {

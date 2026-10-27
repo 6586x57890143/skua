@@ -60,7 +60,9 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	controller := http.NewResponseController(w)
 	_ = controller.SetWriteDeadline(time.Now().Add(20 * time.Second))
 	p := strings.Split(strings.TrimPrefix(r.URL.Path, "/fix/media/"), "/")
-	if !strings.HasPrefix(r.URL.Path, "/fix/media/") || len(p) != 3 || !relayID(p[0], p[1]) || !hmac.Equal([]byte(p[2]), []byte(m.signature(p[0], p[1])+".mp4")) {
+	gallery := len(p) == 3 && p[0] == "gallery" && len(p[1]) <= 1800 && hmac.Equal([]byte(p[2]), []byte(m.signature("gallery", p[1])+".jpg"))
+	clip := len(p) == 3 && relayID(p[0], p[1]) && hmac.Equal([]byte(p[2]), []byte(m.signature(p[0], p[1])+".mp4"))
+	if !strings.HasPrefix(r.URL.Path, "/fix/media/") || (!gallery && !clip) {
 		http.NotFound(w, r)
 		return
 	}
@@ -78,21 +80,27 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { <-m.serving }()
+	key := p[0] + "/" + p[1]
 	prepare := func(ctx context.Context) ([]byte, error) { return m.prepare(ctx, p[1], nil) }
+	contentType, filename, maxAge := "video/mp4", "clip.mp4", "public, max-age=900"
 	if p[0] == "reddit" {
 		prepare = func(ctx context.Context) ([]byte, error) { return m.api.redditMux(ctx, p[1]) }
 	}
-	raw, err := m.ready(ctx, p[0]+"/"+p[1], prepare)
+	if gallery {
+		key = "gallery/" + p[1]
+		prepare = func(ctx context.Context) ([]byte, error) { return m.prepareGallery(ctx, p[1]) }
+		contentType, filename, maxAge = "image/jpeg", "gallery.jpg", "public, max-age=86400"
+	}
+	raw, err := m.ready(ctx, key, prepare)
 	if err != nil {
 		http.Error(w, "media unavailable", http.StatusBadGateway)
 		return
 	}
 	_ = controller.SetWriteDeadline(time.Now().Add(20 * time.Second))
-	// ServeContent handles HEAD and byte ranges with the same encoded MP4.
-	w.Header().Set("Content-Type", "video/mp4")
-	w.Header().Set("Cache-Control", "public, max-age=900")
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", maxAge)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	http.ServeContent(w, r, "clip.mp4", time.Time{}, bytes.NewReader(raw))
+	http.ServeContent(w, r, filename, time.Time{}, bytes.NewReader(raw))
 }
 func (m *mediaRelay) ready(ctx context.Context, key string, prepare func(context.Context) ([]byte, error)) ([]byte, error) {
 	select {
