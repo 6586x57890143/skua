@@ -133,6 +133,8 @@ taken from the environment, is said out loud before it is used.
   the icon's 24 unit viewBox, with the source icon named beside it. A module ships
   with its glyph; `internal/brand` fails any module whose `Name()` has no
   `mod_<name>.png`.
+- Social stat and context icons use the same 24-cell pixel grid and are uploaded as
+  `stat_<name>` application emoji, generated from `tools/sprites/icons.go`.
 - `/pp`'s item icons are 16 by 16 cell grids in `internal/pixel/icons.go`, in the style of
   merlin's art: a dark outline and each material lit from the top left in three or four
   tones. One grid is drawn on the game's screens at a pixel a cell and written as an
@@ -172,23 +174,22 @@ missed p99 target; those rows lead, then the slowest remaining stages.
 
 ## social previews
 
-Social previews keep Components V2 media galleries. The platform's existing app
-icon sits beside the author name, linked to the original post. Reddit links the
-post title to the post and the author name to their profile instead. No large author
-thumbnail or duplicate open button. Source text keeps its case and uses normal
-body contrast; quoted posts are separate, linked sections. Engagement icons sit
-beside their counts and Discord timestamps use the reader's timezone.
+Social previews use one shared Components V2 layout and media gallery across all
+supported platforms. The platform icon sits beside the linked author; a safe
+provider avatar appears as the compact section thumbnail when available. Reddit
+links its post title and author profile instead. Source text keeps its case and
+normal contrast. Quotes use the repost icon and linked author; notes and replies
+use their Skua icons with muted full text; polls lead with a poll icon; and linked
+posts identify their destination platform. Generic link cards use a link icon and
+make their title the link. Sections omit labels when an icon already supplies that
+context. No action buttons are added.
 
-This follows the owner's 2026-10-23 comparison of FixTweet and Skua screenshots:
-the large avatar crowded the header and the quoted body was too faint. Components
-V2 cannot place a small remote avatar inline, so the platform icon takes that place.
-
-The fix card keeps notify's compact headline, supporting identity and full-width
-media rhythm without changing notify. Reddit's linked title leads, with the
-profile below; other platforms lead with the linked author and a smaller linked
-handle. Quoted posts get a small gap and their own identity. Replies, reposts,
-likes and views stay in that order, abbreviated like notify, above one quiet
-single-row stats, attribution and relative-time footer. Footer space is reserved for long posts.
+The header carries the Discord relative timestamp alongside the supporting author
+identity, and the footer stays a quiet single row of engagement icons, attribution
+and translation credit. Reddit's linked title leads; other platforms lead with the
+linked author and handle. Engagement stats remain in notify's compact order and
+style. Platform accents use muted suite colours; loading, incomplete, unavailable
+and sensitive states retain their distinct accents.
 
 Ready accents follow the platform in muted suite colours. Loading is slate,
 incomplete media is amber, unavailable previews are red and sensitive posts are

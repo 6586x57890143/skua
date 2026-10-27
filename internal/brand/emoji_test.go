@@ -57,7 +57,7 @@ func TestEmojiNamesAreValidAndFollowTheArt(t *testing.T) {
 		}
 		keys[e.Key], names[e.Name] = true, true
 	}
-	for _, key := range []string{"skua_avatar", "skua_ok", "mod_help", "mod_preen"} {
+	for _, key := range []string{"skua_avatar", "skua_ok", "mod_help", "mod_preen", "stat_poll", "stat_link"} {
 		if !keys[key] {
 			t.Errorf("no emoji for %s", key)
 		}

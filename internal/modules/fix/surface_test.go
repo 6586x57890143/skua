@@ -33,21 +33,25 @@ func TestCompactLinkedCard(t *testing.T) {
 	p := Post{Author: "calle", Handle: "callebtc", Avatar: "https://cdn.example/large.png", Text: "I'm tired boss\nhttps://example.com/story", Stats: "7215 likes · 737 reposts · 135 replies", Timestamp: "2026-10-22T10:13:00Z", Provider: "fxembed", Sections: []Section{{Title: "quote · Author", Text: "Quoted words", URL: "https://x.com/author/status/100"}}}
 	msg := card(l, p)
 	box := msg.Components[0].(discord.ContainerComponent)
-	head := box.Components[0].(discord.TextDisplayComponent).Content
+	header := box.Components[0].(discord.SectionComponent)
+	head := header.Components[0].(discord.TextDisplayComponent).Content
 	if !strings.Contains(head, "<:pf_x_") || !strings.Contains(head, "**[calle](<"+l.URL+">)**") {
 		t.Fatal(head)
+	}
+	if _, ok := header.Accessory.(discord.ThumbnailComponent); !ok {
+		t.Fatalf("expected avatar accessory, got %T", header.Accessory)
 	}
 	body := box.Components[1].(discord.TextDisplayComponent).Content
 	if strings.HasPrefix(body, ">") || strings.HasPrefix(body, "-#") || !strings.Contains(body, "<https://example.com/story>") || strings.Contains(body, "](<") {
 		t.Fatal(body)
 	}
 	raw, _ := json.Marshal(msg)
-	for _, unwanted := range []string{"large.png", "open original", `"type":9`, `"type":11`, `"type":2`, " utc"} {
+	for _, unwanted := range []string{"open original", `"type":2`, " utc"} {
 		if strings.Contains(string(raw), unwanted) {
 			t.Fatal(unwanted, string(raw))
 		}
 	}
-	all := ""
+	all := head + "\n"
 	for _, c := range box.Components {
 		if d, ok := c.(discord.TextDisplayComponent); ok {
 			all += d.Content + "\n"
@@ -196,8 +200,8 @@ func TestEverySupportedPlatformHasAnIcon(t *testing.T) {
 		}
 		l := Link{Platform: p, URL: "https://example.com/post"}
 		mark := brand.Mention("pf_" + p)
-		if !strings.HasPrefix(identity(l, Post{Author: "creator"}), mark+" ") || !strings.Contains(sectionText(l, Section{Kind: "quote", Author: "quoted creator", URL: l.URL}, 500), mark+" ") {
-			t.Errorf("%s does not use its platform emoji on both identities", p)
+		if !strings.HasPrefix(identity(l, Post{Author: "creator"}), mark+" ") || !strings.Contains(sectionText(l, Section{Kind: "quote", Author: "quoted creator", URL: l.URL}, 500), brand.Mention("stat_repost")) {
+			t.Errorf("%s does not use the shared platform header and quote icon", p)
 		}
 	}
 }
@@ -448,16 +452,121 @@ func TestFooterStaysVisibleAndQuoteHasOwnIdentity(t *testing.T) {
 	p := Post{Author: "author", Text: strings.Repeat("line\n", 2000), Stats: strings.Repeat("1 likes · 2 reposts · 3 replies · 4 views · unknown · ", 100), Provider: "fxembed", Timestamp: "2026-10-22T10:13:00Z", Sections: []Section{{Kind: "quote", Author: "another", Handle: "another", URL: "https://x.com/another/status/124", AuthorURL: "https://x.com/another", Text: "A quoted post"}}}
 	box := card(l, p).Components[0].(discord.ContainerComponent)
 	footer := box.Components[len(box.Components)-1].(discord.TextDisplayComponent).Content
-	if !strings.HasSuffix(footer, "fxembed · <t:1792663980:R>") {
+	if !strings.HasSuffix(footer, "fxembed") {
 		t.Fatal(footer)
 	}
+	header := box.Components[0].(discord.TextDisplayComponent).Content
+	if !strings.Contains(header, "<t:1792663980:R>") {
+		t.Fatal(header)
+	}
 	block := sectionText(l, p.Sections[0], 500)
-	if !strings.Contains(block, "quoted post") || !strings.Contains(block, "[another](<https://x.com/another/status/124>)") || !strings.Contains(block, "https://x.com/another>") {
+	if strings.Contains(block, "-# quoted post") || !strings.Contains(block, "<:stat_repost_") || !strings.Contains(block, "[another](<https://x.com/another/status/124>)") || !strings.Contains(block, "https://x.com/another>") || !strings.Contains(block, "-# A quoted post") {
 		t.Fatal(block)
 	}
 	for _, limit := range []int{20, 40, 100, 500} {
 		if got := sectionText(l, p.Sections[0], limit); len(utf16.Encode([]rune(got))) > limit {
 			t.Fatalf("section exceeded %d: %s", limit, got)
+		}
+	}
+}
+
+func TestSharedCardHeaderAcrossPlatforms(t *testing.T) {
+	if err := brand.Sync(context.Background(), iconRest{}, 9, guard.New()); err != nil {
+		t.Fatal(err)
+	}
+	for _, platform := range []string{"twitter", "bluesky", "reddit", "instagram", "threads", "pixiv", "bilibili", "pinterest", "youtube", "tiktok", "tumblr", "twitch", "kick", "deviantart"} {
+		t.Run(platform, func(t *testing.T) {
+			l := Link{Platform: platform, URL: "https://example.com/post"}
+			p := Post{Author: "creator", Handle: "creator", Avatar: "https://cdn.example/avatar.jpg", Timestamp: "2026-10-22T10:13:00Z", Provider: "fxembed"}
+			box := card(l, p).Components[0].(discord.ContainerComponent)
+			header, ok := box.Components[0].(discord.SectionComponent)
+			if !ok {
+				t.Fatalf("header type %T", box.Components[0])
+			}
+			text := header.Components[0].(discord.TextDisplayComponent).Content
+			if !strings.Contains(text, platformMark(l)) || !strings.Contains(text, "<t:1792663980:R>") {
+				t.Fatalf("header missing shared identity or time: %s", text)
+			}
+			if _, ok := header.Accessory.(discord.ThumbnailComponent); !ok {
+				t.Fatalf("avatar accessory type %T", header.Accessory)
+			}
+		})
+	}
+}
+
+func TestContextSectionsUseIconsAndMutedFullText(t *testing.T) {
+	for _, tc := range []struct {
+		kind, icon, label string
+	}{{"community-note", "stat_notes", "community note"}, {"reply", "stat_reply", "reply"}} {
+		got := sectionText(Link{Platform: "twitter"}, Section{Kind: tc.kind, Title: tc.label, Text: "Full context without a redundant heading.\nSecond line stays muted."}, 500)
+		if !strings.HasPrefix(got, "-# "+brand.Mention(tc.icon)+" ") || !strings.Contains(got, "Full context without a redundant heading.\n-# Second line stays muted.") || strings.Contains(got, "**"+tc.label+"**") {
+			t.Fatalf("%s: %q", tc.kind, got)
+		}
+	}
+}
+
+func TestPlatformSectionTypesStayCompactAndDistinct(t *testing.T) {
+	if err := brand.Sync(context.Background(), iconRest{}, 9, guard.New()); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		link Link
+		sec  Section
+		want []string
+		no   []string
+	}{
+		{
+			name: "poll",
+			link: Link{Platform: "twitter"},
+			sec:  Section{Kind: "poll", Title: "poll", Text: "One · 3 votes · 100.0%\nTwo · 0 votes · 0.0%"},
+			want: []string{brand.Mention("stat_poll"), "One · 3 votes · 100.0%", "Two · 0 votes · 0.0%"},
+			no:   []string{"**poll**"},
+		},
+		{
+			name: "generic link card",
+			link: Link{Platform: "reddit"},
+			sec:  Section{Kind: "link-card", Title: "Open linked article", URL: "https://news.example/story"},
+			want: []string{brand.Mention("stat_link"), "[news.example](<https://news.example/story>)"},
+			no:   []string{"Open linked article"},
+		},
+		{
+			name: "cross-platform video",
+			link: Link{Platform: "reddit"},
+			sec:  Section{Kind: "linked-post", Title: "clip on twitch", URL: "https://clips.twitch.tv/example"},
+			want: []string{brand.Mention("pf_twitch"), "[clip](<https://clips.twitch.tv/example>)"},
+			no:   []string{"clip on twitch"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sectionText(tc.link, tc.sec, 500)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("missing %q in %q", want, got)
+				}
+			}
+			for _, unwanted := range tc.no {
+				if strings.Contains(got, unwanted) {
+					t.Errorf("redundant %q in %q", unwanted, got)
+				}
+			}
+			if len(utf16.Encode([]rune(got))) > 500 {
+				t.Fatalf("section exceeds Discord budget: %q", got)
+			}
+		})
+	}
+}
+
+func TestAvatarThumbnailRequiresSafeURLAndNonsensitivePost(t *testing.T) {
+	l := Link{Platform: "instagram", URL: "https://instagram.com/p/example"}
+	for _, p := range []Post{
+		{Author: "creator", Avatar: "javascript:alert(1)"},
+		{Author: "creator", Avatar: "https://cdn.example/avatar.jpg", Sensitive: true},
+	} {
+		box := card(l, p).Components[0].(discord.ContainerComponent)
+		if _, ok := box.Components[0].(discord.TextDisplayComponent); !ok {
+			t.Fatalf("unsafe or sensitive avatar created a thumbnail: %T", box.Components[0])
 		}
 	}
 }
