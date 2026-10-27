@@ -39,7 +39,7 @@ func TestComposeGalleryMakesFourColumnContactSheet(t *testing.T) {
 	if got.Bounds().Dx() != sheetWidth || got.Bounds().Dy() != sheetHeight {
 		t.Fatalf("got %v, want %dx%d", got.Bounds(), sheetWidth, sheetHeight)
 	}
-	gapAlpha := got.At((sheetWidth-3*sheetGap)/4+sheetGap/2, sheetHeight/2).(color.RGBA).A
+	_, _, _, gapAlpha := got.At((sheetWidth-3*sheetGap)/4+sheetGap/2, sheetHeight/2).RGBA()
 	if gapAlpha != 0 {
 		t.Fatalf("gallery gutter alpha = %d, want transparent", gapAlpha)
 	}
