@@ -60,7 +60,7 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	controller := http.NewResponseController(w)
 	_ = controller.SetWriteDeadline(time.Now().Add(20 * time.Second))
 	p := strings.Split(strings.TrimPrefix(r.URL.Path, "/fix/media/"), "/")
-	gallery := len(p) == 3 && p[0] == "gallery" && len(p[1]) <= 1800 && hmac.Equal([]byte(p[2]), []byte(m.signature("gallery", p[1])+".jpg"))
+	gallery := len(p) == 3 && p[0] == "gallery" && len(p[1]) <= 1800 && hmac.Equal([]byte(p[2]), []byte(m.signature("gallery", p[1])+".png"))
 	clip := len(p) == 3 && relayID(p[0], p[1]) && hmac.Equal([]byte(p[2]), []byte(m.signature(p[0], p[1])+".mp4"))
 	if !strings.HasPrefix(r.URL.Path, "/fix/media/") || (!gallery && !clip) {
 		http.NotFound(w, r)
@@ -89,7 +89,7 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if gallery {
 		key = "gallery/" + p[1]
 		prepare = func(ctx context.Context) ([]byte, error) { return m.prepareGallery(ctx, p[1]) }
-		contentType, filename, maxAge = "image/jpeg", "gallery.jpg", "public, max-age=86400"
+		contentType, filename, maxAge = "image/png", "gallery.png", "public, max-age=86400"
 	}
 	raw, err := m.ready(ctx, key, prepare)
 	if err != nil {
