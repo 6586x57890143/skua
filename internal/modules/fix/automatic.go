@@ -78,12 +78,16 @@ func (m *Module) queue(r rest.Rest, key source, text string, edit bool, flags ..
 		if len(m.tracked) >= 512 {
 			var oldest source
 			var when time.Time
+			found := false
 			for k, v := range m.tracked {
-				// At most eight entries run, so an idle entry always exists.
-				// Never evict a worker while it owns a write.
-				if !v.running && (when.IsZero() || v.touched.Before(when)) {
+				// Keep the bound without evicting a worker or dropping pending cleanup.
+				if !v.running && len(v.cleanup) == 0 && (!found || v.touched.Before(when)) {
 					oldest, when = k, v.touched
+					found = true
 				}
+			}
+			if !found {
+				return
 			}
 			delete(m.tracked, oldest)
 		}
@@ -227,7 +231,7 @@ func (m *Module) work(ctx context.Context, r rest.Rest, key source, t *tracking,
 	if refresh {
 		defer m.suppressOriginal(ctx, r, key, t, version, links)
 	}
-	m.cleanReplies(r, key, t)
+	m.cleanRepliesWithWorker(ctx, r, key, t)
 	if !refresh {
 		return
 	}
@@ -362,13 +366,29 @@ func (m *Module) countTracked(key source, t *tracking, change func(*counts)) {
 }
 
 func (m *Module) cleanReplies(r rest.Rest, key source, t *tracking) {
+	m.cleanRepliesWithWorker(context.Background(), r, key, t)
+}
+
+func (m *Module) cleanRepliesWithWorker(worker context.Context, r rest.Rest, key source, t *tracking) {
 	ctx, cancel := context.WithTimeout(obs.With(m.ctx, Name), 5*time.Second)
 	defer cancel()
+	stop := context.AfterFunc(worker, func() {
+		m.mu.Lock()
+		forgotten := t.forgotten
+		m.mu.Unlock()
+		if forgotten {
+			cancel()
+		}
+	})
+	defer stop()
 	m.mu.Lock()
 	batch := append([]deletion(nil), t.cleanup...)
 	m.mu.Unlock()
 	for _, d := range batch {
-		if d.next.After(time.Now()) || m.ctx.Err() != nil {
+		m.mu.Lock()
+		forgotten := t.forgotten
+		m.mu.Unlock()
+		if forgotten || d.next.After(time.Now()) || ctx.Err() != nil {
 			continue
 		}
 		err := m.guard.Allow(key.guild, guard.MessageDelete)
@@ -390,10 +410,14 @@ func (m *Module) cleanReplies(r rest.Rest, key source, t *tracking) {
 				t.cleanup = append(t.cleanup[:i], t.cleanup[i+1:]...)
 			} else {
 				d.attempt++
-				d.next = time.Now().Add(time.Second * time.Duration(min(30, 1<<min(d.attempt-1, 5))))
+				delay := time.Second * time.Duration(min(30, 1<<min(d.attempt-1, 5)))
 				if denied {
-					d.next = time.Now().Add(30 * time.Second)
+					delay = 30 * time.Second
+					if errors.Is(err, guard.ErrRateLimited) {
+						delay = guard.Step(guard.MessageDelete)
+					}
 				}
+				d.next = time.Now().Add(delay)
 				t.cleanup[i] = d
 			}
 			break
