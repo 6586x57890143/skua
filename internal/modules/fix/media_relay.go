@@ -199,7 +199,8 @@ func (m *mediaRelay) proxyInstagramVideo(ctx context.Context, w http.ResponseWri
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent || resp.ContentLength > mediaLimit {
+	validStatus := resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusPartialContent
+	if !validStatus || resp.ContentLength > mediaLimit {
 		http.Error(w, "media unavailable", http.StatusBadGateway)
 		return
 	}
