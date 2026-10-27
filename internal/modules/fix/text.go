@@ -12,6 +12,7 @@ func sourceText(text string, limit int) string {
 	if limit < 4 {
 		return ""
 	}
+	text = stripSmallTextMarkers(text)
 	var b strings.Builder
 	used, last := 0, 0
 	// Only this prefix can contribute to the UTF-16 budget. Extra room keeps
@@ -46,6 +47,21 @@ func sourceText(text string, limit int) string {
 	}
 	b.WriteString(clean(text[last:], limit-used))
 	return clip(b.String(), limit)
+}
+
+// FxEmbed can include Discord's small-text marker in source text. Since source
+// Markdown is escaped, remove only a line-leading marker so it cannot leak
+// into the rendered card; keep the actual text on that line.
+func stripSmallTextMarkers(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		indent := len(line) - len(strings.TrimLeft(line, " \t"))
+		body := line[indent:]
+		if len(body) >= 2 && body[:2] == "-#" && (len(body) == 2 || body[2] == ' ' || body[2] == '\t') {
+			lines[i] = line[:indent] + strings.TrimLeft(body[2:], " \t")
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func compactCount(raw string) string {
