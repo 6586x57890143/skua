@@ -28,6 +28,11 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 	if !m.bootstrap.Has(by) {
 		return errJobsNotYours
 	}
+	data := e.SlashCommandInteractionData()
+	if user, ok := data.OptSnowflake("member"); ok {
+		m.log.Warn("purge: break-glass", "sub", "jobs drop", "by", by, "for", user)
+		return m.dropJobsCmd(ctx, e, user)
+	}
 	m.log.Warn("purge: break-glass", "sub", "jobs", "by", by)
 	name := func(g snowflake.ID) string {
 		if c := e.Client().Caches; c != nil {
@@ -141,3 +146,43 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 	}
 	return reply(e, brand.ColorInfo, "jobs", text)
 }
+
+// dropJobsCmd withdraws every queued purge for one member, across servers.
+// Historical sweep results remain available to /purge status.
+func (m *Module) dropJobsCmd(ctx context.Context, e *events.ApplicationCommandInteractionCreate, user snowflake.ID) error {
+	m.settings.Lock()
+	defer m.settings.Unlock()
+
+	var settings int64
+	if m.db != nil {
+		tag, err := m.db.Exec(ctx, `update purge_subs set live_delay_s = null, every_s = null,
+			next_run = null, claimed = false, now_since = null,
+			live_channels = '{}', every_channels = '{}'
+			where user_id = $1 and (live_delay_s is not null or every_s is not null or next_run is not null or claimed or now_since is not null)`, int64(user))
+		if err != nil {
+			return err
+		}
+		settings = tag.RowsAffected()
+	}
+
+	var live, running int
+	m.live.Range(func(key, _ any) bool {
+		k := key.(target)
+		if k.user == user {
+			m.setLive(k, 0, nil)
+			live++
+		}
+		return true
+	})
+	m.running.Range(func(key, value any) bool {
+		k := key.(target)
+		if k.user == user {
+			value.(*run).cancel()
+			running++
+		}
+		return true
+	})
+
+	return reply(e, brand.ColorWarn, "jobs", fmt.Sprintf("✓ dropped <@%d>'s purge jobs across servers · %d saved settings cleared, %d live timers removed, %d running purges stopped; messages already deleted stay deleted", user, settings, live, running))
+}
+
