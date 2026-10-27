@@ -34,6 +34,12 @@ const (
 	MessageDelete
 	ChannelEdit
 	MemberEdit
+	// SpamMessageDelete has its own runaway ceiling so spam cleanup does not
+	// change the budget for ordinary module deletions.
+	SpamMessageDelete
+	// SpamTimeout is separate from ordinary member edits so role updates
+	// cannot spend the budget that contains an active flood.
+	SpamTimeout
 	WebhookExecute
 	WebhookCreate
 	// WhisperMember is keyed by member ID, not guild: one member's share of
@@ -71,11 +77,13 @@ const (
 // caps are per guild per hour: well above a
 // bad afternoon, well below "the bot did something nobody asked for".
 var caps = [opCount]int64{
-	MessageSend:    120,
-	MessageDelete:  300,
-	ChannelEdit:    60,
-	MemberEdit:     120,
-	WebhookExecute: 300,
+	MessageSend:       120,
+	MessageDelete:     300,
+	ChannelEdit:       60,
+	MemberEdit:        120,
+	SpamMessageDelete: 100000,
+	SpamTimeout:       100000,
+	WebhookExecute:    300,
 	// One per channel, ever, in normal use.
 	WebhookCreate: 20,
 	WhisperMember: 30,

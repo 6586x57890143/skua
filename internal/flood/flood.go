@@ -34,6 +34,8 @@ const (
 	// ring is how many recent messages a member's state remembers, and so
 	// the most of a burst that comes down with it.
 	ring = 16
+	// pendingLimit bounds cleanup memory; hitting it triggers timeout fallback.
+	pendingLimit = 100000
 	// bomb distinct pings in one message trip at once.
 	bomb = 5
 	// drip messages that ping, inside dripIn, trip at once.
@@ -71,12 +73,18 @@ type seen struct {
 }
 
 type member struct {
-	mu    sync.Mutex
-	score float64
-	last  time.Time
-	quiet time.Time // ignored until
-	n     int       // messages seen, so ring[n%ring] is the oldest
-	ring  [ring]seen
+	mu          sync.Mutex
+	score       float64
+	last        time.Time
+	quiet       time.Time // ignored until
+	n           int       // messages seen, so ring[n%ring] is the oldest
+	overflow    bool      // bounded cleanup history dropped a message
+	overflowAt  time.Time
+	ring        [ring]seen
+	recent      []seen // full one-minute history for deleting the initial burst
+	recentStart int
+	pending     []Seen // all messages since the trip, drained by spam cleanup
+	cleanup     bool
 }
 
 type who struct{ guild, user snowflake.ID }
@@ -102,10 +110,20 @@ func (d *Detector) Observe(m Message) (bool, []Seen) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := seen{Seen: Seen{m.Channel, m.ID}, at: m.At, key: filter.Key(m.Text), media: filter.MediaKey(m.Media)}
+	s.remember(now)
+	if s.overflow && m.At.After(s.overflowAt.Add(window)) {
+		s.overflow = false
+	}
 	if len(m.Pings) > 0 {
 		now.to = m.Pings[0]
 	}
 	if m.At.Before(s.quiet) {
+		if s.cleanup && len(s.pending) < pendingLimit {
+			s.pending = append(s.pending, now.Seen)
+		} else if s.cleanup {
+			s.overflow = true
+			s.overflowAt = m.At
+		}
 		s.ring[s.n%ring] = now
 		s.n++
 		return false, nil
@@ -122,7 +140,52 @@ func (d *Detector) Observe(m Message) (bool, []Seen) {
 		return false, nil
 	}
 	s.score, s.quiet = 0, m.At.Add(Quiet)
+	s.cleanup = true
+	s.pending = s.pending[:0]
+	for i := s.recentStart; i < len(s.recent); i++ {
+		s.pending = append(s.pending, s.recent[i].Seen)
+	}
 	return true, s.burst(m.At)
+}
+
+// remember keeps the full active window separately from the small scoring
+// ring. A bot can trip after many unique messages, all of which still need
+// to be available for bulk deletion.
+func (s *member) remember(now seen) {
+	cutoff := now.at.Add(-window)
+	for s.recentStart < len(s.recent) && s.recent[s.recentStart].at.Before(cutoff) {
+		s.recentStart++
+	}
+	if s.overflow && now.at.After(s.overflowAt.Add(window)) {
+		s.overflow = false
+	}
+	if len(s.recent)-s.recentStart >= pendingLimit {
+		s.recentStart++
+		s.overflow = true
+		s.overflowAt = now.at
+	}
+	s.recent = append(s.recent, now)
+	if s.recentStart >= 1024 && s.recentStart*2 >= len(s.recent)-1 {
+		copy(s.recent, s.recent[s.recentStart:])
+		s.recent = s.recent[:len(s.recent)-s.recentStart]
+		s.recentStart = 0
+	}
+}
+
+// TakeOverflow reports whether this member's bounded cleanup history
+// overflowed and clears the flag. Spam uses it around cleanup to trigger its
+// timeout fallback if any message ID was dropped.
+func (d *Detector) TakeOverflow(guild, user snowflake.ID) bool {
+	v, ok := d.members.Load(who{guild, user})
+	if !ok {
+		return false
+	}
+	s := v.(*member)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	overflow := s.overflow
+	s.overflow = false
+	return overflow
 }
 
 // weigh is what m adds to the score, and whether it trips on its own.
@@ -193,6 +256,47 @@ func (d *Detector) Since(guild, user snowflake.ID, at time.Time) []Seen {
 		}
 	}
 	return out
+}
+
+// DrainSince atomically takes all messages queued since the trip. Messages
+// received during the delete calls are returned by the next drain.
+func (d *Detector) DrainSince(guild, user snowflake.ID) []Seen {
+	v, ok := d.members.Load(who{guild, user})
+	if !ok {
+		return nil
+	}
+	s := v.(*member)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.pending
+	s.pending = nil
+	return out
+}
+
+// Pending is whether cleanup still has queued messages for this member.
+func (d *Detector) Pending(guild, user snowflake.ID) bool {
+	v, ok := d.members.Load(who{guild, user})
+	if !ok {
+		return false
+	}
+	s := v.(*member)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.pending) > 0
+}
+
+// DiscardPending releases a trip's cleanup queue when policy lets the member go.
+func (d *Detector) DiscardPending(guild, user snowflake.ID) {
+	v, ok := d.members.Load(who{guild, user})
+	if !ok {
+		return
+	}
+	s := v.(*member)
+	s.mu.Lock()
+	s.pending = nil
+	s.cleanup = false
+	s.overflow = false
+	s.mu.Unlock()
 }
 
 func (s *member) burst(at time.Time) []Seen {
