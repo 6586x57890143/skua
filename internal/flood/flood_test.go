@@ -207,6 +207,71 @@ func TestCleanupQueueLifecycleAndMissingMembers(t *testing.T) {
 	}
 }
 
+func TestFinishCleanupKeepsQueueOpenUntilTailIsDrained(t *testing.T) {
+	d := &Detector{}
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 1, At: t0, Pings: []snowflake.ID{1, 2, 3, 4, 5}})
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 2, At: t0.Add(time.Second)})
+	final, overflow, finished := d.FinishCleanup(3, 7, false)
+	if overflow || finished || len(final) != 2 || final[0].ID != 1 || final[1].ID != 2 {
+		t.Fatalf("final batch %v, overflow %v, finished %v", final, overflow, finished)
+	}
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 3, At: t0.Add(2 * time.Second)})
+	if !d.Pending(3, 7) {
+		t.Fatal("message arrived before cleanup completed but was not queued")
+	}
+	if final, overflow, finished = d.FinishCleanup(3, 7, false); overflow || finished || len(final) != 1 || final[0].ID != 3 {
+		t.Fatalf("second final batch %v, overflow %v, finished %v", final, overflow, finished)
+	}
+	if final, overflow, finished = d.FinishCleanup(3, 7, false); len(final) != 0 || overflow || !finished {
+		t.Fatalf("empty final handoff returned %v, overflow %v, finished %v", final, overflow, finished)
+	}
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 4, At: t0.Add(3 * time.Second)})
+	if d.Pending(3, 7) {
+		t.Fatal("message after completed cleanup was queued")
+	}
+}
+
+func TestFinishCleanupResumesScoringWhenNoSanctionApplied(t *testing.T) {
+	d := &Detector{}
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 1, At: t0, Pings: []snowflake.ID{1, 2, 3, 4, 5}})
+	d.DrainSince(3, 7)
+	if _, _, finished := d.FinishCleanup(3, 7, true); !finished {
+		t.Fatal("empty cleanup did not finish")
+	}
+	trip, _ := d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 2, At: t0.Add(time.Second), Pings: []snowflake.ID{1, 2, 3, 4, 5}})
+	if !trip {
+		t.Fatal("scoring stayed quiet after no sanction was applied")
+	}
+}
+
+func TestCleanupIntakeOutlivesQuietWindowUntilContainmentFinishes(t *testing.T) {
+	d := &Detector{}
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 1, At: t0, Pings: []snowflake.ID{1, 2, 3, 4, 5}})
+	d.DrainSince(3, 7)
+	at := t0.Add(Quiet + time.Second)
+	trip, _ := d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 2, At: at, Pings: []snowflake.ID{1, 2, 3, 4, 5}})
+	if trip || !d.Pending(3, 7) {
+		t.Fatal("cleanup expired with the quiet window instead of retaining the new message")
+	}
+	if got := d.DrainSince(3, 7); len(got) != 1 || got[0].ID != 2 {
+		t.Fatalf("long-running cleanup got %v, want message 2", got)
+	}
+}
+
+func TestRetainPendingKeepsFailedDeletesAttachedToOpenIncident(t *testing.T) {
+	d := &Detector{}
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 1, At: t0, Pings: []snowflake.ID{1, 2, 3, 4, 5}})
+	d.DrainSince(3, 7)
+	if overflow := d.RetainPending(3, 7, []Seen{{Channel: 4, ID: 1}}); overflow {
+		t.Fatal("small unresolved queue overflowed")
+	}
+	d.Observe(Message{Guild: 3, User: 7, Channel: 4, ID: 2, At: t0.Add(time.Second)})
+	got := d.DrainSince(3, 7)
+	if len(got) != 2 || got[0].ID != 1 || got[1].ID != 2 {
+		t.Fatalf("unresolved incident retained %v, want failed ID 1 and new ID 2", got)
+	}
+}
+
 func TestCleanupQueueOverflowAndRecentHistoryCompaction(t *testing.T) {
 	now := t0.Add(2 * time.Minute)
 	s := &member{}

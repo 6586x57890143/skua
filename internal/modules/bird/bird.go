@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"net/url"
@@ -46,6 +47,11 @@ import (
 // query is short, top quality bird recordings.
 const query = "grp:birds q:A len:3-15"
 
+const retryBirdAfter = 30 * time.Second
+
+// pendingBirdLimit bounds originals waiting for the first successful post.
+const pendingBirdLimit = 100000
+
 // maxAudio is under Discord's attachment limit with room to spare; a 15s
 // recording is a few hundred KB.
 const maxAudio = 8 << 20
@@ -69,6 +75,8 @@ type poster interface {
 
 type target struct{ guild, user snowflake.ID }
 
+type original struct{ channel, id snowflake.ID }
+
 // prank is one member being one bird until a time.
 type prank struct {
 	by    string // who started it, for the audit log
@@ -76,10 +84,14 @@ type prank struct {
 	audio []byte
 	about about
 
-	mu        sync.Mutex
-	until     time.Time // moved only by extend once stored
-	attempted bool
-	posted    bool // only one replacement is posted per prank
+	mu       sync.Mutex
+	until    time.Time // moved only by extend once stored
+	posting  bool
+	posted   bool
+	retryAt  time.Time
+	pending  []original
+	queued   map[snowflake.ID]struct{}
+	overflow bool
 }
 
 func (p *prank) end() time.Time {
@@ -369,18 +381,33 @@ func (m *Module) OnEvent(ev bot.Event) {
 func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Message, p *prank) {
 	ctx, cancel := context.WithTimeout(context.Background(), replaceBy)
 	defer cancel()
-	// Only the first message needs a webhook replacement. Serialize that
-	// first send so a fast sender cannot create a flock of identical birds.
+	// Only one send may be in flight. Failed sends can retry after a cooldown.
 	p.mu.Lock()
-	if p.attempted {
-		posted := p.posted
+	if p.posted {
 		p.mu.Unlock()
-		if posted {
-			m.deleteOriginal(ctx, r, guild, msg, p.by)
-		}
+		m.deleteOriginal(ctx, r, guild, msg.ChannelID, msg.ID, p.by)
 		return
 	}
-	p.attempted = true
+	if len(p.pending) < pendingBirdLimit {
+		if p.queued == nil {
+			p.queued = make(map[snowflake.ID]struct{})
+		}
+		if _, exists := p.queued[msg.ID]; !exists {
+			p.pending = append(p.pending, original{channel: msg.ChannelID, id: msg.ID})
+			p.queued[msg.ID] = struct{}{}
+		}
+	} else if !p.overflow {
+		p.overflow = true
+		slog.Error("bird: pending original queue overflow", "guild", guild, "user", msg.Author.ID, "limit", pendingBirdLimit)
+	}
+	now := m.now()
+	if p.posting || now.Before(p.retryAt) {
+		p.mu.Unlock()
+		return
+	}
+	p.posting = true
+	until := p.until
+	p.mu.Unlock()
 	name := msg.Author.EffectiveName()
 	if msg.Member != nil && msg.Member.Nick != nil {
 		name = *msg.Member.Nick
@@ -393,7 +420,7 @@ func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Messa
 		files = append(files, discord.NewFile(p.about.photoName, "", bytes.NewReader(p.about.photo)))
 	}
 	post := discord.WebhookMessageCreate{
-		Content:         marker(msg.Author.Username, p.until.Sub(m.now()), p.rec) + p.about.lines(),
+		Content:         marker(msg.Author.Username, until.Sub(now), p.rec) + p.about.lines(),
 		Username:        m.screen.Check(name).Text,
 		AvatarURL:       msg.Author.EffectiveAvatarURL(),
 		AllowedMentions: core.NoPings(),
@@ -401,21 +428,34 @@ func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Messa
 		Files:           files,
 	}
 	_, err := m.post.Send(ctx, r, guild, msg.ChannelID, app, post)
+	p.mu.Lock()
+	p.posting = false
 	if err != nil {
+		p.retryAt = m.now().Add(retryBirdAfter)
 		p.mu.Unlock()
 		return
 	}
 	p.posted = true
+	pending := p.pending
+	p.pending = nil
+	p.queued = nil
+	p.overflow = false
 	p.mu.Unlock()
-	m.deleteOriginal(ctx, r, guild, msg, p.by)
+	for _, original := range pending {
+		m.deleteOriginal(ctx, r, guild, original.channel, original.id, p.by)
+	}
 }
 
-func (m *Module) deleteOriginal(ctx context.Context, r rest.Rest, guild snowflake.ID, msg discord.Message, by string) {
-	if m.guard.Allow(guild, guard.SpamMessageDelete) != nil {
+func (m *Module) deleteOriginal(ctx context.Context, r rest.Rest, guild, channel, id snowflake.ID, by string) {
+	if err := m.guard.Allow(guild, guard.SpamMessageDelete); err != nil {
+		slog.Error("bird: original deletion failed", "alert", "bird_original_delete_failure", "guild", guild, "channel", channel, "message", id, "err", err)
 		return
 	}
-	err := r.DeleteMessage(msg.ChannelID, msg.ID, rest.WithCtx(ctx), rest.WithReason("bird: replaced with a recording, started by "+by))
+	err := r.DeleteMessage(channel, id, rest.WithCtx(ctx), rest.WithReason("bird: replaced with a recording, started by "+by))
 	m.guard.Done(guild, err)
+	if err != nil {
+		slog.Error("bird: original deletion failed", "alert", "bird_original_delete_failure", "guild", guild, "channel", channel, "message", id, "err", err)
+	}
 }
 
 // markdown escapes brackets too, so a name cannot close the species link.

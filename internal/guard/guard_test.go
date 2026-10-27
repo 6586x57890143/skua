@@ -119,6 +119,34 @@ func TestPurgeBudgetsAreIndependent(t *testing.T) {
 	}
 }
 
+func TestSpamBudgetsAreSeparateAndBounded(t *testing.T) {
+	g := New()
+	for range caps[MessageDelete] {
+		if err := g.Allow(5, MessageDelete); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := g.Allow(5, MessageDelete); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("ordinary delete budget exceeded: %v", err)
+	}
+	for range caps[SpamMessageDelete] {
+		if err := g.Allow(5, SpamMessageDelete); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := g.Allow(5, SpamMessageDelete); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("spam delete budget unbounded: %v", err)
+	}
+	for range caps[SpamTimeout] {
+		if err := g.Allow(5, SpamTimeout); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := g.Allow(5, SpamTimeout); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("spam timeout budget unbounded: %v", err)
+	}
+}
+
 func TestStepIsTheWindowOverTheCap(t *testing.T) {
 	if Step(CommandSync) != window/8 {
 		t.Fatalf("Step(CommandSync) = %v", Step(CommandSync))

@@ -117,7 +117,7 @@ func (d *Detector) Observe(m Message) (bool, []Seen) {
 	if len(m.Pings) > 0 {
 		now.to = m.Pings[0]
 	}
-	if m.At.Before(s.quiet) {
+	if s.cleanup || m.At.Before(s.quiet) {
 		if s.cleanup && len(s.pending) < pendingLimit {
 			s.pending = append(s.pending, now.Seen)
 		} else if s.cleanup {
@@ -273,6 +273,40 @@ func (d *Detector) DrainSince(guild, user snowflake.ID) []Seen {
 	return out
 }
 
+// RetainPending puts failed deletions back into an active cleanup queue. It
+// is used when containment enters manual-intervention mode after bounded
+// timeout retries, so the incident's remaining IDs and later messages stay
+// attached to the detector state.
+func (d *Detector) RetainPending(guild, user snowflake.ID, messages []Seen) bool {
+	v, ok := d.members.Load(who{guild, user})
+	if !ok {
+		return len(messages) > 0
+	}
+	s := v.(*member)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.cleanup {
+		return len(messages) > 0
+	}
+	known := make(map[Seen]struct{}, len(s.pending)+len(messages))
+	for _, message := range s.pending {
+		known[message] = struct{}{}
+	}
+	for _, message := range messages {
+		if _, ok := known[message]; ok {
+			continue
+		}
+		if len(s.pending) >= pendingLimit {
+			s.overflow = true
+			s.overflowAt = s.last
+			continue
+		}
+		s.pending = append(s.pending, message)
+		known[message] = struct{}{}
+	}
+	return s.overflow
+}
+
 // Pending is whether cleanup still has queued messages for this member.
 func (d *Detector) Pending(guild, user snowflake.ID) bool {
 	v, ok := d.members.Load(who{guild, user})
@@ -283,6 +317,32 @@ func (d *Detector) Pending(guild, user snowflake.ID) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.pending) > 0
+}
+
+// FinishCleanup takes a final batch atomically. It closes queueing only when
+// there is no tail or overflow, so Observe either queues before completion or
+// sees cleanup off after a clean handoff.
+func (d *Detector) FinishCleanup(guild, user snowflake.ID, resumeScoring bool) ([]Seen, bool, bool) {
+	v, ok := d.members.Load(who{guild, user})
+	if !ok {
+		return nil, false, true
+	}
+	s := v.(*member)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.pending
+	overflow := s.overflow
+	s.pending = nil
+	s.overflow = false
+	if len(out) > 0 || overflow {
+		return out, overflow, false
+	}
+	s.cleanup = false
+	if resumeScoring {
+		s.quiet = time.Time{}
+		s.score = 0
+	}
+	return nil, false, true
 }
 
 // DiscardPending releases a trip's cleanup queue when policy lets the member go.
@@ -318,7 +378,7 @@ func (d *Detector) sweep(at time.Time) {
 	d.members.Range(func(k, v any) bool {
 		s := v.(*member)
 		s.mu.Lock()
-		gone := at.Sub(s.last) > forget && !at.Before(s.quiet)
+		gone := !s.cleanup && at.Sub(s.last) > forget && !at.Before(s.quiet)
 		s.mu.Unlock()
 		if gone {
 			d.members.CompareAndDelete(k, v)
