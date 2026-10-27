@@ -115,7 +115,7 @@ func (m *Module) refresh(platform, account string) {
 			defer cancel()
 			got, err := src.check(ctx, []string{account})
 			if items, ok := got[account]; ok {
-				m.observe(ctx, p, key{platform, account}, items, src)
+				m.observePush(ctx, p, key{platform, account}, items, src)
 			} else if err != nil {
 				m.log.Warn("notify: checking after a push", "platform", platform, "account", account, "err", err)
 			}
