@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -41,9 +42,10 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 	now := m.now()
 
 	type line struct {
-		key  string
-		text string
-		user snowflake.ID
+		key   string
+		text  string
+		user  snowflake.ID
+		guild snowflake.ID
 	}
 	var running, catching []line
 	m.running.Range(func(k, v any) bool {
@@ -66,7 +68,7 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 			}
 		}
 		running = append(running, line{key: name(t.guild) + t.user.String(), text: fmt.Sprintf("<@%d> in %s · %s · %s · %s",
-			t.user, name(t.guild), how, span(now.Sub(r.job.began)), state), user: t.user})
+			t.user, name(t.guild), how, span(now.Sub(r.job.began)), state), user: t.user, guild: t.guild})
 		return true
 	})
 	m.catching.Range(func(k, v any) bool {
@@ -112,7 +114,7 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 				live++
 				facts = append(facts, "live "+choiceName(delays, liveS))
 			}
-			upcoming = append(upcoming, line{key: name(snowflake.ID(g)) + snowflake.ID(u).String(), text: fmt.Sprintf("<@%d> in %s · %s", u, name(snowflake.ID(g)), strings.Join(facts, " · ")), user: snowflake.ID(u)})
+			upcoming = append(upcoming, line{key: name(snowflake.ID(g)) + snowflake.ID(u).String(), text: fmt.Sprintf("<@%d> in %s · %s", u, name(snowflake.ID(g)), strings.Join(facts, " · ")), user: snowflake.ID(u), guild: snowflake.ID(g)})
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
@@ -132,31 +134,43 @@ func (m *Module) jobsCmd(ctx context.Context, e *events.ApplicationCommandIntera
 	var lines []line
 	lines = append(lines, append(running, catching...)...)
 	lines = append(lines, upcoming...)
-	var users []snowflake.ID
-	seen := map[snowflake.ID]bool{}
+	users := make([]snowflake.ID, 0, 25)
+	userGuilds := map[snowflake.ID][]snowflake.ID{}
 	for i, l := range lines {
 		if len(text)+len(l.text)+4 > replyMax {
 			text += fmt.Sprintf("\n-# and %d more", len(lines)-i)
 			break
 		}
 		text += "\n-# " + l.text
-		if l.user != 0 && !seen[l.user] {
-			seen[l.user] = true
-			users = append(users, l.user)
+		if l.user != 0 {
+			if _, seen := userGuilds[l.user]; !seen {
+				users = append(users, l.user)
+			}
+			userGuilds[l.user] = append(userGuilds[l.user], l.guild)
 		}
 	}
 	var extra []discord.ContainerSubComponent
 	if len(users) > 25 {
-		extra = append(extra, discord.NewTextDisplay("-# drop buttons for the first 25 listed members"))
+		extra = append(extra, discord.NewTextDisplay("-# dropdown shows the first 25 members listed"))
 		users = users[:25]
 	}
-	for i := 0; i < len(users); i += 5 {
-		end := min(i+5, len(users))
-		buttons := make([]discord.InteractiveComponent, 0, end-i)
-		for _, user := range users[i:end] {
-			buttons = append(buttons, discord.NewDangerButton("drop "+user.String(), fmt.Sprintf("%s:%d", jobsDropButton, user)))
+	if len(users) > 0 {
+		options := make([]discord.StringSelectMenuOption, 0, len(users))
+		labels := make([]string, len(users))
+		var wg sync.WaitGroup
+		for i, user := range users {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				labels[i] = memberOptionName(e, user, userGuilds[user])
+			}()
 		}
-		extra = append(extra, discord.NewActionRow(buttons...))
+		wg.Wait()
+		for i, user := range users {
+			options = append(options, discord.NewStringSelectMenuOption(labels[i], user.String()))
+		}
+		menu := discord.NewStringSelectMenu(jobsDropMenu, "drop a member's purge jobs", options...).WithMaxValues(1)
+		extra = append(extra, discord.NewActionRow(menu))
 	}
 	return reply(e, brand.ColorInfo, "jobs", text, extra...)
 }
@@ -168,9 +182,12 @@ func (m *Module) dropJob(ctx context.Context, e *events.ComponentInteractionCrea
 	if !m.bootstrap.Has(by) {
 		return errJobsNotYours
 	}
-	_, raw, ok := strings.Cut(e.Data.CustomID(), ":")
-	user, err := snowflake.Parse(raw)
-	if !ok || err != nil || user == 0 {
+	selected := e.StringSelectMenuInteractionData().Values
+	if len(selected) != 1 {
+		return core.Tell("pick one member; run /purge jobs again if that card is out of date")
+	}
+	user, err := snowflake.Parse(selected[0])
+	if err != nil || user == 0 {
 		return core.Tell("that jobs card is out of date; run /purge jobs again")
 	}
 	m.log.Warn("purge: break-glass", "sub", "jobs drop", "by", by, "for", user)
@@ -222,5 +239,27 @@ func (m *Module) dropJobs(ctx context.Context, user snowflake.ID) (dropCount, er
 	})
 
 	return dropped, nil
+}
+
+func memberOptionName(e *events.ApplicationCommandInteractionCreate, user snowflake.ID, guilds []snowflake.ID) string {
+	name := "unknown user"
+	if caches := e.Client().Caches; caches != nil {
+		for _, guild := range guilds {
+			if member, ok := caches.Member(guild, user); ok && member.User.Username != "" {
+				name = member.User.Username
+				break
+			}
+		}
+	}
+	if name == "unknown user" && e.Client().Rest != nil {
+		if fetched, err := e.Client().Rest.GetUser(user); err == nil && fetched != nil && fetched.Username != "" {
+			name = fetched.Username
+		}
+	}
+	id := user.String()
+	if len(id) > 6 {
+		id = id[:3] + "..." + id[len(id)-3:]
+	}
+	return name + " · " + id
 }
 
