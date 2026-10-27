@@ -140,7 +140,7 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { <-m.serving }()
 	if instagramVideo {
-		m.proxyInstagramVideo(w, r, p[1])
+		m.proxyInstagramVideo(ctx, w, r, p[1])
 		return
 	}
 	key := p[0] + "/" + p[1]
@@ -165,7 +165,7 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, filename, time.Time{}, bytes.NewReader(raw))
 }
-func (m *mediaRelay) proxyInstagramVideo(w http.ResponseWriter, r *http.Request, token string) {
+func (m *mediaRelay) proxyInstagramVideo(ctx context.Context, w http.ResponseWriter, r *http.Request, token string) {
 	decoded, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
 		http.Error(w, "media unavailable", http.StatusBadGateway)
@@ -176,7 +176,7 @@ func (m *mediaRelay) proxyInstagramVideo(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "media unavailable", http.StatusBadGateway)
 		return
 	}
-	req, err := http.NewRequestWithContext(r.Context(), r.Method, raw, nil)
+	req, err := http.NewRequestWithContext(ctx, r.Method, raw, nil)
 	if err != nil {
 		http.Error(w, "media unavailable", http.StatusBadGateway)
 		return
