@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"net/url"
@@ -48,6 +49,9 @@ const query = "grp:birds q:A len:3-15"
 
 const retryBirdAfter = 30 * time.Second
 
+// pendingBirdLimit bounds originals waiting for the first successful post.
+const pendingBirdLimit = 100000
+
 // maxAudio is under Discord's attachment limit with room to spare; a 15s
 // recording is a few hundred KB.
 const maxAudio = 8 << 20
@@ -71,6 +75,8 @@ type poster interface {
 
 type target struct{ guild, user snowflake.ID }
 
+type original struct{ channel, id snowflake.ID }
+
 // prank is one member being one bird until a time.
 type prank struct {
 	by    string // who started it, for the audit log
@@ -83,6 +89,9 @@ type prank struct {
 	posting bool
 	posted  bool
 	retryAt time.Time
+	pending []original
+	queued  map[snowflake.ID]struct{}
+	overflow bool
 }
 
 func (p *prank) end() time.Time {
@@ -376,8 +385,20 @@ func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Messa
 	p.mu.Lock()
 	if p.posted {
 		p.mu.Unlock()
-		m.deleteOriginal(ctx, r, guild, msg, p.by)
+		m.deleteOriginal(ctx, r, guild, msg.ChannelID, msg.ID, p.by)
 		return
+	}
+	if len(p.pending) < pendingBirdLimit {
+		if p.queued == nil {
+			p.queued = make(map[snowflake.ID]struct{})
+		}
+		if _, exists := p.queued[msg.ID]; !exists {
+			p.pending = append(p.pending, original{channel: msg.ChannelID, id: msg.ID})
+			p.queued[msg.ID] = struct{}{}
+		}
+	} else if !p.overflow {
+		p.overflow = true
+		slog.Error("bird: pending original queue overflow", "guild", guild, "user", msg.Author.ID, "limit", pendingBirdLimit)
 	}
 	now := m.now()
 	if p.posting || now.Before(p.retryAt) {
@@ -415,15 +436,21 @@ func (m *Module) replace(r rest.Rest, app, guild snowflake.ID, msg discord.Messa
 		return
 	}
 	p.posted = true
+	pending := p.pending
+	p.pending = nil
+	p.queued = nil
+	p.overflow = false
 	p.mu.Unlock()
-	m.deleteOriginal(ctx, r, guild, msg, p.by)
+	for _, original := range pending {
+		m.deleteOriginal(ctx, r, guild, original.channel, original.id, p.by)
+	}
 }
 
-func (m *Module) deleteOriginal(ctx context.Context, r rest.Rest, guild snowflake.ID, msg discord.Message, by string) {
+func (m *Module) deleteOriginal(ctx context.Context, r rest.Rest, guild, channel, id snowflake.ID, by string) {
 	if m.guard.Allow(guild, guard.SpamMessageDelete) != nil {
 		return
 	}
-	err := r.DeleteMessage(msg.ChannelID, msg.ID, rest.WithCtx(ctx), rest.WithReason("bird: replaced with a recording, started by "+by))
+	err := r.DeleteMessage(channel, id, rest.WithCtx(ctx), rest.WithReason("bird: replaced with a recording, started by "+by))
 	m.guard.Done(guild, err)
 }
 

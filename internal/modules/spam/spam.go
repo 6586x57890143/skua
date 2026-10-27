@@ -365,20 +365,19 @@ func (m *Module) act(r rest.Rest, guild snowflake.ID, msg discord.Message, burst
 		}
 	}
 	overflow = m.flood.TakeOverflow(guild, user) || overflow
+	if overflow {
+		m.alert(guild, user, "cleanup_queue_overflow", fmt.Errorf("some message IDs exceeded the bounded cleanup history"))
+	}
 	fellBehind := overflow || m.flood.Pending(guild, user) || cleared < uniqueMessages(all)
-	timeoutAttempted, timedOut := false, false
-	applyTimeout := func() {
-		if timeoutAttempted {
-			return
-		}
-		timeoutAttempted = true
+	timedOut := false
+	applyTimeout := func() bool {
 		if verdict.For <= 0 {
 			m.alert(guild, user, "invalid_timeout_duration", nil)
-			return
+			return false
 		}
 		if m.guard.Allow(guild, guard.SpamTimeout) != nil {
 			m.alert(guild, user, "timeout_rate_limited", nil)
-			return
+			return false
 		}
 		until := m.now().Add(verdict.For)
 		timeoutCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -389,16 +388,41 @@ func (m *Module) act(r rest.Rest, guild snowflake.ID, msg discord.Message, burst
 		m.guard.Done(guild, err)
 		if err != nil {
 			m.alert(guild, user, "timeout_failed", err)
-			return
+			return false
 		}
 		timedOut = true
 		m.log.Info("spam: cleanup fell behind; timed out", "guild", guild, "user", user, "for", verdict.For)
+		return true
+	}
+	containAndDrain := func() {
+		for !timedOut {
+			applyTimeout()
+			cleanupCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
+			for {
+				remaining := m.flood.DrainSince(guild, user)
+				if len(remaining) == 0 {
+					break
+				}
+				cleared += m.clear(cleanupCtx, r, guild, remaining, gone)
+				if cleanupCtx.Err() != nil {
+					break
+				}
+			}
+			stop()
+			if !timedOut {
+				time.Sleep(5 * time.Second)
+			}
+		}
 	}
 	if fellBehind {
-		applyTimeout()
-		// A timeout stops the source of new messages. Use a fresh budget to
-		// finish deleting the captured backlog after Discord has applied it.
+		// Keep cleanup intake active until Discord confirms the timeout. If
+		// timeout application fails, keep draining and retrying; closing the
+		// queue here would let the member send messages outside containment.
+		containAndDrain()
+		// Discord has applied the timeout, so no new message can escape the
+		// still-open queue. Drain the final captured backlog before closing it.
 		cleanupCtx, stop := context.WithTimeout(context.Background(), 2*time.Minute)
+		cleared += m.clear(cleanupCtx, r, guild, all, gone)
 		for {
 			remaining := m.flood.DrainSince(guild, user)
 			if len(remaining) == 0 {
@@ -411,21 +435,30 @@ func (m *Module) act(r rest.Rest, guild snowflake.ID, msg discord.Message, burst
 		}
 		stop()
 	}
-	// Close queueing and take a final batch under the detector's member lock.
-	// An Observe before this point is in tail; one after it sees cleanup off.
-	tail, finalOverflow := m.flood.FinishCleanup(guild, user, verdict.Said == "" && !timedOut)
-	if len(tail) > 0 || finalOverflow {
-		if !timedOut {
-			applyTimeout()
+	// FinishCleanup leaves intake open whenever it finds a tail or overflow.
+	// If the final handoff reveals backlog, contain first, delete that batch,
+	// then retry the atomic handoff until there is nothing left to lose.
+	for {
+		tail, finalOverflow, finished := m.flood.FinishCleanup(guild, user, verdict.Said == "" && !timedOut)
+		if finalOverflow {
+			m.alert(guild, user, "cleanup_queue_overflow", fmt.Errorf("some message IDs exceeded the bounded cleanup history"))
 		}
-	}
-	if len(tail) > 0 {
-		tailCtx, stop := context.WithTimeout(context.Background(), 2*time.Minute)
-		tailCleared := m.clear(tailCtx, r, guild, tail, gone)
-		stop()
-		cleared += tailCleared
-		if tailCleared < uniqueMessages(tail) {
-			m.alert(guild, user, "delete_backlog_remains", fmt.Errorf("cleared %d of %d queued messages", tailCleared, uniqueMessages(tail)))
+		if len(tail) > 0 || finalOverflow {
+			if !timedOut {
+				containAndDrain()
+			}
+		}
+		if len(tail) > 0 {
+			tailCtx, stop := context.WithTimeout(context.Background(), 2*time.Minute)
+			tailCleared := m.clear(tailCtx, r, guild, tail, gone)
+			stop()
+			cleared += tailCleared
+			if tailCleared < uniqueMessages(tail) {
+				m.alert(guild, user, "delete_backlog_remains", fmt.Errorf("cleared %d of %d queued messages", tailCleared, uniqueMessages(tail)))
+			}
+		}
+		if finished {
+			break
 		}
 	}
 	m.log.Info("spam: tripped", "guild", guild, "user", user, "cleared", cleared, "priors", verdict.Priors,

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -139,12 +140,21 @@ func (f *fakeRest) DeleteMessage(_, id snowflake.ID, opts ...rest.RequestOpt) er
 // fakePoster numbers its posts 1, 2, ... from webhook 5 and records which
 // it was asked to take down.
 type fakePoster struct {
-	sent []discord.WebhookMessageCreate
-	gone []snowflake.ID
-	err  error
+	sent    []discord.WebhookMessageCreate
+	gone    []snowflake.ID
+	err     error
+	started chan struct{}
+	release chan struct{}
 }
 
 func (p *fakePoster) Send(_ context.Context, _ rest.Rest, _, channel, _ snowflake.ID, msg discord.WebhookMessageCreate) (*discord.Message, error) {
+	if p.started != nil {
+		select {
+		case p.started <- struct{}{}:
+		default:
+		}
+		<-p.release
+	}
 	if p.err != nil {
 		return nil, p.err
 	}
@@ -281,6 +291,28 @@ func TestReplacePostsOneBirdAndDeletesLaterMessages(t *testing.T) {
 	}
 	if len(p.sent) != 1 || len(r.deleted) != 3 {
 		t.Fatalf("posted %d birds and deleted %d messages; want one bird and three deletions", len(p.sent), len(r.deleted))
+	}
+}
+
+func TestReplaceQueuesMessagesWhileTheFirstPostIsInFlight(t *testing.T) {
+	m, p := pranked(time.Now())
+	p.started = make(chan struct{}, 1)
+	p.release = make(chan struct{})
+	r := &fakeRest{}
+	prank := mustPrank(t, m)
+	first := message(r, 7, nil).Message
+	second := message(r, 7, func(msg *discord.Message) { msg.ID = 100 }).Message
+	done := make(chan struct{})
+	go func() {
+		m.replace(r, 2, 3, first, prank)
+		close(done)
+	}()
+	<-p.started
+	m.replace(r, 2, 3, second, prank)
+	close(p.release)
+	<-done
+	if len(p.sent) != 1 || !slices.Equal(r.deleted, []snowflake.ID{first.ID, second.ID}) {
+		t.Fatalf("posted %d birds and deleted %v; want one post and both originals", len(p.sent), r.deleted)
 	}
 }
 

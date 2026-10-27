@@ -30,18 +30,19 @@ import (
 // fakeRest is the REST spam calls: roles, the deletes and its line.
 type fakeRest struct {
 	rest.Rest
-	mu         sync.Mutex
-	roles      []discord.Role
-	rolesErr   error
-	deleted    []snowflake.ID
-	deleteErr  error
-	timeout    *time.Time
-	timeoutErr error
-	bulk       [][]snowflake.ID
-	bulkErr    error
-	gone       map[snowflake.ID]bool // deleted before skua got to them
-	posted     []discord.MessageCreate
-	done       chan struct{}
+	mu            sync.Mutex
+	roles         []discord.Role
+	rolesErr      error
+	deleted       []snowflake.ID
+	deleteErr     error
+	timeout       *time.Time
+	timeoutErr    error
+	timeoutErrors []error
+	bulk          [][]snowflake.ID
+	bulkErr       error
+	gone          map[snowflake.ID]bool // deleted before skua got to them
+	posted        []discord.MessageCreate
+	done          chan struct{}
 }
 
 func (f *fakeRest) GetRoles(snowflake.ID, ...rest.RequestOpt) ([]discord.Role, error) {
@@ -64,6 +65,13 @@ func (f *fakeRest) DeleteMessage(_, id snowflake.ID, _ ...rest.RequestOpt) error
 func (f *fakeRest) UpdateMember(_, _ snowflake.ID, update discord.MemberUpdate, _ ...rest.RequestOpt) (*discord.Member, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if len(f.timeoutErrors) > 0 {
+		err := f.timeoutErrors[0]
+		f.timeoutErrors = f.timeoutErrors[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
 	if f.timeoutErr != nil {
 		return nil, f.timeoutErr
 	}
@@ -325,20 +333,20 @@ func TestCleanupFailureTimesOutForTheBirdSentence(t *testing.T) {
 	}
 }
 
-func TestFailedTimeoutRaisesContainmentAlert(t *testing.T) {
+func TestFailedTimeoutIsRetriedWithoutClosingCleanup(t *testing.T) {
 	var logs strings.Builder
 	m := module(t, &bird{})
 	m.log = slog.New(slog.NewTextHandler(&logs, nil))
 	r := &fakeRest{
-		roles:      []discord.Role{{ID: 50}},
-		deleteErr:  errors.New("delete refused"),
-		timeoutErr: errors.New("moderation permission missing"),
+		roles:         []discord.Role{{ID: 50}},
+		deleteErr:     errors.New("delete refused"),
+		timeoutErrors: []error{errors.New("temporary Discord error"), nil},
 	}
 	msg := message(r, 0, nil).Message
 	m.act(r, 3, msg, []flood.Seen{{Channel: 4, ID: msg.ID}})
 	report := m.Report(3)
-	if report.Rows[2][1] != "1 since she woke" || !strings.Contains(logs.String(), "spam_containment_failure") || !strings.Contains(logs.String(), "timeout_failed") {
-		t.Fatalf("containment failure wasn't surfaced: report %+v logs %q", report, logs.String())
+	if r.timeout == nil || report.Rows[2][1] != "1 since she woke" || !strings.Contains(logs.String(), "spam_containment_failure") || !strings.Contains(logs.String(), "timeout_failed") {
+		t.Fatalf("failed timeout wasn't retried and surfaced: timeout %v report %+v logs %q", r.timeout, report, logs.String())
 	}
 }
 
