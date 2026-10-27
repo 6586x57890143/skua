@@ -87,7 +87,7 @@ func TestMediaURLAndTextSafety(t *testing.T) {
 		}
 	}
 }
-func TestPortraitMediaGetsItsOwnGalleryRow(t *testing.T) {
+func TestMultiImageGalleryKeepsPortraitsTogether(t *testing.T) {
 	l, _ := Parse("https://x.com/creator/status/123")
 	p := Post{Media: []Media{
 		{URL: "https://cdn.example/landscape-before.jpg", Width: 1280, Height: 720},
@@ -102,13 +102,11 @@ func TestPortraitMediaGetsItsOwnGalleryRow(t *testing.T) {
 			galleries = append(galleries, g)
 		}
 	}
-	if len(galleries) != 4 {
-		t.Fatalf("portrait assets should each get a full-width row; got %d galleries", len(galleries))
+	if len(galleries) != 1 {
+		t.Fatalf("a multi-image post should stay in one gallery; got %d galleries", len(galleries))
 	}
-	for _, g := range galleries {
-		if len(g.Items) != 1 {
-			t.Fatalf("expected one media item per gallery row, got %d", len(g.Items))
-		}
+	if len(galleries[0].Items) != 4 {
+		t.Fatalf("expected all four images in one gallery, got %d", len(galleries[0].Items))
 	}
 }
 

@@ -111,12 +111,8 @@ func card(l Link, p Post) discord.MessageCreate {
 			seen[u] = true
 			mediaLeft--
 			item := discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: u}, Description: clean(m.Alt, 1000), Spoiler: sensitive || m.Sensitive}
-			if m.Width > 0 && m.Height > m.Width {
-				// Separate portrait media so Discord can show its full frame.
-				flush()
-				parts = append(parts, discord.NewMediaGallery(item))
-				continue
-			}
+			// Keep a post's media together so multi-image galleries use Discord's
+			// grid layout. A single portrait still keeps its natural frame.
 			grid = append(grid, item)
 			if len(grid) == 10 {
 				flush()
