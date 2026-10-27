@@ -5,9 +5,12 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +50,56 @@ func (m *mediaRelay) link(kind, id string) string {
 	return m.base + "/fix/media/" + kind + "/" + id + "/" + m.signature(kind, id) + ".mp4"
 }
 
+func (m *mediaRelay) instagramVideoLink(raw string) string {
+	if m == nil || !trustedInstagramVideoURL(raw, m.api.cfg.FixEmbed) {
+		return ""
+	}
+	token := base64.RawURLEncoding.EncodeToString([]byte(raw))
+	link := m.base + "/fix/media/instagram/" + token + "/" + m.signature("instagram-video", token) + ".mp4"
+	if len(link) > 2048 {
+		return ""
+	}
+	return link
+}
+
+func trustedInstagramVideoURL(raw, endpoint string) bool {
+	video, err := url.Parse(raw)
+	if err != nil || video.Scheme != "https" || video.User != nil || video.RawFragment != "" || video.RawQuery == "" {
+		return false
+	}
+	base, err := url.Parse(endpoint)
+	if err != nil || base.Scheme != "https" || video.Host != base.Host || video.Path != "/video/instagram" {
+		return false
+	}
+	query := video.Query()
+	if len(query) != 1 || len(query["url"]) != 1 {
+		return false
+	}
+	source, err := url.Parse(query.Get("url"))
+	if err != nil || source.Scheme != "https" || source.Hostname() != "vxinstagram.com" || source.User != nil || source.RawQuery != "" || source.Fragment != "" {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(source.Path, "/offload/"), "/")
+	if !strings.HasPrefix(source.Path, "/offload/") || len(parts) != 2 || parts[0] == "" || !strings.HasSuffix(parts[1], ".mp4") {
+		return false
+	}
+	for _, r := range parts[0] {
+		if !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-", r) {
+			return false
+		}
+	}
+	id := strings.TrimSuffix(parts[1], ".mp4")
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // MediaHandler shares the already-configured public listener through main;
 // no fix module imports or alters another module's handlers.
 func (a *API) MediaHandler() http.Handler {
@@ -62,7 +115,8 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := strings.Split(strings.TrimPrefix(r.URL.Path, "/fix/media/"), "/")
 	gallery := len(p) == 3 && p[0] == "gallery" && len(p[1]) <= 1800 && hmac.Equal([]byte(p[2]), []byte(m.signature("gallery", p[1])+".png"))
 	clip := len(p) == 3 && relayID(p[0], p[1]) && hmac.Equal([]byte(p[2]), []byte(m.signature(p[0], p[1])+".mp4"))
-	if !strings.HasPrefix(r.URL.Path, "/fix/media/") || (!gallery && !clip) {
+	instagramVideo := len(p) == 3 && p[0] == "instagram" && len(p[1]) <= 1800 && hmac.Equal([]byte(p[2]), []byte(m.signature("instagram-video", p[1])+".mp4"))
+	if !strings.HasPrefix(r.URL.Path, "/fix/media/") || (!gallery && !clip && !instagramVideo) {
 		http.NotFound(w, r)
 		return
 	}
@@ -71,7 +125,12 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	timeout := 20 * time.Second
+	if instagramVideo {
+		timeout = 2 * time.Minute
+		_ = controller.SetWriteDeadline(time.Now().Add(timeout))
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	select {
 	case m.serving <- struct{}{}:
@@ -80,6 +139,10 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { <-m.serving }()
+	if instagramVideo {
+		m.proxyInstagramVideo(ctx, w, r, p[1])
+		return
+	}
 	key := p[0] + "/" + p[1]
 	prepare := func(ctx context.Context) ([]byte, error) { return m.prepare(ctx, p[1], nil) }
 	contentType, filename, maxAge := "video/mp4", "clip.mp4", "public, max-age=900"
@@ -102,6 +165,63 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, filename, time.Time{}, bytes.NewReader(raw))
 }
+func (m *mediaRelay) proxyInstagramVideo(ctx context.Context, w http.ResponseWriter, r *http.Request, token string) {
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		http.Error(w, "media unavailable", http.StatusBadGateway)
+		return
+	}
+	raw := string(decoded)
+	if !trustedInstagramVideoURL(raw, m.api.cfg.FixEmbed) {
+		http.Error(w, "media unavailable", http.StatusBadGateway)
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, r.Method, raw, nil)
+	if err != nil {
+		http.Error(w, "media unavailable", http.StatusBadGateway)
+		return
+	}
+	for _, header := range []string{"Range", "If-Range"} {
+		if value := r.Header.Get(header); len(value) > 0 && len(value) <= 256 {
+			req.Header.Set(header, value)
+		}
+	}
+	client := &http.Client{
+		Transport: m.api.c.Transport,
+		Timeout:   2 * time.Minute,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		http.Error(w, "media unavailable", http.StatusBadGateway)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	validStatus := resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusPartialContent
+	if !validStatus || resp.ContentLength > mediaLimit {
+		http.Error(w, "media unavailable", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Disposition", "inline; filename=video.mp4")
+	if resp.ContentLength >= 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
+	}
+	if value := resp.Header.Get("Content-Range"); value != "" {
+		w.Header().Set("Content-Range", value)
+	}
+	w.WriteHeader(resp.StatusCode)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = io.Copy(w, io.LimitReader(resp.Body, mediaLimit))
+}
+
 func (m *mediaRelay) ready(ctx context.Context, key string, prepare func(context.Context) ([]byte, error)) ([]byte, error) {
 	select {
 	case m.slot <- struct{}{}:
