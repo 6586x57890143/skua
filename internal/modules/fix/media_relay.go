@@ -84,7 +84,7 @@ func trustedInstagramVideoURL(raw, endpoint string) bool {
 		return false
 	}
 	for _, r := range parts[0] {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
+		if !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-", r) {
 			return false
 		}
 	}
