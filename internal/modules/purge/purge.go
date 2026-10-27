@@ -44,7 +44,7 @@ import (
 const (
 	confirmModal   = "purge-now"
 	progressButton = "purge-progress"
-	jobsDropButton = "purge-jobs-drop"
+	jobsDropMenu   = "purge-jobs-drop"
 )
 
 // tokenLife is how long an interaction's token can edit its response:
@@ -192,9 +192,9 @@ func (m *Module) Modals() []core.Modal {
 	return []core.Modal{{ID: confirmModal, Run: m.confirm}}
 }
 
-// Components is the progress button.
+// Components are the progress button and break-glass jobs menu.
 func (m *Module) Components() []core.Component {
-	return []core.Component{{ID: progressButton, Run: m.progress}, {ID: jobsDropButton, Run: m.dropJob}}
+	return []core.Component{{ID: progressButton, Run: m.progress}, {ID: jobsDropMenu, Run: m.dropJob}}
 }
 
 // progress opens a fresh readout of a running purge, on the token of the
