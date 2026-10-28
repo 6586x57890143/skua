@@ -27,6 +27,8 @@ func TestSupportedPosts(t *testing.T) {
 		"https://b23.tv/abc":                                     "bilibili",
 		"https://pinterest.com/pin/123":                          "pinterest",
 		"https://pin.it/abc":                                     "pinterest",
+		"https://www.tiktok.com/t/ZPLDJqwBp/":                    "tiktok",
+		"https://tiktok.com/t/ZPLDJqwBp?share=1#x":              "tiktok",
 		"https://tiktok.com/@user/video/123":                     "tiktok",
 		"https://vm.tiktok.com/abc":                              "tiktok",
 		"https://vt.tiktok.com/abc":                              "tiktok",
@@ -47,7 +49,7 @@ func TestSupportedPosts(t *testing.T) {
 			t.Errorf("tracking retained: %s", l.URL)
 		}
 	}
-	for _, raw := range []string{"http://x.com/foo/status/123", "https://x.com.evil.example/foo/status/123", "https://x.com@evil.example/foo/status/123", "https://x.com:8080/foo/status/123", "https://x.com:bad/foo/status/123", "https://x.com/foo/status/abc", "https://x.com/foo", "https://x.com/a%2Fb/status/123", "https://bsky.app/profile/foo", "https://twitch.tv/directory", "https://instagram.com/profile/abc", "https://vm.tiktok.com/a/b", "https://example.com/post/123", "https://x.com/foo/status/123\n", strings.Repeat("a", 2049)} {
+	for _, raw := range []string{"http://x.com/foo/status/123", "https://x.com.evil.example/foo/status/123", "https://x.com@evil.example/foo/status/123", "https://x.com:8080/foo/status/123", "https://x.com:bad/foo/status/123", "https://x.com/foo/status/abc", "https://x.com/foo", "https://x.com/a%2Fb/status/123", "https://bsky.app/profile/foo", "https://twitch.tv/directory", "https://instagram.com/profile/abc", "https://vm.tiktok.com/a/b", "https://tiktok.com/t/", "https://tiktok.com/t/a/b", "https://tiktok.com/t/a%2Fb", "https://tiktok.com.evil.example/t/ZPLDJqwBp/", "https://example.com/post/123", "https://x.com/foo/status/123\n", strings.Repeat("a", 2049)} {
 		if l, ok := Parse(raw); ok {
 			t.Errorf("admitted %s: %+v", raw, l)
 		}
@@ -228,5 +230,15 @@ func TestRedditCommentQueryKeepsMeaning(t *testing.T) {
 	l, _ = Parse("https://reddit.com/r/test/comments/abc/title/?comment=bad%26evil")
 	if strings.Contains(l.URL, "?") {
 		t.Fatal(l)
+	}
+}
+
+func TestTikTokShortLinkReachesResolver(t *testing.T) {
+	links := Links("watch https://www.tiktok.com/t/ZPLDJqwBp/?share=1")
+	if len(links) != 1 || links[0].Platform != "tiktok" || links[0].URL != "https://tiktok.com/t/ZPLDJqwBp/" {
+		t.Fatalf("short link was skipped or changed: %+v", links)
+	}
+	if parsed, ok := Parse(links[0].URL); !ok || parsed != links[0] {
+		t.Fatalf("resolver boundary rejected the normalized link: %+v, %t", parsed, ok)
 	}
 }
