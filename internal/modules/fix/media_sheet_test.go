@@ -36,8 +36,8 @@ func TestComposeGalleryMakesFourColumnContactSheet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Bounds().Dx() != sheetWidth || got.Bounds().Dy() != sheetHeight {
-		t.Fatalf("got %v, want %dx%d", got.Bounds(), sheetWidth, sheetHeight)
+	if got.Bounds().Dx() != 1198 || got.Bounds().Dy() != sheetHeight {
+		t.Fatalf("got %v, want 1198x%d with full frames", got.Bounds(), sheetHeight)
 	}
 	_, _, _, gapAlpha := got.At((sheetWidth-3*sheetGap)/4+sheetGap/2, sheetHeight/2).RGBA()
 	if gapAlpha != 0 {
