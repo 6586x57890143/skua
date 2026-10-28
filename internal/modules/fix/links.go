@@ -23,14 +23,14 @@ var (
 	xPost          = regexp.MustCompile(`^/(?:([A-Za-z0-9_]{1,15})/status|i/(?:web/)?status)/([0-9]+)(?:/(?:photo|video)/[0-9]+)?(?:/en)?/?$`)
 	bskyPost       = regexp.MustCompile(`^/profile/([A-Za-z0-9.:-]+)/post/([A-Za-z0-9]+)(?:/en)?/?$`)
 	postPaths      = map[string]*regexp.Regexp{
-		"instagram":  regexp.MustCompile(`^/(?:p|reel|reels)/[A-Za-z0-9_-]+/?$|^/share/(?:p|reel)/[A-Za-z0-9_-]+/?$`),
+		"instagram":  regexp.MustCompile(`^/(?:p|reel|reels|tv)/[A-Za-z0-9_-]+/?$|^/share/(?:p|reel)/[A-Za-z0-9_-]+/?$|^/stories/[A-Za-z0-9._]+/[0-9]+/?$`),
 		"reddit":     regexp.MustCompile(`^/(?:r/[^/]+/(?:comments|s)/[^/]+|comments/[^/]+)(?:/.*)?$`),
-		"threads":    regexp.MustCompile(`^/@[^/]+/post/[A-Za-z0-9_-]+/?$|^/share/[A-Za-z0-9_-]+/?$`),
-		"pixiv":      regexp.MustCompile(`^/(?:en/)?artworks/[0-9]+/?$`),
+		"threads":    regexp.MustCompile(`^/@?[^/]+/post/[A-Za-z0-9_-]+/?$|^/(?:share|t)/[A-Za-z0-9_-]+/?$`),
+		"pixiv":      regexp.MustCompile(`^/(?:[a-z]{2}/)?artworks/[0-9]+/?$|^/i/[0-9]+/?$`),
 		"youtube":    regexp.MustCompile(`^/post/[A-Za-z0-9_-]+/?$`),
 		"bilibili":   regexp.MustCompile(`^/video/[A-Za-z0-9]+/?$`),
 		"pinterest":  regexp.MustCompile(`^/pin/[A-Za-z0-9_-]+/?$`),
-		"tiktok":     regexp.MustCompile(`^/@[^/]+/(?:video|photo)/[0-9]+/?$`),
+		"tiktok":     regexp.MustCompile(`^/(?:@[^/]+/(?:video|photo)/[0-9]+|t/[A-Za-z0-9_-]+)/?$`),
 		"tumblr":     regexp.MustCompile(`^/(?:[^/]+/[0-9]+|blog/view/[^/]+/[0-9]+|post/[0-9]+)(?:/.*)?$`),
 		"twitch":     regexp.MustCompile(`^/(?:videos/[0-9]+|[^/]+/clip/[A-Za-z0-9_-]+|[A-Za-z0-9_]+)/?$`),
 		"deviantart": regexp.MustCompile(`^/[^/]+/art/[^/]+/?$`),
@@ -46,6 +46,13 @@ func Parse(raw string) (Link, bool) {
 	host := strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
 	if u.RawPath != "" || strings.ContainsAny(u.Path, "\\<>[]()\n\r\t ") {
 		return Link{}, false
+	}
+	if host == "pixiv.net" && u.Path == "/member_illust.php" {
+		id := u.Query().Get("illust_id")
+		if id == "" || strings.Trim(id, "0123456789") != "" {
+			return Link{}, false
+		}
+		u.Path = "/artworks/" + id
 	}
 	comment := u.Query().Get("comment")
 	kickClip := u.Query().Get("clip")

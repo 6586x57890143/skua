@@ -11,32 +11,41 @@ import (
 
 func TestSupportedPosts(t *testing.T) {
 	cases := map[string]string{
-		"https://www.twitter.com/Test/status/123/photo/2?s=20#x": "twitter",
-		"https://x.com/i/web/status/123":                         "twitter",
-		"https://bsky.app/profile/did:plc:abc/post/xyz":          "bluesky",
-		"https://www.instagram.com/reel/Ab_1/":                   "instagram",
-		"https://instagram.com/share/p/abc/":                     "instagram",
-		"https://old.reddit.com/r/test/comments/abc/title/":      "reddit",
-		"https://reddit.com/r/test/s/abc":                        "reddit",
-		"https://redd.it/abc":                                    "reddit",
-		"https://threads.com/@foo/post/ABC":                      "threads",
-		"https://threads.net/share/abc":                          "threads",
-		"https://pixiv.net/en/artworks/123":                      "pixiv",
-		"https://youtube.com/post/UgABC":                         "youtube",
-		"https://bilibili.com/video/BV123":                       "bilibili",
-		"https://b23.tv/abc":                                     "bilibili",
-		"https://pinterest.com/pin/123":                          "pinterest",
-		"https://pin.it/abc":                                     "pinterest",
-		"https://tiktok.com/@user/video/123":                     "tiktok",
-		"https://vm.tiktok.com/abc":                              "tiktok",
-		"https://vt.tiktok.com/abc":                              "tiktok",
-		"https://tumblr.com/user/123/title":                      "tumblr",
-		"https://user.tumblr.com/post/123/title":                 "tumblr",
-		"https://twitch.tv/videos/123":                           "twitch",
-		"https://twitch.tv/foo/clip/ABC":                         "twitch",
-		"https://clips.twitch.tv/ABC":                            "twitch",
-		"https://deviantart.com/foo/art/title-123":               "deviantart",
-		"https://sta.sh/abc":                                     "deviantart",
+		"https://www.twitter.com/Test/status/123/photo/2?s=20#x":        "twitter",
+		"https://x.com/i/web/status/123":                                "twitter",
+		"https://bsky.app/profile/did:plc:abc/post/xyz":                 "bluesky",
+		"https://www.instagram.com/reel/Ab_1/":                          "instagram",
+		"https://instagram.com/share/p/abc/":                            "instagram",
+		"https://old.reddit.com/r/test/comments/abc/title/":             "reddit",
+		"https://reddit.com/r/test/s/abc":                               "reddit",
+		"https://redd.it/abc":                                           "reddit",
+		"https://threads.com/@foo/post/ABC":                             "threads",
+		"https://threads.net/t/ABC/":                                    "threads",
+		"https://threads.com/t/ABC?share=1":                             "threads",
+		"https://threads.com/creator/post/ABC":                          "threads",
+		"https://www.pixiv.net/i/123?share=1":                           "pixiv",
+		"https://pixiv.net/member_illust.php?mode=medium&illust_id=123": "pixiv",
+		"https://instagram.com/tv/Ab_1/":                                "instagram",
+		"https://instagram.com/stories/creator/123/":                    "instagram",
+		"https://threads.net/share/abc":                                 "threads",
+		"https://pixiv.net/en/artworks/123":                             "pixiv",
+		"https://youtube.com/post/UgABC":                                "youtube",
+		"https://bilibili.com/video/BV123":                              "bilibili",
+		"https://b23.tv/abc":                                            "bilibili",
+		"https://pinterest.com/pin/123":                                 "pinterest",
+		"https://pin.it/abc":                                            "pinterest",
+		"https://www.tiktok.com/t/ZPLDJqwBp/":                           "tiktok",
+		"https://tiktok.com/t/ZPLDJqwBp?share=1#x":                      "tiktok",
+		"https://tiktok.com/@user/video/123":                            "tiktok",
+		"https://vm.tiktok.com/abc":                                     "tiktok",
+		"https://vt.tiktok.com/abc":                                     "tiktok",
+		"https://tumblr.com/user/123/title":                             "tumblr",
+		"https://user.tumblr.com/post/123/title":                        "tumblr",
+		"https://twitch.tv/videos/123":                                  "twitch",
+		"https://twitch.tv/foo/clip/ABC":                                "twitch",
+		"https://clips.twitch.tv/ABC":                                   "twitch",
+		"https://deviantart.com/foo/art/title-123":                      "deviantart",
+		"https://sta.sh/abc":                                            "deviantart",
 	}
 	for raw, platform := range cases {
 		l, ok := Parse(raw)
@@ -47,7 +56,7 @@ func TestSupportedPosts(t *testing.T) {
 			t.Errorf("tracking retained: %s", l.URL)
 		}
 	}
-	for _, raw := range []string{"http://x.com/foo/status/123", "https://x.com.evil.example/foo/status/123", "https://x.com@evil.example/foo/status/123", "https://x.com:8080/foo/status/123", "https://x.com:bad/foo/status/123", "https://x.com/foo/status/abc", "https://x.com/foo", "https://x.com/a%2Fb/status/123", "https://bsky.app/profile/foo", "https://twitch.tv/directory", "https://instagram.com/profile/abc", "https://vm.tiktok.com/a/b", "https://example.com/post/123", "https://x.com/foo/status/123\n", strings.Repeat("a", 2049)} {
+	for _, raw := range []string{"http://x.com/foo/status/123", "https://x.com.evil.example/foo/status/123", "https://x.com@evil.example/foo/status/123", "https://x.com:8080/foo/status/123", "https://x.com:bad/foo/status/123", "https://x.com/foo/status/abc", "https://x.com/foo", "https://x.com/a%2Fb/status/123", "https://bsky.app/profile/foo", "https://twitch.tv/directory", "https://instagram.com/profile/abc", "https://vm.tiktok.com/a/b", "https://threads.net/t/", "https://threads.net/t/a/b", "https://pixiv.net/i/abc", "https://pixiv.net/member_illust.php?illust_id=abc", "https://pixiv.net/member_illust.php?mode=medium", "https://tiktok.com/t/", "https://tiktok.com/t/a/b", "https://tiktok.com/t/a%2Fb", "https://tiktok.com.evil.example/t/ZPLDJqwBp/", "https://example.com/post/123", "https://x.com/foo/status/123\n", strings.Repeat("a", 2049)} {
 		if l, ok := Parse(raw); ok {
 			t.Errorf("admitted %s: %+v", raw, l)
 		}
@@ -228,5 +237,15 @@ func TestRedditCommentQueryKeepsMeaning(t *testing.T) {
 	l, _ = Parse("https://reddit.com/r/test/comments/abc/title/?comment=bad%26evil")
 	if strings.Contains(l.URL, "?") {
 		t.Fatal(l)
+	}
+}
+
+func TestTikTokShortLinkReachesResolver(t *testing.T) {
+	links := Links("watch https://www.tiktok.com/t/ZPLDJqwBp/?share=1")
+	if len(links) != 1 || links[0].Platform != "tiktok" || links[0].URL != "https://tiktok.com/t/ZPLDJqwBp/" {
+		t.Fatalf("short link was skipped or changed: %+v", links)
+	}
+	if parsed, ok := Parse(links[0].URL); !ok || parsed != links[0] {
+		t.Fatalf("resolver boundary rejected the normalized link: %+v, %t", parsed, ok)
 	}
 }
