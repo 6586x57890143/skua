@@ -198,6 +198,9 @@ func (a *API) instagramMediaPreview(d *fixData, media []Media) []Media {
 	if strings.HasSuffix(videoPath, ".mp4") || strings.HasSuffix(videoPath, ".webm") || strings.HasSuffix(videoPath, ".mov") {
 		return media
 	}
+	if !trustedInstagramVideoURL(d.Video.URL, a.cfg.FixEmbed) {
+		return media
+	}
 	if a.media != nil {
 		if relayed := a.media.instagramVideoLink(d.Video.URL); relayed != "" {
 			if len(media) > 0 {
