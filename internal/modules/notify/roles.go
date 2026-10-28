@@ -29,7 +29,8 @@ const roleID = "notify-role"
 // and skua can: the role carries no permissions at all, so taking it is a
 // label and never a privilege (a "mods" role picked as the ping role must
 // not be one press away for everyone), and she holds Manage Roles, or
-// Administrator, with her highest role above it.
+// Administrator, with her highest role above it. canGrant also checks the
+// role's channel overwrites before allowing enrollment.
 func grantable(roles []discord.Role, mine []snowflake.ID, guild, role snowflake.ID) bool {
 	var perms discord.Permissions
 	top, target := -1, -1
@@ -58,6 +59,24 @@ func grantable(roles []discord.Role, mine []snowflake.ID, guild, role snowflake.
 type roleReader interface {
 	GetRoles(guild snowflake.ID, opts ...rest.RequestOpt) ([]discord.Role, error)
 	GetMember(guild, user snowflake.ID, opts ...rest.RequestOpt) (*discord.Member, error)
+	GetGuildChannels(guild snowflake.ID, opts ...rest.RequestOpt) ([]discord.GuildChannel, error)
+}
+
+// channelRolePermissions collects this role's overwrites across all channels,
+// including categories and channels where the card isn't visible. Threads
+// inherit their parent's overwrites, so the guild channel list covers their
+// role permissions too. A malformed channel list is never a safe role check.
+func channelRolePermissions(channels []discord.GuildChannel, guild, role snowflake.ID) (allow, deny discord.Permissions, valid bool) {
+	for _, ch := range channels {
+		if ch == nil || ch.GuildID() != guild {
+			return 0, 0, false
+		}
+		if overwrite, ok := ch.PermissionOverwrites().Role(role); ok {
+			allow |= overwrite.Allow
+			deny |= overwrite.Deny
+		}
+	}
+	return allow, deny, true
 }
 
 // canMention checks skua's permissions where the cards will be posted,
@@ -121,10 +140,30 @@ func (m *Module) canGrant(p roleReader, guild, role snowflake.ID) bool {
 		return false
 	}
 	me, err := p.GetMember(guild, self)
+	if err != nil || me == nil {
+		return false
+	}
+	if !grantable(roles, me.RoleIDs, guild, role) {
+		return false
+	}
+	channels, err := p.GetGuildChannels(guild)
 	if err != nil {
 		return false
 	}
-	return grantable(roles, me.RoleIDs, guild, role)
+	allow, deny, valid := channelRolePermissions(channels, guild, role)
+	return valid && allow == 0 && deny == 0
+}
+
+// canDrop checks the other direction: removing a role with channel denials
+// can grant access. Allow-only overwrites and guild permissions do not stop
+// someone opting out, since removing those grants cannot increase authority.
+func (m *Module) canDrop(p roleReader, guild, role snowflake.ID) bool {
+	channels, err := p.GetGuildChannels(guild)
+	if err != nil {
+		return false
+	}
+	_, deny, valid := channelRolePermissions(channels, guild, role)
+	return valid && deny == 0
 }
 
 // roleButton is the card's opt-in, blurple so it stands out from the grey
@@ -165,10 +204,13 @@ func (m *Module) grab(ctx context.Context, e *events.ComponentInteractionCreate)
 	has := slices.Contains(member.RoleIDs, role)
 	r := e.Client().Rest
 	// Asked again at the press: the role may have gained permissions, or
-	// skua lost hers, since the card went out. Dropping a role never
-	// grants anything, so only taking one is checked.
+	// skua lost hers, since the card went out. Removing a role with channel
+	// denials can also grant access, so that direction is checked separately.
+	if has && !m.canDrop(withCtx{r, ctx}, *guild, role) {
+		return core.Tell("that role can't be removed from cards; an admin needs to check its channel restrictions")
+	}
 	if !has && !m.canGrant(withCtx{r, ctx}, *guild, role) {
-		return core.Tell("that role can't be handed out from cards; an admin can pick a role with no permissions of its own as the ping role")
+		return core.Tell("that role can't be handed out from cards; an admin can pick a role with no permissions or channel overrides of its own as the ping role")
 	}
 	opts := []rest.RequestOpt{rest.WithCtx(ctx), rest.WithReason("notify: the member pressed ping me")}
 	if has {
@@ -207,4 +249,8 @@ func (w withCtx) GetRoles(guild snowflake.ID, opts ...rest.RequestOpt) ([]discor
 
 func (w withCtx) GetMember(guild, user snowflake.ID, opts ...rest.RequestOpt) (*discord.Member, error) {
 	return w.r.GetMember(guild, user, append(opts, rest.WithCtx(w.ctx))...)
+}
+
+func (w withCtx) GetGuildChannels(guild snowflake.ID, opts ...rest.RequestOpt) ([]discord.GuildChannel, error) {
+	return w.r.GetGuildChannels(guild, append(opts, rest.WithCtx(w.ctx))...)
 }

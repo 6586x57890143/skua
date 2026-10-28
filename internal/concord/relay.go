@@ -33,8 +33,39 @@ const (
 	maxBackoff     = time.Minute
 	// maxFrame bounds one message from a relay. A wrap is at most about
 	// 90 KB of base64; anything far past that is not one.
-	maxFrame = 512 << 10
+	maxFrame       = 512 << 10
+	maxQueryEvents = 4096
+	maxQueryBytes  = 8 << 20
 )
+
+// ErrQueryLimit means no complete result can be returned within the local
+// budget. Callers must not use a truncated authority history.
+var ErrQueryLimit = errors.New("concord: relay query exceeds local history budget")
+
+type eventSet struct {
+	events                     map[string]*nostr.Event
+	bytes, maxEvents, maxBytes int
+}
+
+func newEventSet(maxEvents, maxBytes int) *eventSet {
+	return &eventSet{events: map[string]*nostr.Event{}, maxEvents: maxEvents, maxBytes: maxBytes}
+}
+
+func (s *eventSet) add(ev *nostr.Event) error {
+	if _, exists := s.events[ev.ID]; exists {
+		return nil
+	}
+	raw, err := json.Marshal(ev)
+	if err != nil {
+		return err
+	}
+	if len(s.events) >= s.maxEvents || len(raw) > s.maxBytes-s.bytes {
+		return ErrQueryLimit
+	}
+	s.events[ev.ID] = ev
+	s.bytes += len(raw)
+	return nil
+}
 
 type querier interface {
 	Query(ctx context.Context, f nostr.Filter) []*nostr.Event
@@ -51,7 +82,8 @@ type Pool struct {
 	urls []string
 	next atomic.Uint64
 
-	pingEvery, pongWait time.Duration
+	pingEvery, pongWait     time.Duration
+	queryEvents, queryBytes int
 
 	mu     sync.Mutex
 	conns  map[string]*conn
@@ -62,7 +94,7 @@ type Pool struct {
 
 // NewPool is a pool over urls. Nothing connects until it is used.
 func NewPool(urls []string) *Pool {
-	return &Pool{urls: urls, conns: map[string]*conn{}, keys: map[string]string{}, drops: map[string]int{}, pingEvery: pingEvery, pongWait: pongWait}
+	return &Pool{urls: urls, conns: map[string]*conn{}, keys: map[string]string{}, drops: map[string]int{}, pingEvery: pingEvery, pongWait: pongWait, queryEvents: maxQueryEvents, queryBytes: maxQueryBytes}
 }
 
 // Register makes the pool AUTH as these stream keys, on sockets already
@@ -111,6 +143,13 @@ type okFrame struct {
 	reason string
 }
 
+type subscription struct {
+	filter nostr.Filter
+	frames chan frame
+	done   chan struct{}
+	once   sync.Once
+}
+
 // conn is one socket. Every write goes through wmu; everything else the
 // reader shares is under mu.
 type conn struct {
@@ -123,7 +162,7 @@ type conn struct {
 	wmu   sync.Mutex
 
 	mu        sync.Mutex
-	subs      map[string]chan frame
+	subs      map[string]*subscription
 	oks       map[string]chan okFrame
 	challenge string
 	authed    map[string]chan struct{} // closed once the relay has answered
@@ -151,7 +190,7 @@ func (p *Pool) relay(ctx context.Context, url string) (*conn, error) {
 	ws.SetReadLimit(maxFrame)
 	wait := p.pongWait
 	_ = ws.SetReadDeadline(time.Now().Add(wait))
-	c := &conn{url: url, pongWait: wait, ws: ws, subs: map[string]chan frame{}, oks: map[string]chan okFrame{}, authed: map[string]chan struct{}{}, done: make(chan struct{})}
+	c := &conn{url: url, pongWait: wait, ws: ws, subs: map[string]*subscription{}, oks: map[string]chan okFrame{}, authed: map[string]chan struct{}{}, done: make(chan struct{})}
 	c.heard.Store(time.Now().UnixMilli())
 	ws.SetPongHandler(func(string) error {
 		c.heard.Store(time.Now().UnixMilli())
@@ -282,13 +321,14 @@ func (p *Pool) read(c *conn) {
 // nothing is lost, but never past the socket closing.
 func (c *conn) deliver(id string, f frame) {
 	c.mu.Lock()
-	ch := c.subs[id]
+	sub := c.subs[id]
 	c.mu.Unlock()
-	if ch == nil {
+	if sub == nil || f.ev != nil && !sub.filter.Matches(f.ev) {
 		return
 	}
 	select {
-	case ch <- f:
+	case sub.frames <- f:
+	case <-sub.done:
 	case <-c.done:
 	}
 }
@@ -376,14 +416,15 @@ func (c *conn) send(ctx context.Context, verb string, ev *nostr.Event) (okFrame,
 func (p *Pool) req(c *conn, f nostr.Filter) (chan frame, func(), error) {
 	id := "s" + strconv.FormatUint(p.next.Add(1), 10)
 	frames := make(chan frame, 64)
+	sub := &subscription{filter: f, frames: frames, done: make(chan struct{})}
 	c.mu.Lock()
-	c.subs[id] = frames
+	c.subs[id] = sub
 	c.mu.Unlock()
 	stop := func() {
 		c.mu.Lock()
 		delete(c.subs, id)
 		c.mu.Unlock()
-		_ = c.write("CLOSE", id)
+		sub.once.Do(func() { close(sub.done); _ = c.write("CLOSE", id) })
 	}
 	if err := c.write("REQ", id, f); err != nil {
 		stop()
@@ -399,39 +440,74 @@ func authRefused(reason string) bool {
 
 // Query asks every relay and merges what they hold, by id.
 func (p *Pool) Query(ctx context.Context, f nostr.Filter) []*nostr.Event {
+	out, _ := p.QueryChecked(ctx, f)
+	return out
+}
+
+// QueryChecked returns only complete, locally bounded relay results. An
+// overflow discards the whole query rather than returning partial policy.
+func (p *Pool) QueryChecked(ctx context.Context, f nostr.Filter) ([]*nostr.Event, error) {
+	if f.LimitZero {
+		return []*nostr.Event{}, nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
 	var mu sync.Mutex
-	byID := map[string]*nostr.Event{}
+	set := newEventSet(p.queryEvents, p.queryBytes)
+	var failures []error
+	complete := 0
+	var overflow error
 	var wg sync.WaitGroup
 	for _, url := range p.urls {
 		wg.Go(func() {
-			for _, ev := range p.queryOne(ctx, url, f) {
-				mu.Lock()
-				byID[ev.ID] = ev
-				mu.Unlock()
+			events, err := p.queryOneChecked(ctx, url, f)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				failures = append(failures, err)
+				if errors.Is(err, ErrQueryLimit) {
+					overflow = err
+					cancel()
+				}
+				return
+			}
+			complete++
+			for _, ev := range events {
+				if err := set.add(ev); err != nil {
+					overflow = err
+					cancel()
+					return
+				}
 			}
 		})
 	}
 	wg.Wait()
-	out := make([]*nostr.Event, 0, len(byID))
-	for _, ev := range byID {
+	if overflow != nil {
+		return nil, overflow
+	}
+	if complete == 0 {
+		return nil, errors.Join(append([]error{errors.New("concord: no complete relay query")}, failures...)...)
+	}
+	out := make([]*nostr.Event, 0, len(set.events))
+	for _, ev := range set.events {
 		out = append(out, ev)
 	}
-	return out
+	return out, nil
 }
 
-func (p *Pool) queryOne(ctx context.Context, url string, f nostr.Filter) []*nostr.Event {
+func (p *Pool) queryOneChecked(ctx context.Context, url string, f nostr.Filter) ([]*nostr.Event, error) {
 	for attempt := range 2 {
 		c, err := p.relay(ctx, url)
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		frames, stop, err := p.req(c, f)
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		var out []*nostr.Event
+		set := newEventSet(p.queryEvents, p.queryBytes)
+		var queryErr error
 		retry := false
 	read:
 		for {
@@ -439,26 +515,44 @@ func (p *Pool) queryOne(ctx context.Context, url string, f nostr.Filter) []*nost
 			case fr := <-frames:
 				switch {
 				case fr.ev != nil:
+					if !f.Matches(fr.ev) {
+						continue
+					}
+					if _, duplicate := set.events[fr.ev.ID]; duplicate {
+						continue
+					}
+					if queryErr = set.add(fr.ev); queryErr != nil {
+						break read
+					}
 					out = append(out, fr.ev)
+					if f.Limit > 0 && len(out) >= f.Limit {
+						break read
+					}
 				case fr.eose:
 					break read
 				case fr.closed != nil:
 					retry = attempt == 0 && authRefused(*fr.closed)
+					queryErr = errors.New("concord: relay closed query: " + *fr.closed)
 					break read
 				}
 			case <-c.done:
+				queryErr = errors.New("concord: relay connection closed during query")
 				break read
 			case <-ctx.Done():
+				queryErr = ctx.Err()
 				break read
 			}
 		}
 		stop()
 		if !retry {
-			return out
+			if queryErr != nil {
+				return nil, queryErr
+			}
+			return out, nil
 		}
 		p.auth(ctx, c)
 	}
-	return nil
+	return nil, errors.New("concord: relay query authentication failed")
 }
 
 // Publish sends ev to every relay and succeeds when any accepts it.
@@ -545,6 +639,9 @@ func (p *Pool) stream(ctx context.Context, url string, f nostr.Filter, onEvent f
 		case fr := <-frames:
 			switch {
 			case fr.ev != nil:
+				if !f.Matches(fr.ev) {
+					continue
+				}
 				last = max(last, fr.ev.CreatedAt)
 				onEvent(fr.ev)
 			case fr.closed != nil:

@@ -63,8 +63,48 @@ const (
 	// grow the heap, and the relay copy is still the record.
 	queueCap = 200
 	// refoldAfter batches control wraps arriving together into one fold.
-	refoldAfter = 250 * time.Millisecond
+	refoldAfter      = 250 * time.Millisecond
+	maxControlEvents = 4096
+	maxControlBytes  = 8 << 20
 )
+
+var errControlHistoryLimit = errors.New("armada: control history exceeds local budget")
+
+type controlHistory struct {
+	wraps                      map[string]*nostr.Event
+	bytes, maxEvents, maxBytes int
+}
+
+func newControlHistory(maxEvents, maxBytes int) *controlHistory {
+	return &controlHistory{wraps: map[string]*nostr.Event{}, maxEvents: maxEvents, maxBytes: maxBytes}
+}
+
+func (h *controlHistory) add(w *nostr.Event, key concord.StreamKey) (bool, error) {
+	if w == nil || h.wraps[w.ID] != nil || !concord.ValidControlWrap(w, key) {
+		return false, nil
+	}
+	raw, err := json.Marshal(w)
+	if err != nil {
+		return false, err
+	}
+	if len(h.wraps) >= h.maxEvents || len(raw) > h.maxBytes-h.bytes {
+		return false, errControlHistoryLimit
+	}
+	h.wraps[w.ID] = w
+	h.bytes += len(raw)
+	return true, nil
+}
+
+// checkedQuery preserves compatibility with local relay implementations,
+// while production pools explicitly reject incomplete or over-budget reads.
+func checkedQuery(ctx context.Context, p relays, f nostr.Filter) ([]*nostr.Event, error) {
+	if checked, ok := p.(interface {
+		QueryChecked(context.Context, nostr.Filter) ([]*nostr.Event, error)
+	}); ok {
+		return checked.QueryChecked(ctx, f)
+	}
+	return p.Query(ctx, f), nil
+}
 
 // Config is the bridge's environment. Every field is a secret or close to
 // one, so none is ever logged.
@@ -117,7 +157,7 @@ type link struct {
 	guild   atomic.Uint64 // learned at boot, or from the first message
 	tally   tally
 	toArm   chan fromDiscord
-	toDisc  chan *concord.Opened
+	toDisc  chan discordJob
 }
 
 // relays is the slice of concord.Pool the bridge uses.
@@ -172,28 +212,31 @@ type Module struct {
 	app     snowflake.ID
 	self    snowflake.ID // skua's user, whose reactions stand for Armada's
 
-	mu       sync.RWMutex
-	comm     *concord.Community
-	folded   *concord.Folded
-	chans    map[string]concord.ChatChannel // by link's armada channel
-	pool     relays
-	subs     map[string]context.CancelFunc // chat subscription per link
-	subKeys  map[string]string             // the authors it was opened with
-	missing  map[string]bool               // links already logged as unreadable
-	failing  string                        // why the invite last failed to read, or ""
-	drift    map[string]concord.Drift      // held keys that rotations skua can't take have passed
-	puppets  map[string]concord.Key        // discord user id -> puppet
-	puppetPK map[string]bool
-	profiles map[string]profile         // armada pubkey -> name and avatar
-	synced   map[string]string          // discord user id -> profile published
-	joined   map[string]bool            // discord user ids whose puppet joined
-	seen     map[string]bool            // rumor ids already queued
-	inbox    map[string]bool            // inbox wraps that have woken run
-	edited   map[snowflake.ID]time.Time // the last Discord edit sent, per message
-	lastEdit map[string]int64           // the newest Armada edit applied, per rumor
-	pub      relays                     // community and stock relays, for public events
-	packs    map[snowflake.ID]string    // the emoji pack published, per server
-	listed   map[string]string          // the packs a puppet's kind 10030 names, per discord user
+	mu              sync.RWMutex
+	comm            *concord.Community
+	folded          *concord.Folded
+	chans           map[string]concord.ChatChannel // by link's armada channel
+	pool            relays
+	subs            map[string]context.CancelFunc // chat subscription per link
+	subKeys         map[string]string             // the authors it was opened with
+	missing         map[string]bool               // links already logged as unreadable
+	failing         string                        // why the invite last failed to read, or ""
+	controlBlocked  bool                          // oversized history requires a new valid session
+	controlEpoch    uint64                        // invalidates queued work across session changes
+	controlRevision uint64                        // invalidates work prepared under an earlier fold
+	drift           map[string]concord.Drift      // held keys that rotations skua can't take have passed
+	puppets         map[string]concord.Key        // discord user id -> puppet
+	puppetPK        map[string]bool
+	profiles        map[string]profile         // armada pubkey -> name and avatar
+	synced          map[string]string          // discord user id -> profile published
+	joined          map[string]bool            // discord user ids whose puppet joined
+	seen            map[string]bool            // rumor ids already queued
+	inbox           map[string]bool            // inbox wraps that have woken run
+	edited          map[snowflake.ID]time.Time // the last Discord edit sent, per message
+	lastEdit        map[string]int64           // the newest Armada edit applied, per rumor
+	pub             relays                     // community and stock relays, for public events
+	packs           map[snowflake.ID]string    // the emoji pack published, per server
+	listed          map[string]string          // the packs a puppet's kind 10030 names, per discord user
 }
 
 type profile struct {
@@ -292,7 +335,7 @@ func parseLinks(v string) ([]*link, error) {
 			return nil, fmt.Errorf("armada: SKUA_ARMADA_LINKS names a channel twice (%q); each side may be in one pair", pair)
 		}
 		seenD[id], seenA[a] = true, true
-		out = append(out, &link{discord: id, armada: a, toArm: make(chan fromDiscord, queueCap), toDisc: make(chan *concord.Opened, queueCap)})
+		out = append(out, &link{discord: id, armada: a, toArm: make(chan fromDiscord, queueCap), toDisc: make(chan discordJob, queueCap)})
 	}
 	if len(out) == 0 {
 		return nil, errors.New("armada: SKUA_ARMADA_LINKS is empty; name at least one <discord channel id>=<armada channel id>")
@@ -448,7 +491,9 @@ func (m *Module) run() {
 		last := time.Now()
 		c, err := m.resolve()
 		m.mu.Lock()
-		m.failing = ""
+		if !m.controlBlocked {
+			m.failing = ""
+		}
 		if err != nil {
 			m.failing = strings.TrimPrefix(err.Error(), "concord: ")
 		}
@@ -456,12 +501,22 @@ func (m *Module) run() {
 		switch {
 		case err != nil:
 			m.log.Warn("armada: reading the invite", "err", err)
+			if errors.Is(err, concord.ErrQueryLimit) {
+				end()
+				current = ""
+				m.suspendControl(nil, err)
+			}
 		case fingerprint(c) != current:
 			end()
 			ctx, cancel := context.WithCancel(m.ctx)
 			end = cancel
-			current = fingerprint(c)
-			m.session(ctx, c)
+			if err := m.session(ctx, c); err != nil {
+				cancel()
+				current = ""
+				m.suspendControl(nil, err)
+			} else {
+				current = fingerprint(c)
+			}
 		}
 		if err == nil {
 			m.syncPacks(m.ctx)
@@ -517,7 +572,11 @@ func (m *Module) resolve() (*concord.Community, error) {
 	defer p.Close()
 	control := concord.ControlStream(c)
 	p.Register(control)
-	f := concord.FoldControl(c, p.Query(m.ctx, nostr.Filter{Kinds: []int{concord.KindWrap}, Authors: []string{control.PK}}))
+	wraps, err := checkedQuery(m.ctx, p, nostr.Filter{Kinds: []int{concord.KindWrap}, Authors: []string{control.PK}})
+	if err != nil {
+		return nil, err
+	}
+	f := concord.FoldControl(c, wraps)
 	if learned := concord.Intake(m.ctx, p, m.primary.SK, c, f); len(learned) > 0 {
 		m.log.Debug("armada: keys from a direct invite", "channels", len(learned))
 	}
@@ -546,13 +605,24 @@ func fingerprint(c *concord.Community) string {
 
 // session folds the community's Control Plane, opens the linked channels'
 // streams and keeps the fold live, all until ctx ends.
-func (m *Module) session(ctx context.Context, c *concord.Community) {
+func (m *Module) session(ctx context.Context, c *concord.Community) error {
+	ctx, cancel := context.WithCancel(ctx)
 	pool := m.dial(c.Relays)
 	control := concord.ControlStream(c)
 	pool.Register(control, concord.GuestbookKey(c))
-	wraps := map[string]*nostr.Event{}
-	for _, w := range pool.Query(ctx, nostr.Filter{Kinds: []int{concord.KindWrap}, Authors: []string{control.PK}}) {
-		wraps[w.ID] = w
+	initial, err := checkedQuery(ctx, pool, nostr.Filter{Kinds: []int{concord.KindWrap}, Authors: []string{control.PK}})
+	if err != nil {
+		cancel()
+		pool.Close()
+		return err
+	}
+	history := newControlHistory(maxControlEvents, maxControlBytes)
+	for _, w := range initial {
+		if _, err := history.add(w, control); err != nil {
+			cancel()
+			pool.Close()
+			return err
+		}
 	}
 	pub := m.dial(append(slices.Clone(c.Relays), concord.StockRelays...))
 	m.mu.Lock()
@@ -563,13 +633,16 @@ func (m *Module) session(ctx context.Context, c *concord.Community) {
 		m.pub.Close()
 	}
 	m.pool, m.pub, m.comm = pool, pub, c
+	m.controlEpoch++
+	m.controlBlocked, m.failing = false, ""
 	clear(m.subKeys)
 	for _, cancel := range m.subs {
 		cancel()
 	}
 	clear(m.subs)
 	m.mu.Unlock()
-	m.apply(ctx, c, concord.FoldControl(c, slicesOf(wraps)))
+	go func() { <-ctx.Done(); pool.Close(); pub.Close() }()
+	m.apply(ctx, c, concord.FoldControl(c, slicesOf(history.wraps)))
 	go m.announce(ctx, pool, c)
 
 	// The REQ has no since: every relay replays the whole plane, so wraps
@@ -579,15 +652,27 @@ func (m *Module) session(ctx context.Context, c *concord.Community) {
 	pool.Subscribe(ctx, nostr.Filter{Kinds: []int{concord.KindWrap}, Authors: []string{control.PK}}, func(w *nostr.Event) {
 		mu.Lock()
 		defer mu.Unlock()
-		if wraps[w.ID] != nil {
+		if ctx.Err() != nil {
 			return
 		}
-		wraps[w.ID] = w
+		added, err := history.add(w, control)
+		if err != nil {
+			cancel()
+			if pending != nil {
+				pending.Stop()
+				pending = nil
+			}
+			m.suspendControl(pool, err)
+			return
+		}
+		if !added {
+			return
+		}
 		if pending == nil {
 			pending = time.AfterFunc(refoldAfter, func() {
 				mu.Lock()
 				pending = nil
-				all := slicesOf(wraps)
+				all := slicesOf(history.wraps)
 				mu.Unlock()
 				if ctx.Err() == nil {
 					m.apply(ctx, c, concord.FoldControl(c, all))
@@ -607,6 +692,33 @@ func (m *Module) session(ctx context.Context, c *concord.Community) {
 		pool.Subscribe(ctx, nostr.Filter{Kinds: []int{concord.KindWrap}, Authors: addrs, Since: &since}, m.hint)
 	}
 	m.log.Info("armada: bridge is up", "links", len(m.links))
+	return nil
+}
+
+// suspendControl stops bridging instead of discarding old authority events
+// and accidentally rebuilding a policy without their bans or revocations.
+func (m *Module) suspendControl(pool relays, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if pool != nil && m.pool != pool {
+		return
+	}
+	m.failing = err.Error()
+	m.controlBlocked = true
+	m.controlEpoch++
+	m.chans = nil
+	for _, cancel := range m.subs {
+		cancel()
+	}
+	clear(m.subs)
+	clear(m.subKeys)
+	if m.pool != nil {
+		m.pool.Close()
+	}
+	if m.pub != nil {
+		m.pub.Close()
+	}
+	m.log.Warn("armada: control history unavailable; bridging stopped", "err", err)
 }
 
 // hint wakes run for a wrap not seen before: a new session, or a second
@@ -644,7 +756,12 @@ func (m *Module) apply(ctx context.Context, c *concord.Community, f *concord.Fol
 	chans := concord.Channels(c, f)
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if ctx.Err() != nil {
+		return
+	}
 	m.folded, m.chans = f, chans
+	m.controlRevision++
+	epoch := m.controlEpoch
 	for _, l := range m.links {
 		ch, ok := chans[l.armada]
 		if !ok {
@@ -672,7 +789,9 @@ func (m *Module) apply(ctx context.Context, c *concord.Community, f *concord.Fol
 		// Discord on every subscribe. A minute of overlap absorbs skew.
 		since := nostr.Now() - 60
 		m.pool.Subscribe(sctx, nostr.Filter{Kinds: []int{concord.KindWrap}, Authors: ch.Authors(), Since: &since}, func(w *nostr.Event) {
-			m.onWrap(l, w)
+			if sctx.Err() == nil {
+				m.onWrapBound(l, w, epoch)
+			}
 		})
 	}
 }
@@ -721,9 +840,19 @@ func (m *Module) state() (relays, *concord.Community, *concord.Folded, map[strin
 
 // onWrap opens a wrap for its link and queues it for Discord, once.
 func (m *Module) onWrap(l *link, w *nostr.Event) {
-	_, _, _, chans := m.state()
-	ch, ok := chans[l.armada]
-	if !ok {
+	m.mu.RLock()
+	epoch := m.controlEpoch
+	m.mu.RUnlock()
+	m.onWrapBound(l, w, epoch)
+}
+
+func (m *Module) onWrapBound(l *link, w *nostr.Event, epoch uint64) {
+	m.mu.RLock()
+	ch, ok := m.chans[l.armada]
+	binding := discordBinding{epoch: m.controlEpoch, revision: m.controlRevision, keys: strings.Join(ch.Authors(), ",")}
+	blocked := m.controlBlocked || epoch != m.controlEpoch
+	m.mu.RUnlock()
+	if !ok || blocked {
 		return
 	}
 	o, err := concord.OpenChat(w, ch)
@@ -731,6 +860,10 @@ func (m *Module) onWrap(l *link, w *nostr.Event) {
 		return
 	}
 	m.mu.Lock()
+	if !m.discordAllowedLocked(l, o, binding, false) {
+		m.mu.Unlock()
+		return
+	}
 	dup := m.seen[o.RumorID]
 	if !dup {
 		if len(m.seen) >= 65_536 {
@@ -743,7 +876,7 @@ func (m *Module) onWrap(l *link, w *nostr.Event) {
 		return
 	}
 	select {
-	case l.toDisc <- o:
+	case l.toDisc <- discordJob{opened: o, binding: binding}:
 	default:
 		m.log.Warn("armada: dropping an armada message, the queue is full", "channel", l.discord)
 	}
@@ -775,7 +908,7 @@ func (m *Module) armadaWorker(l *link) {
 		case <-m.ctx.Done():
 			return
 		case o := <-l.toDisc:
-			m.toDiscord(l, o)
+			m.toDiscordBound(l, o.opened, o.binding)
 		}
 	}
 }

@@ -40,6 +40,10 @@ const (
 	shotW, shotH = 1280, 720
 	band         = 136     // the watermark band's height
 	maxImage     = 8 << 20 // the most of a frame read
+	// Enough for a UHD frame; source pixels are bounded before decoding,
+	// independently of the compressed response and final card dimensions.
+	maxImageSide   = 4096
+	maxImagePixels = 4096 * 2160
 )
 
 var (
@@ -72,7 +76,21 @@ func fetchImage(ctx context.Context, c *http.Client, u string) (image.Image, err
 	if res.StatusCode/100 != 2 || !strings.HasPrefix(res.Header.Get("Content-Type"), "image/") {
 		return nil, fmt.Errorf("notify: %s answered %d %s", req.URL.Host, res.StatusCode, res.Header.Get("Content-Type"))
 	}
-	img, _, err := image.Decode(io.LimitReader(res.Body, maxImage))
+	raw, err := io.ReadAll(io.LimitReader(res.Body, maxImage+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxImage {
+		return nil, fmt.Errorf("notify: frame exceeds %d bytes", maxImage)
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Width < 1 || cfg.Height < 1 || cfg.Width > maxImageSide || cfg.Height > maxImageSide || int64(cfg.Width)*int64(cfg.Height) > maxImagePixels {
+		return nil, fmt.Errorf("notify: frame dimensions exceed %d pixels or %d per side", maxImagePixels, maxImageSide)
+	}
+	img, _, err := image.Decode(bytes.NewReader(raw))
 	return img, err
 }
 

@@ -62,6 +62,10 @@ func (p *safePoster) GetMember(snowflake.ID, snowflake.ID, ...rest.RequestOpt) (
 	return &discord.Member{}, nil
 }
 
+func (p *safePoster) GetGuildChannels(snowflake.ID, ...rest.RequestOpt) ([]discord.GuildChannel, error) {
+	return nil, nil
+}
+
 func (p *safePoster) count() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()

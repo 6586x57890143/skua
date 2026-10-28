@@ -32,6 +32,44 @@ import (
 // sendBy bounds one message's trip across, attachments included.
 const sendBy = 2 * time.Minute
 
+type discordBinding struct {
+	epoch    uint64
+	revision uint64
+	keys     string
+}
+
+type discordJob struct {
+	opened  *concord.Opened
+	binding discordBinding
+}
+
+type discordBindingKey struct{}
+
+var errDiscordInactive = errors.New("armada: Discord delivery no longer authorized")
+
+// discordAllowedLocked binds queued work to its session and channel keys.
+// Retaining the last fold during a control failure must not authorize writes.
+func (m *Module) discordAllowedLocked(l *link, o *concord.Opened, b discordBinding, moderator bool) bool {
+	ch, ok := m.chans[l.armada]
+	return o != nil && !m.controlBlocked && m.folded != nil && ok && b.epoch == m.controlEpoch && b.revision == m.controlRevision &&
+		b.keys == strings.Join(ch.Authors(), ",") && !m.folded.IsBanned(o.Author) &&
+		(!moderator || m.folded.IsModerator(o.Author))
+}
+
+// discordWrite rechecks authority after preparation and before each external
+// write. A request already in flight when authority changes cannot be recalled.
+func (m *Module) discordWrite(ctx context.Context, l *link, o *concord.Opened, moderator bool, call func() error) error {
+	b, ok := ctx.Value(discordBindingKey{}).(discordBinding)
+	m.mu.RLock()
+	allowed := ok && m.discordAllowedLocked(l, o, b, moderator)
+	m.mu.RUnlock()
+	guild := snowflake.ID(l.guild.Load())
+	if ctx.Err() != nil || !allowed || guild == 0 || (m.gate != nil && !m.gate(guild)) {
+		return errDiscordInactive
+	}
+	return call()
+}
+
 // derivePuppet is upstream's puppets.ts: HKDF-SHA256 of the master secret
 // with info armada-bridge/puppet/v1/<user id>/<counter>, the first counter
 // that gives a valid key winning.
@@ -430,7 +468,9 @@ func (m *Module) armadaReaction(ctx context.Context, l *link, guild snowflake.ID
 	if n, err := m.maps.armadaReactions(ctx, msg, emoji); err != nil {
 		return
 	} else if n == 0 {
-		err := m.react(guild, func() error { return m.rest.AddReaction(l.discord, msg, emoji, rest.WithCtx(ctx)) })
+		err := m.discordWrite(ctx, l, o, false, func() error {
+			return m.react(guild, func() error { return m.rest.AddReaction(l.discord, msg, emoji, rest.WithCtx(ctx)) })
+		})
 		if err != nil {
 			m.log.Warn("armada: reacting for an armada member", "channel", l.discord, "err", err)
 			return
@@ -460,11 +500,15 @@ func (m *Module) armadaUnreact(ctx context.Context, l *link, guild snowflake.ID,
 		if perr != nil {
 			return
 		}
-		err = m.react(guild, func() error {
-			return m.rest.RemoveUserReaction(l.discord, x.Message, x.Emoji, user, rest.WithCtx(ctx))
+		err = m.discordWrite(ctx, l, o, !own, func() error {
+			return m.react(guild, func() error {
+				return m.rest.RemoveUserReaction(l.discord, x.Message, x.Emoji, user, rest.WithCtx(ctx))
+			})
 		})
 	} else if n, cerr := m.maps.armadaReactions(ctx, x.Message, x.Emoji); cerr == nil && n == 0 {
-		err = m.react(guild, func() error { return m.rest.RemoveOwnReaction(l.discord, x.Message, x.Emoji, rest.WithCtx(ctx)) })
+		err = m.discordWrite(ctx, l, o, !own, func() error {
+			return m.react(guild, func() error { return m.rest.RemoveOwnReaction(l.discord, x.Message, x.Emoji, rest.WithCtx(ctx)) })
+		})
 	}
 	if err != nil {
 		m.log.Warn("armada: removing a bridged reaction", "channel", l.discord, "err", err)
@@ -484,13 +528,28 @@ func (m *Module) react(guild snowflake.ID, call func() error) error {
 // toDiscord posts an Armada message into its linked Discord channel, or
 // applies a delete.
 func (m *Module) toDiscord(l *link, o *concord.Opened) {
+	m.mu.RLock()
+	ch := m.chans[l.armada]
+	binding := discordBinding{epoch: m.controlEpoch, revision: m.controlRevision, keys: strings.Join(ch.Authors(), ",")}
+	m.mu.RUnlock()
+	m.toDiscordBound(l, o, binding)
+}
+
+func (m *Module) toDiscordBound(l *link, o *concord.Opened, binding discordBinding) {
 	ctx, cancel := context.WithTimeout(m.ctx, sendBy)
 	defer cancel()
+	m.mu.RLock()
+	allowed := m.discordAllowedLocked(l, o, binding, false)
+	f := m.folded
+	m.mu.RUnlock()
+	if !allowed {
+		return
+	}
+	ctx = context.WithValue(ctx, discordBindingKey{}, binding)
 	guild := snowflake.ID(l.guild.Load())
 	if guild == 0 || (m.gate != nil && !m.gate(guild)) {
 		return
 	}
-	_, _, f, _ := m.state()
 	// skua's own posts, anything any bridge published, skua's puppets and
 	// banned members never come back through.
 	if o.Author == m.primary.PK || concord.HasTag(o.Tags, "proxy") || m.isPuppet(o.Author) || f.IsBanned(o.Author) {
@@ -547,9 +606,12 @@ func (m *Module) armadaEdit(ctx context.Context, l *link, guild snowflake.ID, o 
 			content = parts[i]
 		}
 		update := discord.WebhookMessageUpdate{Content: &content, AllowedMentions: core.NoPings()}
-		if err := m.post.Edit(ctx, m.rest, guild, l.discord, m.app, r.Webhook, r.Message, update); err != nil {
+		if err := m.discordWrite(ctx, l, o, false, func() error {
+			return m.post.Edit(ctx, m.rest, guild, l.discord, m.app, r.Webhook, r.Message, update)
+		}); err != nil {
 			m.log.Warn("armada: editing a bridged message", "err", err)
 			l.tally.fail()
+			return
 		}
 	}
 	if len(parts) <= len(rows) {
@@ -557,7 +619,12 @@ func (m *Module) armadaEdit(ctx context.Context, l *link, guild snowflake.ID, o 
 	}
 	name, avatar := m.profile(ctx, o.Author)
 	for i := len(rows); i < len(parts); i++ {
-		posted, err := m.post.Send(ctx, m.rest, guild, l.discord, m.app, discord.WebhookMessageCreate{Content: parts[i], Username: name, AvatarURL: avatar, AllowedMentions: core.NoPings()})
+		var posted *discord.Message
+		err := m.discordWrite(ctx, l, o, false, func() error {
+			var err error
+			posted, err = m.post.Send(ctx, m.rest, guild, l.discord, m.app, discord.WebhookMessageCreate{Content: parts[i], Username: name, AvatarURL: avatar, AllowedMentions: core.NoPings()})
+			return err
+		})
 		if err != nil {
 			m.log.Warn("armada: posting an edit's new part", "err", err)
 			l.tally.fail()
@@ -591,7 +658,12 @@ func (m *Module) armadaPost(ctx context.Context, l *link, guild snowflake.ID, o 
 		if i == 0 {
 			msg.Files = files
 		}
-		posted, err := m.post.Send(ctx, m.rest, guild, l.discord, m.app, msg)
+		var posted *discord.Message
+		err := m.discordWrite(ctx, l, o, false, func() error {
+			var err error
+			posted, err = m.post.Send(ctx, m.rest, guild, l.discord, m.app, msg)
+			return err
+		})
 		if err != nil {
 			m.log.Warn("armada: posting an armada message", "channel", l.discord, "err", err)
 			l.tally.fail()
@@ -645,12 +717,17 @@ func (m *Module) armadaDelete(ctx context.Context, l *link, guild snowflake.ID, 
 			continue
 		}
 		for _, r := range rows {
-			if r.Webhook != 0 {
-				err = m.post.Delete(ctx, m.rest, guild, l.discord, m.app, r.Webhook, r.Message)
-			} else if err = m.guard.Allow(guild, guard.MessageDelete); err == nil {
-				err = m.rest.DeleteMessage(l.discord, r.Message, rest.WithCtx(ctx), rest.WithReason("armada: deleted by a moderator in armada"))
+			err = m.discordWrite(ctx, l, o, !own, func() error {
+				if r.Webhook != 0 {
+					return m.post.Delete(ctx, m.rest, guild, l.discord, m.app, r.Webhook, r.Message)
+				}
+				if err := m.guard.Allow(guild, guard.MessageDelete); err != nil {
+					return err
+				}
+				err := m.rest.DeleteMessage(l.discord, r.Message, rest.WithCtx(ctx), rest.WithReason("armada: deleted by a moderator in armada"))
 				m.guard.Report(guild, struggling(err))
-			}
+				return err
+			})
 			if err != nil {
 				m.log.Warn("armada: deleting a bridged message", "err", err)
 			}
