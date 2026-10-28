@@ -495,6 +495,7 @@ func (m *Module) newJob(r rest.Rest, guild snowflake.ID, authors []snowflake.ID,
 	return &job{began: m.now(), done: make(chan struct{}), sweep: &sweep{
 		r: r, guard: m.guard, pace: m.pace, idx: m.idx, guild: guild,
 		authors: counts, in: map[snowflake.ID]scope{}, cutoff: snowflake.New(m.now()), now: m.now, why: why,
+		allowed: func() bool { return m.on(guild) },
 	}}
 }
 
@@ -789,4 +790,3 @@ func span(d time.Duration) string {
 	}
 	return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
 }
-

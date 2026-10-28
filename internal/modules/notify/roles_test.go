@@ -2,11 +2,13 @@ package notify
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/disgoorg/disgo/cache"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
@@ -103,6 +105,8 @@ type roleRest struct {
 	added, removed []snowflake.ID
 	err            error
 	roles          []discord.Role
+	channels       []discord.GuildChannel
+	channelErr     error
 	replies        []string // what the presser read after the deferral
 }
 
@@ -112,6 +116,146 @@ func (r *roleRest) GetRoles(snowflake.ID, ...rest.RequestOpt) ([]discord.Role, e
 
 func (r *roleRest) GetMember(_, user snowflake.ID, _ ...rest.RequestOpt) (*discord.Member, error) {
 	return &discord.Member{User: discord.User{ID: user}, RoleIDs: []snowflake.ID{5}}, nil
+}
+
+func (r *roleRest) GetGuildChannels(snowflake.ID, ...rest.RequestOpt) ([]discord.GuildChannel, error) {
+	return r.channels, r.channelErr
+}
+
+func roleTestChannel(t testing.TB, id, guild snowflake.ID, kind discord.ChannelType, overwrites ...discord.PermissionOverwrite) discord.GuildChannel {
+	t.Helper()
+	data, err := json.Marshal(map[string]any{"id": id, "guild_id": guild, "type": kind, "permission_overwrites": overwrites})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ch discord.UnmarshalChannel
+	if err := json.Unmarshal(data, &ch); err != nil {
+		t.Fatal(err)
+	}
+	return ch.Channel.(discord.GuildChannel)
+}
+
+// Guild role bits alone accept this role, although acquiring it crosses a
+// private channel boundary. Check that real permission transition, then drive
+// the component handler to verify it never gives the member that role.
+func TestPingMeRefusesChannelAccessRole(t *testing.T) {
+	m := module(t, newFake())
+	m.self = 2
+	m.follows = []follow{{guild: 3, platform: "fake", account: "bird", role: 7}}
+	roles := guildRoles(discord.PermissionManageRoles, 2, false)
+	roles[0].Permissions = discord.PermissionViewChannel
+	private := roleTestChannel(t, 11, 3, discord.ChannelTypeGuildText,
+		discord.RolePermissionOverwrite{RoleID: 3, Deny: discord.PermissionViewChannel},
+		discord.RolePermissionOverwrite{RoleID: 7, Allow: discord.PermissionViewChannel})
+	if !grantable(roles, []snowflake.ID{5}, 3, 7) {
+		t.Fatal("the fixture must pass the guild role permission check")
+	}
+	caches := cache.New(cache.WithCaches(cache.FlagRoles))
+	for _, role := range roles {
+		role.GuildID = 3
+		caches.AddRole(role)
+	}
+	member := discord.Member{GuildID: 3, User: discord.User{ID: 9}}
+	if caches.MemberPermissionsInChannel(private, member).Has(discord.PermissionViewChannel) {
+		t.Fatal("dummy member already has private channel access")
+	}
+	member.RoleIDs = []snowflake.ID{7}
+	if !caches.MemberPermissionsInChannel(private, member).Has(discord.PermissionViewChannel) {
+		t.Fatal("taking the role must grant private channel access in this fixture")
+	}
+	router := core.NewRouter(nil, func(snowflake.ID) (snowflake.ID, bool) { return 0, false }, quiet())
+	if err := router.Add(m); err != nil {
+		t.Fatal(err)
+	}
+	rr := &roleRest{roles: roles}
+	if !m.canGrant(rr, 3, 7) {
+		t.Fatal("the original label-only role should be enrollable")
+	}
+	// The card may have been rendered already. An overwrite added anywhere
+	// in the guild must be caught by the enrollment's current-state check.
+	rr.channels = []discord.GuildChannel{roleTestChannel(t, 10, 3, discord.ChannelTypeGuildText), private}
+	if got := press(t, router, rr, "7"); !strings.Contains(got, "can't be handed out from cards") || len(rr.added) != 0 {
+		t.Fatalf("private-channel role was handed out: %s, added %v", got, rr.added)
+	}
+	if got := press(t, router, rr, "7", "7"); !strings.Contains(got, "no more pings") || len(rr.removed) != 1 {
+		t.Fatalf("removal must remain possible: %s, removed %v", got, rr.removed)
+	}
+}
+
+func TestCanGrantChecksAllChannelOverwrites(t *testing.T) {
+	m := module(t, newFake())
+	m.self = 2
+	for name, tc := range map[string]struct {
+		channels []discord.GuildChannel
+		err      error
+		want     bool
+	}{
+		"category grant":  {channels: []discord.GuildChannel{roleTestChannel(t, 11, 3, discord.ChannelTypeGuildCategory, discord.RolePermissionOverwrite{RoleID: 7, Allow: discord.PermissionViewChannel})}},
+		"channel grant":   {channels: []discord.GuildChannel{roleTestChannel(t, 11, 3, discord.ChannelTypeGuildVoice, discord.RolePermissionOverwrite{RoleID: 7, Allow: discord.PermissionConnect})}},
+		"role denial":     {channels: []discord.GuildChannel{roleTestChannel(t, 11, 3, discord.ChannelTypeGuildText, discord.RolePermissionOverwrite{RoleID: 7, Deny: discord.PermissionSendMessages})}},
+		"failed read":     {err: errors.New("channels unavailable")},
+		"wrong guild":     {channels: []discord.GuildChannel{roleTestChannel(t, 11, 4, discord.ChannelTypeGuildText)}},
+		"missing channel": {channels: []discord.GuildChannel{nil}},
+		"another role":    {channels: []discord.GuildChannel{roleTestChannel(t, 11, 3, discord.ChannelTypeGuildText, discord.RolePermissionOverwrite{RoleID: 8, Allow: discord.PermissionViewChannel})}, want: true},
+		"empty overwrite": {channels: []discord.GuildChannel{roleTestChannel(t, 11, 3, discord.ChannelTypeGuildText, discord.RolePermissionOverwrite{RoleID: 7})}, want: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rr := &roleRest{roles: guildRoles(discord.PermissionManageRoles, 2, false), channels: tc.channels, channelErr: tc.err}
+			if got := m.canGrant(rr, 3, 7); got != tc.want {
+				t.Fatalf("canGrant=%v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// Removing a restrictive role can also grant access. An existing card must
+// not become a way to shed restrictions added after enrollment.
+func TestPingMeRefusesRemovalOfChannelDenials(t *testing.T) {
+	m := module(t, newFake())
+	m.self = 2
+	m.follows = []follow{{guild: 3, platform: "fake", account: "bird", role: 7}}
+	roles := guildRoles(discord.PermissionManageRoles, 2, false)
+	roles[0].Permissions = discord.PermissionViewChannel
+	restricted := roleTestChannel(t, 11, 3, discord.ChannelTypeGuildText,
+		discord.RolePermissionOverwrite{RoleID: 7, Deny: discord.PermissionViewChannel})
+	caches := cache.New(cache.WithCaches(cache.FlagRoles))
+	for _, role := range roles {
+		role.GuildID = 3
+		caches.AddRole(role)
+	}
+	member := discord.Member{GuildID: 3, User: discord.User{ID: 9}, RoleIDs: []snowflake.ID{7}}
+	if caches.MemberPermissionsInChannel(restricted, member).Has(discord.PermissionViewChannel) {
+		t.Fatal("dummy role must restrict private channel access")
+	}
+	member.RoleIDs = nil
+	if !caches.MemberPermissionsInChannel(restricted, member).Has(discord.PermissionViewChannel) {
+		t.Fatal("dropping the role must grant access in this fixture")
+	}
+	router := core.NewRouter(nil, func(snowflake.ID) (snowflake.ID, bool) { return 0, false }, quiet())
+	if err := router.Add(m); err != nil {
+		t.Fatal(err)
+	}
+	rr := &roleRest{roles: roles, channels: []discord.GuildChannel{restricted}}
+	if got := press(t, router, rr, "7", "7"); !strings.Contains(got, "can't be removed from cards") || len(rr.removed) != 0 {
+		t.Fatalf("restrictive role was removed: %s, removed %v", got, rr.removed)
+	}
+	rr.channels = nil
+	rr.channelErr = errors.New("channels unavailable")
+	if got := press(t, router, rr, "7", "7"); !strings.Contains(got, "can't be removed from cards") || len(rr.removed) != 0 {
+		t.Fatalf("failed channel read allowed removal: %s, removed %v", got, rr.removed)
+	}
+	if got := press(t, router, rr, "7"); !strings.Contains(got, "can't be handed out from cards") || len(rr.added) != 0 {
+		t.Fatalf("failed channel read allowed enrollment: %s, added %v", got, rr.added)
+	}
+	// Removing grants remains safe, even when an administrator gave the
+	// old ping role guild permissions or allow-only channel overwrites.
+	rr.channelErr = nil
+	rr.roles[2].Permissions = discord.PermissionAdministrator
+	rr.channels = []discord.GuildChannel{roleTestChannel(t, 11, 3, discord.ChannelTypeGuildText,
+		discord.RolePermissionOverwrite{RoleID: 7, Allow: discord.PermissionViewChannel})}
+	if got := press(t, router, rr, "7", "7"); !strings.Contains(got, "no more pings") || len(rr.removed) != 1 {
+		t.Fatalf("safe opt-out was refused: %s, removed %v", got, rr.removed)
+	}
 }
 
 func (r *roleRest) AddMemberRole(_, _, role snowflake.ID, _ ...rest.RequestOpt) error {

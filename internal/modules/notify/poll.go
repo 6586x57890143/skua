@@ -28,6 +28,7 @@ type Poster interface {
 	UpdateMessage(channel, message snowflake.ID, m discord.MessageUpdate, opts ...rest.RequestOpt) (*discord.Message, error)
 	GetRoles(guild snowflake.ID, opts ...rest.RequestOpt) ([]discord.Role, error)
 	GetMember(guild, user snowflake.ID, opts ...rest.RequestOpt) (*discord.Member, error)
+	GetGuildChannels(guild snowflake.ID, opts ...rest.RequestOpt) ([]discord.GuildChannel, error)
 }
 
 const (

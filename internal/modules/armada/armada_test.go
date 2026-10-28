@@ -278,7 +278,9 @@ func newHarness(t *testing.T, links string) *harness {
 		t.Fatal(err)
 	}
 	h.pool.notify = make(chan struct{}, 1)
-	m.session(m.ctx, c)
+	if err := m.session(m.ctx, c); err != nil {
+		t.Fatal(err)
+	}
 	_, _, _, h.chans = m.state()
 	h.awaitJoin(t, c)
 	h.pool.take() // skua's profile and join
@@ -332,7 +334,7 @@ func (h *harness) deliver(t *testing.T, w *nostr.Event) {
 	h.m.onWrap(h.l, w)
 	select {
 	case o := <-h.l.toDisc:
-		h.m.toDiscord(h.l, o)
+		h.m.toDiscordBound(h.l, o.opened, o.binding)
 	default:
 	}
 }

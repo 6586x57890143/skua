@@ -177,6 +177,9 @@ func (m *Module) enqueueLive(r rest.Rest, guild, ch snowflake.ID, id msg, at tim
 }
 
 func (m *Module) enqueueLocked(r rest.Rest, guild, ch snowflake.ID, id msg, at time.Time) {
+	if !m.on(guild) {
+		return
+	}
 	q := m.queues[ch]
 	if q == nil {
 		q = &queue{r: r, guild: guild}
@@ -200,6 +203,12 @@ func (m *Module) flush(ch snowflake.ID) {
 	m.mu.Lock()
 	q := m.queues[ch]
 	if q == nil {
+		m.mu.Unlock()
+		return
+	}
+	if !m.on(q.guild) {
+		q.timer.Stop()
+		delete(m.queues, ch)
 		m.mu.Unlock()
 		return
 	}
@@ -239,10 +248,10 @@ func (m *Module) flush(ch snowflake.ID) {
 func (m *Module) remove(r rest.Rest, guild, ch snowflake.ID, ids []msg) {
 	ctx, cancel := context.WithTimeout(context.Background(), removeBy)
 	defer cancel()
-	s := &sweep{r: r, guard: m.guard, guild: guild, why: "live purge for"}
+	s := &sweep{r: r, guard: m.guard, guild: guild, why: "live purge for", allowed: func() bool { return m.on(guild) }}
 	for chunk := range slices.Chunk(ids, bulkMax) {
 		err := s.bulk(ctx, ch, chunk)
-		if errors.Is(err, errChannelDone) {
+		if errors.Is(err, errChannelDone) || errors.Is(err, context.Canceled) {
 			return
 		}
 		if err != nil {

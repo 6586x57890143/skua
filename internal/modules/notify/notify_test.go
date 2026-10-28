@@ -68,13 +68,19 @@ func (f *fake) show(account string, items ...item) {
 
 // poster records each card and fails a channel the test names.
 type poster struct {
-	sent    []sent
-	edits   []edit
-	fail    map[snowflake.ID]error
-	editErr error
-	roles   []discord.Role // the server's roles, for canGrant
-	mine    []snowflake.ID // skua's own
-	roleErr error
+	sent       []sent
+	edits      []edit
+	fail       map[snowflake.ID]error
+	editErr    error
+	roles      []discord.Role // the server's roles, for canGrant
+	mine       []snowflake.ID // skua's own
+	roleErr    error
+	channels   []discord.GuildChannel
+	channelErr error
+}
+
+func (p *poster) GetGuildChannels(snowflake.ID, ...rest.RequestOpt) ([]discord.GuildChannel, error) {
+	return p.channels, p.channelErr
 }
 
 func (p *poster) GetRoles(snowflake.ID, ...rest.RequestOpt) ([]discord.Role, error) {
@@ -424,6 +430,17 @@ func (r *restRec) GetChannel(id snowflake.ID, _ ...rest.RequestOpt) (discord.Cha
 
 func (r *restRec) GetMember(_, user snowflake.ID, _ ...rest.RequestOpt) (*discord.Member, error) {
 	return &discord.Member{User: discord.User{ID: user}, RoleIDs: []snowflake.ID{5}}, nil
+}
+
+func (r *restRec) GetGuildChannels(snowflake.ID, ...rest.RequestOpt) ([]discord.GuildChannel, error) {
+	if r.readErr != nil {
+		return nil, r.readErr
+	}
+	ch, err := r.GetChannel(4)
+	if err != nil {
+		return nil, err
+	}
+	return []discord.GuildChannel{ch.(discord.GuildChannel)}, nil
 }
 
 func (r *restRec) UpdateInteractionResponse(_ snowflake.ID, _ string, u discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {

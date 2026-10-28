@@ -358,6 +358,9 @@ type sweep struct {
 	// why heads the reason Discord's audit log shows for each delete;
 	// the members whose messages they are follow it.
 	why string
+	// allowed is the current guild gate, checked before each
+	// write, including single-message fallbacks after a refused bulk.
+	allowed func() bool
 
 	deleted, missed atomic.Int64
 	// total is how many messages run has to delete, known once the index
@@ -628,6 +631,9 @@ func (s *sweep) spend(ctx context.Context) error {
 		if err := s.pace.wait(ctx); err != nil {
 			return err
 		}
+	}
+	if s.allowed != nil && !s.allowed() {
+		return context.Canceled
 	}
 	if err := s.guard.Allow(s.guild, guard.Purge); err != nil {
 		return errRefused

@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -35,6 +36,9 @@ const (
 	// maxAttempts counts download attempts, not successes: a cap on
 	// successes is no cap against URLs chosen to fail.
 	maxAttempts = 10
+	// An upload descriptor is metadata, not another attachment. Bound the
+	// whole response before JSON decoding, including unknown fields.
+	maxBlossomResponse = 64 << 10
 )
 
 // imeta is one NIP-92 tag's fields.
@@ -250,10 +254,22 @@ func (b *blossom) put(ctx context.Context, base string, data []byte, mimeType, h
 	if res.StatusCode/100 != 2 {
 		return "", fmt.Errorf("answered %s", res.Status)
 	}
-	var desc struct {
+	raw, err := io.ReadAll(io.LimitReader(res.Body, maxBlossomResponse+1))
+	if err != nil {
+		return "", fmt.Errorf("reading upload descriptor: %w", err)
+	}
+	if len(raw) > maxBlossomResponse {
+		return "", fmt.Errorf("upload descriptor exceeds %d bytes", maxBlossomResponse)
+	}
+	var desc *struct {
 		URL string `json:"url"`
 	}
-	_ = json.NewDecoder(res.Body).Decode(&desc)
+	if err := json.Unmarshal(raw, &desc); err != nil {
+		return "", fmt.Errorf("decoding upload descriptor: %w", err)
+	}
+	if desc == nil {
+		return "", errors.New("upload descriptor is not an object")
+	}
 	if u, err := url.Parse(desc.URL); err != nil || (u.Scheme != "https" && u.Scheme != "http") {
 		return "", nil
 	}
