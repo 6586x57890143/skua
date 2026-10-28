@@ -1,7 +1,6 @@
 package fix
 
 import (
-	"bytes"
 	"context"
 	"image"
 	"io"
@@ -30,7 +29,7 @@ func measureGallery(ctx context.Context, platform string, media []Media, probes 
 		if *probes == 0 {
 			break
 		}
-		*probes--
+		*probes = *probes - 1
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -48,11 +47,7 @@ func measureGallery(ctx context.Context, platform string, media []Media, probes 
 			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 				return
 			}
-			raw, err := io.ReadAll(io.LimitReader(resp.Body, 65536))
-			if err != nil {
-				return
-			}
-			config, format, err := image.DecodeConfig(bytes.NewReader(raw))
+			config, format, err := image.DecodeConfig(io.LimitReader(resp.Body, 65536))
 			if err != nil || (format != "jpeg" && format != "png" && format != "webp") || config.Width < 1 || config.Height < 1 || config.Width > 6000 || config.Height > 6000 || int64(config.Width)*int64(config.Height) > 8<<20 {
 				return
 			}

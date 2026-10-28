@@ -12,6 +12,16 @@ import (
 	"testing"
 )
 
+func TestOverBudgetGalleryRetainsNativeLayout(t *testing.T) {
+	media := make([]Media, 4)
+	for i := range media {
+		media[i] = Media{Type: "photo", Width: 2400, Height: 3200}
+	}
+	if compositeGallery(media) {
+		t.Fatal("known oversized collection must not receive a relay URL that will fail decoding")
+	}
+}
+
 func TestGalleryLayoutGeometry(t *testing.T) {
 	r := rand.New(rand.NewPCG(1, 2))
 	for n := 2; n <= 10; n++ {

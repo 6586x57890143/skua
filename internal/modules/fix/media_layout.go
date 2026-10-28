@@ -78,7 +78,8 @@ func justifiedGallery(aspects []float64, rows []int) galleryLayout {
 			plan.Tiles = append(plan.Tiles, tile)
 			// Score at a typical 450px Discord card width, including narrow strips.
 			shortSide := float64(min(tile.Dx(), tile.Dy())) * 450 / float64(width)
-			shortPenalty += math.Pow(math.Max(0, 65-shortSide)/65, 2)
+			shortfall := math.Max(0, 65-shortSide) / 65
+			shortPenalty += shortfall * shortfall
 			logAreas = append(logAreas, math.Log(float64(tile.Dx()*tile.Dy())))
 			x += w + sheetGap
 		}
@@ -91,11 +92,13 @@ func justifiedGallery(aspects []float64, rows []int) galleryLayout {
 	}
 	imbalance := 0.0
 	for _, area := range logAreas {
-		imbalance += math.Pow(area-mean, 2) / float64(len(logAreas))
+		delta := area - mean
+		imbalance += delta * delta / float64(len(logAreas))
 	}
 	displayedHeight := float64(height) * 450 / float64(width)
+	heightPenalty := (displayedHeight - 210) / 300
 	plan.Score = shortPenalty*8 + imbalance*0.5 +
-		math.Pow((displayedHeight-210)/300, 2)*0.3 + float64(len(rows)-1)*0.08
+		heightPenalty*heightPenalty*0.3 + float64(len(rows)-1)*0.08
 	return plan
 }
 
@@ -113,8 +116,14 @@ func compositeGallery(media []Media) bool {
 		nativeAspect = 1.3
 	}
 	loss := 0.0
+	var pixels int64
 	for _, item := range media {
 		if item.Type != "photo" || item.Width <= 0 || item.Height <= 0 {
+			return false
+		}
+		size := int64(item.Width) * int64(item.Height)
+		pixels += size
+		if item.Width > 6000 || item.Height > 6000 || size > 8<<20 || pixels > sheetMaxPixels {
 			return false
 		}
 		aspect := float64(item.Width) / float64(item.Height)
