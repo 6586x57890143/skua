@@ -27,8 +27,8 @@ type Post struct {
 }
 type Media struct {
 	URL, Alt, Type string
-	Width, Height int
-	Sensitive     bool
+	Width, Height  int
+	Sensitive      bool
 }
 type Section struct {
 	Kind, Author, Handle, AuthorURL string
@@ -131,21 +131,21 @@ func (a *API) Resolve(ctx context.Context, l Link) (Post, error) {
 	}
 	if l.Platform == "kick" {
 		p, err := a.kick(ctx, l)
-		return a.prepareGalleries(p, l.Platform), err
+		return a.prepareGalleries(ctx, p, l.Platform), err
 	}
 	if l.Platform == "twitter" || l.Platform == "bluesky" {
 		first, cancel := context.WithTimeout(ctx, 6*time.Second)
 		p, err := a.fx(first, l)
 		cancel()
 		if err == nil {
-			return a.prepareGalleries(p, l.Platform), nil
+			return a.prepareGalleries(ctx, p, l.Platform), nil
 		}
 		if ctx.Err() != nil {
 			return Post{}, errMetadata
 		}
 	}
 	p, err := a.fix(ctx, l)
-	return a.prepareGalleries(p, l.Platform), err
+	return a.prepareGalleries(ctx, p, l.Platform), err
 }
 
 type fixData struct {
@@ -248,7 +248,7 @@ func (a *API) fix(ctx context.Context, l Link) (Post, error) {
 	if l.Platform == "instagram" {
 		media = a.instagramMediaPreview(d, media)
 	}
-	p := Post{Title: d.Title, Text: text, Author: d.Author, AuthorURL: d.AuthorURL, Handle: d.Handle, Avatar: d.Avatar, Stats: d.Stats, Context: d.Context, Timestamp: d.Timestamp, Provider: "fixembed", Sensitive: d.Sensitive || len(d.Sensitivity) > 0, Media: media}
+	p := Post{Title: d.Title, Text: text, Author: d.Author, AuthorURL: d.AuthorURL, Handle: d.Handle, Avatar: d.Avatar, Stats: d.Stats, Context: d.Context, Timestamp: d.Timestamp, Provider: "fixembed", Sensitive: d.Sensitive || len(d.Sensitivity) > 0}
 	if d.Translation != nil {
 		p.TranslatedFrom = translationSource(d.Translation.Source, d.Translation.Target)
 	}
@@ -256,7 +256,7 @@ func (a *API) fix(ctx context.Context, l Link) (Post, error) {
 		p.Provider += " + instagram"
 	}
 	if d.MediaOrigin != "quote" {
-		p.Media = d.media()
+		p.Media = media
 	}
 	for i, s := range d.Sections {
 		if i == 6 {
