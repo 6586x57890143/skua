@@ -2,6 +2,7 @@ package fix
 
 import (
 	"bytes"
+	"compress/zlib"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -20,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	xdraw "golang.org/x/image/draw"
@@ -39,14 +41,19 @@ type sheetPayload struct {
 	URLs     []string `json:"u"`
 }
 
-func (a *API) prepareGalleries(p Post, platform string) Post {
+func (a *API) prepareGalleries(ctx context.Context, p Post, platform string) Post {
 	if a.media == nil {
 		return p
 	}
+	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	probes := 10
+	p.Media = measureGallery(ctx, platform, p.Media, &probes)
 	if link := a.media.galleryLink(platform, p.Media); link != "" {
 		p.Media = []Media{galleryMedia(link, p.Media)}
 	}
 	for i := range p.Sections {
+		p.Sections[i].Media = measureGallery(ctx, platform, p.Sections[i].Media, &probes)
 		if link := a.media.galleryLink(platform, p.Sections[i].Media); link != "" {
 			p.Sections[i].Media = []Media{galleryMedia(link, p.Sections[i].Media)}
 		}
@@ -54,46 +61,17 @@ func (a *API) prepareGalleries(p Post, platform string) Post {
 	return p
 }
 
-// A single slightly wider image should not force a portrait collection into
-// Discord's cropped grid. Keep landscape-dominated galleries in the native grid.
-func compositeGallery(media []Media) bool {
-	if len(media) != 4 {
-		return false
-	}
-	portraits := 0
-	for _, item := range media {
-		if item.Type != "photo" || item.Width <= 0 || item.Height <= 0 {
-			return false
-		}
-		if float64(item.Width)/float64(item.Height) > 1.5 {
-			return false
-		}
-		if item.Height >= item.Width {
-			portraits++
-		}
-	}
-	return portraits >= 3
-}
-
-func gallerySheetHeight(media []Media) int {
-	aspect := 0.0
-	for _, item := range media {
-		aspect += float64(item.Width) / float64(item.Height)
-	}
-	tileWidth := (sheetWidth - 3*sheetGap) / 4
-	return max(tileWidth, min(sheetHeight, int(float64(tileWidth)*float64(len(media))/aspect+0.5)))
-}
-
 func galleryMedia(link string, source []Media) Media {
+	plan, _ := planGallery(source)
 	var alt []string
 	sensitive := false
 	for i, item := range source {
 		sensitive = sensitive || item.Sensitive
 		if item.Alt != "" {
-			alt = append(alt, "image "+strconv.Itoa(i+1)+": "+clip(item.Alt, 240))
+			alt = append(alt, "image "+strconv.Itoa(i+1)+": "+clip(item.Alt, max(20, 900/len(source))))
 		}
 	}
-	return Media{URL: link, Type: "photo", Alt: clip(strings.Join(alt, " · "), 1000), Width: sheetWidth, Height: gallerySheetHeight(source), Sensitive: sensitive}
+	return Media{URL: link, Type: "photo", Alt: clip(strings.Join(alt, " · "), 1000), Width: plan.Width, Height: plan.Height, Sensitive: sensitive}
 }
 
 // galleryLink carries the source URLs in an authenticated, encrypted token.
@@ -111,9 +89,18 @@ func (m *mediaRelay) galleryLink(platform string, media []Media) string {
 		payload.URLs = append(payload.URLs, raw)
 	}
 	plain, err := json.Marshal(payload)
-	if err != nil || len(plain) > 1300 {
+	if err != nil || len(plain) > 16384 {
 		return ""
 	}
+	var compressed bytes.Buffer
+	writer := zlib.NewWriter(&compressed)
+	if _, err := writer.Write(plain); err != nil {
+		return ""
+	}
+	if err := writer.Close(); err != nil || compressed.Len() > 1300 {
+		return ""
+	}
+	plain = compressed.Bytes()
 	key := sha256.Sum256([]byte("skua/fix/gallery/v1:" + m.secret))
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
@@ -156,8 +143,21 @@ func (m *mediaRelay) openGallery(token string) (sheetPayload, error) {
 	if err != nil {
 		return sheetPayload{}, errMetadata
 	}
+	// Older signed URLs contain uncompressed JSON; preserve those links.
+	if len(plain) > 0 && plain[0] != '{' {
+		reader, err := zlib.NewReader(bytes.NewReader(plain))
+		if err != nil {
+			return sheetPayload{}, errMetadata
+		}
+		decoded, readErr := io.ReadAll(io.LimitReader(reader, 16385))
+		closeErr := reader.Close()
+		if readErr != nil || closeErr != nil || len(decoded) > 16384 {
+			return sheetPayload{}, errMetadata
+		}
+		plain = decoded
+	}
 	var payload sheetPayload
-	if json.Unmarshal(plain, &payload) != nil || len(payload.URLs) != 4 {
+	if json.Unmarshal(plain, &payload) != nil || len(payload.URLs) < 2 || len(payload.URLs) > 10 {
 		return sheetPayload{}, errMetadata
 	}
 	for _, rawURL := range payload.URLs {
@@ -216,12 +216,21 @@ func (m *mediaRelay) prepareGallery(ctx context.Context, token string) ([]byte, 
 	}
 	images := make([]image.Image, len(payload.URLs))
 	var wg sync.WaitGroup
+	var pixels atomic.Int64
+	slots := make(chan struct{}, 2)
 	errs := make(chan error, len(payload.URLs))
 	for i, raw := range payload.URLs {
 		wg.Add(1)
 		go func(i int, raw string) {
 			defer wg.Done()
-			img, err := fetchGalleryImage(ctx, payload.Platform, raw)
+			select {
+			case slots <- struct{}{}:
+			case <-ctx.Done():
+				errs <- ctx.Err()
+				return
+			}
+			defer func() { <-slots }()
+			img, err := fetchGalleryImage(ctx, payload.Platform, raw, &pixels)
 			if err != nil {
 				errs <- err
 				return
@@ -239,7 +248,7 @@ func (m *mediaRelay) prepareGallery(ctx context.Context, token string) ([]byte, 
 	return composeGallery(images)
 }
 
-func fetchGalleryImage(ctx context.Context, platform, raw string) (image.Image, error) {
+func openGalleryImage(ctx context.Context, platform, raw string, headerOnly bool) (*http.Response, error) {
 	u, err := url.Parse(raw)
 	if err != nil || !trustedGalleryURL(platform, raw) {
 		return nil, errMetadata
@@ -260,7 +269,8 @@ func fetchGalleryImage(ctx context.Context, platform, raw string) (image.Image, 
 		return nil, errMetadata
 	}
 	transport := &http.Transport{
-		Proxy: nil,
+		Proxy:             nil,
+		DisableKeepAlives: true,
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			_, port, err := net.SplitHostPort(address)
 			if err != nil || port != "443" {
@@ -279,9 +289,23 @@ func fetchGalleryImage(ctx context.Context, platform, raw string) (image.Image, 
 	}
 	req.Header.Set("Accept", "image/jpeg,image/png,image/webp")
 	req.Header.Set("User-Agent", "skua/fix")
+	if headerOnly {
+		req.Header.Set("Range", "bytes=0-65535")
+	}
+	if platform == "pixiv" {
+		req.Header.Set("Referer", "https://www.pixiv.net/")
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, errMetadata
+	}
+	return resp, nil
+}
+
+func fetchGalleryImage(ctx context.Context, platform, raw string, pixels *atomic.Int64) (image.Image, error) {
+	resp, err := openGalleryImage(ctx, platform, raw, false)
+	if err != nil {
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK || resp.ContentLength > sheetMaxBytes {
@@ -295,6 +319,9 @@ func fetchGalleryImage(ctx context.Context, platform, raw string) (image.Image, 
 	if err != nil || (format != "jpeg" && format != "png" && format != "webp") || config.Width < 1 || config.Height < 1 || config.Width > 6000 || config.Height > 6000 || int64(config.Width)*int64(config.Height) > 8<<20 {
 		return nil, errMetadata
 	}
+	if pixels.Add(int64(config.Width)*int64(config.Height)) > sheetMaxPixels {
+		return nil, errMetadata
+	}
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, errMetadata
@@ -303,7 +330,7 @@ func fetchGalleryImage(ctx context.Context, platform, raw string) (image.Image, 
 }
 
 func composeGallery(images []image.Image) ([]byte, error) {
-	if len(images) != 4 {
+	if len(images) < 2 || len(images) > 10 {
 		return nil, errMetadata
 	}
 	var pixels int64
@@ -322,30 +349,17 @@ func composeGallery(images []image.Image) ([]byte, error) {
 	if pixels > sheetMaxPixels {
 		return nil, errMetadata
 	}
-	height := gallerySheetHeight(dimensions)
-	canvas := image.NewRGBA(image.Rect(0, 0, sheetWidth, height))
-	tileWidth := (sheetWidth - 3*sheetGap) / 4
+	plan, ok := planGallery(dimensions)
+	if !ok {
+		return nil, errMetadata
+	}
+	canvas := image.NewRGBA(image.Rect(0, 0, plan.Width, plan.Height))
 	for i, img := range images {
-		x := i * (tileWidth + sheetGap)
-		tile := image.Rect(x, 0, x+tileWidth, height)
-		crop := centerCrop(img.Bounds(), float64(tile.Dx())/float64(tile.Dy()))
-		xdraw.CatmullRom.Scale(canvas, tile, img, crop, draw.Over, nil)
+		xdraw.CatmullRom.Scale(canvas, plan.Tiles[i], img, img.Bounds(), draw.Over, nil)
 	}
 	var out bytes.Buffer
 	if err := png.Encode(&out, canvas); err != nil || out.Len() > sheetMaxBytes {
 		return nil, errMetadata
 	}
 	return out.Bytes(), nil
-}
-
-func centerCrop(bounds image.Rectangle, aspect float64) image.Rectangle {
-	w, h := float64(bounds.Dx()), float64(bounds.Dy())
-	if w/h > aspect {
-		cropWidth := int(h * aspect)
-		left := bounds.Min.X + (bounds.Dx()-cropWidth)/2
-		return image.Rect(left, bounds.Min.Y, left+cropWidth, bounds.Max.Y)
-	}
-	cropHeight := int(w / aspect)
-	top := bounds.Min.Y + (bounds.Dy()-cropHeight)/2
-	return image.Rect(bounds.Min.X, top, bounds.Max.X, top+cropHeight)
 }
