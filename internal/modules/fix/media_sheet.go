@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"image"
 	"image/draw"
+	_ "image/jpeg"
 	"image/png"
 	"io"
 	"net"
@@ -53,6 +54,36 @@ func (a *API) prepareGalleries(p Post, platform string) Post {
 	return p
 }
 
+// A single slightly wider image should not force a portrait collection into
+// Discord's cropped grid. Keep landscape-dominated galleries in the native grid.
+func compositeGallery(media []Media) bool {
+	if len(media) != 4 {
+		return false
+	}
+	portraits := 0
+	for _, item := range media {
+		if item.Type != "photo" || item.Width <= 0 || item.Height <= 0 {
+			return false
+		}
+		if float64(item.Width)/float64(item.Height) > 1.5 {
+			return false
+		}
+		if item.Height >= item.Width {
+			portraits++
+		}
+	}
+	return portraits >= 3
+}
+
+func gallerySheetHeight(media []Media) int {
+	aspect := 0.0
+	for _, item := range media {
+		aspect += float64(item.Width) / float64(item.Height)
+	}
+	tileWidth := (sheetWidth - 3*sheetGap) / 4
+	return max(tileWidth, min(sheetHeight, int(float64(tileWidth)*float64(len(media))/aspect+0.5)))
+}
+
 func galleryMedia(link string, source []Media) Media {
 	var alt []string
 	sensitive := false
@@ -62,20 +93,17 @@ func galleryMedia(link string, source []Media) Media {
 			alt = append(alt, "image "+strconv.Itoa(i+1)+": "+clip(item.Alt, 240))
 		}
 	}
-	return Media{URL: link, Type: "photo", Alt: clip(strings.Join(alt, " · "), 1000), Width: sheetWidth, Height: sheetHeight, Sensitive: sensitive}
+	return Media{URL: link, Type: "photo", Alt: clip(strings.Join(alt, " · "), 1000), Width: sheetWidth, Height: gallerySheetHeight(source), Sensitive: sensitive}
 }
 
 // galleryLink carries the source URLs in an authenticated, encrypted token.
 // The Discord-visible URL reveals neither upstream URLs nor their query tokens.
 func (m *mediaRelay) galleryLink(platform string, media []Media) string {
-	if m == nil || len(media) != 4 {
+	if m == nil || !compositeGallery(media) {
 		return ""
 	}
 	payload := sheetPayload{Platform: platform, URLs: make([]string, 0, len(media))}
 	for _, item := range media {
-		if item.Type != "photo" || item.Width <= 0 || item.Height <= 0 || item.Height <= item.Width {
-			return ""
-		}
 		raw := remoteURL(item.URL)
 		if raw == "" || !trustedGalleryURL(platform, raw) {
 			return ""
@@ -279,21 +307,27 @@ func composeGallery(images []image.Image) ([]byte, error) {
 		return nil, errMetadata
 	}
 	var pixels int64
+	var dimensions []Media
 	for _, img := range images {
 		if img == nil {
 			return nil, errMetadata
 		}
 		b := img.Bounds()
+		if b.Dx() <= 0 || b.Dy() <= 0 {
+			return nil, errMetadata
+		}
+		dimensions = append(dimensions, Media{Width: b.Dx(), Height: b.Dy()})
 		pixels += int64(b.Dx()) * int64(b.Dy())
 	}
 	if pixels > sheetMaxPixels {
 		return nil, errMetadata
 	}
-	canvas := image.NewRGBA(image.Rect(0, 0, sheetWidth, sheetHeight))
+	height := gallerySheetHeight(dimensions)
+	canvas := image.NewRGBA(image.Rect(0, 0, sheetWidth, height))
 	tileWidth := (sheetWidth - 3*sheetGap) / 4
 	for i, img := range images {
 		x := i * (tileWidth + sheetGap)
-		tile := image.Rect(x, 0, x+tileWidth, sheetHeight)
+		tile := image.Rect(x, 0, x+tileWidth, height)
 		crop := centerCrop(img.Bounds(), float64(tile.Dx())/float64(tile.Dy()))
 		xdraw.CatmullRom.Scale(canvas, tile, img, crop, draw.Over, nil)
 	}
@@ -315,4 +349,3 @@ func centerCrop(bounds image.Rectangle, aspect float64) image.Rectangle {
 	top := bounds.Min.Y + (bounds.Dy()-cropHeight)/2
 	return image.Rect(bounds.Min.X, top, bounds.Max.X, top+cropHeight)
 }
-

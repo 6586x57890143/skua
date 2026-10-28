@@ -20,7 +20,7 @@ func TestComposeGalleryMakesFourColumnContactSheet(t *testing.T) {
 	}
 	images := make([]image.Image, len(colors))
 	for i, c := range colors {
-		img := image.NewRGBA(image.Rect(0, 0, 200, 600))
+		img := image.NewRGBA(image.Rect(0, 0, 200, 610))
 		for y := 0; y < img.Bounds().Dy(); y++ {
 			for x := 0; x < img.Bounds().Dx(); x++ {
 				img.SetRGBA(x, y, c)
@@ -81,9 +81,11 @@ func TestGalleryLinkEncryptsOnlyTrustedPortraitPhotos(t *testing.T) {
 		t.Fatalf("untrusted media URL got a sheet link: %s", got)
 	}
 	media[2].URL = "https://pbs.twimg.com/media/pic3.jpg"
-	media[2].Height = media[2].Width
+	for i := range media {
+		media[i].Height = media[i].Width / 2
+	}
 	if got := relay.galleryLink("twitter", media); got != "" {
-		t.Fatalf("non-portrait gallery got a sheet link: %s", got)
+		t.Fatalf("landscape gallery got a sheet link: %s", got)
 	}
 }
 
@@ -94,3 +96,35 @@ func abs(value int) int {
 	return value
 }
 
+func TestMixedPortraitGalleryUsesShallowStrip(t *testing.T) {
+	dimensions := []image.Point{{X: 1428, Y: 1331}, {X: 1277, Y: 1920}, {X: 500, Y: 699}, {X: 1181, Y: 1754}}
+	media := make([]Media, len(dimensions))
+	images := make([]image.Image, len(dimensions))
+	for i, size := range dimensions {
+		media[i] = Media{Type: "photo", Width: size.X, Height: size.Y}
+		images[i] = image.NewRGBA(image.Rect(0, 0, size.X, size.Y))
+	}
+	if !compositeGallery(media) {
+		t.Fatal("one near-square landscape should not reject three portraits")
+	}
+	raw, err := composeGallery(images)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if height := img.Bounds().Dy(); height < 370 || height > 385 || height != gallerySheetHeight(media) {
+		t.Fatalf("mixed gallery should match the shallow native strip, got height %d", height)
+	}
+	media[1].Type = "video"
+	if compositeGallery(media) {
+		t.Fatal("video gallery must retain native playback")
+	}
+	media[1].Type = "photo"
+	media[1].Width = 0
+	if compositeGallery(media) {
+		t.Fatal("unknown dimensions must retain native layout")
+	}
+}
