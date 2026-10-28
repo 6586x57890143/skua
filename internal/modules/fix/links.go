@@ -30,7 +30,39 @@ var (
 		"youtube":    regexp.MustCompile(`^/post/[A-Za-z0-9_-]+/?$`),
 		"bilibili":   regexp.MustCompile(`^/video/[A-Za-z0-9]+/?$`),
 		"pinterest":  regexp.MustCompile(`^/pin/[A-Za-z0-9_-]+/?$`),
-		"tiktok":     regexp.MustCompile(`^/@[^/]+/(?:video|photo)/[0-9]+/?$`),
+		"tiktok":     regexp.MustCompile(`^/(?:@[^/]+/(?:video|photo)/[0-9]+|t/[A-Za-z0-9_-]+)/?// Package fix turns supported social links into skua's Components V2 cards.
+package fix
+
+import (
+	"net"
+	"net/url"
+	"regexp"
+	"strings"
+	"unicode"
+)
+
+// Link is a validated post URL. Tracking queries and fragments are removed; Reddit comment IDs keep their meaning.
+type Link struct{ Platform, URL, ID, Account string }
+
+var (
+	kickAccount    = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	kickClipID     = regexp.MustCompile(`^clip_[A-Za-z0-9_-]{1,96}$`)
+	platformHosts  = map[string]string{"instagram.com": "instagram", "reddit.com": "reddit", "old.reddit.com": "reddit", "threads.net": "threads", "threads.com": "threads", "pixiv.net": "pixiv", "youtube.com": "youtube", "bilibili.com": "bilibili", "pinterest.com": "pinterest", "tiktok.com": "tiktok", "tumblr.com": "tumblr", "twitch.tv": "twitch", "kick.com": "kick", "deviantart.com": "deviantart"}
+	shortHosts     = map[string]string{"redd.it": "reddit", "b23.tv": "bilibili", "pin.it": "pinterest", "vm.tiktok.com": "tiktok", "vt.tiktok.com": "tiktok", "clips.twitch.tv": "twitch", "sta.sh": "deviantart"}
+	twitchReserved = map[string]bool{"directory": true, "downloads": true, "inventory": true, "jobs": true, "p": true, "search": true, "settings": true, "subscriptions": true, "videos": true, "wallet": true}
+	shortPath      = regexp.MustCompile(`^/[A-Za-z0-9_-]+/?$`)
+	commentID      = regexp.MustCompile(`^[A-Za-z0-9]+$`)
+	xPost          = regexp.MustCompile(`^/(?:([A-Za-z0-9_]{1,15})/status|i/(?:web/)?status)/([0-9]+)(?:/(?:photo|video)/[0-9]+)?(?:/en)?/?$`)
+	bskyPost       = regexp.MustCompile(`^/profile/([A-Za-z0-9.:-]+)/post/([A-Za-z0-9]+)(?:/en)?/?$`)
+	postPaths      = map[string]*regexp.Regexp{
+		"instagram":  regexp.MustCompile(`^/(?:p|reel|reels)/[A-Za-z0-9_-]+/?$|^/share/(?:p|reel)/[A-Za-z0-9_-]+/?$`),
+		"reddit":     regexp.MustCompile(`^/(?:r/[^/]+/(?:comments|s)/[^/]+|comments/[^/]+)(?:/.*)?$`),
+		"threads":    regexp.MustCompile(`^/@[^/]+/post/[A-Za-z0-9_-]+/?$|^/share/[A-Za-z0-9_-]+/?$`),
+		"pixiv":      regexp.MustCompile(`^/(?:en/)?artworks/[0-9]+/?$`),
+		"youtube":    regexp.MustCompile(`^/post/[A-Za-z0-9_-]+/?$`),
+		"bilibili":   regexp.MustCompile(`^/video/[A-Za-z0-9]+/?$`),
+		"pinterest":  regexp.MustCompile(`^/pin/[A-Za-z0-9_-]+/?$`),
+		"tiktok":     ),
 		"tumblr":     regexp.MustCompile(`^/(?:[^/]+/[0-9]+|blog/view/[^/]+/[0-9]+|post/[0-9]+)(?:/.*)?$`),
 		"twitch":     regexp.MustCompile(`^/(?:videos/[0-9]+|[^/]+/clip/[A-Za-z0-9_-]+|[A-Za-z0-9_]+)/?$`),
 		"deviantart": regexp.MustCompile(`^/[^/]+/art/[^/]+/?$`),
