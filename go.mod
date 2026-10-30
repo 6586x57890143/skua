@@ -5,8 +5,8 @@ go 1.27.2
 require (
 	github.com/6586x57890143/cygnet/link v0.9.0
 	github.com/HugoSmits86/nativewebp v1.3.0
-	github.com/bluenviron/mediacommon/v2 v2.9.6
-	github.com/btcsuite/btcd/btcec/v2 v2.5.0
+	github.com/bluenviron/mediacommon/v2 v2.9.7
+	github.com/btcsuite/btcd/btcec/v2 v2.5.1
 	github.com/disgoorg/disgo v0.19.6
 	github.com/disgoorg/omit v1.0.0
 	github.com/disgoorg/snowflake/v2 v2.0.3
@@ -14,7 +14,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/nbd-wtf/go-nostr v0.52.3
 	golang.org/x/image v0.47.0
-	golang.org/x/net v0.58.0
+	golang.org/x/net v0.61.0
 	golang.org/x/term v0.47.0
 	golang.org/x/text v0.43.0
 )
@@ -31,7 +31,7 @@ require (
 	github.com/cloudwego/base64x v0.1.5 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/disgoorg/godave v0.1.0 // indirect
 	github.com/disgoorg/json/v2 v2.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -52,7 +52,7 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	golang.org/x/arch v0.15.0 // indirect
-	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
