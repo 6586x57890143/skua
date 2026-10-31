@@ -96,7 +96,7 @@ func TestTableFlow(t *testing.T) {
 		t.Fatalf("the slack tide's screen: %s", got)
 	}
 
-	e, sent = coretest.Button(t, "pp:table", nil)
+	e, _ = coretest.Button(t, "pp:table", nil)
 	if err := m.press(context.Background(), e); err != nil {
 		t.Fatal(err)
 	}
