@@ -44,7 +44,7 @@ func TestShots(t *testing.T) {
 	write("table_thrown", f)
 	f, _ = tableFrames(Table{Seats: seats, Bell: true})
 	write("table_bell", f)
-	f, _ = houseFrames(House{Hold: 31000 * unit, Line: houseLine(), MaxStake: 310 * unit, Staked: 125 * unit,
+	f, _ = houseFrames(House{Hold: 31000 * unit, Line: houseLine(), MaxStake: 310 * unit, Staked: 125 * unit, Beam: "steve", BeamThrow: 97, Scraps: 3,
 		Sump: Sump{Hold: 31000 * unit, Line: houseLine(), Light: night}})
 	write("house", f)
 	f, _ = houseFrames(House{Hold: houseLine(), Line: houseLine(), MaxStake: 500 * unit, Bell: true,

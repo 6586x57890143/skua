@@ -61,7 +61,27 @@ var (
 	// railBirds are where the two birds stand on the deck, the middle of
 	// each, either side of the lantern's post.
 	railBirds = [2]int{96, 262}
+	// railLantern is the lantern on the rail's post, and railLight its
+	// light on the harbour water under it.
+	railLantern = image.Rect(156, 52, 174, 72)
+	railLight   = image.Rect(120, 66, 210, 79)
 )
+
+// lanternFlame is the lantern's candle at a step: as painted, guttering
+// low, or flaring. By day it's out, and nothing changes.
+func lanternFlame(c *pixel.Canvas, art *sumpArt, step int) {
+	toward, by := [3]uint32{0, 0x5A2A0C, 0xFFF0B8}[step], [3]float64{0, 0.35, 0.3}[step]
+	if by == 0 {
+		return
+	}
+	for y := railLantern.Min.Y; y < railLantern.Max.Y; y++ {
+		for x := railLantern.Min.X; x < railLantern.Max.X; x++ {
+			if col := art.img.At(x, y); lit(col) {
+				c.SetColorIndex(x, y, c.Dye(blend(hexOf(col), toward, by)))
+			}
+		}
+	}
+}
 
 // The dyers' three colours, as they come down the runnel: tallow yellow,
 // hide red and the blue the yard boils for the stair.
@@ -101,21 +121,16 @@ func railFrames(r Rail) ([]*pixel.Canvas, []int) {
 	}
 	railPanel(base, r)
 
-	draw := func(c *pixel.Canvas, f int) {
-		glints(c, art, f)
-		harbourGlints(c, art, f)
-		flicker(c, art, f)
-		runnelFlow(c, art, f)
-		if thick := fogThick[r.Light]; thick > 0 {
-			fog(c, art, f, thick)
-		}
+	// The still: the runnel's dyes where they run, the fog where it lies.
+	runnelFlow(base, art, 0)
+	if thick := fogThick[r.Light]; thick > 0 {
+		fog(base, art, 0, thick)
 	}
 	var frames []*pixel.Canvas
 	var beats []int
 	if r.Thrown {
 		for k, at := range tumble {
 			c := base.Copy()
-			draw(c, k)
 			for i, p := range r.Seats {
 				n := (p.Throw*7 + k*31 + i*13) % 100
 				tens, ones := faces(n)
@@ -123,16 +138,17 @@ func railFrames(r Rail) ([]*pixel.Canvas, []int) {
 			}
 			frames, beats = append(frames, c), append(beats, tumbleBeat)
 		}
-	}
-	for f := range sumpFrames {
-		c := base.Copy()
-		draw(c, f)
-		if r.Thrown {
-			for i, p := range r.Seats {
-				tens, ones := faces(p.Throw)
-				pair(c, railDice(i), tens, ones, false)
-			}
+		for i, p := range r.Seats {
+			tens, ones := faces(p.Throw)
+			pair(base, railDice(i), tens, ones, false)
 		}
+	}
+	// What's alive is the lantern on the rail and its light on the water
+	// below it, taking turns.
+	for _, c := range ambient(base, []mover{
+		{railLantern, func(c *pixel.Canvas, step int) { lanternFlame(c, art, step) }},
+		{railLight, func(c *pixel.Canvas, step int) { harbourGlints(c, art, step*3) }},
+	}) {
 		frames, beats = append(frames, c), append(beats, sumpBeat)
 	}
 	return frames, beats

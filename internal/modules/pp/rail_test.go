@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -86,9 +87,8 @@ func TestCallOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := js(msg)
-	if !strings.Contains(got, "takes the honour") && !strings.Contains(got, "level") {
-		t.Errorf("the thrown rail names nobody: %s", got)
+	if got := js(msg); !strings.Contains(got, fmt.Sprintf("%x", tb.seed)) {
+		t.Errorf("the thrown rail doesn't turn its slate: %s", got)
 	}
 	if a, b := s.members[5], s.members[6]; a.purse+b.purse != 2000*unit-2*candle+tb.seats[0].won+tb.seats[1].won {
 		t.Error("pp passed between the two at the rail")
@@ -126,12 +126,12 @@ func TestRailScreens(t *testing.T) {
 	seats := []TableSeat{{Name: "steve", Class: Classes[1], Stake: stakes[1].pp, Throw: 70, Won: stakes[1].pp * 3 / 2}, {Name: "tester", Class: Classes[2], Stake: stakes[1].pp, Throw: 12}}
 	for light := range railArts {
 		frames, _ := railFrames(Rail{Light: light, Seats: seats[:1], Called: "tester"})
-		if len(frames) != sumpFrames || bytes.Equal(frames[0].Pix, frames[1].Pix) {
+		if len(frames) < 2*ambientSteps || bytes.Equal(frames[0].Pix, frames[1].Pix) {
 			t.Errorf("the rail in light %d doesn't move", light)
 		}
 	}
 	frames, _ := railFrames(Rail{Seats: seats, Thrown: true})
-	if len(frames) != len(tumble)+sumpFrames {
+	if len(frames) != len(tumble)+2*ambientSteps {
 		t.Errorf("a thrown rail has %d frames", len(frames))
 	}
 	realScreens(t)

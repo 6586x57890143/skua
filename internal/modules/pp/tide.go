@@ -65,6 +65,8 @@ type House struct {
 	Throws, Throwrs int64
 	// Sump is the scene outside, the screen's top.
 	Sump Sump
+	// Scraps is how many of the deckhead's scraps are nailed up.
+	Scraps int
 }
 
 // tideMessage is the slack tide's screen for user.
@@ -81,22 +83,23 @@ func (m *Module) tideMessage(guild, user snowflake.ID) (discord.MessageCreate, e
 	}
 	ch := s.houseCh
 	h.Beam, h.BeamThrow = s.onBeam(DayOf(now))
-	scraps := m.st.scraps(s, DayOf(now))
+	h.Scraps = nailed(m.st.scraps(s, DayOf(now)))
 	s.mu.Unlock()
 	h.Sump = m.sumpAt(h.Hold, h.Line, now)
 	pic, err := HouseScreen(h)
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
-	alt := fmt.Sprintf("the slack tide: the hold at %s of its %s pp line, %s", grouped(h.Hold/unit), grouped(h.Line/unit), tideWord(h))
-	lines := []string{"-# throw the bones against the purser's hold. a table seats six and every bird throws against the house, never each other"}
-	switch {
-	case h.Shut:
-		lines = append(lines, "-# the house is shut here until an admin picks its channel on /help")
-	case h.Bell:
-		lines = append(lines, "-# the bell's ringing under the gannet: a hundred pays fifteen times")
+	alt := fmt.Sprintf("the slack tide: the hold at %s of its %s pp line, %s; %d of %d scraps on the deckhead", grouped(h.Hold/unit), grouped(h.Line/unit), tideWord(h), h.Scraps, len(feats))
+	if h.Beam != "" {
+		alt += fmt.Sprintf("; %s on the beam with %d", h.Beam, h.BeamThrow)
 	}
-	lines = append(lines, deckheadLine(h.Beam, h.BeamThrow, scraps))
+	// Everything a bird reads is on the screen; the card says only what
+	// an admin has to do.
+	var lines []string
+	if h.Shut {
+		lines = append(lines, "-# shut until an admin picks its channel on /help")
+	}
 	btn := withIcon(discord.NewPrimaryButton("open a table", "pp:table"), "bell")
 	if h.Shut {
 		btn = btn.AsDisabled()
@@ -342,32 +345,26 @@ func (m *Module) tableMessage(s *server, t *table) (discord.MessageCreate, error
 	}
 	var lines []string
 	var extra []discord.ContainerSubComponent
+	// The screen tells the table; the card keeps only what a picture can't:
+	// the ping, the glass counting down, the whole slate to check the
+	// bones by, and the scraps a throw nailed up.
 	if t.settled {
-		best := tb.best()
-		said := fmt.Sprintf("the bones are thrown. **%s** throws highest and goes on the beam", tb.Seats[best].Name)
-		switch {
-		case t.rail != 0 && len(tb.Seats) == 2 && tb.Seats[0].Throw == tb.Seats[1].Throw:
-			said = "the bones are thrown and they throw the same. the purser calls it level"
-		case t.rail != 0 && len(tb.Seats) == 2:
-			said = fmt.Sprintf("the bones are thrown. **%s** takes the honour at the rail", tb.Seats[best].Name)
-		case t.rail != 0:
-			said = fmt.Sprintf("nobody came to the rail. **%s** threw alone", tb.Seats[best].Name)
+		if t.rail != 0 && len(tb.Seats) == 1 {
+			lines = append(lines, "nobody came to the rail")
 		}
-		lines = append(lines, said,
-			"-# the slate, turned round: `"+fmt.Sprintf("%x", t.seed)+"`. sha256(slate, table, bird) says every throw")
 		for _, e := range t.earned {
 			lines = append(lines, nailedLine(e))
 		}
+		lines = append(lines, "-# slate `"+fmt.Sprintf("%x", t.seed)+"` · sha256(slate, table, bird) is each throw")
 	} else {
-		if t.rail != 0 {
-			lines = append(lines, fmt.Sprintf("<@%s>, you're called out. match the stake: each of you throws against the house, high throw wins the honour", t.rail))
-		} else {
-			lines = append(lines, "pick a stake to sit down. every bird throws against the house, never each other")
+		if t.rail != 0 && t.first.IsZero() {
+			lines = append(lines, fmt.Sprintf("<@%s>, you're called out: match the stake", t.rail))
 		}
+		glass := ""
 		if !t.first.IsZero() {
-			lines = append(lines, fmt.Sprintf("-# the glass runs out <t:%d:R>", t.closes().Unix()))
+			glass = fmt.Sprintf("glass out <t:%d:R> · ", t.closes().Unix())
 		}
-		lines = append(lines, "-# the slate, turned to the wall: `"+t.slate()+"`")
+		lines = append(lines, "-# "+glass+"slate `"+t.slate()+"`")
 		var row []discord.InteractiveComponent
 		for k, st := range stakes {
 			b := discord.NewSecondaryButton(fmt.Sprintf("%s · %s", st.name, grouped(st.pp/unit)), fmt.Sprintf("pp:sit:%d:%d", t.id, k))

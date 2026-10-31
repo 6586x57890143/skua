@@ -134,7 +134,7 @@ func TestTableFlow(t *testing.T) {
 	s.mu.Lock()
 	msg, _ := m.tableMessage(s, tb)
 	s.mu.Unlock()
-	if !strings.Contains(js(msg), "the glass runs out") {
+	if !strings.Contains(js(msg), "glass out") {
 		t.Error("the table doesn't say when the glass runs out")
 	}
 	for _, bad := range []string{"pp:sit:1:1", fmt.Sprintf("pp:sit:%d:9", tb.id), "pp:sit:x"} {

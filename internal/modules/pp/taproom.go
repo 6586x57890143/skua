@@ -2,6 +2,7 @@ package pp
 
 import (
 	"bytes"
+	"fmt"
 	_ "embed"
 	"image"
 	"image/color"
@@ -21,7 +22,7 @@ import (
 
 // The frames' beats, in milliseconds.
 const (
-	flickerBeat = 180
+	flickerBeat = 360
 	tumbleBeat  = 170
 )
 
@@ -381,17 +382,28 @@ func figures(c *pixel.Canvas, h House) {
 	top := sumpSize.Y + 4
 	hold := image.Rect(4, top, 190, 212)
 	c.Window(hold)
-	c.Tab(hold, "the hold")
-	y := paneTop(hold)
-	label(c, hold.Min.X+12, y, "water")
+	c.Tab(hold, tideWord(h))
+	y := paneTop(hold) - 4
+	label(c, hold.Min.X+12, y, "the hold")
 	right(c, hold.Max.X-12, y, grouped(h.Hold/unit)+" pp", pixel.Gold)
-	label(c, hold.Min.X+12, y+17, "the line")
-	right(c, hold.Max.X-12, y+17, grouped(h.Line/unit)+" pp", pixel.Ink)
-	c.Bar(image.Rect(hold.Min.X+12, y+35, hold.Max.X-12, y+41), min(h.Hold, h.Line), h.Line, pixel.Blue)
+	c.Bar(image.Rect(hold.Min.X+12, y+15, hold.Max.X-12, y+19), min(h.Hold, h.Line), h.Line, pixel.Blue)
+	// The beam and the deckhead, from the bar.
+	label(c, hold.Min.X+12, y+23, "the beam")
+	beam, ink := "wiped", pixel.Dim
+	if h.Beam != "" {
+		beam, ink = fitName(pixel.Regular, pixel.Plain(h.Beam), 90)+" "+strconv.Itoa(h.BeamThrow), pixel.Ink
+	}
+	right(c, hold.Max.X-12, y+23, beam, ink)
+	label(c, hold.Min.X+12, y+40, "the deckhead")
+	right(c, hold.Max.X-12, y+40, fmt.Sprintf("%d of %d", h.Scraps, len(feats)), pixel.Ink)
 
 	st := image.Rect(194, top, 380, 212)
 	c.Window(st)
-	c.Tab(st, "the stakes")
+	tab := "the stakes"
+	if h.Bell {
+		tab = "the bell: 100 pays 15x"
+	}
+	c.Tab(st, tab)
 	y = paneTop(st)
 	for i, s := range stakes {
 		x, yy := st.Min.X+10+(i%2)*88, y+(i/2)*17

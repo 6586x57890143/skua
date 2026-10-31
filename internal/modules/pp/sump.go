@@ -270,7 +270,7 @@ var (
 // The scene's frames: eight, so everything in it loops together.
 const (
 	sumpFrames = 8
-	sumpBeat   = 160
+	sumpBeat   = 360
 )
 
 // Sump is what the scene outside shows.
@@ -369,40 +369,41 @@ func sumpScene(base *pixel.Canvas, s Sump) []*pixel.Canvas {
 		}
 	}
 
-	var frames []*pixel.Canvas
-	for f := range sumpFrames {
-		c := base.Copy()
-		surf(c, art, lift, f)
-		boats(c, s, art, f)
-		glints(c, art, f)
-		flicker(c, art, f)
-		for i, w := range wallWicks {
-			shape := flames[(f+i)%3]
-			if s.leaning() {
-				shape = flames[1+2*((f+i)%2)]
-			}
-			grid(c, w.Sub(image.Pt(1, 0)), shape...)
-		}
-		switch s.Light {
-		case night:
-			stars(c, art, f)
-		default:
-			gulls(c, art, f)
-		}
-		if s.Pumping {
-			pump(c, art, f)
-		} else {
-			handle(c, pumpRest, ink(shaded(0x22262E, art.shade)))
-		}
-		if s.Stage == bellRinging {
-			rings(c, art, f, lift)
-		}
-		if thick := fogThick[s.Light]; thick > 0 {
-			fog(c, art, f, thick)
-		}
-		frames = append(frames, c)
+	// The still: the sky, the town and her hull as painted, the fog lying
+	// where it lies, the pump at rest and the boats on the shingle if the
+	// ferrymen have pulled them up.
+	if thick := fogThick[s.Light]; thick > 0 {
+		fog(base, art, 0, thick)
 	}
-	return frames
+	if !s.Pumping {
+		handle(base, pumpRest, base.Dye(shaded(0x22262E, art.shade)))
+	}
+	// What's alive is the shoreline in front of her: the water lapping the
+	// shingle with the boats riding it, and the wall's candles. At the
+	// turn the pump works, and in the bell rings go out over the water.
+	phase := func(step int) int { return step * sumpFrames / ambientSteps }
+	movers := []mover{
+		{image.Rect(90, 92, 224, 128), func(c *pixel.Canvas, step int) {
+			surf(c, art, lift, phase(step))
+			boats(c, s, art, phase(step))
+		}},
+		{image.Rect(254, 94, 362, 113), func(c *pixel.Canvas, step int) {
+			for i, w := range wallWicks {
+				shape := flames[(step+i)%3]
+				if s.leaning() {
+					shape = flames[1+2*((step+i)%2)]
+				}
+				grid(c, w.Sub(image.Pt(1, 0)), shape...)
+			}
+		}},
+	}
+	if s.Pumping {
+		movers = append(movers, mover{image.Rect(256, 32, 290, 58), func(c *pixel.Canvas, step int) { pump(c, art, step) }})
+	}
+	if s.Stage == bellRinging {
+		movers = append(movers, mover{image.Rect(0, 96, 90, 128), func(c *pixel.Canvas, step int) { rings(c, art, phase(step), lift) }})
+	}
+	return ambient(base, movers)
 }
 
 // surf is the water's edge at frame f: a swell running along the shore,
@@ -478,7 +479,7 @@ func flicker(c *pixel.Canvas, art *sumpArt, f int) {
 	for i, lamp := range art.lamps {
 		var toward uint32
 		var by float64
-		switch (hash(i, f) >> 4) % 7 {
+		switch (hash(i, f) >> 4) % 12 {
 		case 0:
 			toward, by = 0x401A08, 0.45
 		case 1:
@@ -565,7 +566,7 @@ var (
 
 const (
 	fogDrop  = 22
-	fogDrift = 3 // pixels a frame
+	fogDrift = 2 // pixels a frame
 )
 
 // fogAt is how thick the fog is at x, y, 0 to 1, the band moved along by
