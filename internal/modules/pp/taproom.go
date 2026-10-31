@@ -53,17 +53,56 @@ var (
 //go:embed taproom.png
 var taproomArt []byte
 
+// The purser's table and a bench's high back, painted the same way and
+// mapped onto the taproom's own colours, clear round their edges.
+var (
+	//go:embed board.png
+	boardArt []byte
+	//go:embed settle.png
+	settleArt []byte
+)
+
+var (
+	boardPic  = sync.OnceValue(func() image.Image { return decodeArt(boardArt, "table") })
+	settlePic = sync.OnceValue(func() image.Image { return decodeArt(settleArt, "bench") })
+)
+
+func decodeArt(b []byte, what string) image.Image {
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil {
+		panic("pp: the " + what + " won't decode: " + err.Error())
+	}
+	return img
+}
+
+// paste draws img at p in its own colours, leaving what's clear.
+func paste(c *pixel.Canvas, img image.Image, p image.Point) {
+	b := img.Bounds()
+	inks := map[color.Color]uint8{}
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			col := img.At(x, y)
+			r, g, bl, a := col.RGBA()
+			if a < 0x8000 {
+				continue
+			}
+			i, ok := inks[col]
+			if !ok {
+				i = c.Dye(r>>8<<16 | g>>8<<8 | bl>>8)
+				inks[col] = i
+			}
+			if q := p.Add(image.Pt(x-b.Min.X, y-b.Min.Y)); q.In(c.Rect) {
+				c.SetColorIndex(q.X, q.Y, i)
+			}
+		}
+	}
+}
+
 // taproomPic is the painted taproom, finished art: a ChatGPT painting of
 // the deckhead, the ribs, the sconces and the glass, averaged onto the
 // screen's grid and flattened to 40 colours. Replace it whole; don't edit
 // its pixels.
-var taproomPic = sync.OnceValue(func() image.Image {
-	img, err := png.Decode(bytes.NewReader(taproomArt))
-	if err != nil {
-		panic("pp: the taproom won't decode: " + err.Error())
-	}
-	return img
-})
+var taproomPic = sync.OnceValue(func() image.Image { return decodeArt(taproomArt, "taproom") })
 
 // taproom draws the room behind a table, and in the drowning hour the
 // chapel bell hung from the main beam between the middle benches. The
@@ -100,46 +139,6 @@ func sand(c *pixel.Canvas, f int) {
 	}
 }
 
-// tableTopAt draws the purser's table across the room, its top at y: an
-// oak top lit along its edge, with the grain running its length, and a
-// front of planks.
-func tableTopAt(c *pixel.Canvas, y int) {
-	w := c.Rect.Dx()
-	c.Fill(image.Rect(6, y, w-6, y+1), ink('l'))
-	c.Fill(image.Rect(6, y+1, w-6, y+8), ink('K'))
-	// The grain: long dark streaks, staggered so no two line up.
-	for i, x := 0, 10; x < w-30; i, x = i+1, x+37+(i*13)%23 {
-		gy := y + 2 + (i*3)%5
-		c.Fill(image.Rect(x, gy, x+18+(i*7)%15, gy+1), ink('J'))
-	}
-	c.Fill(image.Rect(6, y+7, w-6, y+8), ink('J'))
-	c.Fill(image.Rect(6, y+8, w-6, y+15), ink('I'))
-	for x := 6 + 47; x < w-6; x += 47 {
-		c.Fill(image.Rect(x, y+8, x+1, y+15), ink('k'))
-		c.SetColorIndex(x+2, y+11, ink('G'))
-	}
-	c.Fill(image.Rect(6, y+8, w-6, y+9), ink('J'))
-	c.Fill(image.Rect(6, y+15, w-6, y+16), ink('k'))
-	for _, x := range []int{14, w - 22} {
-		c.Fill(image.Rect(x, y+16, x+8, 152), ink('I'))
-		c.Fill(image.Rect(x, y+16, x+1, 152), ink('J'))
-		c.Fill(image.Rect(x+7, y+16, x+8, 152), ink('k'))
-	}
-	c.Fill(image.Rect(0, 150, w, 152), ink('k'))
-}
-
-// chair draws an empty bench's ladder-back behind the table at cx.
-func chair(c *pixel.Canvas, cx, top, bottom int) {
-	for _, x := range []int{cx - 11, cx + 9} {
-		c.Fill(image.Rect(x, top, x+3, bottom), ink('J'))
-		c.Fill(image.Rect(x, top, x+1, bottom), ink('K'))
-	}
-	for y := top + 4; y < bottom-4; y += 8 {
-		c.Fill(image.Rect(cx-8, y, cx+9, y+3), ink('K'))
-		c.Fill(image.Rect(cx-8, y+2, cx+9, y+3), ink('I'))
-	}
-}
-
 // bones are the two bones as they tumble, a frame each: where they are
 // over a bird's head and which way up.
 var tumble = []struct{ dx, dy int }{{-6, 8}, {-2, -6}, {3, -10}, {6, -2}}
@@ -160,8 +159,8 @@ func turned(g []string) []string {
 // Where a table's six benches stand: the middle of each, the portraits'
 // tops and the table's top.
 const (
-	benchTop = 80
-	tableTop = 120
+	benchTop = 70
+	tableTop = 110
 )
 
 func benchX(i int) int { return 32 + i*64 }
@@ -186,13 +185,13 @@ func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 	base := pixel.New(screenW, screenH)
 	taproom(base, t.Bell)
 	for i := range tableSeats {
+		paste(base, settlePic(), image.Pt(benchX(i)-24, tableTop+6-settlePic().Bounds().Dy()))
 		if i >= len(t.Seats) {
-			chair(base, benchX(i), benchTop+12, tableTop)
 			continue
 		}
 		sitDownIn(base, cutout(Portrait(t.Seats[i].Class)), image.Pt(benchX(i)-16, benchTop))
 	}
-	tableTopAt(base, tableTop)
+	paste(base, boardPic(), image.Pt((screenW-boardPic().Bounds().Dx())/2, tableTop))
 	pool := base.Dye(0xD9A24E)
 	for i, p := range t.Seats {
 		x := benchX(i)
