@@ -161,5 +161,6 @@ Not done yet:
   pumps, the drowning hour, the marker, calling out at the rail) and the five winds in
   "How the game maps onto the world". The owner reads it before M3-G1 builds it. The lore
   pays 1.5x, 2.5x and 10x over 1-50 losing, the 7.5% house edge the owner chose. The
-  drowning hour rings once or twice a day, leaning to NA and EU evenings, and pays 20x on a
-  hundred. Luck feats go on the deckhead as standing, never pp.
+  drowning hour rings once or twice a day, leaning to NA and EU evenings, and pays 15x on a
+  hundred, so every hour keeps a house edge. The hold is seeded once by a minted 5k starter
+  fund, and every win after that comes out of stakes won. Luck feats go on the deckhead as standing, never pp.

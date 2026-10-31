@@ -492,8 +492,10 @@ read it.
 it set one condition, because a guild that holds the sump's money for long
 enough becomes a bank. The purser paints a **waterline** on the ribs of the
 hold, and the house may never keep more than the line. The hold's first
-water came from the city's treasury, and the counting house still holds the
-note. Each time the pot turns over before dawn, the purser works the pumps
+water came on a note from the counting house, the only money the ravens have
+ever lent the sump, and it has never lent the hold another pp since.
+Everything the purser has paid out after that first night came out of
+stakes the house won. Each time the pot turns over before dawn, the purser works the pumps
 under a raven's eye, and everything above the line goes over the side into
 the sea. The sea does not give pp back. The magpies have dived for it under
 the hull every summer and never brought up a coin.
@@ -526,7 +528,7 @@ gulls stop selling. A quarter of an hour before, the ferrymen pull their
 boats up the shingle and won't say why, and the candles along the harbour
 wall all lean the same way with no wind to lean them. Then the bell starts
 under the floor, the sea comes back up the steps, and for an hour a hundred
-on the bones rings the bell too. The purser pays twenty times the stake and
+on the bones rings the bell too. The purser pays fifteen times the stake and
 calls **all hands** from the rail. When the call goes up, every bird in
 the sump who has a stake comes running down the gut. The fishmongers on
 the steps have complained to the tally board about it for years. When the
