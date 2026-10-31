@@ -92,10 +92,9 @@ too fast; try again in a couple of minutes`).
   embed: a webhook can't make a real Discord reply, and a box outweighs the message it
   annotates. When skua needs more than a line, it borrows `/help`'s colour identity and
   layout rather than inventing a new one.
-- Facts are DESIGN.md's, one line each with the key in bold, written by
-  `core.Readout`. Anything that is not a short fact goes on a line below them, detail as
-  `-#` subtext. A code block holds only what somebody copies: `/pp`'s keys, a season's
-  secret and its hash.
+- Facts are DESIGN.md's, a code block grid written by `core.Readout`, which also moves
+  a mention or link under the grid. Anything that is not a short fact goes on a line
+  below them, detail as `-#` subtext. `/help`'s command list is the same grid.
 - Numbers follow DESIGN.md, with one decimal under 10 ms.
 - Command and option descriptions: lowercase, no full stop, what it does in a few words.
 

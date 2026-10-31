@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -654,8 +655,8 @@ func TestRelayHealthInTheReport(t *testing.T) {
 		{URL: "wss://d"},
 	}, now, nil, nil)
 	got := core.Readout(rows) + strings.Join(notes, "\n")
-	for _, want := range []string{"**relays** 2 of 4 up", "**heard** 20s ago", "**drops** 3", "! wss://c is down, last heard 3m ago", "! wss://d is not connected"} {
-		if !strings.Contains(got, want) {
+	for _, want := range []string{"relays 2 of 4 up", "heard 20s ago", "drops 3", "! wss://c is down, last heard 3m ago", "! wss://d is not connected"} {
+		if !strings.Contains(oneSpace(got), want) {
 			t.Errorf("missing %q:\n%s", want, got)
 		}
 	}
@@ -697,3 +698,7 @@ func TestArmadaEmoji(t *testing.T) {
 		}
 	}
 }
+
+// oneSpace collapses the padding of a code block grid (core.Readout) to one
+// space, so a fact reads "label value" whatever the column width.
+func oneSpace(s string) string { return regexp.MustCompile(` {2,}`).ReplaceAllString(s, " ") }

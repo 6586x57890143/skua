@@ -139,11 +139,17 @@ record is answered with a new message, not an edit.
 - A key is one or two words, 10 characters at most, lowercase. A key shared by several
   values takes them all, comma separated: `kept` `@booster, @staff`.
 - A change reads `from → to`.
-- In a record, facts are fields. In a panel's text, a fact is one line with its key in
-  bold: `**retention** 30d`.
-- **A code block is for what somebody copies**: an ID, a command, a token, a config
-  line. It is not a layout tool. Monospace grids line up, but they render mentions as
-  raw IDs, cut off on phones, and read as a terminal.
+- In a record, facts are fields. In a panel's text, and in a record's description,
+  facts are a code block grid (`core.Readout`): the key column as wide as the longest
+  key plus two, values lined up beside it, a comma separated value wrapping after a
+  comma inside its column, which is 28 wide so a line stays inside a phone's 40 or so
+  columns. Components V2 has no field layout, and a monospace grid is the one that
+  lines up on every client.
+- A code block shows markup as typed, so a fact whose value is a mention, a timestamp
+  or a link goes under the grid as a line with its key in bold: `**kept** @booster`.
+  `core.Readout` does this itself.
+- A code block is also for what somebody copies: an ID, a command, a token, a config
+  line.
 - A bar is `▰▰▰▱▱ 60%`. A tree (`├ └`) leads only a line short enough never to wrap.
 - Numbers: `42 ms` with a space. Durations use the two largest units: `45s`, `12m`,
   `3h 12m`, `2d 4h`. A value not measured yet says so, never `0`.
@@ -163,6 +169,11 @@ tests.
 
 ## Log
 
+- **2026-10-31** Facts are a code block grid again, in panels and in record
+  descriptions. The bold-label lines that replaced it read objectively worse: nothing
+  lined up, and a panel's facts stopped reading as one block. The grid's real flaw,
+  mentions shown as raw IDs, is handled by moving those rows under the grid, not by
+  giving up the grid.
 - **2026-10-23** Social previews use a compact linked author header and readable
   body text after the owner compared FixTweet and Skua screenshots. A platform
   icon replaces the oversized avatar; Components V2 has no inline remote-avatar

@@ -84,14 +84,14 @@ func TestStatus(t *testing.T) {
 		color int
 		want  string
 	}{
-		{"no database", Probe{Granted: gateway.IntentGuilds}, nil, nil, brand.ColorOK, "\n**database** not configured\n"},
-		{"database up", Probe{}, pinger{}, nil, brand.ColorOK, "\n**database** 0."},
+		{"no database", Probe{Granted: gateway.IntentGuilds}, nil, nil, brand.ColorOK, "\ndatabase    not configured\n"},
+		{"database up", Probe{}, pinger{}, nil, brand.ColorOK, "\ndatabase    0."},
 		{"database down", Probe{}, pinger{errors.New("refused")}, nil, brand.ColorError, "\n-# database: refused"},
-		{"gateway not measured", Probe{}, nil, nil, brand.ColorOK, "**gateway** not measured yet\n"},
-		{"cygnet up", Probe{}, nil, pinger{}, brand.ColorOK, "\n**cygnet** 0."},
+		{"gateway not measured", Probe{}, nil, nil, brand.ColorOK, "\ngateway     not measured yet\n"},
+		{"cygnet up", Probe{}, nil, pinger{}, brand.ColorOK, "\ncygnet      0."},
 		{"cygnet down", Probe{}, nil, pinger{errors.New("offline: not linked")}, brand.ColorError, "\n-# cygnet: offline: not linked"},
-		{"no cygnet", Probe{}, nil, nil, brand.ColorOK, "\n**cygnet** not configured\n"},
-		{"module skipped", Probe{Skipped: []string{"whisper"}}, nil, nil, brand.ColorWarn, "\n**skipped** whisper\n"},
+		{"no cygnet", Probe{}, nil, nil, brand.ColorOK, "\ncygnet      not configured\n"},
+		{"module skipped", Probe{Skipped: []string{"whisper"}}, nil, nil, brand.ColorWarn, "\nskipped     whisper\n"},
 	}
 	for _, c := range cases {
 		m := New(func() Probe { return c.probe }, c.db, c.fleet, func() time.Duration { return 0 })
