@@ -1,9 +1,13 @@
 package pp
 
 import (
+	"bytes"
+	_ "embed"
 	"image"
+	"image/png"
 	"math"
 	"strconv"
+	"sync"
 
 	"github.com/6586x57890143/skua/internal/pixel"
 )
@@ -27,96 +31,98 @@ func ink(r byte) uint8 { return pixel.IconInk(r) }
 // grid draws rows of icon inks at p, '.' clear: a small sprite.
 func grid(c *pixel.Canvas, p image.Point, rows ...string) { c.Grid(rows, p) }
 
-// flames are a tallow flame's three shapes as the draught takes it.
+// flames are a tallow flame's shapes as the draught takes it; in the
+// drowning hour every candle leans the same way with no wind to lean it,
+// between the last two.
 var flames = [][]string{
 	{".O.", "ODO", "ODO", "NON", ".N."},
 	{"O..", ".OO", "ODO", "NON", ".N."},
 	{"..O", "OO.", "ODO", "NON", ".N."},
+	{"O..", "OO.", "ODO", "NON", ".N."},
 }
 
-// candle draws a tallow candle in a sconce on a rib, its flame at shape f,
-// with the warm light it throws on the planks round it.
-func candle(c *pixel.Canvas, x, y, f int, glow uint8) {
-	r := 9 + f%2
-	for dy := -r; dy <= r; dy++ {
-		for dx := -r; dx <= r; dx++ {
-			if dx*dx+dy*dy <= r*r {
-				px, py := x+dx, y-2+dy
-				if image.Pt(px, py).In(c.Rect) && c.ColorIndexAt(px, py) == ink('I') {
-					c.SetColorIndex(px, py, glow)
-				}
-			}
-		}
+// The painted taproom's own places: where its two candles' wicks are and
+// its sand glass's neck.
+var (
+	wicks    = []image.Point{{88, 53}, {219, 53}}
+	glassAt  = image.Pt(358, 56)
+	roomSize = image.Pt(384, 128)
+)
+
+//go:embed taproom.png
+var taproomArt []byte
+
+// taproomPic is the painted taproom, finished art: a ChatGPT painting of
+// the deckhead, the ribs, the sconces and the glass, averaged onto the
+// screen's grid and flattened to 40 colours. Replace it whole; don't edit
+// its pixels.
+var taproomPic = sync.OnceValue(func() image.Image {
+	img, err := png.Decode(bytes.NewReader(taproomArt))
+	if err != nil {
+		panic("pp: the taproom won't decode: " + err.Error())
 	}
-	grid(c, image.Pt(x-1, y-5), flames[f%len(flames)]...)
-	grid(c, image.Pt(x-2, y), "krrk", "krqk", "kwqk", "krqk", "krpk")
-	grid(c, image.Pt(x-4, y+5), "kGGGGGGk", ".kFFFFk.", "...kk...", "...kk...")
-}
+	return img
+})
 
-// scraps are the colours nailed to the deckhead over the benches: where
-// each is and its ink.
-var scraps = []struct {
-	x, y int
-	ink  byte
-}{
-	{14, 6, 'N'}, {41, 11, 'R'}, {70, 4, 'V'}, {103, 9, 'Z'}, {131, 5, 'C'}, {159, 12, 'T'},
-	{222, 6, 'M'}, {248, 11, 'Y'}, {276, 4, 'Q'}, {303, 10, 'O'}, {334, 6, 'U'}, {361, 11, 'X'},
-}
-
-// taproom draws the room behind a table: the hull's planks and ribs, the
-// deckhead with its scraps and, in the drowning hour, the bell hung under
-// it. Candles go on after, a frame at a time.
+// taproom draws the room behind a table, and in the drowning hour the
+// chapel bell hung from the main beam between the middle benches. The
+// flames and the sand go on after, a frame at a time.
 func taproom(c *pixel.Canvas, bell bool) {
-	w := c.Rect.Dx()
-	seam := c.Dye(0x2E1C10)
-	c.Fill(image.Rect(0, 22, w, 152), ink('I'))
-	for y, row := 28, 0; y < 152; y, row = y+8, row+1 {
-		c.Fill(image.Rect(0, y, w, y+1), seam)
-		for x := (row % 2) * 37; x < w; x += 74 {
-			c.Fill(image.Rect(x, y-7, x+1, y), seam)
-		}
-	}
-	// The deckhead, its beams and its scraps.
-	c.Fill(image.Rect(0, 0, w, 22), ink('J'))
-	for x := 0; x < w; x += 48 {
-		c.Fill(image.Rect(x, 0, x+3, 22), ink('K'))
-		c.Fill(image.Rect(x+3, 0, x+4, 22), ink('I'))
-	}
-	c.Fill(image.Rect(0, 19, w, 22), ink('I'))
-	c.Fill(image.Rect(0, 22, w, 23), ink('k'))
-	for _, s := range scraps {
-		c.Fill(image.Rect(s.x, s.y, s.x+7, s.y+5), ink(s.ink))
-		c.Fill(image.Rect(s.x, s.y+5, s.x+7, s.y+6), ink('k'))
-		c.SetColorIndex(s.x+3, s.y+1, ink('k'))
-	}
-	// The ribs, between the benches.
-	for x := 64; x < w; x += 64 {
-		c.Fill(image.Rect(x-3, 23, x+3, 152), ink('J'))
-		c.Fill(image.Rect(x-3, 23, x-2, 152), ink('K'))
-		c.Fill(image.Rect(x+2, 23, x+3, 152), ink('k'))
-	}
+	c.Picture(taproomPic(), image.Point{}, 1)
+	floor := c.ColorIndexAt(0, roomSize.Y-1)
+	c.Fill(image.Rect(0, roomSize.Y, c.Rect.Dx(), 152), floor)
 	if bell {
-		// The chapel bell's pieces, hung from the deckhead, and the sea
-		// come up green between the planks.
-		sea := c.Dye(0x1F3A42)
-		for y := 28; y < 152; y += 8 {
-			c.Fill(image.Rect(0, y, w, y+1), sea)
-		}
-		c.Fill(image.Rect(w/2-1, 23, w/2+1, 30), ink('k'))
-		c.BigIcon("bell", image.Pt(w/2-16, 28), 2)
+		x := c.Rect.Dx() / 2
+		c.Fill(image.Rect(x-1, 33, x+1, 58), ink('p'))
+		c.Fill(image.Rect(x, 33, x+1, 58), ink('q'))
+		c.BigIcon("bell", image.Pt(x-16, 56), 2)
 	}
 }
 
-// tableTopAt draws the purser's table across the room, its top at y.
+// candles draws the taproom's flames at frame f: flickering, or in the
+// drowning hour leaning.
+func candles(c *pixel.Canvas, f int, bell bool) {
+	for i, w := range wicks {
+		shape := flames[(f+i)%3]
+		if bell {
+			shape = flames[1+2*((f+i)%2)]
+		}
+		grid(c, w.Sub(image.Pt(1, 0)), shape...)
+	}
+}
+
+// sand runs the glass at frame f: a grain falling through its neck.
+func sand(c *pixel.Canvas, f int) {
+	grain := ink('r')
+	for y := glassAt.Y + f%2; y < glassAt.Y+5; y += 2 {
+		c.SetColorIndex(glassAt.X, y, grain)
+	}
+}
+
+// tableTopAt draws the purser's table across the room, its top at y: an
+// oak top lit along its edge, with the grain running its length, and a
+// front of planks.
 func tableTopAt(c *pixel.Canvas, y int) {
 	w := c.Rect.Dx()
 	c.Fill(image.Rect(6, y, w-6, y+1), ink('l'))
 	c.Fill(image.Rect(6, y+1, w-6, y+8), ink('K'))
-	c.Fill(image.Rect(6, y+8, w-6, y+15), ink('J'))
+	// The grain: long dark streaks, staggered so no two line up.
+	for i, x := 0, 10; x < w-30; i, x = i+1, x+37+(i*13)%23 {
+		gy := y + 2 + (i*3)%5
+		c.Fill(image.Rect(x, gy, x+18+(i*7)%15, gy+1), ink('J'))
+	}
+	c.Fill(image.Rect(6, y+7, w-6, y+8), ink('J'))
+	c.Fill(image.Rect(6, y+8, w-6, y+15), ink('I'))
+	for x := 6 + 47; x < w-6; x += 47 {
+		c.Fill(image.Rect(x, y+8, x+1, y+15), ink('k'))
+		c.SetColorIndex(x+2, y+11, ink('G'))
+	}
+	c.Fill(image.Rect(6, y+8, w-6, y+9), ink('J'))
 	c.Fill(image.Rect(6, y+15, w-6, y+16), ink('k'))
 	for _, x := range []int{14, w - 22} {
 		c.Fill(image.Rect(x, y+16, x+8, 152), ink('I'))
 		c.Fill(image.Rect(x, y+16, x+1, 152), ink('J'))
+		c.Fill(image.Rect(x+7, y+16, x+8, 152), ink('k'))
 	}
 	c.Fill(image.Rect(0, 150, w, 152), ink('k'))
 }
@@ -131,31 +137,6 @@ func chair(c *pixel.Canvas, cx, top, bottom int) {
 		c.Fill(image.Rect(cx-8, y, cx+9, y+3), ink('K'))
 		c.Fill(image.Rect(cx-8, y+2, cx+9, y+3), ink('I'))
 	}
-}
-
-// glass draws the purser's sand glass hung on the wall: full and still
-// before anyone sits, running at frame f once someone has.
-func glass(c *pixel.Canvas, x, y int, running bool, f int) {
-	top, foot := "kkkkkkkkk", "kJJJJJJJk"
-	rows := []string{
-		top, foot,
-		".kWCCCWk.",
-		".kWCCCWk.",
-		"..kWCWk..",
-		"...kCk...",
-		"...kWk...",
-		"..kWWWk..",
-		".kWWWWWk.",
-		".kWWWWWk.",
-		foot, top,
-	}
-	if running {
-		rows[2], rows[3] = ".kWWWWWk.", ".kWCCCWk."
-		stream := []string{"...kCk...", "...kWk..."}
-		rows[6] = stream[f%2]
-		rows[8], rows[9] = ".kWWCWWk.", ".kCCCCCk."
-	}
-	grid(c, image.Pt(x, y), rows...)
 }
 
 // bones are the two bones as they tumble, a frame each: where they are
@@ -221,16 +202,11 @@ func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 		base.Icon(stakeIcon(p.Stake), image.Pt(x-8, tableTop-9))
 	}
 	panel(base, t)
-	if t.Thrown && len(t.Seats) > 0 {
-		chalk(base, t.Seats[t.best()].Name)
-	}
 
-	glow := base.Dye(0x5A3A1E)
 	draw := func(c *pixel.Canvas, f int) {
-		candle(c, 128, 40, f, glow)
-		candle(c, 256, 40, f+1, glow)
-		if !t.Thrown {
-			glass(c, 362, 30, len(t.Seats) > 0, f)
+		candles(c, f, t.Bell)
+		if !t.Thrown && len(t.Seats) > 0 {
+			sand(c, f)
 		}
 	}
 	var frames []*pixel.Canvas
@@ -249,6 +225,7 @@ func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 			frames, beats = append(frames, c), append(beats, tumbleBeat)
 		}
 		landed(base, t)
+		chalk(base, t.Seats[t.best()].Name)
 	}
 	for f := range 6 {
 		c := base.Copy()
@@ -267,18 +244,23 @@ func landed(c *pixel.Canvas, t Table) {
 		if p.Won > 0 {
 			ink = pixel.Gilt
 		}
-		x := benchX(i) - pixel.Bold.Width(s)/2
-		c.PrintOn(pixel.Bold, x, benchTop-20, s, ink, pixel.Shadow)
+		w := pixel.Bold.Width(s)
+		x := benchX(i) - w/2
+		// A slate, so the number reads over the candles behind it.
+		plate := image.Rect(x-4, benchTop-19, x+w+4, benchTop-2)
+		c.Fill(plate, pixel.Line)
+		c.Outline(plate, pixel.Shadow)
+		c.Print(pixel.Bold, x, benchTop-17, s, ink)
 	}
 }
 
-// chalk writes the beam's new name on the deckhead.
+// chalk writes the beam's new name in chalk on the main beam.
 func chalk(c *pixel.Canvas, name string) {
 	name = pixel.Plain(name)
-	w := pixel.Regular.Width(name)
-	x := c.Rect.Dx()/2 - w/2
-	c.Fill(image.Rect(x-4, 3, x+w+4, 17), ink('I'))
-	c.Text(x, 4, name, pixel.Glove, 0)
+	for pixel.Regular.Width(name) > 160 && len(name) > 1 {
+		name = name[:len(name)-1]
+	}
+	c.Text(c.Rect.Dx()/2-pixel.Regular.Width(name)/2, 17, name, pixel.Glove, 0)
 }
 
 // panel is the parchment under the table: each bench's bird, their stake
