@@ -211,20 +211,26 @@ What's in:
 - **The sump** (`sump.go`): the slack tide's screen opens on the sump in front of the
   *gannet*, painted at three tides (usual, low, high) in four lights (dusk, night,
   dawn, day, by UTC hour). Low water an hour before the bell, high water while it rings
-  or the hold is full. Over the paintings: swell and foam along each tide's own
-  waterline, glints, flickering lamps found in each painting, the wall's candles
-  (leaning before the bell), gulls, stars in open sky (masked by the day painting),
-  the painted fog band at dawn and night, the pump working in the hour after the turn,
-  the ferrymen's boats afloat or pulled up, and rings from under her in the bell.
+  or the hold is full. The hold, the beam, the deckhead and the stakes sit in windows
+  under it; the card keeps only the admins' shut hint.
+- **Living scenes** (`ambient.go`): a still painting with a few chosen things moving a
+  small step every frame at their own pace, 12 frames of 200ms. At the sump: the swell
+  the length of the shore with the boats riding it, the wall's candles (leaning before
+  the bell), the town's windows and her portholes burning a little unevenly, a gull
+  over the mast by daylight, the pump at the turn and rings in the bell. At the rail:
+  slow bands on the harbour water, the lantern, the windows and the runnel's three
+  dyes. No random glints, stars painted still, lit windows never go dark. A card is 1.5
+  to 3.6 MB and about 0.6s to draw, which the owner OK'd. `TestLiveDemo` posts every
+  surface to the test bot.
 - **The beam and the deckhead** (`deckhead.go`): the day's highest throw is chalked on
   the beam and wiped at the turn. Seven luck feats from LORE.md nail a scrap per bird,
   standing only, counted `feat_<key>`. In the taproom the scraps hang dyed in the first
   nailer's livery (wool for none), and unknown ones are chalk outlines. A run is in
   memory, so a restart forgets one.
-- **Calling out at the rail** (`rail.go`): a user picker on the tide card opens a
+- **A duel at the rail** (`rail.go`, the lore's calling out): a user picker on the tide card opens a
   two-seat table pinging only the called bird. Same stake for both, each against the
-  house, so no transfer. Counted `house_rail`. Its screen is the view from her rail in
-  four lights, with the lantern, windows, the runnel's three dyes and the fog moving.
+  house, so no transfer, and a loss says the stake goes to the house. Counted
+  `house_rail`. Its screen is the view from her rail in four lights.
 - **All art is finished art** fitted by box average and k-means (`sump*.png`,
   `rail*.png`, `sprites/`). Replace whole. Every painted surface moves.
 
