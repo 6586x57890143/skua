@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	"strconv"
 	"sync"
 
@@ -109,11 +110,35 @@ func taproom(c *pixel.Canvas, bell bool) {
 	c.Picture(taproomPic(), image.Point{}, 1)
 	floor := c.ColorIndexAt(0, roomSize.Y-1)
 	c.Fill(image.Rect(0, roomSize.Y, c.Rect.Dx(), 152), floor)
-	if bell {
-		x := c.Rect.Dx() / 2
-		c.Fill(image.Rect(x-1, 33, x+1, 58), ink('p'))
-		c.Fill(image.Rect(x, 33, x+1, 58), ink('q'))
-		c.BigIcon("bell", image.Pt(x-16, 56), 2)
+}
+
+// bellSway is how far the bell's lip swings each frame, its rope's knot
+// fixed to the beam.
+var bellSway = []int{0, 1, 2, 1, 0, -1, -2, -1}
+
+// hangBell draws the chapel bell hung from the main beam between the
+// middle benches at frame f, swinging on its rope while it rings: each row
+// leans further than the one above it.
+func hangBell(c *pixel.Canvas, f int) {
+	img := sprite("bell")
+	b := img.Bounds()
+	top := image.Pt(c.Rect.Dx()/2-b.Dx()/2, 26)
+	sway := bellSway[f%len(bellSway)]
+	inks := map[color.Color]uint8{}
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		dx := int(math.Round(float64(sway) * float64(y-b.Min.Y) / float64(b.Dy())))
+		for x := b.Min.X; x < b.Max.X; x++ {
+			col := img.At(x, y)
+			if _, _, _, a := col.RGBA(); a < 0x8000 {
+				continue
+			}
+			i, ok := inks[col]
+			if !ok {
+				i = c.Dye(hexOf(col))
+				inks[col] = i
+			}
+			c.SetColorIndex(top.X+x-b.Min.X+dx, top.Y+y-b.Min.Y, i)
+		}
 	}
 }
 
@@ -194,6 +219,9 @@ func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 
 	draw := func(c *pixel.Canvas, f int) {
 		candles(c, f, t.Bell)
+		if t.Bell {
+			hangBell(c, f)
+		}
 		if !t.Thrown && len(t.Seats) > 0 {
 			sand(c, f)
 		}

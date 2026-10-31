@@ -1,10 +1,11 @@
 package pp
 
 import (
-	_ "embed"
+	"embed"
 	"image"
 	"image/color"
 	"math"
+	"strconv"
 	"sync"
 	"time"
 
@@ -87,13 +88,52 @@ func readSump(b []byte, what string, shade float64, mist uint32) *sumpArt {
 	// of the dark around them. A day's or an evening's sky has none.
 	for y := 1; y < 60 && what == "night"; y++ {
 		for x := 200; x < sumpSize.X-1; x++ {
-			around := 0
+			around, sky := 0, true
 			for _, d := range []image.Point{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
 				around += lum(img.At(x+d.X, y+d.Y))
+				// Night sky round it, not a rope's tarred brown.
+				r, _, b := rgbOf(img.At(x+d.X, y+d.Y))
+				sky = sky && b > r
 			}
-			if l := lum(img.At(x, y)); l > 70 && l-around/4 > 35 && !lit(img.At(x, y)) {
+			if l := lum(img.At(x, y)); sky && l > 70 && l-around/4 > 35 && !lit(img.At(x, y)) {
 				a.stars = append(a.stars, image.Pt(x, y))
 			}
+		}
+	}
+	// A star stands alone; a run of bright points is the moon's edge.
+	alone := a.stars[:0:0]
+	for _, p := range a.stars {
+		n := 0
+		for _, q := range a.stars {
+			if d := p.Sub(q); d.X*d.X+d.Y*d.Y <= 2 {
+				n++
+			}
+		}
+		if n == 1 {
+			alone = append(alone, p)
+		}
+	}
+	a.stars = alone
+	// The painting's faint stars were lost in fitting it, so a few more are
+	// set in open sky: dark and blue, with dark blue sky all round.
+	open := func(x, y int) bool {
+		r, _, b := rgbOf(img.At(x, y))
+		return b > r && lum(img.At(x, y)) < 50
+	}
+	for y := 2; y < 58 && what == "night"; y++ {
+	cell:
+		for x := 285; x < sumpSize.X-2; x++ {
+			if hash(x, y)%61 != 0 {
+				continue
+			}
+			for dy := -2; dy <= 2; dy++ {
+				for dx := -2; dx <= 2; dx++ {
+					if !open(x+dx, y+dy) {
+						continue cell
+					}
+				}
+			}
+			a.stars = append(a.stars, image.Pt(x, y))
 		}
 	}
 	deep := hexOf(img.At(150, sumpSize.Y-1))
@@ -273,25 +313,12 @@ func sumpScene(base *pixel.Canvas, s Sump) []*pixel.Canvas {
 			}
 		}
 	}
-	if s.boatsUp() {
-		boat(base, image.Pt(118, 103), 0, art.shade)
-		boat(base, image.Pt(158, 106), 1, art.shade)
-	}
 
 	var frames []*pixel.Canvas
 	for f := range sumpFrames {
 		c := base.Copy()
 		surf(c, art, lift, f)
-		if !s.boatsUp() {
-			// Afloat in the shallows, riding the swell; sat on the wet
-			// stones when the water's drawn back.
-			bob := 0
-			if lift >= 0 && f%4 >= 2 {
-				bob = 1
-			}
-			boat(c, image.Pt(112, edge[122]-lift-4+bob), 0, art.shade)
-			boat(c, image.Pt(170, edge[180]-lift-4+(1-bob)), 1, art.shade)
-		}
+		boats(c, s, art, f)
 		glints(c, art, f)
 		flicker(c, art, f)
 		for i, w := range wallWicks {
@@ -417,7 +444,11 @@ func stars(c *pixel.Canvas, art *sumpArt, f int) {
 	for i, p := range art.stars {
 		switch (hash(i, 7) + uint32(f)) % 5 {
 		case 0:
-			c.SetColorIndex(p.X, p.Y, c.Dye(blend(hexOf(art.img.At(p.X, p.Y)), 0x0A1020, 0.7)))
+			c.SetColorIndex(p.X, p.Y, c.Dye(0x3E4866))
+		case 1, 3:
+			c.SetColorIndex(p.X, p.Y, c.Dye(0x8C96B4))
+		case 4:
+			c.SetColorIndex(p.X, p.Y, c.Dye(0x66708E))
 		case 2:
 			c.SetColorIndex(p.X, p.Y, c.Dye(0xFFFFFF))
 			// A bright one throws a cross.
@@ -431,31 +462,13 @@ func stars(c *pixel.Canvas, art *sumpArt, f int) {
 	}
 }
 
-// The gull's shapes: w its white, g its grey back, t its black tips, s the
-// shade under its wings. Up, gliding and down, the flap's three beats.
-var (
-	gullUp = []string{
-		"t.........t",
-		"tg.......gt",
-		".gg.....gg.",
-		"..ggswsgg..",
-		"....www....",
-	}
-	gullGlide = []string{
-		"tgg.....ggt",
-		"...gg.gg...",
-		"....sws....",
-		".....w.....",
-	}
-	gullDown = []string{
-		"....www....",
-		"..ggswsgg..",
-		".gg.....gg.",
-		"tg.......gt",
-	}
-	// A far one is a few strokes.
-	gullFar = [][]string{{"g...g", ".gwg."}, {".....", "ggwgg"}}
-)
+// A far gull is a few strokes: w its white, g its grey wings.
+var gullFar = [][]string{{"g...g", ".gwg."}, {".....", "ggwgg"}}
+
+// gullBeats are the near gull's wingbeats a frame at a time, from its
+// sprites (wings up, gliding, down, half up): it glides, and once round
+// beats its wings to hold its place.
+var gullBeats = [sumpFrames]int{1, 1, 1, 3, 0, 3, 2, 1}
 
 // gulls hang on the wind over her mast, the way they do over every
 // harbour: one near, drifting a little and beating its wings now and then
@@ -465,14 +478,11 @@ func gulls(c *pixel.Canvas, art *sumpArt, f int) {
 	inks := map[rune]uint8{
 		'w': c.Dye(shaded(0xF4F2EC, art.shade)),
 		'g': c.Dye(shaded(0x5E646C, art.shade)),
-		't': c.Dye(shaded(0x24262C, art.shade)),
-		's': c.Dye(shaded(0xE8E6E0, art.shade)),
 	}
 	a := 2 * math.Pi * float64(f) / sumpFrames
 	near := gullsAt.Add(image.Pt(int(math.Round(3*math.Cos(a))), int(math.Round(2*math.Sin(2*a)))))
-	// Glides, and a beat of the wings once round: up, down, up.
-	shape := [sumpFrames][]string{gullGlide, gullGlide, gullGlide, gullUp, gullDown, gullUp, gullGlide, gullGlide}[f]
-	gull(c, near, shape, inks)
+	img := sprite("gull_" + strconv.Itoa(gullBeats[f]))
+	stamp(c, img, near.Sub(img.Bounds().Size().Div(2)), art.shade, sumpSize.Y)
 	far := image.Pt(362+int(math.Round(2*math.Sin(a+1))), 40+int(math.Round(math.Cos(a))))
 	gull(c, far, gullFar[(f/2)%2], inks)
 }
@@ -590,26 +600,91 @@ func rings(c *pixel.Canvas, art *sumpArt, f, lift int) {
 	}
 }
 
-// boat is a ferryman's rowing boat with its top left at p, tarred brown
-// or the green one, in the sky's light.
-func boat(c *pixel.Canvas, p image.Point, which int, shade float64) {
-	rows := []string{
-		"a..................a",
-		"bccccccccccccccccccb",
-		".adddddaddddddaddda.",
-		"..acccccccccccccca..",
-		"...eeeeeeeeeeeeee...",
+// The sprites drawn into the scenes, finished art: ChatGPT paintings keyed
+// off magenta and reduced to the scenes' grid, each to its own few colours.
+// The ferrymen's two boats afloat and pulled up on the shingle, the gull's
+// four wingbeats, and the chapel bell that hangs in the taproom while it
+// rings. Replace one whole.
+//
+//go:embed sprites/*.png
+var spriteFS embed.FS
+
+var sprites sync.Map // name -> image.Image
+
+// sprite is the sprite name, decoded once.
+func sprite(name string) image.Image {
+	if img, ok := sprites.Load(name); ok {
+		return img.(image.Image)
 	}
-	inks := [2]map[rune]uint32{
-		{'a': 0x3E2616, 'b': 0xC9965C, 'c': 0x7A5232, 'd': 0x1A1513, 'e': 0x2A1A10},
-		{'a': 0x2E3A38, 'b': 0x9AB0A4, 'c': 0x4E6A62, 'd': 0x1A1513, 'e': 0x1E2624},
-	}[which]
-	for dy, row := range rows {
-		for dx, r := range row {
-			if rgb, ok := inks[r]; ok {
-				c.SetColorIndex(p.X+dx, p.Y+dy, c.Dye(shaded(rgb, shade)))
+	b, err := spriteFS.ReadFile("sprites/" + name + ".png")
+	if err != nil {
+		panic("pp: no sprite " + name)
+	}
+	img := decodeArt(b, name)
+	sprites.Store(name, img)
+	return img
+}
+
+// stamp draws img with its top left at p in the sky's light, leaving what's
+// clear and anything at or below the row under (the water it floats in).
+func stamp(c *pixel.Canvas, img image.Image, p image.Point, shade float64, under int) {
+	b := img.Bounds()
+	inks := map[color.Color]uint8{}
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			col := img.At(x, y)
+			if _, _, _, a := col.RGBA(); a < 0x8000 {
+				continue
 			}
+			q := p.Add(image.Pt(x-b.Min.X, y-b.Min.Y))
+			if !q.In(c.Rect) || q.Y >= under {
+				continue
+			}
+			i, ok := inks[col]
+			if !ok {
+				i = c.Dye(shaded(hexOf(col), shade))
+				inks[col] = i
+			}
+			c.SetColorIndex(q.X, q.Y, i)
 		}
+	}
+}
+
+// The boats' places: afloat, where the shore is under each, and pulled up,
+// where their keels rest on the shingle.
+var (
+	afloatAt  = [2]int{98, 160}
+	beachedAt = [2]image.Point{{104, 112}, {160, 115}}
+)
+
+// boats draws the ferrymen's boats: afloat in the shallows, riding the
+// swell at frame f, sat on the stones when the water's drawn back, or
+// pulled up the shingle for the bell.
+func boats(c *pixel.Canvas, s Sump, art *sumpArt, f int) {
+	names := [2]string{"boat_brown", "boat_green"}
+	if s.boatsUp() {
+		for i, at := range beachedAt {
+			img := sprite(names[i] + "_beached")
+			stamp(c, img, at.Sub(image.Pt(0, img.Bounds().Dy())), art.shade, sumpSize.Y)
+		}
+		return
+	}
+	edge, lift := shore(), s.lift()
+	for i, x := range afloatAt {
+		img := sprite(names[i])
+		w := img.Bounds().Dx()
+		water := edge[x+w/2] - max(lift, 0)
+		// Half a hull under, rising and falling a pixel with the swell,
+		// the two out of step; on the stones, the keel on them.
+		bob, under := 0, water+2
+		if lift >= 0 {
+			if (f/2+i)%2 == 1 {
+				bob = 1
+			}
+		} else {
+			water, under = edge[x+w/2]-lift, sumpSize.Y
+		}
+		stamp(c, img, image.Pt(x, water-img.Bounds().Dy()+5+bob), art.shade, under)
 	}
 }
 
