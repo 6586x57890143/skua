@@ -119,8 +119,8 @@ func TestStopPersistsBothSubscriptionsOff(t *testing.T) {
 		t.Fatal(got)
 	}
 	got := subCmd(t, m, "status", "", "", g)
-	for _, want := range []string{"**live** off", "**every** off", "**next sweep** none"} {
-		if !strings.Contains(got, want) {
+	for _, want := range []string{"live off", "every off", "next sweep none"} {
+		if !strings.Contains(oneSpace(got), want) {
 			t.Fatalf("missing %q: %s", want, got)
 		}
 	}

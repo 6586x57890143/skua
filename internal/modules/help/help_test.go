@@ -135,7 +135,7 @@ func checkFiles(t *testing.T, comps []discord.LayoutComponent, files []*discord.
 func contains(t *testing.T, what, all string, want ...string) {
 	t.Helper()
 	for _, s := range want {
-		if !strings.Contains(all, s) {
+		if !strings.Contains(oneSpace(all), s) {
 			t.Errorf("%s is missing %q", what, s)
 		}
 	}
@@ -299,8 +299,8 @@ func TestPickingTurnsAnEphemeralGuideInPlace(t *testing.T) {
 	if c.AccentColor != brand.ColorOK {
 		t.Errorf("page accent %#06x, want the module's colour", c.AccentColor)
 	}
-	contains(t, "page", all, "## nest", "twigs mostly", "**/nest build** twig, count", "**/nest leave**\\n", "**Steal egg** apps menu · admin", `"default":true`, `"help:index"`)
-	if strings.Contains(all, "help:off") {
+	contains(t, "page", all, "## nest", "twigs mostly", "/nest build twig, count", "/nest leave\\n", "Steal egg apps menu · admin", `"default":true`, `"help:index"`)
+	if strings.Contains(oneSpace(all), "help:off") {
 		t.Error("a member is shown the switch")
 	}
 	if _, all := page(t, click(t, r, "help:index", true, false)); !strings.Contains(all, "**gull**") {
@@ -319,10 +319,10 @@ func TestAPageWithoutCommandsHasNoEmptyGrid(t *testing.T) {
 	contains(t, "page", all, "-# no commands: it works on its own")
 }
 
-// Every subcommand is its own line.
-func TestCommandsAreLines(t *testing.T) {
+// Every subcommand is its own line of the grid.
+func TestCommandsAreAGrid(t *testing.T) {
 	got := commands(nest.cmds)
-	want := "**/nest build** twig, count\n**/nest leave**\n**Steal egg** apps menu · admin"
+	want := "```\n/nest build  twig, count\n/nest leave\nSteal egg    apps menu · admin\n```"
 	if got != want {
 		t.Errorf("commands\n%s\nwant\n%s", got, want)
 	}
@@ -510,11 +510,15 @@ func TestAdminsSeeAModulesStatus(t *testing.T) {
 	tern := reported{paged{fake{"tern", nil, core.Help{Color: brand.ColorOK, Line: "watches", About: "and reports"}}}}
 	r := newRouter(t, nil, tern, nest)
 	_, all := page(t, click(t, r, "help:pick", true, true, "tern"))
-	contains(t, "admin page", all, "### status", "**server** 3", "**links** 1", "-# all quiet")
-	if _, all := page(t, click(t, r, "help:pick", true, false, "tern")); strings.Contains(all, "### status") {
+	contains(t, "admin page", all, "### status", "server 3", "links 1", "-# all quiet")
+	if _, all := page(t, click(t, r, "help:pick", true, false, "tern")); strings.Contains(oneSpace(all), "### status") {
 		t.Error("a member sees the status")
 	}
 	if _, all := page(t, click(t, r, "help:pick", true, true, "nest")); strings.Contains(all, "### status") {
 		t.Error("a module with nothing to report shows a status")
 	}
 }
+
+// oneSpace collapses the padding of a code block grid (core.Readout) to one
+// space, so a fact reads "label value" whatever the column width.
+func oneSpace(s string) string { return regexp.MustCompile(` {2,}`).ReplaceAllString(s, " ") }

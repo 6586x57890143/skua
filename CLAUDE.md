@@ -7,7 +7,7 @@ Discord experiments. Read [`SPEC.md`](./SPEC.md) first. It is
 one page and lists the principles and the experiments. Anything a person sees (replies,
 embeds, command descriptions, the setup CLI, the art) follows [`UX.md`](./UX.md) and the shared
 [`DESIGN.md`](./DESIGN.md) it defers to: all lowercase, errors as `core.Tell`, facts as
-bold-label lines, code blocks only for what somebody copies, art on an exact pixel grid.
+a code block grid (`core.Readout`), art on an exact pixel grid.
 
 - `cmd/skua/main.go`: wiring only.
 - `internal/core`: `Module` interface and the command `Router`. A tier is mandatory, and

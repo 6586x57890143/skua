@@ -43,7 +43,7 @@ func TestScheduledSweep(t *testing.T) {
 	m := liveModule()
 	m.useDB(db)
 	g := freshGuild()
-	if got := subCmd(t, m, "status", "", "", g); !strings.Contains(got, "**last sweep** never") || !strings.Contains(got, "**every** off") {
+	if got := subCmd(t, m, "status", "", "", g); !strings.Contains(oneSpace(got), "last sweep never") || !strings.Contains(oneSpace(got), "every off") {
 		t.Fatalf("status before anything:\n%s", got)
 	}
 	if got := subCmd(t, m, "every", "every", "1d", g); !strings.HasPrefix(got, "**purge** · every\n✓ every 1d; the first sweep") {
@@ -82,8 +82,8 @@ func TestScheduledSweep(t *testing.T) {
 	f.mu.Unlock()
 
 	got := subCmd(t, m, "status", "", "", g)
-	for _, want := range []string{"**every** 1d", "**deleted** 129", "**next sweep** in 23h", "**unreachable** 1", "<#12>"} {
-		if !strings.Contains(got, want) {
+	for _, want := range []string{"every 1d", "deleted 129", "next sweep in 23h", "unreachable 1", "<#12>"} {
+		if !strings.Contains(oneSpace(got), want) {
 			t.Errorf("status lacks %q:\n%s", want, got)
 		}
 	}
@@ -101,7 +101,7 @@ func TestScheduledSweep(t *testing.T) {
 	if got := subCmd(t, m, "every", "every", "off", g); got != "**purge** · every\n✓ no more scheduled sweeps here" {
 		t.Fatalf("every off: %q", got)
 	}
-	if got := subCmd(t, m, "status", "", "", g); !strings.Contains(got, "**next sweep** none") {
+	if got := subCmd(t, m, "status", "", "", g); !strings.Contains(oneSpace(got), "next sweep none") {
 		t.Fatalf("status after off:\n%s", got)
 	}
 }

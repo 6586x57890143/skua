@@ -3,6 +3,7 @@ package purge
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -45,14 +46,14 @@ func TestJobsListsWhatIsRunning(t *testing.T) {
 
 	got := subCmd(t, m, "jobs", "", "", guildID)
 	for _, want := range []string{
-		"**running** 2", "**catching up** 2", "**scheduled** 0",
+		"running 2", "catching up 2", "scheduled 0",
 		"<@6> in 40 · scheduled · 0s · 12 of 48 deleted ▰▰▰▰▱▱▱▱",
 		"<@5> in 40 · now · 0s · reading what's new",
 		"reading 41 · listing channels",
 		"reading 42 · channels 1 of 4 ▰▰▱▱▱▱▱▱ · 900 scanned",
 		"no database here",
 	} {
-		if !strings.Contains(got, want) {
+		if !strings.Contains(oneSpace(got), want) {
 			t.Errorf("jobs lacks %q:\n%s", want, got)
 		}
 	}
@@ -94,8 +95,12 @@ func TestJobsListsWhatIsComingUp(t *testing.T) {
 		fmt.Sprintf("<@%d> in %d · every 1d, next in 2h 59m", me, g),
 		fmt.Sprintf("<@%d> in %d · live 1m", them, g),
 	} {
-		if !strings.Contains(got, want) {
+		if !strings.Contains(oneSpace(got), want) {
 			t.Errorf("jobs lacks %q:\n%s", want, got)
 		}
 	}
 }
+
+// oneSpace collapses the padding of a code block grid (core.Readout) to one
+// space, so a fact reads "label value" whatever the column width.
+func oneSpace(s string) string { return regexp.MustCompile(` {2,}`).ReplaceAllString(s, " ") }
