@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"strconv"
 	"sync"
 	"time"
 
@@ -303,6 +304,15 @@ func sumpScene(base *pixel.Canvas, s Sump) []*pixel.Canvas {
 				grid(c, w.Sub(image.Pt(1, 0)), shape...)
 			}
 		}},
+	}
+	// And two small things that make it a place: a gull hanging on the
+	// wind over her mast while there's light, and her portholes, lit from
+	// dusk, guttering now and then.
+	if s.Light != night {
+		movers = append(movers, mover{gullBox, func(c *pixel.Canvas, step int) { gull(c, art, step) }})
+	}
+	if s.Light == dusk || s.Light == night {
+		movers = append(movers, mover{portholes, func(c *pixel.Canvas, step int) { gutter(c, art, step) }})
 	}
 	if s.Pumping {
 		movers = append(movers, mover{image.Rect(256, 32, 290, 58), func(c *pixel.Canvas, step int) { pump(c, art, step) }})
@@ -614,4 +624,49 @@ func hash(x, y int) uint32 {
 	h := uint32(x)*374761393 + uint32(y)*668265263
 	h = (h ^ h>>13) * 1274126177
 	return h ^ h>>16
+}
+
+// Where the gull hangs over her mast, and the row of her lit portholes.
+var (
+	gullAt    = image.Pt(330, 22)
+	gullBox   = image.Rect(312, 10, 350, 36)
+	portholes = image.Rect(224, 72, 287, 81)
+)
+
+// gullBeats are the gull's wings at each step, from its sprites (wings up,
+// gliding, down, half up): a glide, a beat up and a beat down, drifting a
+// pixel or two as the wind takes it.
+var (
+	gullBeats = [ambientSteps]int{1, 0, 2}
+	gullDrift = [ambientSteps]image.Point{{0, 0}, {2, -1}, {1, 1}}
+)
+
+// gull draws the gull at a step, in the sky's light.
+func gull(c *pixel.Canvas, art *sumpArt, step int) {
+	img := sprite("gull_" + strconv.Itoa(gullBeats[step]))
+	at := gullAt.Add(gullDrift[step]).Sub(img.Bounds().Size().Div(2))
+	stamp(c, img, at, art.shade, sumpSize.Y)
+}
+
+// gutter is her portholes at a step: as painted, the first two guttering
+// low, or the last flaring. Lamplight only; an unlit porthole stays dark.
+func gutter(c *pixel.Canvas, art *sumpArt, step int) {
+	if step == 0 {
+		return
+	}
+	mid := (portholes.Min.X + portholes.Max.X) / 2
+	for y := portholes.Min.Y; y < portholes.Max.Y; y++ {
+		for x := portholes.Min.X; x < portholes.Max.X; x++ {
+			col := art.img.At(x, y)
+			if !lit(col) {
+				continue
+			}
+			switch {
+			case step == 1 && x < mid:
+				c.SetColorIndex(x, y, c.Dye(blend(hexOf(col), 0x4A200A, 0.4)))
+			case step == 2 && x >= mid:
+				c.SetColorIndex(x, y, c.Dye(blend(hexOf(col), 0xFFF0B8, 0.35)))
+			}
+		}
+	}
 }
