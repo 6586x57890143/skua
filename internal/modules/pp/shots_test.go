@@ -37,9 +37,9 @@ func TestShots(t *testing.T) {
 			}
 		}
 	}
-	f, _ := tableFrames(Table{Seats: seats[:2]})
+	f, _ := tableFrames(Table{Seats: seats[:2], Slate: "9f2c41ab77e0"})
 	write("table_open", f)
-	f, _ = tableFrames(Table{Seats: seats, Thrown: true})
+	f, _ = tableFrames(Table{Seats: seats, Thrown: true, Slate: "3e8d0b5512aa"})
 	write("table_thrown", f)
 	f, _ = tableFrames(Table{Seats: seats, Bell: true})
 	write("table_bell", f)

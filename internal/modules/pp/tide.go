@@ -254,7 +254,10 @@ func (m *Module) staleTables(ctx context.Context) {
 // seed once thrown), and a button for each stake while it's open. s.mu
 // held.
 func (m *Module) tableMessage(s *server, t *table) (discord.MessageCreate, error) {
-	tb := Table{Bell: t.bell, Thrown: t.settled, Closes: t.closes()}
+	tb := Table{Bell: t.bell, Thrown: t.settled, Closes: t.closes(), Slate: t.slate()}
+	if t.settled {
+		tb.Slate = fmt.Sprintf("%x", t.seed)
+	}
 	for _, p := range t.seats {
 		mem := s.members[p.user]
 		class := Classes[0]
@@ -308,6 +311,9 @@ type Table struct {
 	Bell, Thrown bool
 	Closes       time.Time
 	Seats        []TableSeat
+	// Slate is the slate's hash while it's turned to the wall, its seed
+	// once the bones are thrown, in hex.
+	Slate string
 }
 
 // TableSeat is one bench.

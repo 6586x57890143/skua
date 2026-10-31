@@ -272,39 +272,76 @@ func chalk(c *pixel.Canvas, name string) {
 	c.Text(c.Rect.Dx()/2-pixel.Regular.Width(name)/2, 17, name, pixel.Glove, 0)
 }
 
-// panel is the parchment under the table: each bench's bird, their stake
-// and, once thrown, what the bones paid.
+// panel is the purser's ledger under the table: a column ruled for each
+// bench, riveted to the frame like the hull's planks, with the bird's
+// name and their stake, or once thrown what the bones paid; the slate in
+// the corner, its hash while it's turned to the wall and its seed once
+// it's turned round; and the beam's new name in gold.
 func panel(c *pixel.Canvas, t Table) {
 	r := image.Rect(4, 152, screenW-4, screenH-4)
 	c.Window(r)
-	tab := "the purser's table"
+	tab := "the purser's ledger"
 	if t.Bell {
 		tab = "the drowning hour"
 	}
 	c.Tab(r, tab)
+	if t.Slate != "" {
+		word := "slate to the wall"
+		if t.Thrown {
+			word = "slate turned"
+		}
+		at := rightIn(c, pixel.Regular, r.Max.X-10, r.Min.Y+5, t.Slate[:min(len(t.Slate), 8)], pixel.Dim)
+		rightIn(c, pixel.Light, at-labelGap, r.Min.Y+5, word, pixel.Dim)
+	}
+	iron, hi := ink('F'), ink('H')
+	rivet := func(x, y int) {
+		c.Fill(image.Rect(x, y, x+2, y+2), iron)
+		c.SetColorIndex(x, y, hi)
+	}
+	for _, p := range []image.Point{{r.Min.X + 1, r.Min.Y + 1}, {r.Max.X - 3, r.Min.Y + 1}, {r.Min.X + 1, r.Max.Y - 3}, {r.Max.X - 3, r.Max.Y - 3}} {
+		rivet(p.X, p.Y)
+	}
+	top, foot := paneTop(r)-5, r.Max.Y-6
+	for i := 1; i < tableSeats; i++ {
+		x := benchX(i) - 32
+		c.Fill(image.Rect(x, top, x+1, foot), pixel.Bone)
+		rivet(x, r.Max.Y-3)
+	}
+	best := -1
+	if t.Thrown && len(t.Seats) > 0 {
+		best = t.best()
+	}
 	y := paneTop(r) - 2
 	for i := range tableSeats {
-		x := benchX(i)
+		// A column runs between the rules either side of its bench, inside
+		// the parchment at the ends.
+		left := max(benchX(i)-29, r.Min.X+8)
+		right := min(benchX(i)+29, r.Max.X-8)
+		x := (left + right) / 2
 		if i >= len(t.Seats) {
-			s := "empty"
-			c.Print(pixel.Light, x-pixel.Light.Width(s)/2, y+7, s, pixel.Dim)
+			s := "free"
+			c.Print(pixel.Light, x-pixel.Light.Width(s)/2, y+8, s, pixel.Dim)
 			continue
 		}
 		p := t.Seats[i]
 		name := []rune(pixel.Plain(p.Name))
-		for pixel.Bold.Width(string(name)) > 56 && len(name) > 1 {
+		for pixel.Bold.Width(string(name)) > right-left && len(name) > 1 {
 			name = name[:len(name)-1]
 		}
-		at := max(x-pixel.Bold.Width(string(name))/2, r.Min.X+8)
-		c.Print(pixel.Bold, at, y, string(name), pixel.Ink)
-		line, ink := grouped(p.Stake/unit)+" pp", pixel.Gold
+		ink := pixel.Ink
+		if i == best {
+			ink = pixel.Gold
+		}
+		c.Print(pixel.Bold, x-pixel.Bold.Width(string(name))/2, y, string(name), ink)
+		c.Icon(stakeIcon(p.Stake), image.Pt(left, y+16-iconLift))
+		line, lineInk := grouped(p.Stake/unit), pixel.Gold
 		if t.Thrown {
-			line, ink = "lost", pixel.Red
+			line, lineInk = "lost", pixel.Red
 			if p.Won > 0 {
-				line, ink = "+"+grouped(p.Won/unit), pixel.Green
+				line, lineInk = "+"+grouped(p.Won/unit), pixel.Green
 			}
 		}
-		c.Print(pixel.Regular, x-pixel.Regular.Width(line)/2, y+14, line, ink)
+		rightIn(c, pixel.Regular, right, y+16, line, lineInk)
 	}
 }
 
