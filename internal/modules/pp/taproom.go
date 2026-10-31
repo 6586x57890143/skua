@@ -148,8 +148,10 @@ func sand(c *pixel.Canvas, f int) {
 	}
 }
 
-// bones are the two bones as they tumble, a frame each: where they are
-// over a bird's head and which way up.
+// tumble is the bones in the air, a frame each: where they are over a
+// bird's head, turned over every other frame. The bones are two d10s of
+// whale ivory, one marked in tens and one in ones, which is how two of
+// them make 1 to 100.
 var tumble = []struct{ dx, dy int }{{-6, 8}, {-2, -6}, {3, -10}, {6, -2}}
 
 // turned is g turned over.
@@ -229,7 +231,8 @@ func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 				if k%2 == 1 {
 					g = turned(g)
 				}
-				c.Grid(g, image.Pt(benchX(i)-8+at.dx, benchTop-24+at.dy))
+				// Twice size, so the d10s read as d10s in the air.
+				c.BigGrid(g, image.Pt(benchX(i)-16+at.dx, benchTop-40+at.dy), 2)
 			}
 			frames, beats = append(frames, c), append(beats, tumbleBeat)
 		}
