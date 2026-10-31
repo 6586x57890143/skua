@@ -21,6 +21,10 @@ var Changelog = []Entry{{
 		"the purser takes no more than a hundredth of the hold on one throw, and only so much from one bird a day, more for birds higher on the stair. lamps and lanterns wait for the tide to come in",
 		"once a day, and some days twice, the drowned bell rings for an hour and a hundred pays fifteen times. the house channel says when the water draws back",
 		"what the house holds past its waterline is pumped over the side at the turn of the day, gone for good",
+		"the slack tide opens on the sump outside her, by the hour's light: the tide on the shingle shows how full the hold is, and the water draws back before the bell",
+		"the highest throw of the day is chalked on the beam over the bar, and wiped at the new tide",
+		"luck the house has seen only a few times nails a scrap of your colour to the deckhead for good. seven are known. they pay nothing",
+		"call a bird out at the rail: you both stake the same and each throws against the house, so nothing passes between you. the higher throw takes the honour",
 	},
 }, {
 	Version: "0.12.0",

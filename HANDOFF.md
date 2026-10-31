@@ -198,7 +198,40 @@ What's in:
 
 Not done yet:
 
-- **G2:** markers, duels, the beam screen and the deckhead feats.
 - **The economy report** needs the house's reasons (`note`, `stake`, `win`,
   `refund`, `pump`) from the first week of real data.
 - **The bell's message is in memory:** a restart mid-bell posts a fresh one.
+
+## /pp: the slack tide, G2 (2026-10-31, draft #190 on #189's branch, merges on 11-02 after it)
+
+Migration 038 (`pp_member.feats`). No balance change; its lines join 0.15.0.
+
+What's in:
+
+- **The sump** (`sump.go`): the slack tide's screen opens on the sump in front of the
+  *gannet*, painted at three tides (usual, low, high) in four lights (dusk, night,
+  dawn, day, by UTC hour). Low water an hour before the bell, high water while it rings
+  or the hold is full. Over the paintings: swell and foam along each tide's own
+  waterline, glints, flickering lamps found in each painting, the wall's candles
+  (leaning before the bell), gulls, stars in open sky (masked by the day painting),
+  the painted fog band at dawn and night, the pump working in the hour after the turn,
+  the ferrymen's boats afloat or pulled up, and rings from under her in the bell.
+- **The beam and the deckhead** (`deckhead.go`): the day's highest throw is chalked on
+  the beam and wiped at the turn. Seven luck feats from LORE.md nail a scrap per bird,
+  standing only, counted `feat_<key>`. In the taproom the scraps hang dyed in the first
+  nailer's livery (wool for none), and unknown ones are chalk outlines. A run is in
+  memory, so a restart forgets one.
+- **Calling out at the rail** (`rail.go`): a user picker on the tide card opens a
+  two-seat table pinging only the called bird. Same stake for both, each against the
+  house, so no transfer. Counted `house_rail`. Its screen is the view from her rail in
+  four lights, with the lantern, windows, the runnel's three dyes and the fog moving.
+- **All art is finished art** fitted by box average and k-means (`sump*.png`,
+  `rail*.png`, `sprites/`). Replace whole. Every painted surface moves.
+
+Not done yet:
+
+- **The marker**, the newcomer's free throw: it reads M1's warm side, so it lands after
+  #187 is on `main`. Its sprite is in `sprites/marker*.png`.
+- **The purser's portrait** (a magpie, 32x48): the owner is painting it. Then he stands
+  at the rail and the table's end.
+- **The economy report's house figures**, after a week of real data.
