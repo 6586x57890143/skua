@@ -51,7 +51,7 @@ func TestCallOut(t *testing.T) {
 	if tb == nil || tb.rail != 6 || tb.caller != 5 || len(r.posts) != 1 {
 		t.Fatalf("no call-out posted: %+v %v", tb, r.posts)
 	}
-	if got := r.posts[0]; !strings.Contains(got, "\\u003c@6\\u003e") || !strings.Contains(got, "calling out at the rail") {
+	if got := r.posts[0]; !strings.Contains(got, "\\u003c@6\\u003e") || !strings.Contains(got, "a duel at the rail") {
 		t.Errorf("the call-out doesn't call them: %s", got)
 	}
 	if err := pick("6"); !errors.Is(err, errTableOpen) {

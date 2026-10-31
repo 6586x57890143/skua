@@ -24,7 +24,7 @@ var Changelog = []Entry{{
 		"the slack tide opens on the sump outside her, by the hour's light: the tide on the shingle shows how full the hold is, and the water draws back before the bell",
 		"the highest throw of the day is chalked on the beam over the bar, and wiped at the new tide",
 		"luck the house has seen only a few times nails a scrap of your colour to the deckhead for good. seven are known. they pay nothing",
-		"call a bird out at the rail: you both stake the same and each throws against the house, so nothing passes between you. the higher throw takes the honour",
+		"duel a bird at the rail: you both stake the same, each throws against the house and the higher throw takes the honour. no pp passes between you",
 	},
 }, {
 	Version: "0.12.0",

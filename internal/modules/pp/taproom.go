@@ -22,7 +22,7 @@ import (
 // The frames' beats, in milliseconds.
 const (
 	flickerBeat = 180
-	tumbleBeat  = 110
+	tumbleBeat  = 170
 )
 
 // ink is an icon ink's index, for painting scenery in the icons' colours.

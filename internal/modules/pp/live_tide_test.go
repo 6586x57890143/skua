@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
@@ -132,6 +133,49 @@ func TestLiveTide(t *testing.T) {
 		m.settleTable(ctx, g, tb)
 		check(posted.ID, fmt.Sprintf("%x", tb.seed)[:8])
 	}
+
+	// The slack tide's own card, the sump moving on it, posted as it would
+	// show (in the channel, since a bot can't post an ephemeral one).
+	s.mu.Lock()
+	s.table = nil
+	s.mu.Unlock()
+	card, err := m.tideMessage(g, old(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	card.Flags &^= discord.MessageFlagEphemeral
+	posted, err := r.CreateMessage(ch, card, rest.WithCtx(ctx))
+	if err != nil {
+		t.Fatalf("posting the slack tide: %v", err)
+	}
+	check(posted.ID, "pp:rail", "pp:table", "deckhead")
+
+	// A call-out at the rail, both birds standing, thrown.
+	s.mu.Lock()
+	tb, err := m.st.callOut(s, ch, m.now(), false, old(1), old(2), names[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := m.tableMessage(s, tb)
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	posted, err = r.CreateMessage(ch, msg, rest.WithCtx(ctx))
+	if err != nil {
+		t.Fatalf("posting a call-out: %v", err)
+	}
+	tb.msg = posted.ID
+	check(posted.ID, "a duel at the rail", "pp:sit:")
+	s.mu.Lock()
+	for i := range 2 {
+		if err := m.st.sitDown(s, tb, g, old(i+1), names[i], stakes[1].pp, m.now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.mu.Unlock()
+	m.settleTable(ctx, g, tb)
+	check(posted.ID, fmt.Sprintf("%x", tb.seed)[:8])
 
 	// The bell, every stage, as the minute's work moves it.
 	at := time.Now().Add(time.Hour)

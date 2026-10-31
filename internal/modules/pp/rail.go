@@ -195,9 +195,9 @@ func runnelFlow(c *pixel.Canvas, art *sumpArt, f int) {
 func railPanel(c *pixel.Canvas, r Rail) {
 	box := image.Rect(4, sumpSize.Y+4, screenW-4, screenH-4)
 	c.Window(box)
-	tab := "calling out at the rail"
+	tab := "duel at the rail"
 	if r.Bell {
-		tab = "the rail, in the drowning hour"
+		tab = "duel in the drowning hour"
 	}
 	c.Tab(box, tab)
 	if r.Slate != "" {
@@ -248,6 +248,8 @@ func railPanel(c *pixel.Canvas, r Rail) {
 		rightIn(c, pixel.Regular, right, y+18, line, lineInk)
 		if i == best {
 			rightIn(c, pixel.Light, right, y+36, "takes the honour", pixel.Gold)
+		} else if r.Thrown && p.Won == 0 {
+			rightIn(c, pixel.Light, right, y+36, "the stake goes to the house", pixel.Dim)
 		}
 	}
 }

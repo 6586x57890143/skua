@@ -122,7 +122,7 @@ func tideWord(h House) string {
 // railPick is the slack tide's picker for calling a bird out at the rail,
 // shut while a table is open or the house is.
 func railPick(shut bool) discord.UserSelectMenuComponent {
-	pick := discord.UserSelectMenuComponent{CustomID: "pp:rail", Placeholder: "call a bird out at the rail", MaxValues: 1}
+	pick := discord.UserSelectMenuComponent{CustomID: "pp:rail", Placeholder: "duel a bird at the rail", MaxValues: 1}
 	if shut {
 		pick = pick.AsDisabled()
 	}
@@ -360,7 +360,7 @@ func (m *Module) tableMessage(s *server, t *table) (discord.MessageCreate, error
 		}
 	} else {
 		if t.rail != 0 {
-			lines = append(lines, fmt.Sprintf("<@%s>, you're called out at the rail. both stake the same and each throws against the house, so nothing passes between you", t.rail))
+			lines = append(lines, fmt.Sprintf("<@%s>, you're called out. match the stake: each of you throws against the house, high throw wins the honour", t.rail))
 		} else {
 			lines = append(lines, "pick a stake to sit down. every bird throws against the house, never each other")
 		}
@@ -384,7 +384,7 @@ func (m *Module) tableMessage(s *server, t *table) (discord.MessageCreate, error
 	title := "a table at the slack tide"
 	switch {
 	case t.rail != 0:
-		title = "calling out at the rail"
+		title = "a duel at the rail"
 	case t.bell:
 		title = "a table in the drowning hour"
 	}
