@@ -312,6 +312,89 @@ roll, and the name is the bird's to wear for as long as the lease is paid.
 The roll has room for only so many names at once, and the heralds charge
 more as it fills.
 
+### The sinking house
+
+On the night of the drowning a north sea company whaler, the *gannet*, was
+in the sump's harbour with a full hold of oil. The sea came in over the
+harbour wall and carried her up the street and set her down across the
+fish market's lower steps, where the water left her when it went back out.
+She has not moved since. Her keel sits on the low town's roofs and her rail
+is level with the sump's lowest street, and at high tide the sea comes up
+inside her to the ribs.
+
+The company claimed her as lost with all hands, which she was not, and the
+counting house refused to pay out on a ship any bird could walk aboard. The
+tally board has heard the case every season since, and while it is heard
+the hull belongs to whoever is standing in it. That has been the wet guild
+for longer than most of the sump has been alive. They took the oil out and
+put the gin in, and the sump has called her **the sinking house** ever
+since, because every winter she sits a plank lower.
+
+The house is run by **the purser**, a magpie the sump calls the dry one,
+because he is the only bird in the wet guild who has never been down. He
+keeps the house's money where the company kept its oil, in **the hold**,
+and he pays every win out of it and drops every lost stake into it.
+
+**The bones.** A bird who wants to try their lot sits at one of the purser's
+tables and throws two bones of whale ivory, one marked in tens and one in
+ones, for a number between one and a hundred. Every bird at a table throws
+against the house, never against each other. Half the numbers lose the
+stake to the hold. The upper half pays the stake back and half again, the
+nineties pay two and a half times and a hundred pays ten. A table seats six
+and the purser turns a sand glass when the first bird sits down. When the
+glass runs out or the benches are full, everyone throws at once. The house
+takes four stakes, chalked over the bar.
+
+Before anyone sits, the purser cuts the night's tally into a slate and
+turns it to the wall, and when the throws are done he turns it round. Any
+bird can read off the slate what their bones were always going to say, and
+the sump trusts the house for it more than it trusts the counting house.
+The ravens have tried to buy a slate twice.
+
+**The beam.** Whoever throws highest at a table gets their name chalked on
+the beam over the bar. It pays nothing. The beam is wiped at every new
+tide, and birds from the bellward have been seen coming down the stair to
+read it.
+
+**The waterline.** When the counting house let the wet guild keep a house,
+it set one condition, because a guild that holds the sump's money for long
+enough becomes a bank. The purser paints a **waterline** on the ribs of the
+hold, and the house may never keep more than the line. The hold's first
+water came from the city's treasury, and the counting house still holds the
+note. Each time the pot turns over before dawn, the purser works the pumps
+under a raven's eye, and everything above the line goes over the side into
+the sea. The sea does not give pp back. The magpies have dived for it under
+the hull every summer and never brought up a coin.
+
+When the house has been winning, the hold is full to the line and the
+purser tells the room the tide's in. When the house has been losing, the
+ship rides high on her ribs, the tide's out and the purser won't take a big
+stake until it comes back in. He never takes more on one throw than a
+hundredth of what's in the hold, and he won't take more than so much from
+one bird in a day, whatever the hold says. The house has seen what a bird
+does at dawn.
+
+**The drowning hour.** The chapel bell rings under the floor at the hour
+of the drowning, and the hour comes with a tide the almanacs can't fix. It
+moves every day. For that hour a hundred on the bones rings the bell too,
+and the purser pays twenty five times the stake and has the bell rung
+again from the rail so the sump knows. When the bell starts, every bird in
+the sump who has a stake comes running down the street. The fishmongers on
+the lower steps have complained to the tally board about it for years.
+
+**The marker.** A newcomer still sleeping against the pot's warm side, with
+nobody standing surety for them, may sit at a table once a day at the
+lowest stake on the house's **marker**. Nothing is owed if the marker
+loses. If it wins, the purser pays out of the hold like any other stake.
+The wet guild says it is charity. The sump says it is how the guild meets
+everyone who comes up the cliff road before anyone else does.
+
+**Calling out at the rail.** Two birds who want to settle something stand
+at the rail and stake the same. Each throws against the house as usual, and
+the house pays each of them on their own throw. The higher throw takes the
+honour, and the purser keeps the tally of who has called out whom and how
+it went, which anyone can ask to see.
+
 ## Beyond the hedge
 
 - **The mire.** A drowned country of reed, peat and black water to the south
@@ -379,7 +462,8 @@ more as it fills.
    blow the first pale glass from the ash.
 5. **The drowning.** The low town goes under in one night. The magpies spend
    three summers bringing up the chapel bell in pieces, and it is cast into
-   perches.
+   perches. The sea leaves the *gannet* across the fish market's steps, and
+   the wet guild opens the sinking house in her hull.
 6. **Now.** The city is at its largest, richest and most crowded, and the
    distance between the gilt and the sump has never been longer.
 
@@ -407,6 +491,69 @@ more as it fills.
 | a shared colour role | a sump trade's or a faction's livery |
 | your own role (name, style, colours, icon) | a livery of your own: plain dye, shot silk or nacre, with a device |
 | the mods approving a role | the college of heralds granting a petition |
+| gambling | the sinking house, a tavern in a grounded whaler |
+| a throw | two ivory bones against the house, one to a hundred |
+| a table | six benches and a sand glass |
+| commit-reveal randomness | the purser's slate, turned to the wall then round |
+| the highest throw at a table | a name chalked on the beam |
+| the house's reserve | the hold, filled to the waterline |
+| burning what's above the reserve | the pumps at dawn, over the side into the sea |
+| stakes capped while the house is low | the tide's out |
+| the daily jackpot hour | the drowning hour, when a hundred rings the bell |
+| a newcomer's free throw | the marker, staked by the house |
+| a duel | calling out at the rail |
+
+### The five winds
+
+Every faction in the rookery says it serves the city, and every one means
+something different by it. The coffee rooms sort them by **wind**: an
+outlook a bird leans into, the way a gull leans into weather. Nobody joins
+a wind or signs for one, and most birds feel more than one. Each wind sits
+between two neighbours it gets on with and faces two across the city it
+can't stand, and the five go round in a ring: writ, vaunt, lot, stray, fold
+and back to writ.
+
+- **Writ.** "What's written binds." Order, record and obligation. The
+  counting house, the tally board and the college of heralds. A debt is
+  owed because it is in the book, and a bird is who the book says. Writ
+  gets on with vaunt, which needs its rank entered, and with fold, which
+  needs its promises kept. It can't stand lot, which won't stay entered, or
+  stray, which won't be entered at all. In the game it owns the levy,
+  lapse, surety as a debt, the ledger and the archive.
+- **Vaunt.** "Be seen to rise." Ambition, rank and display. The order of the
+  stair, the north sea company and the kiln keepers. A perch is worth what
+  it is seen to be worth. Vaunt gets on with writ, which records the
+  climb, and with lot, which can make a bird in a night. It can't stand
+  stray, which has no use for a perch, or fold, which shares what vaunt
+  would show. In the game it owns rungs, burning, liveries and laurels.
+- **Lot.** "Everything goes to lot." Chance, fate and salvage: a lot cast,
+  a bird's lot in life and a lot at auction. The wet guild, the sump and
+  the drowning. Whatever the sea took can be brought up and sold again.
+  Lot gets on with vaunt, which pays for what it brings up, and with stray,
+  which takes the same chances. It can't stand writ, which wants the odds
+  in a book, or fold, which wants nobody left to chance. In the game it
+  owns sealed things, the sinking house and dives.
+- **Stray.** "Owe nobody." Self-reliance, roaming and finding. The wardens
+  of the wood and the hedge company. A bird is what they can carry and what
+  they can find. Stray gets on with lot, which knows the wild is a gamble,
+  and with fold, which takes a stray in without asking. It can't stand
+  writ, which wants a name in the gate book, or vaunt, which wants a perch
+  to defend. In the game it owns finding things, beyond the hedge.
+- **Fold.** "Nobody eats alone." Belonging, company and care: the fold a
+  bird comes back to. The hearthkeepers and the choir. A day counts when it
+  is spent with others. Fold gets on with stray, which it feeds, and with
+  writ, which keeps its promises on paper. It can't stand vaunt, which would
+  climb over everyone, or lot, which would bet the fire. In the game it
+  owns company, the joinder, the hearth, the warm side and the morning's
+  news.
+
+**Surety** sits where writ meets fold: a debt in the gate book and a
+kinship at the north gate at once, which is why the wardens pay for it and
+the herons approve of it.
+
+The sinking house leans lot and vaunt. It runs on chance, and the beam and
+the bell are there to be seen. Writ watches it from the pumps, and fold
+would rather the sump's stakes went into the pot.
 
 ## Still to come
 
@@ -415,8 +562,6 @@ These are places, so stories can be set in them when they arrive:
 - **Story exploration** into the mire, the last wood, the grey north and the
   low town.
 - **Grinding** in the tally mines.
-- **The tavern.** Gambling in the sump, at **the sinking house**, a tavern
-  built in the hull of a ship that ran aground in the drowning.
 - **Books.** Lost books turn up in the low town's wreckage, the counting
   house's sales of debtors' goods, the mines and the wild beyond the hedge.
   Reading one adds its pages to the member's lore library, beside the class

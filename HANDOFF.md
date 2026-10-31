@@ -153,3 +153,12 @@ Not done yet:
   `hold` and `release` ledger reasons yet.
 - **Still screens**: lore pages, item cards, the treasury and the livery draft have no
   hand and don't move.
+
+## /pp: season 1 launch (2026-11-02)
+
+- **M2, the sinking house lore (docs only).** LORE.md gains the sinking house (the
+  *gannet*, the purser, the bones, the slate, the beam, the hold and its waterline, the
+  pumps, the drowning hour, the marker, calling out at the rail) and the five winds in
+  "How the game maps onto the world". The owner reads it before M3-G1 builds it. The lore
+  pays 1.5x, 2.5x and 10x over 1-50 losing, a 7.5% edge; the plan's 1.8x/3x/10x was a
+  9% edge to the player.
