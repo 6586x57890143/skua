@@ -94,8 +94,8 @@ func TestPurgeNowAsksThenSweeps(t *testing.T) {
 		t.Fatalf("confirm answered %+v, want one deferred ephemeral reply", sent)
 	}
 	got := final(t, f)
-	for _, want := range []string{"**deleted** ", "✓ done in", "<#12>"} {
-		if !strings.Contains(got, want) {
+	for _, want := range []string{"deleted ", "✓ done in", "<#12>"} {
+		if !strings.Contains(oneSpace(got), want) {
 			t.Errorf("readout lacks %q:\n%s", want, got)
 		}
 	}
@@ -178,7 +178,7 @@ func TestOutcomeAndRender(t *testing.T) {
 	}
 	j.sweep.unreach(100)
 	got := render(j, "x", time.Now())
-	if !strings.Contains(got, "**unreachable** 12") || !strings.Contains(got, "<#109> and 2 more") {
+	if !strings.Contains(oneSpace(got), "unreachable 12") || !strings.Contains(got, "<#109> and 2 more") {
 		t.Errorf("render:\n%s", got)
 	}
 	for d, want := range map[time.Duration]string{
@@ -214,8 +214,8 @@ func TestReadoutFillsIn(t *testing.T) {
 	j := m.newJob(newFake(), guildID, []snowflake.ID{me}, "test purge for")
 	now := time.Now()
 	got := render(j, "x", now)
-	for _, want := range []string{"**deleted** not yet", "**rate** not yet", "**scanned** not yet", "**channels** listing"} {
-		if !strings.Contains(got, want) {
+	for _, want := range []string{"deleted not yet", "rate not yet", "scanned not yet", "channels listing"} {
+		if !strings.Contains(oneSpace(got), want) {
 			t.Errorf("before anything lacks %q:\n%s", want, got)
 		}
 	}
@@ -233,11 +233,11 @@ func TestReadoutFillsIn(t *testing.T) {
 	j.sweep.handled.Store(1234567 + 100000)
 	got = render(j, "x", now)
 	for _, want := range []string{
-		"**deleted** 1234567 of 2345678 ▰▰▰▰▱▱▱▱",
-		"**rate** 617283 a minute",
-		"**channels** 53 of 53 ▰▰▰▰▰▰▰▰",
+		"deleted 1234567 of 2345678 ▰▰▰▰▱▱▱▱",
+		"rate 617283 a minute",
+		"channels 53 of 53 ▰▰▰▰▰▰▰▰",
 	} {
-		if !strings.Contains(got, want) {
+		if !strings.Contains(oneSpace(got), want) {
 			t.Errorf("deleting lacks %q:\n%s", want, got)
 		}
 	}
@@ -250,7 +250,7 @@ func TestReadoutFillsIn(t *testing.T) {
 	// Deletes that finished inside rateAfter don't claim a rate.
 	j.deleteFrom.Store(now.Add(-time.Second).UnixNano())
 	j.deleteTo.Store(now.UnixNano())
-	if got := render(j, "x", now); !strings.Contains(got, "**rate** too quick to measure") {
+	if got := render(j, "x", now); !strings.Contains(oneSpace(got), "rate too quick to measure") {
 		t.Errorf("quick deletes:\n%s", got)
 	}
 }
