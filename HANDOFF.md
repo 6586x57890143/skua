@@ -156,7 +156,7 @@ Not done yet:
 
 ## /pp: season 1 launch (2026-11-02)
 
-- **M2, the sinking house lore (docs only).** LORE.md gains the sinking house (the
+- **M2, the slack tide lore (docs only).** LORE.md gains the sump as a walkable quarter and the slack tide, its gambling house (the
   *gannet*, the purser, the bones, the slate, the beam, the hold and its waterline, the
   pumps, the drowning hour, the marker, calling out at the rail) and the five winds in
   "How the game maps onto the world". The owner reads it before M3-G1 builds it. The lore
