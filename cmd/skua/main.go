@@ -249,7 +249,13 @@ func run(log *slog.Logger) error {
 		log.Error("fix is off: its metadata endpoints are invalid", "err", err)
 	} else {
 		fixAPI = api
-		all = append(all, fix.New(ctx, g, api, log))
+		fixer := fix.New(ctx, g, api, log)
+		// Kept-preview counts outlive restarts with a database; a read error
+		// only costs the old counts.
+		if err := fixer.Keep(ctx, purgeDB); err != nil {
+			log.Error("fix: kept previews not loaded", "err", err)
+		}
+		all = append(all, fixer)
 	}
 	// The Armada bridge runs only where it is configured. Its mappings share
 	// the purge pool: nil without a database, and then they live in memory.

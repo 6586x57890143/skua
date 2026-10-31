@@ -42,12 +42,15 @@ type Module struct {
 	// refusals is under statsMu: channels that answered 403, until when.
 	refusals map[refusal]time.Time
 	tracked  map[source]*tracking
+	// kept is under statsMu: previews left beside a card, by day and reason.
+	kept map[snowflake.ID]map[keptDay]uint64
+	db   DB
 	rest     rest.Rest
 	wake     *time.Timer
 }
 
 func New(ctx context.Context, g *guard.Guard, api Resolver, log *slog.Logger) *Module {
-	return &Module{ctx: ctx, api: api, guard: g, log: log, slots: make(chan struct{}, 8), stats: map[snowflake.ID]counts{}, refusals: map[refusal]time.Time{}, tracked: map[source]*tracking{}}
+	return &Module{ctx: ctx, api: api, guard: g, log: log, slots: make(chan struct{}, 8), stats: map[snowflake.ID]counts{}, refusals: map[refusal]time.Time{}, tracked: map[source]*tracking{}, kept: map[snowflake.ID]map[keptDay]uint64{}}
 }
 func (*Module) Name() string { return "fix" }
 func (*Module) Want() intents.Want {
@@ -72,7 +75,8 @@ func (m *Module) Report(g snowflake.ID) core.Report {
 	m.statsMu.Lock()
 	c := m.stats[g]
 	m.statsMu.Unlock()
-	return core.Report{Rows: [][2]string{{"cards", strconv.FormatUint(c.Cards, 10)}, {"link fallbacks", strconv.FormatUint(c.Fallbacks, 10)}, {"delivery failures", strconv.FormatUint(c.Failed, 10)}, {"busy", strconv.FormatUint(c.Busy, 10)}}, Notes: []string{"-# fxembed and fixembed provide metadata; skua builds the cards"}}
+	rows := [][2]string{{"cards", strconv.FormatUint(c.Cards, 10)}, {"link fallbacks", strconv.FormatUint(c.Fallbacks, 10)}, {"delivery failures", strconv.FormatUint(c.Failed, 10)}, {"busy", strconv.FormatUint(c.Busy, 10)}}
+	return core.Report{Rows: append(rows, m.keptRows(g)...), Notes: []string{"-# fxembed and fixembed provide metadata; skua builds the cards"}}
 }
 func (m *Module) Commands() []core.Command {
 	guild := []discord.InteractionContextType{discord.InteractionContextTypeGuild}
@@ -192,7 +196,7 @@ func (m *Module) OnEvent(ev bot.Event) {
 		if e.Message.Author.Bot || e.Message.WebhookID != nil || (e.Message.Type != discord.MessageTypeDefault && e.Message.Type != discord.MessageTypeReply) {
 			return
 		}
-		m.queue(e.Client().Rest, source{e.GuildID, e.ChannelID, e.MessageID}, e.Message.Content, false, e.Message.Flags)
+		m.queueBy(e.Client().Rest, source{e.GuildID, e.ChannelID, e.MessageID}, e.Message.Author.ID, e.Message.Content, false, e.Message.Flags)
 	case *events.GuildMessageUpdate:
 		// Partial updates that carry only Discord's generated embeds aren't edits.
 		if e.Message.EditedTimestamp == nil || e.Message.Author.ID == 0 {
