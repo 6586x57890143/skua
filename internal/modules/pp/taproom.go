@@ -219,6 +219,7 @@ func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 
 	draw := func(c *pixel.Canvas, f int) {
 		candles(c, f, t.Bell)
+		hangScraps(c, t.Scraps, f)
 		if t.Bell {
 			hangBell(c, f)
 		}

@@ -105,8 +105,13 @@ type table struct {
 	opened       time.Time
 	first        time.Time // when the first bird sat, which turns the glass
 	bell         bool      // opened in the drowning hour, so a hundred pays fifteen
-	seats        []seated
-	settled      bool
+	bellAt       time.Time // the start of that hour
+	// rail is the bird called out at the rail, 0 for an open table: only
+	// the caller and them sit, at the caller's stake.
+	rail    snowflake.ID
+	earned  []earned // the scraps its bones nailed up
+	seats   []seated
+	settled bool
 }
 
 // slate is the hash of t's seed, posted before anyone sits.
@@ -252,6 +257,8 @@ func (st *state) throw(s *server, t *table, now time.Time) bool {
 			s.count(today, statAllHands, 0, 0)
 		}
 	}
+	s.chalk(t, today)
+	t.earned = st.deckhead(s, t, today)
 	s.dirty = true
 	return true
 }

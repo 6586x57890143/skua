@@ -80,6 +80,8 @@ func (m *Module) tideMessage(guild, user snowflake.ID) (discord.MessageCreate, e
 		h.Hold, h.MaxStake = Rules.HouseNote*unit, Rules.HouseNote*unit*Rules.HouseStake/10000
 	}
 	ch := s.houseCh
+	h.Beam, h.BeamThrow = s.onBeam(DayOf(now))
+	scraps := m.st.scraps(s, DayOf(now))
 	s.mu.Unlock()
 	h.Sump = m.sumpAt(h.Hold, h.Line, now)
 	pic, err := HouseScreen(h)
@@ -94,6 +96,7 @@ func (m *Module) tideMessage(guild, user snowflake.ID) (discord.MessageCreate, e
 	case h.Bell:
 		lines = append(lines, "-# the bell's ringing under the gannet: a hundred pays fifteen times")
 	}
+	lines = append(lines, deckheadLine(h.Beam, h.BeamThrow, scraps))
 	btn := withIcon(discord.NewPrimaryButton("open a table", "pp:table"), "bell")
 	if h.Shut {
 		btn = btn.AsDisabled()
@@ -119,12 +122,13 @@ func tideWord(h House) string {
 // openTable opens a table in the house channel and says where.
 func (m *Module) openTable(ctx context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate) error {
 	now := m.now()
-	_, bell := m.st.ringing(now)
+	at, bell := m.st.ringing(now)
 	s := m.st.server(guild)
 	s.mu.Lock()
 	t, err := m.st.open(s, s.houseCh, now, bell)
 	var msg discord.MessageCreate
 	if err == nil {
+		t.bellAt = at
 		msg, err = m.tableMessage(s, t)
 	}
 	s.mu.Unlock()
@@ -282,7 +286,7 @@ func (m *Module) clearTable(ctx context.Context, guild snowflake.ID, t *table) {
 // seed once thrown), and a button for each stake while it's open. s.mu
 // held.
 func (m *Module) tableMessage(s *server, t *table) (discord.MessageCreate, error) {
-	tb := Table{Bell: t.bell, Thrown: t.settled, Closes: t.closes(), Slate: t.slate()}
+	tb := Table{Bell: t.bell, Thrown: t.settled, Closes: t.closes(), Slate: t.slate(), Scraps: m.st.scraps(s, DayOf(m.now()))}
 	if t.settled {
 		tb.Slate = fmt.Sprintf("%x", t.seed)
 	}
@@ -304,6 +308,9 @@ func (m *Module) tableMessage(s *server, t *table) (discord.MessageCreate, error
 		best := tb.best()
 		lines = append(lines, fmt.Sprintf("the bones are thrown. **%s** throws highest and goes on the beam", tb.Seats[best].Name),
 			"-# the slate, turned round: `"+fmt.Sprintf("%x", t.seed)+"`. sha256(slate, table, bird) says every throw")
+		for _, e := range t.earned {
+			lines = append(lines, nailedLine(e))
+		}
 	} else {
 		lines = append(lines, "pick a stake to sit down. every bird throws against the house, never each other")
 		if !t.first.IsZero() {
@@ -342,6 +349,8 @@ type Table struct {
 	// Slate is the slate's hash while it's turned to the wall, its seed
 	// once the bones are thrown, in hex.
 	Slate string
+	// Scraps are the deckhead overhead.
+	Scraps []Scrap
 }
 
 // TableSeat is one bench.

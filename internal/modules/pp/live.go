@@ -71,6 +71,11 @@ type member struct {
 	// seat is the stake they have sat at a table not yet thrown, 0 for
 	// none, and staked what they've staked today.
 	seat, staked int64
+	// feats are the deckhead's scraps they've nailed up, a bit each, and
+	// luck what the bones have done for them lately (only in memory: a
+	// restart forgets a run, as the taproom does).
+	feats int64
+	luck  luck
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, a fingerprint of their last message, when they last showed a
@@ -188,6 +193,8 @@ type server struct {
 	houseCh snowflake.ID
 	table   *table
 	bell    bellPost
+	// beam is the day's highest throw, chalked over the bar.
+	beam beamMark
 }
 
 func newServer(id snowflake.ID) *server {
