@@ -18,6 +18,25 @@ Think of Sigil in Planescape: a city that is a world of its own, run by
 factions with philosophies, where every street has someone working an angle.
 The people are birds: every kind of bird, in every trade and every gutter.
 
+### The people
+
+The rookery's people walk upright on two legs and work with two hands, and
+each wears the head of their kind: a raven's, a heron's, a gull's. They
+don't fly. They dress, eat at tables, sleep in beds, drink gin, sign their
+names and argue in coffee rooms, and their city is built the way a city of
+the 1700s is built, in brick, timber and stone, with stairs, doors and
+windows.
+
+Everything bird about them lives in the head, the habits and the language.
+A **perch** is a house or a ledge someone owns, a **roost** is where a bird
+sleeps tonight, a newcomer who has **just learned to fly** has just come of
+age, and to **preen** is to dress up for the bellward. Kinds keep their
+temperaments the way trades and families do: ravens count, herons wait,
+magpies take an interest in what shines. When the lore talks of feathers,
+nests, flocks or flight, it is the city's idiom, never a bird doing what a
+bird does. Write the architecture and the daily life as human, and let the
+birdness come through in the names, the manners and the turns of phrase.
+
 ### How it reads
 
 - **Lore, not poetry.** Give names, places, prices, institutions and
