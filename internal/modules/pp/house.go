@@ -119,10 +119,14 @@ func (t *table) closes() time.Time {
 	return t.first.Add(tableGlass)
 }
 
+// slateRand fills a slate; crypto/rand, so nobody can bias the bones, and
+// a variable so the economy sim can replay a run.
+var slateRand = func(b []byte) { rand.Read(b) }
+
 // newTable is a table opened now, with a seed from crypto/rand.
 func newTable(channel snowflake.ID, now time.Time, bell bool) *table {
 	t := &table{id: now.UnixMilli(), channel: channel, seed: make([]byte, 32), opened: now, bell: bell}
-	rand.Read(t.seed)
+	slateRand(t.seed)
 	return t
 }
 
