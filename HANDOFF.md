@@ -160,5 +160,6 @@ Not done yet:
   *gannet*, the purser, the bones, the slate, the beam, the hold and its waterline, the
   pumps, the drowning hour, the marker, calling out at the rail) and the five winds in
   "How the game maps onto the world". The owner reads it before M3-G1 builds it. The lore
-  pays 1.5x, 2.5x and 10x over 1-50 losing, a 7.5% edge; the plan's 1.8x/3x/10x was a
-  9% edge to the player.
+  pays 1.5x, 2.5x and 10x over 1-50 losing, the 7.5% house edge the owner chose. The
+  drowning hour rings once or twice a day, leaning to NA and EU evenings, and pays 20x on a
+  hundred. Luck feats go on the deckhead as standing, never pp.

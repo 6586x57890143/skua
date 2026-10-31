@@ -466,13 +466,16 @@ and he pays every win out of it and drops every lost stake into it.
 **The bones.** A bird who wants to try their lot sits at one of the purser's
 tables and throws two bones of whale ivory, one marked in tens and one in
 ones, for a number between one and a hundred. The ivory is from the whale
-the *gannet* took on her last voyage, and it is always a little warm. Every bird at a table throws
-against the house, never against each other. Half the numbers lose the
+the *gannet* took on her last voyage, and it is always a little warm.
+Every bird at a table throws against the house, never against each other. Half the numbers lose the
 stake to the hold. The upper half pays the stake back and half again, the
 nineties pay two and a half times and a hundred pays ten. A table seats six
 and the purser turns a sand glass when the first bird sits down. When the
 glass runs out or the benches are full, everyone throws at once. The house
-takes four stakes, chalked over the bar.
+takes four stakes, chalked over the bar and named for chandlers' row: a
+**wick**, a **candle**, a **lamp** and a **lantern**. A bird who stakes a
+lantern gets one lit and set on the table in front of them for the throw,
+and the whole taproom turns to look.
 
 Before anyone sits, the purser cuts the night's tally into a slate and
 turns it to the wall, and when the throws are done he turns it round. Any
@@ -513,12 +516,47 @@ does at dawn.
 bell but its tongue, and the slack tide is sure the tongue is in the
 drowned square under her bow, because the bell is loudest through her
 keel. It rings under the floor at the hour of the drowning, and the hour
-comes with a tide the almanacs can't fix. It moves every day. For that hour
-a hundred on the bones rings the bell too, and the purser pays twenty five
-times the stake and calls **all hands** from the rail. When the call goes
-up, every bird in the sump who has a stake comes running down the gut. The
-fishmongers on the steps have complained to the tally board about it for
-years.
+comes with a tide the almanacs can't fix. It moves every day, mostly into
+the evening, and on some days the tide comes round twice and so does the
+bell.
+
+The sump always knows it's coming. An hour before, the water draws back
+off the fish market's bottom steps, further than any tide takes it, and the
+gulls stop selling. A quarter of an hour before, the ferrymen pull their
+boats up the shingle and won't say why, and the candles along the harbour
+wall all lean the same way with no wind to lean them. Then the bell starts
+under the floor, the sea comes back up the steps, and for an hour a hundred
+on the bones rings the bell too. The purser pays twenty times the stake and
+calls **all hands** from the rail. When the call goes up, every bird in
+the sump who has a stake comes running down the gut. The fishmongers on
+the steps have complained to the tally board about it for years. When the
+hour is over the purser reads the hour's names off the beam, and the sump
+goes back to work.
+
+**The deckhead.** Some luck is too much for the beam to hold. A bird who
+throws something the slack tide has never seen, or has seen only a few
+times since the drowning, nails a scrap of their own colour to the deckhead
+over the bar, and nobody wipes the deckhead. The purser keeps the list of
+what earns a scrap in his cabin and doesn't show it, but the regulars know
+some of it:
+
+- **Rang the bell.** A hundred in the drowning hour.
+- **The gannet's luck.** Two hundreds in one day.
+- **Back off the bottom.** A one, and a hundred on the very next throw.
+- **A run of nineties.** Three throws in a row in the nineties.
+- **A dry bench.** A full table of six, and every bird on it wins the same
+  throw.
+- **Both bells.** A hundred in each drowning hour on a day the bell rings
+  twice.
+- **The dry one's nod.** Two birds called out at the rail and both threw a
+  hundred. It has happened once, and the purser came out of his cabin to
+  look.
+
+Every scrap has a story behind it, and the ravens who watch the pumps
+write each one into the ledger with the date and the tide. Under the
+oldest scraps the deckhead is carved with marks nobody in the sump can
+read, and the whalers swore they weren't there when the *gannet* was
+built.
 
 **The marker.** A newcomer still sleeping against the pot's warm side, with
 nobody standing surety for them, may sit at a table once a day at the
@@ -639,6 +677,9 @@ it went, which anyone can ask to see.
 | stakes capped while the house is low | the tide's out |
 | the daily jackpot hour | the drowning hour, when a hundred rings the bell |
 | a jackpot announced to the channel | the purser calling all hands from the rail |
+| the stake ladder (5, 25, 100, 500) | a wick, a candle, a lamp and a lantern |
+| the bell's warnings in the channel | the water drawing back, the boats pulled up |
+| luck achievements | scraps of colour nailed to the deckhead |
 | a newcomer's free throw | the marker, staked by the house |
 | a duel | calling out at the rail |
 
