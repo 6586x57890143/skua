@@ -66,3 +66,29 @@ func ambient(base *pixel.Canvas, movers []mover) []*pixel.Canvas {
 	}
 	return frames
 }
+
+// windows flickers the lit glass inside box at a step: each window (a
+// patch of lamplight, told apart by a coarse grid over the painting) on
+// its own beat guttering low, flaring, or as painted. Nothing unlit
+// changes, so the day's painting stays still.
+func windows(c *pixel.Canvas, img image.Image, box image.Rectangle, step int) {
+	for y := box.Min.Y; y < box.Max.Y; y++ {
+		for x := box.Min.X; x < box.Max.X; x++ {
+			col := img.At(x, y)
+			if !lit(col) {
+				continue
+			}
+			var toward uint32
+			var by float64
+			switch (hash(x/5, y/5) + uint32(step)) % 5 {
+			case 0:
+				toward, by = 0x4A200A, 0.45
+			case 2:
+				toward, by = 0xFFF0B8, 0.35
+			default:
+				continue
+			}
+			c.SetColorIndex(x, y, c.Dye(blend(hexOf(col), toward, by)))
+		}
+	}
+}

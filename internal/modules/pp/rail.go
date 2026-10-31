@@ -65,6 +65,10 @@ var (
 	// light on the harbour water under it.
 	railLantern = image.Rect(156, 52, 174, 72)
 	railLight   = image.Rect(120, 66, 210, 79)
+	// railTown is the cliff houses' lit windows up the gut, and
+	// railCustoms the customs house on the end of the wall.
+	railTown    = image.Rect(214, 0, 362, 72)
+	railCustoms = image.Rect(60, 20, 112, 62)
 )
 
 // lanternFlame is the lantern's candle at a step: as painted, guttering
@@ -148,6 +152,8 @@ func railFrames(r Rail) ([]*pixel.Canvas, []int) {
 	for _, c := range ambient(base, []mover{
 		{railLantern, func(c *pixel.Canvas, step int) { lanternFlame(c, art, step) }},
 		{railLight, func(c *pixel.Canvas, step int) { harbourGlints(c, art, step*3) }},
+		{railTown, func(c *pixel.Canvas, step int) { windows(c, art.img, railTown, step) }},
+		{railCustoms, func(c *pixel.Canvas, step int) { windows(c, art.img, railCustoms, step) }},
 	}) {
 		frames, beats = append(frames, c), append(beats, sumpBeat)
 	}

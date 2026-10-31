@@ -131,7 +131,7 @@ func TestRailScreens(t *testing.T) {
 		}
 	}
 	frames, _ := railFrames(Rail{Seats: seats, Thrown: true})
-	if len(frames) != len(tumble)+2*ambientSteps {
+	if len(frames) != len(tumble)+4*ambientSteps {
 		t.Errorf("a thrown rail has %d frames", len(frames))
 	}
 	realScreens(t)

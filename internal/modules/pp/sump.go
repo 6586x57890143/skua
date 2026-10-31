@@ -311,6 +311,7 @@ func sumpScene(base *pixel.Canvas, s Sump) []*pixel.Canvas {
 	if s.Light != night {
 		movers = append(movers, mover{gullBox, func(c *pixel.Canvas, step int) { gull(c, art, step) }})
 	}
+	movers = append(movers, mover{sumpWindows, func(c *pixel.Canvas, step int) { windows(c, art.img, sumpWindows, step) }})
 	if s.Light == dusk || s.Light == night {
 		movers = append(movers, mover{portholes, func(c *pixel.Canvas, step int) { gutter(c, art, step) }})
 	}
@@ -631,6 +632,9 @@ var (
 	gullAt    = image.Pt(330, 22)
 	gullBox   = image.Rect(312, 10, 350, 36)
 	portholes = image.Rect(224, 72, 287, 81)
+	// sumpWindows are the town's lit windows up the steps and her
+	// deckhouse's.
+	sumpWindows = image.Rect(36, 4, 196, 66)
 )
 
 // gullBeats are the gull's wings at each step, from its sprites (wings up,
