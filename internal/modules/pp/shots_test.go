@@ -61,6 +61,16 @@ func TestShots(t *testing.T) {
 		s.Stage = stage
 		write("sump_bell_"+name, sumpScene(pixel.New(sumpSize.X, sumpSize.Y), s))
 	}
+	duel := []TableSeat{
+		{Name: "steve", Class: Classes[1], Stake: stakes[1].pp, Throw: 83, Won: stakes[1].pp * 3 / 2},
+		{Name: "tester", Class: Classes[4], Stake: stakes[1].pp, Throw: 41},
+	}
+	for light, name := range []string{"dusk", "night", "dawn", "day"} {
+		f, _ = railFrames(Rail{Light: light, Seats: duel[:1], Called: "tester", Slate: "9f2c41ab77e0"})
+		write("rail_open_"+name, f)
+	}
+	f, _ = railFrames(Rail{Light: dusk, Seats: duel, Thrown: true, Slate: "3e8d0b5512aa"})
+	write("rail_thrown", f)
 	s := Sump{Hold: houseLine(), Line: houseLine(), Pumping: true, Light: dawn}
 	write("sump_pumping", sumpScene(pixel.New(sumpSize.X, sumpSize.Y), s))
 	write("sheet_house", []*pixel.Canvas{houseSheetCanvas(HouseSheet{Period: "season 1", Hold: 6230 * unit, Line: houseLine(), Note: Rules.HouseNote * unit,

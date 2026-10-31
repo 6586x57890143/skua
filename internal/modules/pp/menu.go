@@ -135,7 +135,7 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.rally(*guild, e)
 	case id == "pp:withdraw":
 		return m.withdrawPact(*guild, e)
-	case id == "pp:table":
+	case id == "pp:table", id == "pp:rail":
 		return m.openTable(ctx, *guild, e)
 	case strings.HasPrefix(id, "pp:sit:"):
 		return m.sitAt(*guild, e)
