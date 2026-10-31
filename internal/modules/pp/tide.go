@@ -456,12 +456,17 @@ func (m *Module) nextBell(now time.Time) (time.Time, bool) {
 
 // bells moves every house's bell message along, from the minute's work.
 func (m *Module) bells(ctx context.Context) {
-	now := m.now()
-	at, ok := m.nextBell(now)
+	at, ok := m.nextBell(m.now())
 	if !ok || m.rest == nil {
 		return
 	}
-	stage := bellStage(at, now)
+	m.bellAt(ctx, at)
+}
+
+// bellAt moves every house's message for the bell starting at at to the
+// stage it's in now.
+func (m *Module) bellAt(ctx context.Context, at time.Time) {
+	stage := bellStage(at, m.now())
 	for g, s := range m.st.servers() {
 		if !m.enabled(g) {
 			continue
