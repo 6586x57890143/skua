@@ -147,9 +147,6 @@ var (
 func houseLine() int64            { return Rules.HouseLine * unit }
 func (s *server) maxStake() int64 { return s.hold * Rules.HouseStake / 10000 }
 
-// tideIn is whether the hold is up to its line.
-func (s *server) tideIn() bool { return s.hold >= houseLine() }
-
 // stakeCap is the most one bird stakes in a day, all tables and bells.
 func (st *state) stakeCap() int64 { return Rules.HouseDay * st.pot() }
 

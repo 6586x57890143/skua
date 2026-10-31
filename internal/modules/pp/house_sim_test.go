@@ -55,7 +55,7 @@ type houseRun struct {
 	mint                 int64 // A10: pp minted for the house
 	overpaid             bool  // A10
 	pumped, held         int64 // what the pumps burned and the hold ended at
-	staked, throwers     int64
+	staked               int64
 	gain                 map[string][]float64 // A11: each persona's season gain over its labour
 }
 

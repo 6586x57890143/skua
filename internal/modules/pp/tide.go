@@ -3,7 +3,6 @@ package pp
 import (
 	"context"
 	"fmt"
-	"image"
 	"strconv"
 	"strings"
 	"time"
@@ -345,112 +344,16 @@ func (t Table) alt() string {
 	return "a table at the slack tide: " + strings.Join(parts, ", ")
 }
 
-// stakeName is a stake as it's chalked over the bar.
-func stakeName(pp int64) string {
-	for _, s := range stakes {
-		if s.pp == pp {
-			return s.name
-		}
-	}
-	return grouped(pp/unit) + " pp"
+// TableScreen draws a table in the taproom, moving: see tableFrames.
+func TableScreen(t Table) ([]byte, error) {
+	frames, beats := tableFrames(t)
+	return pixel.Animate(frames, beats, screenScale)
 }
 
-// TableScreen draws a table: six benches, each seated bird's portrait, its
-// stake and, once thrown, its bones and what they paid.
-func TableScreen(t Table) ([]byte, error) { return tableCanvas(t).Screen(screenScale) }
-
-func tableCanvas(t Table) *pixel.Canvas {
-	c := pixel.New(screenW, screenH)
-	tab := "the purser's table"
-	if t.Bell {
-		tab = "the drowning hour"
-	}
-	best := -1
-	if t.Thrown && len(t.Seats) > 0 {
-		best = t.best()
-	}
-	for i := range tableSeats {
-		col, row := i%3, i/3
-		r := image.Rect(4+col*126, 4+row*106, 4+col*126+122, 4+row*106+102)
-		c.Window(r)
-		if i == 0 {
-			c.Tab(r, tab)
-		}
-		if i >= len(t.Seats) {
-			label(c, r.Min.X+12, paneTop(r)+28, "an empty bench")
-			continue
-		}
-		p := t.Seats[i]
-		top := paneTop(r) - 4
-		c.Portrait(Portrait(p.Class), image.Pt(r.Min.X+8, top), 1)
-		x := r.Min.X + 46
-		c.FitIn(pixel.Bold, x, top, p.Name, pixel.Ink, r.Max.X-8-x)
-		label(c, x, top+16, stakeName(p.Stake))
-		c.Text(x, top+30, grouped(p.Stake/unit)+" pp", pixel.Gold, 0)
-		if t.Thrown {
-			ink := pixel.Red
-			if p.Won > 0 {
-				ink = pixel.Green
-			}
-			c.Print(pixel.Bold, x, top+48, strconv.Itoa(p.Throw), ink)
-			won := "lost"
-			if p.Won > 0 {
-				won = "+" + grouped(p.Won/unit)
-			}
-			right(c, r.Max.X-8, top+48, won, ink)
-			if i == best {
-				label(c, r.Min.X+8, top+64, "on the beam")
-			}
-		}
-	}
-	return c
-}
-
-// HouseScreen draws the slack tide: the hold against its waterline, the
-// stakes the purser takes and the bird's own day.
-func HouseScreen(h House) ([]byte, error) { return houseCanvas(h).Screen(screenScale) }
-
-func houseCanvas(h House) *pixel.Canvas {
-	c := pixel.New(screenW, screenH)
-	hold := image.Rect(4, 4, 190, 212)
-	c.Window(hold)
-	c.Tab(hold, "the hold")
-	y := paneTop(hold)
-	label(c, hold.Min.X+12, y, "water")
-	right(c, hold.Max.X-12, y, grouped(h.Hold/unit)+" pp", pixel.Gold)
-	label(c, hold.Min.X+12, y+19, "the line")
-	right(c, hold.Max.X-12, y+19, grouped(h.Line/unit)+" pp", pixel.Ink)
-	c.Bar(image.Rect(hold.Min.X+12, y+40, hold.Max.X-12, y+48), min(h.Hold, h.Line), h.Line, pixel.Gold)
-	word, ink := tideWord(h), pixel.Dim
-	if h.Hold >= h.Line {
-		ink = pixel.Green
-	}
-	c.Text(hold.Min.X+12, y+58, word, ink, 0)
-	if h.Bell {
-		c.Text(hold.Min.X+12, y+77, "the bell's ringing", pixel.Gold, 0)
-	}
-
-	st := image.Rect(194, 4, 380, 120)
-	c.Window(st)
-	c.Tab(st, "the stakes")
-	for i, s := range stakes {
-		yy := paneTop(st) + i*19
-		ink := pixel.Ink
-		if s.pp > h.MaxStake {
-			ink = pixel.Dim
-		}
-		label(c, st.Min.X+12, yy, s.name)
-		right(c, st.Max.X-12, yy, grouped(s.pp/unit)+" pp", ink)
-	}
-
-	me := image.Rect(194, 124, 380, 212)
-	c.Window(me)
-	c.Tab(me, "today")
-	label(c, me.Min.X+12, paneTop(me), "staked")
-	right(c, me.Max.X-12, paneTop(me), grouped(h.Staked/unit)+" pp", pixel.Ink)
-	label(c, me.Min.X+12, paneTop(me)+19, "the purser takes")
-	right(c, me.Max.X-12, paneTop(me)+19, grouped(h.Cap/unit)+" pp", pixel.Ink)
-	return c
+// HouseScreen draws the slack tide's screen, moving: see holdFrames.
+func HouseScreen(h House) ([]byte, error) {
+	frames, beats := holdFrames(h)
+	return pixel.Animate(frames, beats, screenScale)
 }
 
 // bellPost is the bell's one message in the house channel: when the bell
