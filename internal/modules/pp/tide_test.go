@@ -350,6 +350,9 @@ func TestHouseSheet(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		mem := m.st.member(s, g, old(i), DayOf(t0))
 		mem.purse, mem.total = 100*unit, 100*unit
+		// Opened in the ledger, as a real purse is: the database is shared,
+		// and other tests audit every server in it.
+		s.append(old(i), DayOf(t0), reasonOpen, mem.purse, nil)
 	}
 	tb, _ := m.st.open(s, 9, t0, false)
 	for i := 1; i <= 3; i++ {
