@@ -24,6 +24,15 @@ import (
 const (
 	flickerBeat = 180
 	tumbleBeat  = 110
+	waveBeat    = 150
+)
+
+// The hold's waves: how high from trough to crest, how long from crest to
+// crest, and how many frames one takes to roll by, so the loop is seamless.
+const (
+	waveHigh   = 4
+	waveLength = 32.0
+	waveFrames = 8
 )
 
 // ink is an icon ink's index, for painting scenery in the icons' colours.
@@ -391,19 +400,50 @@ func holdFrames(h House) ([]*pixel.Canvas, []int) {
 	depth := bottom - top - 8
 	line := bottom - depth
 	level := bottom - int(int64(depth)*min(h.Hold, h.Line)/max(h.Line, 1))
-	sea, crest := ink('T'), ink('U')
+	sea, swell, crest, foam := ink('T'), ink('U'), ink('V'), ink('W')
+	// The sea under the waves is still; the band the waves move in is
+	// drawn a frame at a time.
 	for x := cx - rx; x <= cx+rx; x++ {
-		if f := floor(x); f > level {
-			base.Fill(image.Rect(x, level, x+1, f), sea)
+		if f := floor(x); f > level+waveHigh {
+			base.Fill(image.Rect(x, level+waveHigh, x+1, f), sea)
 		}
 	}
-	red := ink('M')
-	for x := cx - rx + 6; x < cx+rx-6; x += 6 {
-		if floor(x) > line+1 && floor(x+3) > line+1 {
-			base.Fill(image.Rect(x, line, x+4, line+1), red)
+	// The painted line and its name, laid over whatever the water does.
+	painted := func(c *pixel.Canvas) {
+		red := ink('M')
+		for x := cx - rx + 6; x < cx+rx-6; x += 6 {
+			if floor(x) > line+1 && floor(x+3) > line+1 {
+				c.Fill(image.Rect(x, line, x+4, line+1), red)
+			}
+		}
+		c.Print(pixel.Light, cx-rx+8, line+10, "the line", pixel.Bone)
+	}
+	// waves draws the surface at frame f of waveFrames: a swell rolling
+	// along the hull, lit along its crest, with foam where it peaks.
+	waves := func(c *pixel.Canvas, f int) {
+		for x := cx - rx; x <= cx+rx; x++ {
+			fl := floor(x)
+			if fl <= level-waveHigh {
+				continue
+			}
+			phase := 2 * math.Pi * (float64(x)/waveLength - float64(f)/waveFrames)
+			y := level + int(math.Round(-waveHigh*math.Sin(phase)/2))
+			for yy := level - waveHigh; yy < level+waveHigh && yy < fl; yy++ {
+				switch {
+				case yy < y:
+					c.SetColorIndex(x, yy, inside)
+				case yy == y && math.Sin(phase) > 0.85:
+					c.SetColorIndex(x, yy, foam)
+				case yy == y:
+					c.SetColorIndex(x, yy, crest)
+				case yy <= y+1:
+					c.SetColorIndex(x, yy, swell)
+				default:
+					c.SetColorIndex(x, yy, sea)
+				}
+			}
 		}
 	}
-	base.Print(pixel.Light, cx-rx+8, line+10, "the line", pixel.Bone)
 
 	base.Print(pixel.Regular, in.Min.X+6, in.Min.Y+4, tideWord(h), pixel.Glove)
 	if h.Bell {
@@ -414,14 +454,10 @@ func holdFrames(h House) ([]*pixel.Canvas, []int) {
 
 	var frames []*pixel.Canvas
 	var beats []int
-	for f := range 4 {
+	for f := range waveFrames {
 		c := base.Copy()
-		// The surface catches the light a little further along each frame.
-		for x := cx - rx; x <= cx+rx; x++ {
-			if floor(x) > level+1 && (x+f*2)%8 < 3 {
-				c.SetColorIndex(x, level, crest)
-			}
-		}
+		waves(c, f)
+		painted(c)
 		// The eels keep a finger under the line, wherever the water is.
 		for i, ex := range []int{cx - 40, cx + 6, cx + 44} {
 			ey := line + 5 + (i % 2)
@@ -429,7 +465,7 @@ func holdFrames(h House) ([]*pixel.Canvas, []int) {
 				continue
 			}
 			wave := []string{"w.w.w.", ".r.r.r"}
-			if (f+i)%2 == 1 {
+			if (f/2+i)%2 == 1 {
 				wave = []string{".w.w.w", "r.r.r."}
 			}
 			for dy, row := range wave {
@@ -440,7 +476,7 @@ func holdFrames(h House) ([]*pixel.Canvas, []int) {
 				}
 			}
 		}
-		frames, beats = append(frames, c), append(beats, flickerBeat*2)
+		frames, beats = append(frames, c), append(beats, waveBeat)
 	}
 	return frames, beats
 }
