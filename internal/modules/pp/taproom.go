@@ -24,7 +24,6 @@ const (
 	tumbleBeat  = 110
 )
 
-
 // ink is an icon ink's index, for painting scenery in the icons' colours.
 func ink(r byte) uint8 { return pixel.IconInk(r) }
 
