@@ -97,6 +97,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.setLivery(ctx, *guild, e)
 	case id == "pp:liveries":
 		return m.liveryPanel(*guild, e)
+	case id == "pp:open":
+		return m.openPP(ctx, *guild, e)
 	case id == "pp:openyard":
 		return m.openYard(ctx, *guild, e)
 	case id == "pp:keys":
@@ -331,10 +333,10 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	mem.life = now
 	seen(mem, &who.Member, who.User, guild)
 	sh := m.sheet(s, mem, guild, who.User.ID, today)
-	picked := mem.classSeason != -1
+	picked, quests := mem.classSeason != -1, held(mem.quests) > 0
 	s.mu.Unlock()
 	if !picked {
-		return titleMessage(buttons)
+		return titleMessage(buttons, quests)
 	}
 
 	sh.Name = who.EffectiveName()
@@ -398,8 +400,10 @@ func withIcon(b discord.ButtonComponent, icon string) discord.ButtonComponent {
 }
 
 // titleMessage is the title screen as a message, for a member who hasn't
-// picked a class: their own copy carries the button to pick one.
-func titleMessage(buttons bool) (discord.MessageCreate, error) {
+// picked a class: their own copy carries the button to pick one and, when
+// they hold quests, the one to their quests, so a newcomer's first is a
+// press away.
+func titleMessage(buttons, quests bool) (discord.MessageCreate, error) {
 	pic, err := TitleScreen()
 	if err != nil {
 		return discord.MessageCreate{}, err
@@ -409,7 +413,11 @@ func titleMessage(buttons bool) (discord.MessageCreate, error) {
 		Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: alt,
 	})}
 	if buttons {
-		extra = append(extra, discord.NewActionRow(withIcon(discord.NewPrimaryButton("pick a class", "pp:class"), "lantern")))
+		row := []discord.InteractiveComponent{withIcon(discord.NewPrimaryButton("pick a class", "pp:class"), "lantern")}
+		if quests {
+			row = append(row, withIcon(discord.NewSecondaryButton("your quests", "pp:quests"), "compass"))
+		}
+		extra = append(extra, discord.NewActionRow(row...))
 	}
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "melting pot", "", extra...)},

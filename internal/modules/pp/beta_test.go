@@ -60,3 +60,33 @@ func TestBetaGate(t *testing.T) {
 func firstOf(e *events.ComponentInteractionCreate, _ *[]discord.MessageCreate) *events.ComponentInteractionCreate {
 	return e
 }
+
+// An admin opens /pp to everyone once, from the help page, and then every
+// member plays without the role; nobody else can open it.
+func TestOpenToEveryone(t *testing.T) {
+	db := &fakeDB{}
+	m := testModule(db)
+	admin := false
+	m.Admin = func(discord.Interaction) bool { return admin }
+	if err := m.press(context.Background(), firstOf(coretest.Button(t, "pp:open", nil))); !errors.Is(err, errNotAdmin) {
+		t.Fatalf("a member opened /pp: %v", err)
+	}
+	if !strings.Contains(js(m.betaControls(3)), "pp:open\"") {
+		t.Fatal("the help page has no switch to open /pp")
+	}
+	admin = true
+	e, sent := coretest.Button(t, "pp:open", nil)
+	if err := m.press(context.Background(), e); err != nil || !m.st.server(3).open || !strings.Contains(db.execs[len(db.execs)-1], "open = true") {
+		t.Fatalf("opening /pp: %v %v", err, db.execs)
+	}
+	if len(*sent) != 1 || !strings.Contains((*sent)[0].Content, "open") {
+		t.Errorf("the admin was told %v", *sent)
+	}
+	if strings.Contains(js(m.betaControls(3)), "pp:open\"") {
+		t.Error("the switch is still there once /pp is open")
+	}
+	admin = false
+	if err := m.press(context.Background(), firstOf(coretest.Button(t, "pp:class", nil))); err != nil {
+		t.Errorf("a member without the role can't play an open /pp: %v", err)
+	}
+}

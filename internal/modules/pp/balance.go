@@ -79,6 +79,9 @@ type Balance struct {
 	Surety, SuretyMax    int64
 	GuestStay, GuestSeen int64
 	GuestAge             time.Duration
+	// WarmSide is the buff a newcomer has for their first WarmDays days,
+	// counted from the first they earned.
+	WarmSide, WarmDays int64
 	// Hearth tiers, reached at HearthAt percent of the server's usual day
 	// (HearthFloor until it has one).
 	Hearth, HearthAt [3]int64
@@ -126,7 +129,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.12.0",
+	Version: "0.14.0",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -162,6 +165,8 @@ var Default = Balance{
 	GuestStay:   7,
 	GuestSeen:   14,
 	GuestAge:    30 * 24 * time.Hour,
+	WarmSide:    10,
+	WarmDays:    14,
 	Hearth:      [3]int64{5, 10, 15},
 	HearthAt:    [3]int64{100, 115, 130},
 	HearthFloor: 3000 * unit,

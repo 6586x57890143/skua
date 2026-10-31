@@ -114,6 +114,34 @@ func (st *state) loadLedger(ctx context.Context, db DB) error {
 		s.seq, s.head, s.saved = seq, head, seq
 		s.mu.Unlock()
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	return st.loadFirsts(ctx, db)
+}
+
+// loadFirsts sets each member's first day from their oldest ledger row:
+// a day closes into the ledger only once it earned. One with no rows yet
+// is on their first day still, which load set.
+func (st *state) loadFirsts(ctx context.Context, db DB) error {
+	rows, err := db.Query(ctx, `select guild_id, user_id, min(day) from pp_ledger group by guild_id, user_id`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var guild, user, first int64
+		if err := rows.Scan(&guild, &user, &first); err != nil {
+			return err
+		}
+		s := st.server(snowflake.ID(guild))
+		s.mu.Lock()
+		if m := s.members[snowflake.ID(user)]; m != nil {
+			m.first = min(m.first, first)
+		}
+		s.mu.Unlock()
+	}
 	return rows.Err()
 }
 

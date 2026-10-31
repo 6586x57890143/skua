@@ -234,10 +234,12 @@ func fade(idle, grace, span time.Duration, floor int64) int64 {
 
 // Wearing is what a member shows that the server rewards: its tag (crest),
 // .gg/melted in their status (banner), a boost (plume), and the guests
-// they stand surety for who count now.
+// they stand surety for who count now, and whether they're new enough to
+// sleep on the pot's warm side.
 type Wearing struct {
 	Crest, Banner, Plume bool
 	Guests               int64
+	Warm                 bool
 }
 
 // Buff is the percent added to everything but quests for what w shows and
@@ -254,11 +256,18 @@ func (b *Balance) Buff(w Wearing, hearth int) int64 {
 		p += b.Plume
 	}
 	p += min(w.Guests*b.Surety, b.SuretyMax)
+	if w.Warm {
+		p += b.WarmSide
+	}
 	if hearth > 0 {
 		p += b.Hearth[hearth-1]
 	}
 	return p
 }
+
+// Warm is whether a member who first earned on day first is on the warm
+// side on day today: their first WarmDays days.
+func (b *Balance) Warm(first, today int64) bool { return today-first < b.WarmDays }
 
 // HearthTier is the tier a server's raw pp today reaches against its usual
 // day, the mean of the days in history it earned anything.
