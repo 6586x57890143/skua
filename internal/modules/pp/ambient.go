@@ -6,72 +6,45 @@ import (
 	"github.com/6586x57890143/skua/internal/pixel"
 )
 
-// A scene is a still painting with one place in it alive: a few movers
-// close together, taking turns. An animated WebP frame can only redraw one
-// box, so a frame that moves one small thing costs little, and one that
-// moves things all over the picture costs the whole picture again. Each
-// frame here moves one mover a step, so every frame's box is that mover's.
+// A scene is a still painting with a few chosen things alive in it: the
+// water, the flames, the lit windows, a gull. Every frame each of them
+// moves a small step at its own pace, so the motion is smooth, and
+// nothing else changes, so nothing sparkles at random.
 
-// mover is one moving thing in a scene: the box it moves inside, and how
-// to draw it at a step, onto the whole scene (what falls outside its box
-// is never shown).
-type mover struct {
-	box  image.Rectangle
-	draw func(c *pixel.Canvas, step int)
-}
+// The scenes' loop: ambientFrames frames of ambientBeat milliseconds, so
+// the slowest thing in it (the swell) takes the whole loop round.
+const (
+	ambientFrames = 12
+	ambientBeat   = 200
+)
 
-// ambientSteps is how many steps each mover takes round the loop.
-const ambientSteps = 3
+// mover draws one living thing onto a scene at frame f of the loop.
+type mover func(c *pixel.Canvas, f int)
 
-// ambient is base with its movers taking turns: every mover drawn at its
-// first step, then one mover a frame moving on a step, round and round
-// until each is back where it started.
-func ambient(base *pixel.Canvas, movers []mover) []*pixel.Canvas {
-	at := func(m mover, step int) *pixel.Canvas {
+// ambient is base with every mover drawn on it at each frame of the loop.
+func ambient(base *pixel.Canvas, movers ...mover) []*pixel.Canvas {
+	frames := make([]*pixel.Canvas, ambientFrames)
+	for f := range frames {
 		c := base.Copy()
-		m.draw(c, step)
-		return c
-	}
-	cur := base.Copy()
-	// A mover's copy may have dyed colours of its own, so its pixels come
-	// over by colour, not by index.
-	paste := func(from *pixel.Canvas, r image.Rectangle) {
-		r = r.Intersect(cur.Rect)
-		inks := map[uint8]uint8{}
-		for y := r.Min.Y; y < r.Max.Y; y++ {
-			for x := r.Min.X; x < r.Max.X; x++ {
-				i := from.ColorIndexAt(x, y)
-				to, ok := inks[i]
-				if !ok {
-					to = cur.Dye(hexOf(from.Palette[i]))
-					inks[i] = to
-				}
-				cur.SetColorIndex(x, y, to)
-			}
+		for _, m := range movers {
+			m(c, f)
 		}
-	}
-	for _, m := range movers {
-		paste(at(m, 0), m.box)
-	}
-	frames := []*pixel.Canvas{cur.Copy()}
-	if len(movers) == 0 {
-		return frames
-	}
-	steps := make([]int, len(movers))
-	for k := 1; k < len(movers)*ambientSteps; k++ {
-		i := k % len(movers)
-		steps[i] = (steps[i] + 1) % ambientSteps
-		paste(at(movers[i], steps[i]), movers[i].box)
-		frames = append(frames, cur.Copy())
+		frames[f] = c
 	}
 	return frames
 }
 
-// windows flickers the lit glass inside box at a step: each window (a
-// patch of lamplight, told apart by a coarse grid over the painting) on
-// its own beat guttering low, flaring, or as painted. Nothing unlit
-// changes, so the day's painting stays still.
-func windows(c *pixel.Canvas, img image.Image, box image.Rectangle, step int) {
+// every is f slowed to change once every n frames of the loop, for a thing
+// that moves more slowly than the water: a candle every two frames, a
+// window every four.
+func every(f, n int) int { return f / n }
+
+// windows flickers the lit glass inside box: each window (a patch of
+// lamplight, told apart by a coarse grid over the painting) on its own
+// slow beat dipping, brightening, or as painted. Lit windows stay lit;
+// nothing unlit changes, so the day's painting stays still.
+func windows(c *pixel.Canvas, img image.Image, box image.Rectangle, f int) {
+	step := every(f, 4)
 	for y := box.Min.Y; y < box.Max.Y; y++ {
 		for x := box.Min.X; x < box.Max.X; x++ {
 			col := img.At(x, y)
@@ -82,9 +55,9 @@ func windows(c *pixel.Canvas, img image.Image, box image.Rectangle, step int) {
 			var by float64
 			switch (hash(x/5, y/5) + uint32(step)) % 5 {
 			case 0:
-				toward, by = 0x4A200A, 0.45
+				toward, by = 0x7A3A10, 0.16
 			case 2:
-				toward, by = 0xFFF0B8, 0.35
+				toward, by = 0xFFF0B8, 0.14
 			default:
 				continue
 			}

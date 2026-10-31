@@ -61,10 +61,8 @@ var (
 	// railBirds are where the two birds stand on the deck, the middle of
 	// each, either side of the lantern's post.
 	railBirds = [2]int{96, 262}
-	// railLantern is the lantern on the rail's post, and railLight its
-	// light on the harbour water under it.
+	// railLantern is the lantern on the rail's post.
 	railLantern = image.Rect(156, 52, 174, 72)
-	railLight   = image.Rect(120, 66, 210, 79)
 	// railTown is the cliff houses' lit windows up the gut, and
 	// railCustoms the customs house on the end of the wall.
 	railTown    = image.Rect(214, 0, 362, 72)
@@ -74,7 +72,7 @@ var (
 // lanternFlame is the lantern's candle at a step: as painted, guttering
 // low, or flaring. By day it's out, and nothing changes.
 func lanternFlame(c *pixel.Canvas, art *sumpArt, step int) {
-	toward, by := [3]uint32{0, 0x5A2A0C, 0xFFF0B8}[step], [3]float64{0, 0.35, 0.3}[step]
+	toward, by := [3]uint32{0, 0x7A3A10, 0xFFF0B8}[step], [3]float64{0, 0.14, 0.14}[step]
 	if by == 0 {
 		return
 	}
@@ -125,8 +123,7 @@ func railFrames(r Rail) ([]*pixel.Canvas, []int) {
 	}
 	railPanel(base, r)
 
-	// The still: the runnel's dyes where they run, the fog where it lies.
-	runnelFlow(base, art, 0)
+	// The still: the fog where it lies.
 	if thick := fogThick[r.Light]; thick > 0 {
 		fog(base, art, 0, thick)
 	}
@@ -147,14 +144,16 @@ func railFrames(r Rail) ([]*pixel.Canvas, []int) {
 			pair(base, railDice(i), tens, ones, false)
 		}
 	}
-	// What's alive is the lantern on the rail and its light on the water
-	// below it, taking turns.
-	for _, c := range ambient(base, []mover{
-		{railLantern, func(c *pixel.Canvas, step int) { lanternFlame(c, art, step) }},
-		{railLight, func(c *pixel.Canvas, step int) { harbourGlints(c, art, step*3) }},
-		{railTown, func(c *pixel.Canvas, step int) { windows(c, art.img, railTown, step) }},
-		{railCustoms, func(c *pixel.Canvas, step int) { windows(c, art.img, railCustoms, step) }},
-	}) {
+	// What's alive: the harbour water swelling slowly, the lantern on the
+	// rail, the windows up the gut and on the customs house burning a
+	// little unevenly, and the dyes coming down the runnel.
+	for _, c := range ambient(base,
+		func(c *pixel.Canvas, f int) { swell(c, art, f) },
+		func(c *pixel.Canvas, f int) { lanternFlame(c, art, (f/2)%3) },
+		func(c *pixel.Canvas, f int) { windows(c, art.img, railTown, f) },
+		func(c *pixel.Canvas, f int) { windows(c, art.img, railCustoms, f) },
+		func(c *pixel.Canvas, f int) { runnelFlow(c, art, f) },
+	) {
 		frames, beats = append(frames, c), append(beats, sumpBeat)
 	}
 	return frames, beats
@@ -165,16 +164,38 @@ func railDice(i int) image.Point {
 	return image.Pt(railBirds[i]-pairSize.X/2, sumpSize.Y-48-6-pairSize.Y)
 }
 
-// harbourGlints are the lamps' and the sky's light on the harbour water,
-// lit and gone again.
-func harbourGlints(c *pixel.Canvas, art *sumpArt, f int) {
-	crest, glint := c.Dye(art.water[2]), c.Dye(art.water[4])
+// swell is the harbour's water at a step of its slow cycle: long low
+// bands of a shade lighter and darker rolling across it, as wide shallow
+// waves catch the sky, nothing sparkling.
+func swell(c *pixel.Canvas, art *sumpArt, step int) {
+	inks := map[[2]uint32]uint8{}
+	t := 2 * math.Pi * float64(step) / sumpFrames
 	for y := harbour.Min.Y; y < harbour.Max.Y; y++ {
-		for x := harbour.Min.X; x < harbour.Max.X-2; x++ {
-			if h := hash(x, y); h%41 == 0 && int(h>>8)%sumpFrames == f && wet(art.img.At(x, y)) {
-				c.SetColorIndex(x, y, crest)
-				c.SetColorIndex(x+1, y, glint)
+		for x := harbour.Min.X; x < harbour.Max.X; x++ {
+			col := art.img.At(x, y)
+			if !wet(col) || lit(col) {
+				continue
 			}
+			// Two slow swells crossing, long along the harbour and short
+			// across it, so the bands lean a little as they roll.
+			w := math.Sin(float64(x)/14-t+float64(y)/2) + 0.5*math.Sin(float64(x)/31+t+float64(y)/5)
+			var toward uint32
+			var by float64
+			switch {
+			case w > 0.95:
+				toward, by = art.water[3], 0.22
+			case w < -1.05:
+				toward, by = 0x05070C, 0.18
+			default:
+				continue
+			}
+			k := [2]uint32{hexOf(col), toward}
+			i, ok := inks[k]
+			if !ok {
+				i = c.Dye(blend(hexOf(col), toward, by))
+				inks[k] = i
+			}
+			c.SetColorIndex(x, y, i)
 		}
 	}
 }

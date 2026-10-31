@@ -177,8 +177,8 @@ var (
 
 // The scene's frames: eight, so everything in it loops together.
 const (
-	sumpFrames = 8
-	sumpBeat   = 360
+	sumpFrames = ambientFrames
+	sumpBeat   = ambientBeat
 )
 
 // Sump is what the scene outside shows.
@@ -289,13 +289,16 @@ func sumpScene(base *pixel.Canvas, s Sump) []*pixel.Canvas {
 	// What's alive is the shoreline in front of her: the water lapping the
 	// shingle with the boats riding it, and the wall's candles. At the
 	// turn the pump works, and in the bell rings go out over the water.
-	phase := func(step int) int { return step * sumpFrames / ambientSteps }
 	movers := []mover{
-		{image.Rect(90, 92, 224, 128), func(c *pixel.Canvas, step int) {
-			surf(c, art, lift, phase(step))
-			boats(c, s, art, phase(step))
-		}},
-		{image.Rect(254, 94, 362, 113), func(c *pixel.Canvas, step int) {
+		// The water the whole length of the shore, rolling through the
+		// swell's whole cycle once round the loop, the boats riding it.
+		func(c *pixel.Canvas, f int) {
+			surf(c, art, lift, f)
+			boats(c, s, art, f)
+		},
+		// The wall's candles, a new shape every other frame.
+		func(c *pixel.Canvas, f int) {
+			step := every(f, 2)
 			for i, w := range wallWicks {
 				shape := flames[(step+i)%3]
 				if s.leaning() {
@@ -303,25 +306,25 @@ func sumpScene(base *pixel.Canvas, s Sump) []*pixel.Canvas {
 				}
 				grid(c, w.Sub(image.Pt(1, 0)), shape...)
 			}
-		}},
+		},
+		func(c *pixel.Canvas, f int) { windows(c, art.img, sumpWindows, f) },
 	}
-	// And two small things that make it a place: a gull hanging on the
+	// And the small things that make it a place: a gull hanging on the
 	// wind over her mast while there's light, and her portholes, lit from
-	// dusk, guttering now and then.
+	// dusk, burning a little unevenly.
 	if s.Light != night {
-		movers = append(movers, mover{gullBox, func(c *pixel.Canvas, step int) { gull(c, art, step) }})
+		movers = append(movers, func(c *pixel.Canvas, f int) { gull(c, art, every(f, 4)) })
 	}
-	movers = append(movers, mover{sumpWindows, func(c *pixel.Canvas, step int) { windows(c, art.img, sumpWindows, step) }})
 	if s.Light == dusk || s.Light == night {
-		movers = append(movers, mover{portholes, func(c *pixel.Canvas, step int) { gutter(c, art, step) }})
+		movers = append(movers, func(c *pixel.Canvas, f int) { gutter(c, art, every(f, 4)) })
 	}
 	if s.Pumping {
-		movers = append(movers, mover{image.Rect(256, 32, 290, 58), func(c *pixel.Canvas, step int) { pump(c, art, step) }})
+		movers = append(movers, func(c *pixel.Canvas, f int) { pump(c, art, f) })
 	}
 	if s.Stage == bellRinging {
-		movers = append(movers, mover{image.Rect(0, 96, 90, 128), func(c *pixel.Canvas, step int) { rings(c, art, phase(step), lift) }})
+		movers = append(movers, func(c *pixel.Canvas, f int) { rings(c, art, f, lift) })
 	}
-	return ambient(base, movers)
+	return ambient(base, movers...)
 }
 
 // surf is the water's edge at frame f: a swell running along the shore,
@@ -630,7 +633,6 @@ func hash(x, y int) uint32 {
 // Where the gull hangs over her mast, and the row of her lit portholes.
 var (
 	gullAt    = image.Pt(330, 22)
-	gullBox   = image.Rect(312, 10, 350, 36)
 	portholes = image.Rect(224, 72, 287, 81)
 	// sumpWindows are the town's lit windows up the steps and her
 	// deckhouse's.
@@ -641,8 +643,8 @@ var (
 // gliding, down, half up): a glide, a beat up and a beat down, drifting a
 // pixel or two as the wind takes it.
 var (
-	gullBeats = [ambientSteps]int{1, 0, 2}
-	gullDrift = [ambientSteps]image.Point{{0, 0}, {2, -1}, {1, 1}}
+	gullBeats = [3]int{1, 0, 2}
+	gullDrift = [3]image.Point{{0, 0}, {2, -1}, {1, 1}}
 )
 
 // gull draws the gull at a step, in the sky's light.
@@ -667,9 +669,9 @@ func gutter(c *pixel.Canvas, art *sumpArt, step int) {
 			}
 			switch {
 			case step == 1 && x < mid:
-				c.SetColorIndex(x, y, c.Dye(blend(hexOf(col), 0x4A200A, 0.4)))
+				c.SetColorIndex(x, y, c.Dye(blend(hexOf(col), 0x7A3A10, 0.16)))
 			case step == 2 && x >= mid:
-				c.SetColorIndex(x, y, c.Dye(blend(hexOf(col), 0xFFF0B8, 0.35)))
+				c.SetColorIndex(x, y, c.Dye(blend(hexOf(col), 0xFFF0B8, 0.14)))
 			}
 		}
 	}

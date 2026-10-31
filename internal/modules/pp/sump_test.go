@@ -49,7 +49,7 @@ func TestSump(t *testing.T) {
 		{Line: line, Light: daylight, Hold: line}, {Line: line, Stage: bellDrawing}, {Line: line, Stage: bellBoats}, {Line: line, Stage: bellRinging},
 	} {
 		frames := sumpScene(pixel.New(sumpSize.X, sumpSize.Y), s)
-		if len(frames) < 2*ambientSteps || bytes.Equal(frames[0].Pix, frames[1].Pix) {
+		if len(frames) != ambientFrames || bytes.Equal(frames[0].Pix, frames[1].Pix) {
 			t.Errorf("%+v doesn't move", s)
 		}
 	}

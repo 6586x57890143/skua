@@ -126,12 +126,12 @@ func TestRailScreens(t *testing.T) {
 	seats := []TableSeat{{Name: "steve", Class: Classes[1], Stake: stakes[1].pp, Throw: 70, Won: stakes[1].pp * 3 / 2}, {Name: "tester", Class: Classes[2], Stake: stakes[1].pp, Throw: 12}}
 	for light := range railArts {
 		frames, _ := railFrames(Rail{Light: light, Seats: seats[:1], Called: "tester"})
-		if len(frames) < 2*ambientSteps || bytes.Equal(frames[0].Pix, frames[1].Pix) {
+		if len(frames) != ambientFrames || bytes.Equal(frames[0].Pix, frames[1].Pix) {
 			t.Errorf("the rail in light %d doesn't move", light)
 		}
 	}
 	frames, _ := railFrames(Rail{Seats: seats, Thrown: true})
-	if len(frames) != len(tumble)+4*ambientSteps {
+	if len(frames) != len(tumble)+ambientFrames {
 		t.Errorf("a thrown rail has %d frames", len(frames))
 	}
 	realScreens(t)
