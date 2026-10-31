@@ -125,6 +125,23 @@ func (st *state) loadLedger(ctx context.Context, db DB) error {
 func (st *state) audit(ctx context.Context, db DB) (int, error) {
 	type key struct{ guild, user snowflake.ID }
 	sums := map[key]int64{}
+	house := map[snowflake.ID]int64{}
+	hrows, err := db.Query(ctx, `select guild_id, sum(delta)::bigint from pp_ledger where reason in ('stake', 'win', 'refund') group by guild_id`)
+	if err != nil {
+		return 0, err
+	}
+	for hrows.Next() {
+		var guild, sum int64
+		if err := hrows.Scan(&guild, &sum); err != nil {
+			hrows.Close()
+			return 0, err
+		}
+		house[snowflake.ID(guild)] = sum
+	}
+	hrows.Close()
+	if err := hrows.Err(); err != nil {
+		return 0, err
+	}
 	rows, err := db.Query(ctx, `select guild_id, user_id, sum(delta)::bigint from pp_ledger group by guild_id, user_id`)
 	if err != nil {
 		return 0, err
@@ -146,6 +163,9 @@ func (st *state) audit(ctx context.Context, db DB) (int, error) {
 		s.mu.Lock()
 		for _, e := range s.pending {
 			sums[key{g, e.user}] += e.delta
+			if houseMove(e.reason) {
+				house[g] += e.delta
+			}
 		}
 		for u, m := range s.members {
 			want := m.purse - m.dayGot
@@ -160,6 +180,11 @@ func (st *state) audit(ctx context.Context, db DB) (int, error) {
 		// The treasury is user 0: its rows sum to what it holds less the
 		// levy not yet written.
 		if sums[key{g, 0}] != s.treasury-s.levyOpen {
+			bad++
+		}
+		// The hold is its own rows (the note less the pumps) less every
+		// stake, win and refund, which move pp the other way.
+		if sums[key{g, houseID}]-house[g] != s.hold {
 			bad++
 		}
 		s.mu.Unlock()
@@ -188,4 +213,10 @@ func (r *ledgerRows) add(guild snowflake.ID, e entry) {
 	r.n = append(r.n, int64(len(e.inputs)))
 	r.inputs = append(r.inputs, e.inputs...)
 	r.hash = append(r.hash, e.hash)
+}
+
+// houseMove is whether a row of reason moves pp between a purse and the
+// hold.
+func houseMove(reason string) bool {
+	return reason == reasonStake || reason == reasonWin || reason == reasonRefund
 }

@@ -93,6 +93,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.setLog(ctx, *guild, e)
 	case id == "pp:selfies":
 		return m.setSelfies(ctx, *guild, e)
+	case id == "pp:house":
+		return m.setHouse(ctx, *guild, e)
 	case id == "pp:anchor", id == "pp:heralds", id == "pp:slots":
 		return m.setLivery(ctx, *guild, e)
 	case id == "pp:liveries":
@@ -133,6 +135,10 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.rally(*guild, e)
 	case id == "pp:withdraw":
 		return m.withdrawPact(*guild, e)
+	case id == "pp:table":
+		return m.openTable(ctx, *guild, e)
+	case strings.HasPrefix(id, "pp:sit:"):
+		return m.sitAt(*guild, e)
 	case id == "pp:start", strings.HasPrefix(id, "pp:start:"):
 		return m.startPact(*guild, e)
 	case buys(id):
@@ -188,6 +194,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.yard(ctx, *guild, e)
 	case id == "pp:ledger":
 		msg, err = m.journal(ctx, *guild, e.Member())
+	case id == "pp:tide":
+		msg, err = m.tideMessage(*guild, e.User().ID)
 	default:
 		return errNotAClass
 	}
@@ -383,9 +391,11 @@ func menuRows(class string, admin bool, current string) []discord.ContainerSubCo
 			btn("board", "pp:board", "laurel"), btn("shop", "pp:shop", "scales")),
 		discord.NewActionRow(home, btn("lore", "pp:class", classIcons[class]), btn("buffs", "pp:buffs", "hearth"), btn("journal", "pp:ledger", "quill")),
 	}
+	tide := []discord.InteractiveComponent{btn("slack tide", "pp:tide", "bell")}
 	if admin {
-		rows = append(rows, discord.NewActionRow(btn("treasury", "pp:treasury", "pot")))
+		tide = append(tide, btn("treasury", "pp:treasury", "pot"))
 	}
+	rows = append(rows, discord.NewActionRow(tide...))
 	return rows
 }
 

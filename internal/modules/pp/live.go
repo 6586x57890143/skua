@@ -68,6 +68,9 @@ type member struct {
 	// ticket is the confirm their last buying press asked with, 0 for
 	// none: in memory, voided by any other press and by the day turning.
 	ticket int64
+	// seat is the stake they have sat at a table not yet thrown, 0 for
+	// none, and staked what they've staked today.
+	seat, staked int64
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, a fingerprint of their last message, when they last showed a
@@ -177,6 +180,14 @@ type server struct {
 	invitesErr bool
 	invitesAt  time.Time
 	inviting   sync.Mutex
+	// The slack tide: the hold, whether the note has seeded it, the
+	// channel its tables are posted in (0 shut), and the table open there,
+	// nil or settled for none. bell is the bell's message in houseCh.
+	hold    int64
+	noted   bool
+	houseCh snowflake.ID
+	table   *table
+	bell    bellPost
 }
 
 func newServer(id snowflake.ID) *server {
@@ -274,6 +285,7 @@ func (st *state) member(s *server, guild, user snowflake.ID, today int64) *membe
 func (st *state) roll(s *server, m *member, guild, user snowflake.ID, today int64) {
 	if m.dayN != today {
 		m.ticket = 0 // a price may have moved with the day
+		m.staked = 0
 		st.close(s, user, m)
 		m.day = Day{Rested: st.bal().Rested(m.day, st.pools(guild, user, m.dayN), today-m.dayN)}
 		m.dayN = today
@@ -331,6 +343,7 @@ func (st *state) rollServer(s *server, today int64) {
 	if s.day == today-1 {
 		s.litBefore = s.lit
 	}
+	s.pump(s.day)
 	st.lapse(s, today)
 	st.sureties(s, today)
 	s.day, s.raw, s.lit, s.dirty = today, 0, 0, true
