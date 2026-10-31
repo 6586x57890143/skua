@@ -125,8 +125,10 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	// A clip is tens of MB: 20s to fetch, remux and write it cut Discord off
+	// mid-body (cloudflared logged the EOFs).
 	timeout := 20 * time.Second
-	if instagramVideo {
+	if instagramVideo || clip {
 		timeout = 2 * time.Minute
 		_ = controller.SetWriteDeadline(time.Now().Add(timeout))
 	}
@@ -159,7 +161,7 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "media unavailable", http.StatusBadGateway)
 		return
 	}
-	_ = controller.SetWriteDeadline(time.Now().Add(20 * time.Second))
+	_ = controller.SetWriteDeadline(time.Now().Add(timeout))
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", maxAge)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
