@@ -116,7 +116,7 @@ type memberRows struct {
 	granted, grantSeason, rung, dayWithheld                       []int64
 	questDay, questsDone, laurels, pactChannel, withdraws, pactAt []int64
 	pactStarted                                                   []bool
-	seat, staked, feats                                                  []int64
+	seat, staked, feats                                           []int64
 	quests, name, livery, pact, signs                             []string
 	class                                                         []string
 }

@@ -296,4 +296,3 @@ func inDye(rgb uint32, s Scrap) uint32 {
 	ch := func(sh uint) uint32 { return uint32(min(255, float64(s.Color>>sh&0xFF)*(0.35+0.9*l))) << sh }
 	return ch(16) | ch(8) | ch(0)
 }
-
