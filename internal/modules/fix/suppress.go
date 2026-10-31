@@ -48,8 +48,25 @@ func canSuppress(text string, links []Link) bool {
 func (m *Module) suppressOriginal(ctx context.Context, r rest.Rest, key source, t *tracking, version uint64, links []Link) {
 	m.mu.Lock()
 	current := m.current(m.ctx, key, t, version)
-	desired := len(links) > 0 && t.completed == len(links) && t.suppressible && !t.fallback
+	done := len(links) > 0 && t.completed == len(links)
+	desired := done && t.suppressible && !t.fallback
 	change := current && ((desired && !t.suppressed) || (!desired && t.ownsSuppression))
+	// Every card is up but the source's preview stays: note it once a version.
+	kept := ""
+	if current && done && !t.suppressed && t.keptVersion != version+1 {
+		switch {
+		case t.fallback:
+			kept = "incomplete preview"
+		case !t.suppressible:
+			kept = "other links in message"
+		case m.refused(refusal{key.channel, true}):
+			kept = "no manage messages"
+		}
+	}
+	author := t.author
+	if kept != "" {
+		t.keptVersion = version + 1
+	}
 	flags := t.sourceFlags
 	if desired {
 		flags |= discord.MessageFlagSuppressEmbeds
@@ -57,6 +74,9 @@ func (m *Module) suppressOriginal(ctx context.Context, r rest.Rest, key source, 
 		flags &^= discord.MessageFlagSuppressEmbeds
 	}
 	m.mu.Unlock()
+	if kept != "" {
+		m.noteKept(key, author, kept, nil)
+	}
 	if !change || m.refused(refusal{key.channel, true}) {
 		return
 	}
@@ -86,8 +106,14 @@ func (m *Module) suppressOriginal(ctx context.Context, r rest.Rest, key source, 
 		t.pending, t.dirty = links, true
 		t.nextFetch = time.Now().Add(30 * time.Second)
 	}
+	failedHide := err != nil && desired && t.keptVersion != version+1
+	if failedHide {
+		t.keptVersion = version + 1
+	}
 	m.mu.Unlock()
-	if err != nil {
+	if failedHide {
+		m.noteKept(key, author, keptReason(denied, err), err)
+	} else if err != nil {
 		m.log.Debug("fix: source preview flag unchanged", "guild", key.guild)
 	}
 }

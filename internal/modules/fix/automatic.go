@@ -32,6 +32,8 @@ type tracking struct {
 	fallback        bool
 	suppressed      bool
 	ownsSuppression bool
+	author          snowflake.ID
+	keptVersion     uint64 // version+1 once a kept preview was noted
 	version         uint64
 	gone            bool
 	forgotten       bool
@@ -59,6 +61,11 @@ func (t *tracking) retire(from int) {
 // source messages until restart. Pending work coalesces instead of being lost
 // when every fetch slot is occupied.
 func (m *Module) queue(r rest.Rest, key source, text string, edit bool, flags ...discord.MessageFlags) {
+	m.queueBy(r, key, 0, text, edit, flags...)
+}
+
+// queueBy also names who posted, for the kept-preview log; 0 keeps the last.
+func (m *Module) queueBy(r rest.Rest, key source, author snowflake.ID, text string, edit bool, flags ...discord.MessageFlags) {
 	if !m.enabled(key.guild) || m.ctx.Err() != nil {
 		return
 	}
@@ -97,6 +104,9 @@ func (m *Module) queue(r rest.Rest, key source, text string, edit bool, flags ..
 		return
 	}
 	t.contentSum = sum
+	if author != 0 {
+		t.author = author
+	}
 	t.suppressible = canSuppress(text, links)
 	t.fallback = false
 	if len(flags) > 0 {
