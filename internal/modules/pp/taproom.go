@@ -6,7 +6,6 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"math"
 	"strconv"
 	"sync"
 
@@ -16,24 +15,15 @@ import (
 // The slack tide drawn: the taproom below the gannet's deck, where the
 // purser's table runs down the middle under the deckhead's scraps of
 // colour, tallow candles lean in the sconces on her ribs and the sand
-// glass runs; and the hold, cut away, with the water against the painted
-// waterline and the eels a finger under it. Each is a few frames: the
-// candles flicker, the sand runs, the bones tumble and the eels move.
+// glass runs. Each is a few frames: the candles flicker, the sand runs and
+// the bones tumble. The sump outside is in sump.go.
 
 // The frames' beats, in milliseconds.
 const (
 	flickerBeat = 180
 	tumbleBeat  = 110
-	waveBeat    = 150
 )
 
-// The hold's waves: how high from trough to crest, how long from crest to
-// crest, and how many frames one takes to roll by, so the loop is seamless.
-const (
-	waveHigh   = 4
-	waveLength = 32.0
-	waveFrames = 8
-)
 
 // ink is an icon ink's index, for painting scenery in the icons' colours.
 func ink(r byte) uint8 { return pixel.IconInk(r) }
@@ -343,167 +333,49 @@ func panel(c *pixel.Canvas, t Table) {
 	}
 }
 
-// holdFrames are the slack tide's screen: the hold cut away on the left,
-// its water against the line and the eels under it, rippling a frame at a
-// time; the hold's figures, the stakes and the bird's day on the right.
-func holdFrames(h House) ([]*pixel.Canvas, []int) {
+// houseFrames are the slack tide's screen: the sump in front of her, the
+// tide on the shingle and whatever the hour brings moving on it, and
+// under it the hold's figures, the stakes and the bird's day.
+func houseFrames(h House) ([]*pixel.Canvas, []int) {
 	base := pixel.New(screenW, screenH)
-	pic := image.Rect(4, 4, 190, 212)
-	base.Fill(pic, pixel.Shadow)
-	base.Fill(pic.Inset(1), pixel.Bone)
-	base.Fill(pic.Inset(3), pixel.Line)
-	in := pic.Inset(4)
-	night := base.Dye(0x141A22)
-	base.Fill(in, night)
-
-	// The hull, cut across: a bowl of planks on its ribs.
-	cx, rx, top, bottom := (in.Min.X+in.Max.X)/2, 74, in.Min.Y+34, in.Max.Y-10
-	floor := func(x int) int {
-		d := float64(x-cx) / float64(rx)
-		if d*d >= 1 {
-			return top
-		}
-		return top + int(float64(bottom-top)*math.Sqrt(1-d*d))
-	}
-	inside := base.Dye(0x24160C)
-	for x := cx - rx; x <= cx+rx; x++ {
-		f := floor(x)
-		base.Fill(image.Rect(x, top, x+1, f), inside)
-		base.Fill(image.Rect(x, f, x+1, f+6), ink('J'))
-		base.Fill(image.Rect(x, f+6, x+1, f+7), ink('k'))
-	}
-	for x := cx - rx + 18; x < cx+rx; x += 18 {
-		base.Fill(image.Rect(x, top, x+2, floor(x)), ink('I'))
-	}
-	// The deck across her top, the pumps on it.
-	base.Fill(image.Rect(cx-rx-4, top-6, cx+rx+5, top), ink('K'))
-	base.Fill(image.Rect(cx-rx-4, top-1, cx+rx+5, top), ink('k'))
-	grid(base, image.Pt(cx+rx-26, top-22),
-		"....kk....",
-		"..kkGGkk..",
-		"..kHGGFk..",
-		"...kGFk...",
-		"...kGFk...",
-		"...kGFk...",
-		"..kGGFFk..",
-		"..kGGFFk..",
-		".kGGGFFFk.",
-		".kkkkkkkk.",
-	)
-
-	// The water, as high as the hold is full: the painted line is full.
-	depth := bottom - top - 8
-	line := bottom - depth
-	level := bottom - int(int64(depth)*min(h.Hold, h.Line)/max(h.Line, 1))
-	sea, swell, crest, foam := ink('T'), ink('U'), ink('V'), ink('W')
-	// The sea under the waves is still; the band the waves move in is
-	// drawn a frame at a time.
-	for x := cx - rx; x <= cx+rx; x++ {
-		if f := floor(x); f > level+waveHigh {
-			base.Fill(image.Rect(x, level+waveHigh, x+1, f), sea)
-		}
-	}
-	// The painted line and its name, laid over whatever the water does.
-	painted := func(c *pixel.Canvas) {
-		red := ink('M')
-		for x := cx - rx + 6; x < cx+rx-6; x += 6 {
-			if floor(x) > line+1 && floor(x+3) > line+1 {
-				c.Fill(image.Rect(x, line, x+4, line+1), red)
-			}
-		}
-		c.Print(pixel.Light, cx-rx+8, line+10, "the line", pixel.Bone)
-	}
-	// waves draws the surface at frame f of waveFrames: a swell rolling
-	// along the hull, lit along its crest, with foam where it peaks.
-	waves := func(c *pixel.Canvas, f int) {
-		for x := cx - rx; x <= cx+rx; x++ {
-			fl := floor(x)
-			if fl <= level-waveHigh {
-				continue
-			}
-			phase := 2 * math.Pi * (float64(x)/waveLength - float64(f)/waveFrames)
-			y := level + int(math.Round(-waveHigh*math.Sin(phase)/2))
-			for yy := level - waveHigh; yy < level+waveHigh && yy < fl; yy++ {
-				switch {
-				case yy < y:
-					c.SetColorIndex(x, yy, inside)
-				case yy == y && math.Sin(phase) > 0.85:
-					c.SetColorIndex(x, yy, foam)
-				case yy == y:
-					c.SetColorIndex(x, yy, crest)
-				case yy <= y+1:
-					c.SetColorIndex(x, yy, swell)
-				default:
-					c.SetColorIndex(x, yy, sea)
-				}
-			}
-		}
-	}
-
-	base.Print(pixel.Regular, in.Min.X+6, in.Min.Y+4, tideWord(h), pixel.Glove)
-	if h.Bell {
-		base.Print(pixel.Light, in.Min.X+6, in.Min.Y+18, "the bell rings", pixel.Gilt)
-	}
-
 	figures(base, h)
-
-	var frames []*pixel.Canvas
-	var beats []int
-	for f := range waveFrames {
-		c := base.Copy()
-		waves(c, f)
-		painted(c)
-		// The eels keep a finger under the line, wherever the water is.
-		for i, ex := range []int{cx - 40, cx + 6, cx + 44} {
-			ey := line + 5 + (i % 2)
-			if ey <= level || floor(ex) <= ey+2 {
-				continue
-			}
-			wave := []string{"w.w.w.", ".r.r.r"}
-			if (f/2+i)%2 == 1 {
-				wave = []string{".w.w.w", "r.r.r."}
-			}
-			for dy, row := range wave {
-				for dx := range len(row) {
-					if row[dx] != '.' {
-						c.SetColorIndex(ex+dx, ey+dy, ink(row[dx]))
-					}
-				}
-			}
-		}
-		frames, beats = append(frames, c), append(beats, waveBeat)
+	frames := sumpScene(base, h.Sump)
+	beats := make([]int, len(frames))
+	for i := range beats {
+		beats[i] = sumpBeat
 	}
 	return frames, beats
 }
 
-// figures are the slack tide screen's windows: the hold, the stakes and
-// the bird's day at the tables.
+// figures are the windows under the sump: the hold against its line, and
+// the stakes with the bird's day at the tables.
 func figures(c *pixel.Canvas, h House) {
-	hold := image.Rect(194, 4, 380, 86)
+	top := sumpSize.Y + 4
+	hold := image.Rect(4, top, 190, 212)
 	c.Window(hold)
 	c.Tab(hold, "the hold")
 	y := paneTop(hold)
 	label(c, hold.Min.X+12, y, "water")
 	right(c, hold.Max.X-12, y, grouped(h.Hold/unit)+" pp", pixel.Gold)
-	label(c, hold.Min.X+12, y+19, "the line")
-	right(c, hold.Max.X-12, y+19, grouped(h.Line/unit)+" pp", pixel.Ink)
-	c.Bar(image.Rect(hold.Min.X+12, y+38, hold.Max.X-12, y+44), min(h.Hold, h.Line), h.Line, pixel.Blue)
+	label(c, hold.Min.X+12, y+17, "the line")
+	right(c, hold.Max.X-12, y+17, grouped(h.Line/unit)+" pp", pixel.Ink)
+	c.Bar(image.Rect(hold.Min.X+12, y+35, hold.Max.X-12, y+41), min(h.Hold, h.Line), h.Line, pixel.Blue)
 
-	st := image.Rect(194, 90, 380, 212)
+	st := image.Rect(194, top, 380, 212)
 	c.Window(st)
 	c.Tab(st, "the stakes")
 	y = paneTop(st)
 	for i, s := range stakes {
-		yy := y + i*17
-		ink, word := pixel.Ink, grouped(s.pp/unit)+" pp"
+		x, yy := st.Min.X+10+(i%2)*88, y+(i/2)*17
+		ink, word := pixel.Ink, grouped(s.pp/unit)
 		if s.pp > h.MaxStake {
-			ink, word = pixel.Dim, "tide's out"
+			ink, word = pixel.Dim, "out"
 		}
-		c.Icon(stakeIcons[i], image.Pt(st.Min.X+10, yy-iconLift))
-		label(c, st.Min.X+10+pixel.IconCells+4, yy, s.name)
-		right(c, st.Max.X-12, yy, word, ink)
+		c.Icon(stakeIcons[i], image.Pt(x, yy-iconLift))
+		end := label(c, x+pixel.IconCells+3, yy, s.name)
+		c.Print(pixel.Regular, end+4, yy, word, ink)
 	}
-	yy := y + 4*17 + 2
+	yy := y + 35
 	label(c, st.Min.X+12, yy, "staked today")
 	right(c, st.Max.X-12, yy, grouped(h.Staked/unit)+" pp", pixel.Ink)
 }

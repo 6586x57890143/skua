@@ -63,6 +63,8 @@ type House struct {
 	Beam            string
 	BeamThrow       int
 	Throws, Throwrs int64
+	// Sump is the scene outside, the screen's top.
+	Sump Sump
 }
 
 // tideMessage is the slack tide's screen for user.
@@ -79,6 +81,7 @@ func (m *Module) tideMessage(guild, user snowflake.ID) (discord.MessageCreate, e
 	}
 	ch := s.houseCh
 	s.mu.Unlock()
+	h.Sump = m.sumpAt(h.Hold, h.Line, now)
 	pic, err := HouseScreen(h)
 	if err != nil {
 		return discord.MessageCreate{}, err
@@ -381,9 +384,9 @@ func TableScreen(t Table) ([]byte, error) {
 	return pixel.Animate(frames, beats, screenScale)
 }
 
-// HouseScreen draws the slack tide's screen, moving: see holdFrames.
+// HouseScreen draws the slack tide's screen, moving: see houseFrames.
 func HouseScreen(h House) ([]byte, error) {
-	frames, beats := holdFrames(h)
+	frames, beats := houseFrames(h)
 	return pixel.Animate(frames, beats, screenScale)
 }
 
@@ -570,4 +573,14 @@ func (m *Module) bellLine(guild snowflake.ID) string {
 		return "\n-# " + (&bellPost{}).bellText(stage)
 	}
 	return ""
+}
+
+// sumpAt is the scene outside at now, for a hold and its line: the hour's
+// light, how far the bell has come and whether the pumps are working.
+func (m *Module) sumpAt(hold, line int64, now time.Time) Sump {
+	s := Sump{Hold: hold, Line: line, Light: lightAt(now), Pumping: now.Sub(dayStart(DayOf(now))) < time.Hour}
+	if at, ok := m.nextBell(now); ok {
+		s.Stage = bellStage(at, now)
+	}
+	return s
 }
