@@ -385,6 +385,35 @@ Most of the sump hangs off it.
   house on the end of the wall, the one building on the waterfront the
   drowning didn't take, because it stood on the wall and the wall held.
 
+The sump is poor, and it isn't plain. Colour costs less here than anywhere
+in the city. The dyers' yard sells its seconds, cloth that took the dye
+badly, by the armful for a few pp, and the sumptuary roll governs liveries,
+not rags. So the gut is hung with it. Bunting of odd lengths runs across
+the steps from the cliff houses to the yards, doors are painted in whatever
+came down the runnel that week, and a sump bird on a feast day wears more
+colours at once than the gilt allows itself in a lifetime. The bellward
+calls it vulgar and sends its daughters down to copy it.
+
+At dusk the chandlers light the waterfront. Every window on the harbour
+wall gets a tallow candle from the row, a custom from the first winter that
+the chandlers still pay for themselves, and the ferrymen hang a lamp at
+every bow. From the bellward the sump at dusk is a line of small yellow
+lights along the water with the dark of the drowned town beyond it, and the
+playhouses have painted it on more backcloths than any view from the gilt.
+Down in it, it smells of fat, gin and fish, and the candle soot greys every
+sill by morning.
+
+There are good places in it for a bird who knows them. **Mother tern's** is
+a coffee room in the harbour wall's old sea gate, where the ferrymen drink
+something hot between tides and the choir's broadsheet singers try a new
+song on the sump before the bellward hears it. The cliff houses' roofs are
+planted in tubs and broken casks, with herbs, beans and the city's best
+geraniums, because the seaward cliff gets the afternoon sun that the
+bellward's galleries keep off each other. And on the night of the drowning
+every year the sump sets a candle on each of the fish market's steps, down
+to the water and as far under it as anyone can wade, and nobody from the
+gilt is asked.
+
 The sump keeps the tide's hours, not the pot's. The ferrymen and the wet
 guild work low water whenever it falls, the market works before dawn and
 the yards work the day. Nothing in the sump is ever entirely shut.
@@ -401,7 +430,9 @@ at high tide the sea comes up inside her to the ribs. At low tide the
 ferrymen take birds down to the bottom steps through a door cut in her
 side, and charge for it. Every spring her timbers put out pale shoots, a
 century after the oak was felled, and the wet guild trims them and sells
-them for kindling that doesn't burn well.
+them for kindling that doesn't burn well. Her hull is painted every year
+in whatever the dyers' yard couldn't sell, a plank to a colour, and from
+the top of the gut she looks like a quilt thrown over the steps.
 
 The company claimed her as lost with all hands, which she was not, and the
 counting house refused to pay out on a ship any bird could walk aboard. The
@@ -419,7 +450,9 @@ out by morning. The house keeps the same hours.
 
 A bird comes aboard from the bottom of the gut, over the rail and down the
 companionway into the taproom, which is the deck below where the whalers
-slung their hammocks. It is low, lamplit and longer than it is wide. The
+slung their hammocks. It is low, lit by tallow candles in sconces beaten from
+the harpoon irons and longer than it is wide, and the regulars have nailed
+their own scraps of colour to the deckhead above their usual benches. The
 purser's tables run down the middle where the oil casks were lashed, and
 the bar is at the stern under the ship's main beam. The purser's cabin is
 behind the bar, the hatch to the hold is beside it, and the pumps are up on
