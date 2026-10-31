@@ -1,6 +1,8 @@
 package pp
 
 import (
+	"bytes"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -24,10 +26,12 @@ func TestShots(t *testing.T) {
 	}
 	write := func(name string, frames []*pixel.Canvas) {
 		for i, f := range frames {
-			b, err := f.PNG(2)
-			if err != nil {
+			// As it ships: softened and dithered the way every screen is.
+			var buf bytes.Buffer
+			if err := png.Encode(&buf, f.SoftImage(screenScale)); err != nil {
 				t.Fatal(err)
 			}
+			b := buf.Bytes()
 			if err := os.WriteFile(filepath.Join(dir, name+"_"+strconv.Itoa(i)+".png"), b, 0o644); err != nil {
 				t.Fatal(err)
 			}
