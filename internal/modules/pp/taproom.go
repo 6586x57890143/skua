@@ -265,10 +265,7 @@ func landed(c *pixel.Canvas, t Table) {
 
 // chalk writes the beam's new name in chalk on the main beam.
 func chalk(c *pixel.Canvas, name string) {
-	name = pixel.Plain(name)
-	for pixel.Regular.Width(name) > 160 && len(name) > 1 {
-		name = name[:len(name)-1]
-	}
+	name = fitName(pixel.Regular, pixel.Plain(name), 160)
 	c.Text(c.Rect.Dx()/2-pixel.Regular.Width(name)/2, 17, name, pixel.Glove, 0)
 }
 
@@ -324,15 +321,12 @@ func panel(c *pixel.Canvas, t Table) {
 			continue
 		}
 		p := t.Seats[i]
-		name := []rune(pixel.Plain(p.Name))
-		for pixel.Bold.Width(string(name)) > right-left && len(name) > 1 {
-			name = name[:len(name)-1]
-		}
+		name := fitName(pixel.Bold, pixel.Plain(p.Name), right-left)
 		ink := pixel.Ink
 		if i == best {
 			ink = pixel.Gold
 		}
-		c.Print(pixel.Bold, x-pixel.Bold.Width(string(name))/2, y, string(name), ink)
+		c.Print(pixel.Bold, x-pixel.Bold.Width(name)/2, y, name, ink)
 		c.Icon(stakeIcon(p.Stake), image.Pt(left, y+16-iconLift))
 		line, lineInk := grouped(p.Stake/unit), pixel.Gold
 		if t.Thrown {
@@ -576,4 +570,17 @@ func sitDownIn(c *pixel.Canvas, f figure, p image.Point) {
 			c.SetColorIndex(p.X+x, p.Y+y, i)
 		}
 	}
+}
+
+// fitName is s in f cut to width, a letter at a time, with a dot to say it
+// was cut.
+func fitName(f *pixel.Face, s string, width int) string {
+	if f.Width(s) <= width {
+		return s
+	}
+	r := []rune(s)
+	for len(r) > 1 && f.Width(string(r)+".") > width {
+		r = r[:len(r)-1]
+	}
+	return string(r) + "."
 }

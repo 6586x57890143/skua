@@ -300,3 +300,14 @@ func TestSlatesOverCandles(t *testing.T) {
 		}
 	}
 }
+
+// A name too long for its column is cut with a dot; one that fits isn't.
+func TestFitName(t *testing.T) {
+	if got := fitName(pixel.Bold, "steve", 58); got != "steve" {
+		t.Errorf("a short name became %q", got)
+	}
+	got := fitName(pixel.Bold, "a very long name indeed", 58)
+	if !strings.HasSuffix(got, ".") || pixel.Bold.Width(got) > 58 || !strings.HasPrefix("a very long name indeed", strings.TrimSuffix(got, ".")) {
+		t.Errorf("a long name became %q, %d wide", got, pixel.Bold.Width(got))
+	}
+}
