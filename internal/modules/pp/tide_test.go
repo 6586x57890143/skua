@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -433,5 +434,25 @@ func TestBellLine(t *testing.T) {
 	m.st.server(guild).houseCh = 0
 	if got := m.bellLine(guild); got != "" {
 		t.Errorf("a shut house tells the bell: %q", got)
+	}
+}
+
+// The dice read every throw: the tens die and the ones die add up to it,
+// 00 and 0 being a hundred.
+func TestDiceFaces(t *testing.T) {
+	for throw := 1; throw <= 100; throw++ {
+		tens, ones := faces(throw)
+		tn, _ := strconv.Atoi(tens)
+		on, _ := strconv.Atoi(ones)
+		sum := tn + on
+		if sum == 0 {
+			sum = 100
+		}
+		if sum != throw || len(tens) != 2 || len(ones) != 1 || tens[1] != '0' {
+			t.Errorf("%d lands as %s and %s", throw, tens, ones)
+		}
+	}
+	if len(dieTipped) != len(dieFace[0]) || len(dieTipped[0]) != len(dieFace) {
+		t.Error("the tipped die isn't the face turned a quarter")
 	}
 }

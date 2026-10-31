@@ -148,24 +148,13 @@ func sand(c *pixel.Canvas, f int) {
 	}
 }
 
-// tumble is the bones in the air, a frame each: where they are over a
-// bird's head, turned over every other frame. The bones are two d10s of
-// whale ivory, one marked in tens and one in ones, which is how two of
-// them make 1 to 100.
-var tumble = []struct{ dx, dy int }{{-6, 8}, {-2, -6}, {3, -10}, {6, -2}}
+// tumble is the bones in the air, a frame each, from where they land over
+// a bird's head: thrown up, over and down. They roll face on and tipped on
+// an edge in turn, showing other numbers on the way.
+var tumble = []struct{ dx, dy int }{{-8, 14}, {-3, -8}, {4, -14}, {6, -4}}
 
-// turned is g turned over.
-func turned(g []string) []string {
-	out := make([]string, len(g))
-	for i, row := range g {
-		b := []byte(row)
-		for l, r := 0, len(b)-1; l < r; l, r = l+1, r-1 {
-			b[l], b[r] = b[r], b[l]
-		}
-		out[i] = string(b)
-	}
-	return out
-}
+// diceAt is where bench i's dice come to rest, over its slate.
+func diceAt(i int) image.Point { return image.Pt(benchX(i)-pairSize.X/2, benchTop-20-pairSize.Y) }
 
 // Where a table's six benches stand: the middle of each, the portraits'
 // tops and the table's top.
@@ -226,13 +215,11 @@ func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 		for k, at := range tumble {
 			c := base.Copy()
 			draw(c, k)
-			for i := range t.Seats {
-				g := pixel.Icons["bones"]
-				if k%2 == 1 {
-					g = turned(g)
-				}
-				// Twice size, so the d10s read as d10s in the air.
-				c.BigGrid(g, image.Pt(benchX(i)-16+at.dx, benchTop-40+at.dy), 2)
+			for i, p := range t.Seats {
+				// Faces on the way down that aren't the throw's.
+				n := (p.Throw*7 + k*31 + i*13) % 100
+				tens, ones := faces(n)
+				pair(c, diceAt(i).Add(image.Pt(at.dx, at.dy)), tens, ones, k%2 == 1)
 			}
 			frames, beats = append(frames, c), append(beats, tumbleBeat)
 		}
@@ -241,9 +228,14 @@ func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 	for f := range 6 {
 		c := base.Copy()
 		draw(c, f)
-		// The slates go over the flames behind them.
+		// The slates go over the flames behind them, the dice at rest over
+		// them showing what was thrown.
 		if t.Thrown {
 			landed(c, t)
+			for i, p := range t.Seats {
+				tens, ones := faces(p.Throw)
+				pair(c, diceAt(i), tens, ones, false)
+			}
 		}
 		frames, beats = append(frames, c), append(beats, flickerBeat)
 	}
