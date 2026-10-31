@@ -224,15 +224,24 @@ func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 			}
 			frames, beats = append(frames, c), append(beats, tumbleBeat)
 		}
-		landed(base, t)
 		chalk(base, t.Seats[t.best()].Name)
 	}
 	for f := range 6 {
 		c := base.Copy()
 		draw(c, f)
+		// The slates go over the flames behind them.
+		if t.Thrown {
+			landed(c, t)
+		}
 		frames, beats = append(frames, c), append(beats, flickerBeat)
 	}
 	return frames, beats
+}
+
+// slate is where the throw w wide over bench i is chalked.
+func slate(i, w int) image.Rectangle {
+	x := benchX(i) - w/2
+	return image.Rect(x-4, benchTop-19, x+w+4, benchTop-2)
 }
 
 // landed draws each bird's throw over their head once the bones land:
@@ -247,7 +256,7 @@ func landed(c *pixel.Canvas, t Table) {
 		w := pixel.Bold.Width(s)
 		x := benchX(i) - w/2
 		// A slate, so the number reads over the candles behind it.
-		plate := image.Rect(x-4, benchTop-19, x+w+4, benchTop-2)
+		plate := slate(i, w)
 		c.Fill(plate, pixel.Line)
 		c.Outline(plate, pixel.Shadow)
 		c.Print(pixel.Bold, x, benchTop-17, s, ink)

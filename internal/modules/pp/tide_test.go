@@ -15,6 +15,7 @@ import (
 
 	"github.com/6586x57890143/skua/internal/core/coretest"
 	"github.com/6586x57890143/skua/internal/guard"
+	"github.com/6586x57890143/skua/internal/pixel"
 )
 
 // tideRest records the house's posts and edits.
@@ -272,6 +273,30 @@ func TestHouseScreens(t *testing.T) {
 		pic, err := HouseScreen(h)
 		if err != nil || !strings.HasPrefix(string(pic), "RIFF") {
 			t.Errorf("the hold screen isn't moving: %v", err)
+		}
+	}
+}
+
+// The throws' slates sit over the candles behind them: nothing on a slate
+// moves while the flames flicker.
+func TestSlatesOverCandles(t *testing.T) {
+	var seats []TableSeat
+	for i := range tableSeats {
+		seats = append(seats, TableSeat{Name: "x", Class: Classes[i], Stake: stakes[0].pp, Throw: 100})
+	}
+	frames, _ := tableFrames(Table{Seats: seats, Thrown: true})
+	landed := frames[len(tumble):]
+	for i := range seats {
+		r := slate(i, pixel.Bold.Width("100"))
+		for y := r.Min.Y; y < r.Max.Y; y++ {
+			for x := r.Min.X; x < r.Max.X; x++ {
+				want := landed[0].Palette[landed[0].ColorIndexAt(x, y)]
+				for f, c := range landed[1:] {
+					if c.Palette[c.ColorIndexAt(x, y)] != want {
+						t.Fatalf("bench %d's slate changes at %d,%d in frame %d", i, x, y, f+1)
+					}
+				}
+			}
 		}
 	}
 }
