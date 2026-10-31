@@ -53,7 +53,4 @@ func TestSump(t *testing.T) {
 			t.Errorf("%+v doesn't move", s)
 		}
 	}
-	if len(sumpArts[tideUsual][night]().stars) == 0 || len(sumpArts[tideUsual][night]().lamps) <= len(sumpArts[tideUsual][daylight]().lamps) {
-		t.Error("the night has no stars, or no more lamps lit than the day")
-	}
 }

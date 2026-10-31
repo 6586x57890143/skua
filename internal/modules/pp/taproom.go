@@ -2,8 +2,8 @@ package pp
 
 import (
 	"bytes"
-	"fmt"
 	_ "embed"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"

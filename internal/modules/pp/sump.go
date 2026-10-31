@@ -5,7 +5,6 @@ import (
 	"image"
 	"image/color"
 	"math"
-	"strconv"
 	"sync"
 	"time"
 
@@ -71,12 +70,9 @@ func lightAt(t time.Time) int {
 }
 
 // sumpArt is each light's painting and what's worked out from it once:
-// where its lamps are lit, its stars, and the colours of its water and
-// stones.
+// the colours of its water and stones.
 type sumpArt struct {
 	img    image.Image
-	lamps  [][]image.Point // each lit window or porthole, its pixels
-	stars  []image.Point
 	water  [5]uint32 // deep, swell, crest, foam, glint
 	stones [3]uint32 // wet stones, dark to light
 	mist   uint32
@@ -103,7 +99,7 @@ func init() {
 				if err != nil {
 					panic("pp: no painting " + name)
 				}
-				a := readSump(b, name, light, lightShade[light], lightMist[light])
+				a := readSump(b, name, lightShade[light], lightMist[light])
 				a.edge = shores[tide]()
 				return a
 			})
@@ -145,98 +141,15 @@ func init() {
 	}
 }
 
-func readSump(b []byte, what string, light int, shade float64, mist uint32) *sumpArt {
+func readSump(b []byte, what string, shade float64, mist uint32) *sumpArt {
 	img := decodeArt(b, what)
 	a := &sumpArt{img: img, shade: shade, mist: mist}
-	a.lamps = glows(img)
-	// Stars: points of the night sky over the open sea that stand well out
-	// of the dark around them. A day's or an evening's sky has none.
-	for y := 1; y < 60 && light == night; y++ {
-		for x := 200; x < sumpSize.X-1; x++ {
-			around, sky := 0, true
-			for _, d := range []image.Point{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
-				around += lum(img.At(x+d.X, y+d.Y))
-				// Night sky round it, not a rope's tarred brown.
-				r, _, b := rgbOf(img.At(x+d.X, y+d.Y))
-				sky = sky && b > r
-			}
-			if l := lum(img.At(x, y)); sky && skyAt(x, y) && l > 70 && l-around/4 > 35 && !lit(img.At(x, y)) {
-				a.stars = append(a.stars, image.Pt(x, y))
-			}
-		}
-	}
-	// A star stands alone; a run of bright points is the moon's edge.
-	alone := a.stars[:0:0]
-	for _, p := range a.stars {
-		n := 0
-		for _, q := range a.stars {
-			if d := p.Sub(q); d.X*d.X+d.Y*d.Y <= 2 {
-				n++
-			}
-		}
-		if n == 1 {
-			alone = append(alone, p)
-		}
-	}
-	a.stars = alone
-	// The painting.s faint stars were lost in fitting it, so a few more are
-	// set in open sky, with sky all round.
-	open := func(x, y int) bool { return skyAt(x, y) }
-	for y := 2; y < 58 && light == night; y++ {
-	cell:
-		for x := 2; x < sumpSize.X-2; x++ {
-			if hash(x, y)%61 != 0 {
-				continue
-			}
-			for dy := -2; dy <= 2; dy++ {
-				for dx := -2; dx <= 2; dx++ {
-					if !open(x+dx, y+dy) {
-						continue cell
-					}
-				}
-			}
-			a.stars = append(a.stars, image.Pt(x, y))
-		}
-	}
 	deep := hexOf(img.At(150, sumpSize.Y-1))
 	a.water = [5]uint32{deep, blend(deep, 0xFFFFFF, 0.12), blend(deep, 0xFFFFFF, 0.3), blend(deep, 0xFFFFFF, 0.6), blend(deep, 0xFFFFFF, 0.85)}
 	for i, p := range []image.Point{{150, 110}, {140, 108}, {160, 112}} {
 		a.stones[i] = blend(hexOf(img.At(p.X, p.Y)), deep, 0.35)
 	}
 	return a
-}
-
-// glows are the lit glass in img, each window or porthole as its own
-// pixels: warm, bright, and small; the evening sky is warm too but wide.
-func glows(img image.Image) [][]image.Point {
-	seen := map[image.Point]bool{}
-	var out [][]image.Point
-	for y := range 100 {
-		for x := range sumpSize.X {
-			p := image.Pt(x, y)
-			if seen[p] || !lit(img.At(x, y)) {
-				continue
-			}
-			var got []image.Point
-			stack := []image.Point{p}
-			for len(stack) > 0 {
-				q := stack[len(stack)-1]
-				stack = stack[:len(stack)-1]
-				if !q.In(image.Rect(0, 0, sumpSize.X, 100)) || seen[q] || !lit(img.At(q.X, q.Y)) {
-					continue
-				}
-				seen[q] = true
-				got = append(got, q)
-				for _, d := range []image.Point{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
-					stack = append(stack, q.Add(d))
-				}
-			}
-			if len(got) >= 2 && len(got) <= 40 {
-				out = append(out, got)
-			}
-		}
-	}
-	return out
 }
 
 // sumpSize is the painting's size, the top of the slack tide's screen.
@@ -246,8 +159,6 @@ var sumpSize = image.Pt(384, 128)
 var (
 	// wallWicks are the tops of the flames in the harbour wall's niches.
 	wallWicks = []image.Point{{265, 102}, {308, 102}, {351, 102}}
-	// lampGlint is the lamp by the steps, broken up on the water under it.
-	lampGlint = image.Rect(57, 119, 69, 128)
 	// The pump on her deck: the post's top, where the handle swings from,
 	// the handle's end at rest, and the spout's mouth.
 	pumpPivot = image.Pt(271, 37)
@@ -261,10 +172,6 @@ var (
 	// shingle is the open beach, where the tide is drawn coming in and
 	// going out; west of it posts and steps stand in the water.
 	shingle = [2]int{70, 282}
-	// farSea is the open sea past her bow.
-	farSea = image.Rect(330, 78, 384, 92)
-	// gullsAt is the middle of the gulls' wheel over her mast.
-	gullsAt = image.Pt(330, 22)
 )
 
 // The scene's frames: eight, so everything in it loops together.
@@ -439,116 +346,6 @@ func surf(c *pixel.Canvas, art *sumpArt, lift, f int) {
 			case d == -1 && wave < -0.6 && hash(x, f)%3 == 0:
 				// The wash left on the stones as the swell draws back.
 				c.SetColorIndex(x, y, swell)
-			}
-		}
-	}
-}
-
-// glints are the sky on the water: points lit and gone again across the
-// shallows and the far sea, and the lamp by the steps broken up under it.
-func glints(c *pixel.Canvas, art *sumpArt, f int) {
-	crest, glint := c.Dye(art.water[2]), c.Dye(art.water[4])
-	for y := sumpSize.Y - 10; y < sumpSize.Y; y++ {
-		for x := range sumpSize.X - 2 {
-			if h := hash(x, y); h%53 == 0 && int(h>>8)%sumpFrames == f && wet(c.At(x, y)) {
-				c.SetColorIndex(x, y, crest)
-				c.SetColorIndex(x+1, y, glint)
-				c.SetColorIndex(x+2, y, crest)
-			}
-		}
-	}
-	for y := farSea.Min.Y; y < farSea.Max.Y; y++ {
-		for x := farSea.Min.X; x < farSea.Max.X; x++ {
-			if h := hash(x, y); h%19 == 0 && int(h>>8)%sumpFrames == f && wet(c.At(x, y)) {
-				c.SetColorIndex(x, y, crest)
-			}
-		}
-	}
-	src := c.Copy()
-	for y := lampGlint.Min.Y; y < lampGlint.Max.Y; y++ {
-		dx := int(math.Round(1.4 * math.Sin(2*math.Pi*(float64(y)/3+float64(f)/sumpFrames))))
-		for x := lampGlint.Min.X; x < lampGlint.Max.X; x++ {
-			c.SetColorIndex(x, y, src.ColorIndexAt(x-dx, y))
-		}
-	}
-}
-
-// flicker is every lit window and porthole at frame f: mostly as painted,
-// now and then a candle behind one gutters low or flares.
-func flicker(c *pixel.Canvas, art *sumpArt, f int) {
-	for i, lamp := range art.lamps {
-		var toward uint32
-		var by float64
-		switch (hash(i, f) >> 4) % 12 {
-		case 0:
-			toward, by = 0x401A08, 0.45
-		case 1:
-			toward, by = 0xFFF0B0, 0.4
-		case 2:
-			toward, by = 0x7A3A10, 0.2
-		default:
-			continue
-		}
-		for _, p := range lamp {
-			c.SetColorIndex(p.X, p.Y, c.Dye(blend(hexOf(art.img.At(p.X, p.Y)), toward, by)))
-		}
-	}
-}
-
-// stars twinkle: each goes dim on its own frames and comes back.
-func stars(c *pixel.Canvas, art *sumpArt, f int) {
-	for i, p := range art.stars {
-		switch (hash(i, 7) + uint32(f)) % 5 {
-		case 0:
-			c.SetColorIndex(p.X, p.Y, c.Dye(0x3E4866))
-		case 1, 3:
-			c.SetColorIndex(p.X, p.Y, c.Dye(0x8C96B4))
-		case 4:
-			c.SetColorIndex(p.X, p.Y, c.Dye(0x66708E))
-		case 2:
-			c.SetColorIndex(p.X, p.Y, c.Dye(0xFFFFFF))
-			// A bright one throws a cross.
-			if hash(i, 3)%3 == 0 {
-				for _, d := range []image.Point{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
-					q := p.Add(d)
-					c.SetColorIndex(q.X, q.Y, c.Dye(blend(hexOf(art.img.At(q.X, q.Y)), 0xC6D2EE, 0.5)))
-				}
-			}
-		}
-	}
-}
-
-// A far gull is a few strokes: w its white, g its grey wings.
-var gullFar = [][]string{{"g...g", ".gwg."}, {".....", "ggwgg"}}
-
-// gullBeats are the near gull's wingbeats a frame at a time, from its
-// sprites (wings up, gliding, down, half up): it glides, and once round
-// beats its wings to hold its place.
-var gullBeats = [sumpFrames]int{1, 1, 1, 3, 0, 3, 2, 1}
-
-// gulls hang on the wind over her mast, the way they do over every
-// harbour: one near, drifting a little and beating its wings now and then
-// to hold its place, and one far off past her bow, smaller, on its own
-// beat.
-func gulls(c *pixel.Canvas, art *sumpArt, f int) {
-	inks := map[rune]uint8{
-		'w': c.Dye(shaded(0xF4F2EC, art.shade)),
-		'g': c.Dye(shaded(0x5E646C, art.shade)),
-	}
-	a := 2 * math.Pi * float64(f) / sumpFrames
-	near := gullsAt.Add(image.Pt(int(math.Round(3*math.Cos(a))), int(math.Round(2*math.Sin(2*a)))))
-	img := sprite("gull_" + strconv.Itoa(gullBeats[f]))
-	stamp(c, img, near.Sub(img.Bounds().Size().Div(2)), art.shade, sumpSize.Y)
-	far := image.Pt(362+int(math.Round(2*math.Sin(a+1))), 40+int(math.Round(math.Cos(a))))
-	gull(c, far, gullFar[(f/2)%2], inks)
-}
-
-// gull draws a gull's rows centred on p.
-func gull(c *pixel.Canvas, p image.Point, rows []string, inks map[rune]uint8) {
-	for dy, row := range rows {
-		for dx, r := range row {
-			if i, ok := inks[r]; ok {
-				c.SetColorIndex(p.X-len(row)/2+dx, p.Y-len(rows)/2+dy, i)
 			}
 		}
 	}
@@ -817,12 +614,4 @@ func hash(x, y int) uint32 {
 	h := uint32(x)*374761393 + uint32(y)*668265263
 	h = (h ^ h>>13) * 1274126177
 	return h ^ h>>16
-}
-
-// skyAt is whether x, y is open sky, read off the day's painting, where
-// the sky is flat and pale and the cliff, the ship and her rigging are
-// all darker. At night the cliff's shadows are the sky's colour.
-func skyAt(x, y int) bool {
-	img := sumpArts[tideUsual][daylight]().img
-	return image.Pt(x, y).In(image.Rect(0, 0, sumpSize.X, sumpSize.Y)) && lum(img.At(x, y)) >= 150
 }

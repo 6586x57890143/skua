@@ -42,7 +42,7 @@ func init() {
 			img := decodeArt(b, name)
 			deep := hexOf(img.At(200, 72))
 			return &sumpArt{
-				img: img, lamps: glows(img), shade: lightShade[light], mist: lightMist[light],
+				img: img, shade: lightShade[light], mist: lightMist[light],
 				water: [5]uint32{deep, blend(deep, 0xFFFFFF, 0.12), blend(deep, 0xFFFFFF, 0.3), blend(deep, 0xFFFFFF, 0.6), blend(deep, 0xFFFFFF, 0.85)},
 			}
 		})
