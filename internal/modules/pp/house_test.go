@@ -111,6 +111,16 @@ func TestSitAndThrow(t *testing.T) {
 	if err := st.sitDown(s, tb, guild, old(2), "b", wick, t0); !errors.Is(err, errTableShut) {
 		t.Errorf("sat at a thrown table: %v", err)
 	}
+
+	// The glass out and the bones not yet thrown: nobody else sits.
+	s.table = nil
+	late, _ := st.open(s, 9, t0, false)
+	if err := st.sitDown(s, late, guild, old(2), "b", wick, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.sitDown(s, late, guild, old(3), "c", wick, t0.Add(tableGlass)); !errors.Is(err, errTableShut) {
+		t.Errorf("sat after the glass ran out: %v", err)
+	}
 }
 
 func TestSitRefusals(t *testing.T) {
@@ -260,5 +270,22 @@ func TestHouseAuditRows(t *testing.T) {
 	}
 	if own-moved != s.hold {
 		t.Errorf("the hold's rows say %d, it holds %d", own-moved, s.hold)
+	}
+}
+
+// Looking for the bell on a season's last day never reads, and so never
+// fixes, the next season's seed before its beacon is drawn.
+func TestBellLeavesNextSeedAlone(t *testing.T) {
+	m := testModule(&fakeDB{})
+	b := m.st.bal()
+	next := int64(2)
+	last := DayOf(b.seasonStart(next)) - 1
+	ss := &seasonSeed{season: next, secret: make([]byte, 32), round: 1}
+	m.st.seeds[next] = ss
+	for minute := range 24 * 60 {
+		m.nextBell(dayStart(last).Add(time.Duration(minute) * time.Minute))
+	}
+	if ss.settled {
+		t.Fatal("the next season's seed was fixed before its beacon")
 	}
 }

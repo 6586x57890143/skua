@@ -189,7 +189,7 @@ func (st *state) sitDown(s *server, t *table, guild, user snowflake.ID, name str
 		worst += topPay(p.stake, t.bell)
 	}
 	switch {
-	case t != s.table || t.settled || len(t.seats) >= tableSeats:
+	case t != s.table || t.settled || len(t.seats) >= tableSeats || (!t.first.IsZero() && !now.Before(t.closes())):
 		return errTableShut
 	case m.seat != 0:
 		return errSeated

@@ -525,10 +525,17 @@ func (b *bellPost) bellText(stage int) string {
 	return tally
 }
 
-// nextBell is the bell whose stages cover now, if any.
+// nextBell is the bell whose stages cover now, if any. Tomorrow's is only
+// looked at inside this season: reading a season's seed fixes it, and the
+// next season's mustn't be fixed before its beacon is drawn.
 func (m *Module) nextBell(now time.Time) (time.Time, bool) {
 	day := DayOf(now)
-	for _, d := range []int64{day - 1, day, day + 1} {
+	days := []int64{day - 1, day}
+	this, _ := m.st.bal().Season(day)
+	if next, _ := m.st.bal().Season(day + 1); next == this {
+		days = append(days, day+1)
+	}
+	for _, d := range days {
 		for _, at := range Bells(m.st.seedOf(d), d) {
 			if bellStage(at, now) != bellNone {
 				return at, true
