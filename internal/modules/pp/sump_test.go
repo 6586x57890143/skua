@@ -37,7 +37,8 @@ func TestSump(t *testing.T) {
 		}
 		return n / (shingle[1] - shingle[0])
 	}
-	if !(mean(shores[tideHigh]()) < mean(shores[tideUsual]())-8 && mean(shores[tideLow]()) > mean(shores[tideUsual]())) {
+	high, usual, lowWater := mean(shores[tideHigh]()), mean(shores[tideUsual]()), mean(shores[tideLow]())
+	if high >= usual-8 || lowWater <= usual {
 		t.Errorf("waterlines high %d, usual %d, low %d", mean(shores[tideHigh]()), mean(shores[tideUsual]()), mean(shores[tideLow]()))
 	}
 	if !(Sump{Stage: bellBoats}).boatsUp() || (Sump{}).boatsUp() || !(Sump{Stage: bellRinging}).leaning() {
