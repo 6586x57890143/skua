@@ -311,3 +311,88 @@ func TestFitName(t *testing.T) {
 		t.Errorf("a long name became %q, %d wide", got, pixel.Bold.Width(got))
 	}
 }
+
+// The house is healthy while the hold keeps half its note and the week
+// kept an edge, or nobody threw; a losing week or a drained hold is watch.
+func TestHouseHealth(t *testing.T) {
+	note := Rules.HouseNote * unit
+	for _, c := range []struct {
+		hold, week int64
+		want       bool
+	}{
+		{note, noEdge, true}, {note, 700, true}, {note, -300, false}, {note, -1, false}, {note, 0, false},
+		{note/2 - 1, 700, false}, {note / 2, 700, true},
+	} {
+		if got := (HouseSheet{Hold: c.hold, Note: note, Week: c.week}).Healthy(); got != c.want {
+			t.Errorf("hold %d week %d: healthy %v", c.hold, c.week, got)
+		}
+	}
+	if edgeOf(0, 0) != noEdge || edgeOf(1000, 925) != 750 || edgeWord(noEdge) != "no throws" || edgeWord(750) != "7.5%" {
+		t.Error("the edge reads wrong")
+	}
+	for id, want := range map[string]int{"pp:treasury": 0, "pp:treasury:1": 1, "pp:treasury:9": 0, "pp:treasury:x": 0} {
+		if got := parseSheet(id); got != want {
+			t.Errorf("%s opens sheet %d", id, got)
+		}
+	}
+}
+
+// The house's sheet reads what the tables did out of the ledger, and the
+// admins turn to it from the treasury.
+func TestHouseSheet(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	m := testModule(db)
+	g := snowflake.New(time.Now()) + snowflake.ID(time.Now().UnixNano()%4096)
+	s := m.st.server(g)
+	s.mu.Lock()
+	s.houseCh = 9
+	for i := 1; i <= 3; i++ {
+		mem := m.st.member(s, g, old(i), DayOf(t0))
+		mem.purse, mem.total = 100*unit, 100*unit
+	}
+	tb, _ := m.st.open(s, 9, t0, false)
+	for i := 1; i <= 3; i++ {
+		if err := m.st.sitDown(s, tb, g, old(i), "x", stakes[1].pp, t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.st.throw(s, tb, t0)
+	s.count(DayOf(t0), statBell, 0, 0)
+	s.mu.Unlock()
+	if _, err := m.st.flush(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	msg, err := m.sheetMessage(ctx, g, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var won int64
+	for _, p := range tb.seats {
+		won += p.won
+	}
+	got := js(msg.Components)
+	for _, want := range []string{"the house", "75 pp staked", fmt.Sprintf("%s won", grouped(won/unit)), "pp:treasury\""} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the house sheet hasn't %q: %s", want, got)
+		}
+	}
+	first, err := m.sheetMessage(ctx, g, 0)
+	if err != nil || !strings.Contains(js(first.Components), "the treasury holds") || !strings.Contains(js(first.Components), "pp:treasury:1") {
+		t.Errorf("sheet one isn't the treasury turning to the house: %v", err)
+	}
+	// No two buttons on a sheet share an ID, which Discord would refuse.
+	for _, sheet := range []discord.MessageCreate{msg, first} {
+		ids := map[string]bool{}
+		for _, part := range strings.Split(js(sheet.Components), `"custom_id":"`)[1:] {
+			id := part[:strings.IndexByte(part, '"')]
+			if ids[id] {
+				t.Errorf("two buttons are %s", id)
+			}
+			ids[id] = true
+		}
+	}
+	if e, _ := coretest.Button(t, "pp:treasury:1", func(p map[string]any) { p["guild_id"] = g.String() }); m.press(ctx, e) != nil {
+		t.Error("an admin couldn't turn to the house")
+	}
+}

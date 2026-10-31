@@ -176,11 +176,12 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return e.CreateMessage(msg)
 	case id == "pp:board":
 		msg, err = m.boardMessage(*guild, e.User().ID)
-	case id == "pp:treasury":
+	case id == "pp:treasury", strings.HasPrefix(id, "pp:treasury:"):
 		if m.Admin == nil || !m.Admin(e) {
 			return errNotAdmin
 		}
-		msg, err = m.treasuryMessage(ctx, *guild)
+		msg, err = m.sheetMessage(ctx, *guild, parseSheet(id))
+		id = "pp:treasury"
 	case id == "pp:quests":
 		msg, err = m.questsMessage(*guild, e.Member())
 	case id == "pp:notices", id == "pp:company":
