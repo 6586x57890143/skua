@@ -322,3 +322,56 @@ func TestSingleLineFooter(t *testing.T) {
 		}
 	}
 }
+
+// Kick's muxer spills a frame's tail into the next PES ahead of its start
+// code, and sometimes opens a PES with a packet of 0xff. Both must land in
+// the right frame, as ffmpeg reads them.
+func TestVideoAUsReturnsSpilledBytes(t *testing.T) {
+	pid := 0x100
+	packet := func(start bool, payload []byte) []byte {
+		p := []byte{0x47, byte(pid >> 8), byte(pid), 0x10}
+		if start {
+			p[1] |= 0x40
+		}
+		if pad := 184 - len(payload); pad > 0 {
+			p[3] = 0x30
+			p = append(p, byte(pad-1))
+			if pad > 1 {
+				p = append(p, 0x00)
+				p = append(p, bytes.Repeat([]byte{0xff}, pad-2)...)
+			}
+		}
+		return append(p, payload...)
+	}
+	header := func(pts int64) []byte {
+		return []byte{0, 0, 1, 0xe0, 0, 0, 0x80, 0x80, 5, byte(0x21 | pts>>29&0x0e), byte(pts >> 22), byte(pts>>14 | 1), byte(pts >> 7), byte(pts<<1 | 1)}
+	}
+	var ts []byte
+	ts = append(ts, packet(true, append(header(3000), 0, 0, 0, 1, 9, 0xf0, 0, 0, 0, 1, 0x65, 0xaa, 0xbb))...)
+	ts = append(ts, packet(true, append(header(6000), 0xcc, 0xdd, 0, 0, 0, 1, 0x41, 0xee))...)
+	ts = append(ts, packet(true, append(header(9000), bytes.Repeat([]byte{0xff}, 170)...))...)
+	ts = append(ts, packet(false, []byte{0, 0, 1, 0x41, 0x77})...)
+	ts = append(ts, packet(false, []byte{1, 2, 3})...) // another PID's packet is ignored
+	ts[len(ts)-188+2] = 0x01
+	var got [][]byte
+	var pts []int64
+	if err := videoAUs(ts, pid, func(p, _ int64, au [][]byte) error {
+		got = append(got, bytes.Join(au, []byte{'|'}))
+		pts = append(pts, p)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"\x65\xaa\xbb\xcc\xdd", "\x41\xee" + strings.Repeat("\xff", 170), "\x41\x77"}
+	if len(got) != len(want) {
+		t.Fatalf("frames = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if string(got[i]) != want[i] || pts[i] != int64(3000*(i+1)) {
+			t.Fatalf("frame %d = %x pts %d", i, got[i], pts[i])
+		}
+	}
+	if err := videoAUs(packet(true, []byte{1, 2, 3}), pid, nil); err == nil {
+		t.Fatal("bad PES header accepted")
+	}
+}
