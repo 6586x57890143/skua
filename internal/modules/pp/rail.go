@@ -56,8 +56,8 @@ var (
 	harbour = image.Rect(20, 66, 300, 79)
 	// runnel is the dyers' gutter beside the gut, from where it shows to
 	// where it spills into the harbour, and the fan its dyes spread in.
-	runnelTop, runnelFoot = image.Pt(282, 42), image.Pt(279, 74)
-	runnelFan             = image.Rect(268, 74, 300, 80)
+	runnelTop, runnelFoot = image.Pt(278, 58), image.Pt(276, 75)
+	runnelFan             = image.Rect(266, 75, 290, 80)
 	// railBirds are where the two birds stand on the deck, the middle of
 	// each, either side of the lantern's post.
 	railBirds = [2]int{96, 262}
@@ -205,9 +205,10 @@ func swell(c *pixel.Canvas, art *sumpArt, step int) {
 // harbour where it spills.
 func runnelFlow(c *pixel.Canvas, art *sumpArt, f int) {
 	// Each dye is seen through the gutter's own water and the light of the
-	// hour: mixed into what's painted there, never laid on top of it.
+	// hour: mixed into what's there (the fog too, at dawn), never laid
+	// on top of it.
 	at := func(x, y, k int) uint8 {
-		return c.Dye(blend(hexOf(art.img.At(x, y)), shaded(runnelDyes[k], art.shade), 0.5))
+		return c.Dye(blend(hexOf(c.Palette[c.ColorIndexAt(x, y)]), shaded(runnelDyes[k], art.shade), 0.5))
 	}
 	n := runnelFoot.Y - runnelTop.Y
 	for k := 0; k <= n; k++ {
