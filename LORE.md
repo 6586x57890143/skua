@@ -104,8 +104,11 @@ the herons is argued over in every coffee room.
 
 What counts as ordinary is kept on a **notch stick**. Each time the pot turns
 over, before dawn, a novice cuts the day just gone into the stick and shaves
-the oldest notch off, so it never holds more than seven. A good week raises
-the mark and a lean week lowers it. The keepers read the steam for talk and
+the oldest notch off, so it never holds more than seven. The keepers lay the
+notches side by side and read the middle one, not the average: one roaring
+night can't hold the mark up for a week of ordinary ones. A fire set at the
+middle notch lights on a day a little short of ordinary, burns higher on an
+ordinary one and higher still on a good one. They read the steam for talk and
 work poured in at the rim, and leave the notices on the board out of the
 count. The fire has three heights, and once lit it isn't let down until the
 next day is out, whatever the city does after.

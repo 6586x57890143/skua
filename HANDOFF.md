@@ -153,3 +153,12 @@ Not done yet:
   `hold` and `release` ledger reasons yet.
 - **Still screens**: lore pages, item cards, the treasury and the livery draft have no
   hand and don't move.
+
+## /pp: season 1 launch (2026-11-02)
+
+The launch PRs stay drafts until 11-02, then merge in order: M0, M1, M3, M4.
+
+- **M0, launch balance (#186).** The hearth's usual day is the median of the notch stick,
+  not the mean, and it lights at 80/100/120%. On the week before launch the old rule
+  lit 0 of 7 days and the new one lights 4 (`TestHearthBacktest`). The drum and
+  envelope quests ask 12 and 18. Balance 0.13.0.

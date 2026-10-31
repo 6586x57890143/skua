@@ -177,15 +177,39 @@ func TestBuffAndHearth(t *testing.T) {
 	if got := b.Buff(Wearing{}, 0); got != 0 {
 		t.Errorf("no buff: %d", got)
 	}
-	if got := b.HearthTier(b.HearthFloor, nil); got != 1 {
-		t.Errorf("a usual day with no history is tier %d; want 1", got)
+	if got := b.HearthTier(b.HearthFloor, nil); got != 2 {
+		t.Errorf("a usual day with no history is tier %d; want 2", got)
 	}
-	// A usual day of 2000 lights at 2000, 2300 and 2600.
-	history := []int64{0, 1000, 3000}
-	for today, want := range map[int64]int{1999: 0, 2000: 1, 2300: 2, 2599: 2, 2600: 3} {
+	// Unearned days are skipped and one big day doesn't move the median:
+	// a usual day of 2000 lights at 1600, 2000 and 2400.
+	history := []int64{0, 1000, 2000, 3000, 90000}
+	if got := b.Usual(history); got != 2500 {
+		t.Errorf("usual of four earned days is %d; want the middle two's mean, 2500", got)
+	}
+	history = history[:4]
+	for today, want := range map[int64]int{1599: 0, 1600: 1, 2000: 2, 2399: 2, 2400: 3} {
 		if got := b.HearthTier(today, history); got != want {
 			t.Errorf("%d against a usual 2000: tier %d; want %d", today, got, want)
 		}
+	}
+}
+
+// The real week before season 1 (prod, 2026-10-24 to 10-30, in pp): the
+// fire had never lit. Read against that week, it should light on some days
+// and not all of them.
+func TestHearthBacktest(t *testing.T) {
+	week := []int64{38800, 21600, 14300, 14200, 25300, 24200, 9100}
+	for i := range week {
+		week[i] *= unit
+	}
+	lit := 0
+	for _, today := range week {
+		if b.HearthTier(today, week) > 0 {
+			lit++
+		}
+	}
+	if lit < 3 || lit > 5 {
+		t.Errorf("the fire lit on %d of 7 days; want 3 to 5", lit)
 	}
 }
 
