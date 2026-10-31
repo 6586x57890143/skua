@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"image"
+	"image/color"
 	"image/png"
 	"math"
 	"strconv"
@@ -189,7 +190,7 @@ func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 			chair(base, benchX(i), benchTop+12, tableTop)
 			continue
 		}
-		base.Portrait(Portrait(t.Seats[i].Class), image.Pt(benchX(i)-16, benchTop), 1)
+		sitDownIn(base, cutout(Portrait(t.Seats[i].Class)), image.Pt(benchX(i)-16, benchTop))
 	}
 	tableTopAt(base, tableTop)
 	pool := base.Dye(0xD9A24E)
@@ -435,4 +436,99 @@ func figures(c *pixel.Canvas, h House) {
 	yy := y + 4*17 + 2
 	label(c, st.Min.X+12, yy, "staked today")
 	right(c, st.Max.X-12, yy, grouped(h.Staked/unit)+" of "+grouped(h.Cap/unit), pixel.Ink)
+}
+
+// figure is a portrait cut out of its black field, so the bird sits in the
+// room rather than hanging on its wall: every pixel of the field's colour
+// reached from the edge is clear, and black inside the bird (a raven's
+// feathers) stays. nil is clear.
+type figure [][]color.Color
+
+var cutouts sync.Map // image.Image -> figure
+
+// cutout is img's figure, worked out once per portrait.
+func cutout(img image.Image) figure {
+	if f, ok := cutouts.Load(img); ok {
+		return f.(figure)
+	}
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	// The field is the colour most of the edge is: a hood or a crest may
+	// reach a corner.
+	key := func(x, y int) [3]uint32 {
+		r, g, bl, _ := img.At(b.Min.X+x, b.Min.Y+y).RGBA()
+		return [3]uint32{r, g, bl}
+	}
+	edge := map[[3]uint32]int{}
+	for x := range w {
+		edge[key(x, 0)]++
+		edge[key(x, h-1)]++
+	}
+	for y := range h {
+		edge[key(0, y)]++
+		edge[key(w-1, y)]++
+	}
+	var field [3]uint32
+	for k, n := range edge {
+		if n > edge[field] || n == edge[field] && k[0]+k[1]+k[2] < field[0]+field[1]+field[2] {
+			field = k
+		}
+	}
+	isField := func(x, y int) bool { return key(x, y) == field }
+	clear := make([]bool, w*h)
+	var stack []image.Point
+	for x := range w {
+		stack = append(stack, image.Pt(x, 0), image.Pt(x, h-1))
+	}
+	for y := range h {
+		stack = append(stack, image.Pt(0, y), image.Pt(w-1, y))
+	}
+	for len(stack) > 0 {
+		p := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if p.X < 0 || p.Y < 0 || p.X >= w || p.Y >= h || clear[p.Y*w+p.X] || !isField(p.X, p.Y) {
+			continue
+		}
+		clear[p.Y*w+p.X] = true
+		stack = append(stack, p.Add(image.Pt(1, 0)), p.Add(image.Pt(-1, 0)), p.Add(image.Pt(0, 1)), p.Add(image.Pt(0, -1)))
+	}
+	f := make(figure, h)
+	for y := range h {
+		f[y] = make([]color.Color, w)
+		for x := range w {
+			if !clear[y*w+x] {
+				f[y][x] = img.At(b.Min.X+x, b.Min.Y+y)
+			}
+		}
+	}
+	cutouts.Store(img, f)
+	return f
+}
+
+// sitDownIn draws f with its top left at p, outlined in shadow so the bird
+// stands off the wall behind it.
+func sitDownIn(c *pixel.Canvas, f figure, p image.Point) {
+	at := func(x, y int) bool { return y >= 0 && y < len(f) && x >= 0 && x < len(f[y]) && f[y][x] != nil }
+	for y := -1; y <= len(f); y++ {
+		for x := -1; x <= len(f[0]); x++ {
+			if !at(x, y) && (at(x-1, y) || at(x+1, y) || at(x, y-1) || at(x, y+1)) {
+				c.SetColorIndex(p.X+x, p.Y+y, pixel.Shadow)
+			}
+		}
+	}
+	inks := map[color.Color]uint8{}
+	for y, row := range f {
+		for x, col := range row {
+			if col == nil {
+				continue
+			}
+			i, ok := inks[col]
+			if !ok {
+				r, g, b, _ := col.RGBA()
+				i = c.Dye(r>>8<<16 | g>>8<<8 | b>>8)
+				inks[col] = i
+			}
+			c.SetColorIndex(p.X+x, p.Y+y, i)
+		}
+	}
 }
