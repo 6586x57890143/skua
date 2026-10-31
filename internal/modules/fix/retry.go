@@ -15,7 +15,7 @@ import (
 
 const (
 	metadataBudget  = 9 * time.Second
-	metadataAttempt = 4 * time.Second
+	metadataAttempt = 6 * time.Second
 	metadataReserve = 500 * time.Millisecond
 )
 

@@ -184,10 +184,10 @@ type fixData struct {
 }
 
 // Discord identifies video media from the URL extension. FxEmbed's Instagram
-// video proxy URL has no extension, so use its supplied poster image when the
-// proxy URL cannot be identified as a playable video.
-func (a *API) instagramMediaPreview(d *fixData, media []Media) []Media {
-	if d.Video == nil || d.Image == "" {
+// video proxy URL has no extension, so it goes out as a relay link that ends
+// in .mp4; without a relay, the poster image stands in for it.
+func (a *API) instagramMediaPreview(l Link, d *fixData, media []Media) []Media {
+	if d.Video == nil {
 		return media
 	}
 	u, err := url.Parse(d.Video.URL)
@@ -202,13 +202,15 @@ func (a *API) instagramMediaPreview(d *fixData, media []Media) []Media {
 		return media
 	}
 	if a.media != nil {
-		if relayed := a.media.instagramVideoLink(d.Video.URL); relayed != "" {
-			if len(media) > 0 {
-				media[0].URL = relayed
-				return media
-			}
-			return []Media{{URL: relayed, Type: "video"}}
+		relayed := a.media.instagramPostLink(l.URL)
+		if len(media) > 0 {
+			media[0].URL = relayed
+			return media
 		}
+		return []Media{{URL: relayed, Type: "video"}}
+	}
+	if d.Image == "" {
+		return media
 	}
 	poster := Media{URL: d.Image, Type: "photo", Sensitive: d.Sensitive || len(d.Sensitivity) > 0}
 	if len(media) > 0 {
@@ -249,7 +251,7 @@ func (a *API) fix(ctx context.Context, l Link) (Post, error) {
 	}
 	media := d.media()
 	if l.Platform == "instagram" {
-		media = a.instagramMediaPreview(d, media)
+		media = a.instagramMediaPreview(l, d, media)
 	}
 	p := Post{Title: d.Title, Text: text, Author: d.Author, AuthorURL: d.AuthorURL, Handle: d.Handle, Avatar: d.Avatar, Stats: d.Stats, Context: d.Context, Timestamp: d.Timestamp, Provider: "fixembed", Sensitive: d.Sensitive || len(d.Sensitivity) > 0}
 	if d.Translation != nil {

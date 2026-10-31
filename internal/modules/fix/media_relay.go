@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/6586x57890143/skua/internal/obs"
@@ -24,9 +25,17 @@ type mediaRelay struct {
 	base, secret string
 	slot         chan struct{}
 	serving      chan struct{}
+	streaming    chan struct{}
 	cachedID     string
 	cached       []byte
 	until        time.Time
+	mu           sync.Mutex
+	sources      map[string]instagramSource
+}
+
+type instagramSource struct {
+	url   string
+	until time.Time
 }
 
 func newMediaRelay(a *API, base, secret string) *mediaRelay {
@@ -34,7 +43,7 @@ func newMediaRelay(a *API, base, secret string) *mediaRelay {
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(secret) < 16 {
 		return nil
 	}
-	return &mediaRelay{api: a, base: strings.TrimRight(base, "/"), secret: secret, slot: make(chan struct{}, 1), serving: make(chan struct{}, 2)}
+	return &mediaRelay{api: a, base: strings.TrimRight(base, "/"), secret: secret, slot: make(chan struct{}, 1), serving: make(chan struct{}, 2), streaming: make(chan struct{}, 2), sources: map[string]instagramSource{}}
 }
 
 // kind is "kick" or "reddit"; each signs its IDs in its own namespace.
@@ -50,18 +59,37 @@ func (m *mediaRelay) link(kind, id string) string {
 	return m.base + "/fix/media/" + kind + "/" + id + "/" + m.signature(kind, id) + ".mp4"
 }
 
-func (m *mediaRelay) instagramVideoLink(raw string) string {
-	if m == nil || !trustedInstagramVideoURL(raw, m.api.cfg.FixEmbed) {
-		return ""
-	}
-	token := base64.RawURLEncoding.EncodeToString([]byte(raw))
-	link := m.base + "/fix/media/instagram/" + token + "/" + m.signature("instagram-video", token) + ".mp4"
-	if len(link) > 2048 {
-		return ""
-	}
-	return link
+// The link names the post, not its video: FixEmbed alternates sources
+// (vxinstagram, snapsave's rapidcdn) whose URLs run past 2 KB and expire, so
+// the relay asks FixEmbed again when Discord fetches it.
+func (m *mediaRelay) instagramPostLink(post string) string {
+	token := base64.RawURLEncoding.EncodeToString([]byte(post))
+	return m.base + "/fix/media/instagram-post/" + token + "/" + m.signature("instagram-post", token) + ".mp4"
 }
 
+// ponytail: the map is cleared whole at 64 posts; an LRU if that ever churns.
+func (m *mediaRelay) instagramVideo(ctx context.Context, l Link) string {
+	m.mu.Lock()
+	s, ok := m.sources[l.URL]
+	m.mu.Unlock()
+	if ok && time.Now().Before(s.until) {
+		return s.url
+	}
+	d, err := m.api.fixMetadata(ctx, l)
+	if err != nil || d.Video == nil || !trustedInstagramVideoURL(d.Video.URL, m.api.cfg.FixEmbed) {
+		return ""
+	}
+	m.mu.Lock()
+	if len(m.sources) >= 64 {
+		clear(m.sources)
+	}
+	m.sources[l.URL] = instagramSource{d.Video.URL, time.Now().Add(10 * time.Minute)}
+	m.mu.Unlock()
+	return d.Video.URL
+}
+
+// skua only ever connects to FixEmbed's own video proxy; FixEmbed fetches the
+// source, so which https host it picked doesn't widen what skua reaches.
 func trustedInstagramVideoURL(raw, endpoint string) bool {
 	video, err := url.Parse(raw)
 	if err != nil || video.Scheme != "https" || video.User != nil || video.RawFragment != "" || video.RawQuery == "" {
@@ -76,28 +104,7 @@ func trustedInstagramVideoURL(raw, endpoint string) bool {
 		return false
 	}
 	source, err := url.Parse(query.Get("url"))
-	if err != nil || source.Scheme != "https" || source.Hostname() != "vxinstagram.com" || source.User != nil || source.RawQuery != "" || source.Fragment != "" {
-		return false
-	}
-	parts := strings.Split(strings.TrimPrefix(source.Path, "/offload/"), "/")
-	if !strings.HasPrefix(source.Path, "/offload/") || len(parts) != 2 || parts[0] == "" || !strings.HasSuffix(parts[1], ".mp4") {
-		return false
-	}
-	for _, r := range parts[0] {
-		if !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-", r) {
-			return false
-		}
-	}
-	id := strings.TrimSuffix(parts[1], ".mp4")
-	if id == "" {
-		return false
-	}
-	for _, r := range id {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
+	return err == nil && source.Scheme == "https" && source.Host != "" && source.User == nil && source.Fragment == ""
 }
 
 // MediaHandler shares the already-configured public listener through main;
@@ -115,7 +122,9 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := strings.Split(strings.TrimPrefix(r.URL.Path, "/fix/media/"), "/")
 	gallery := len(p) == 3 && p[0] == "gallery" && len(p[1]) <= 1800 && hmac.Equal([]byte(p[2]), []byte(m.signature("gallery", p[1])+".png"))
 	clip := len(p) == 3 && relayID(p[0], p[1]) && hmac.Equal([]byte(p[2]), []byte(m.signature(p[0], p[1])+".mp4"))
-	instagramVideo := len(p) == 3 && p[0] == "instagram" && len(p[1]) <= 1800 && hmac.Equal([]byte(p[2]), []byte(m.signature("instagram-video", p[1])+".mp4"))
+	// "instagram" carries a video URL: links posted before instagram-post.
+	instagramPost := len(p) == 3 && p[0] == "instagram-post" && len(p[1]) <= 512 && hmac.Equal([]byte(p[2]), []byte(m.signature("instagram-post", p[1])+".mp4"))
+	instagramVideo := instagramPost || len(p) == 3 && p[0] == "instagram" && len(p[1]) <= 1800 && hmac.Equal([]byte(p[2]), []byte(m.signature("instagram-video", p[1])+".mp4"))
 	if !strings.HasPrefix(r.URL.Path, "/fix/media/") || (!gallery && !clip && !instagramVideo) {
 		http.NotFound(w, r)
 		return
@@ -134,15 +143,21 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
+	// Instagram streams through and never touches the clip cache, so it gets
+	// its own slots: two slow Kick clips can't starve it.
+	serving := m.serving
+	if instagramVideo {
+		serving = m.streaming
+	}
 	select {
-	case m.serving <- struct{}{}:
+	case serving <- struct{}{}:
 	case <-ctx.Done():
 		http.Error(w, "media busy", http.StatusServiceUnavailable)
 		return
 	}
-	defer func() { <-m.serving }()
+	defer func() { <-serving }()
 	if instagramVideo {
-		m.proxyInstagramVideo(ctx, w, r, p[1])
+		m.proxyInstagramVideo(ctx, w, r, p[1], instagramPost)
 		return
 	}
 	key := p[0] + "/" + p[1]
@@ -167,13 +182,20 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, filename, time.Time{}, bytes.NewReader(raw))
 }
-func (m *mediaRelay) proxyInstagramVideo(ctx context.Context, w http.ResponseWriter, r *http.Request, token string) {
+func (m *mediaRelay) proxyInstagramVideo(ctx context.Context, w http.ResponseWriter, r *http.Request, token string, post bool) {
 	decoded, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
 		http.Error(w, "media unavailable", http.StatusBadGateway)
 		return
 	}
 	raw := string(decoded)
+	if post {
+		l, ok := Parse(raw)
+		raw = ""
+		if ok && l.Platform == "instagram" {
+			raw = m.instagramVideo(ctx, l)
+		}
+	}
 	if !trustedInstagramVideoURL(raw, m.api.cfg.FixEmbed) {
 		http.Error(w, "media unavailable", http.StatusBadGateway)
 		return
