@@ -201,7 +201,7 @@ func TestSuretyCard(t *testing.T) {
 	st, s := testState()
 	mem := st.member(s, guild, old(1), DayOf(t0))
 	mem.wear.Guests = 9
-	b := st.buffList(s, mem, "", 3)[3]
+	b := st.buffList(s, mem, "", 3, DayOf(t0))[3]
 	if !b.On || b.Icon != "key_gold" || b.Effect != "+10%" || !strings.HasPrefix(b.How, "9 of your guests count") {
 		t.Errorf("surety: %+v", b)
 	}

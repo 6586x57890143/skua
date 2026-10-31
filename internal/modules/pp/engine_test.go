@@ -228,3 +228,15 @@ func TestQuestRoll(t *testing.T) {
 		}
 	}
 }
+
+// The warm side lasts a newcomer's first WarmDays days and adds WarmSide
+// beside the other buffs.
+func TestWarmSide(t *testing.T) {
+	b := Default
+	if !b.Warm(100, 100) || !b.Warm(100, 100+b.WarmDays-1) || b.Warm(100, 100+b.WarmDays) {
+		t.Errorf("the warm side isn't the first %d days", b.WarmDays)
+	}
+	if got := b.Buff(Wearing{Warm: true, Crest: true}, 0); got != b.WarmSide+b.Crest {
+		t.Errorf("warm and crest: %d", got)
+	}
+}

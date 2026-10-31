@@ -94,6 +94,22 @@ pot and is gone. The city runs on pp, and the pot is why it runs at all.
 Quests are notices pinned to the board at the pot's rim. Newcomers sleep
 against its warm side, a custom that is older than the city's laws.
 
+### The warm side
+
+The pot's iron never cools on the side that faces the spire, and by old
+custom that side belongs to newcomers. A bird new to the city may sleep
+there for the first two weeks after they first pour anything in, and the
+pot is kinder to them while they do: whatever they pour comes back a tenth
+heavier. The counting house enters it like any other earning and calls
+it the pot's own heat. Its clerks call it the cheapest hiring the city
+does, since a bird who has been paid well for two weeks rarely leaves. After
+two weeks the bird is expected to find a bed of their own, and most have by
+then.
+
+The keepers of the board hold one notice back for each newcomer, an easy
+one that asks only for talk, so their first day in the city ends with
+something done.
+
 ### The hearth
 
 Beside the pot stands **the hearth**, a public fire tended by the herons of

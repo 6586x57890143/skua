@@ -51,6 +51,11 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if _, err := st.flush(ctx, db); err != nil {
 		t.Fatal(err)
 	}
+	// The first day comes back from the ledger, once a day has closed into it.
+	st.chat(s, g, a, "the day after", t0.Add(24*time.Hour))
+	if _, err := st.flush(ctx, db); err != nil {
+		t.Fatal(err)
+	}
 
 	back := newState(&Default, 42)
 	if err := back.load(ctx, db); err != nil {
@@ -66,7 +71,10 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		gm.classDay != 12 || gm.livery != "ember" || gm.liveryUntil != 20800 {
 		t.Errorf("came back as %+v; want %+v", *gm, *m)
 	}
-	if got.day != s.day || got.raw != s.raw || len(got.history) != 2 || got.lit != s.lit {
+	if gm.first != DayOf(t0) {
+		t.Errorf("first came back as %d; want %d", gm.first, DayOf(t0))
+	}
+	if got.day != s.day || got.raw != s.raw || len(got.history) != len(s.history) || got.lit != s.lit {
 		t.Errorf("the server came back as day %d raw %d history %v lit %d", got.day, got.raw, got.history, got.lit)
 	}
 }

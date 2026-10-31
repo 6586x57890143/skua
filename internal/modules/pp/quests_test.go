@@ -55,17 +55,18 @@ func TestQuestsAskLessThanTheyPay(t *testing.T) {
 }
 
 // Quests are dealt one a day to old enough accounts, up to three held, a
-// missed day kept; a young account gets none.
+// missed day kept; a young account gets none. A first deal brings one more,
+// a good quest to talk.
 func TestQuestDeal(t *testing.T) {
 	st := newState(&Default, 42)
 	s := st.server(guild)
 	a := old(1)
 	st.chat(s, guild, a, "here", t0)
-	if n := len(s.members[a].quests); n != 1 {
-		t.Fatalf("a first day dealt %d", n)
+	if qs := s.members[a].quests; len(qs) != 2 || qs[1].tier != 0 || qs[1].tasks(&Default)[0].Metric != taskTalk {
+		t.Fatalf("a first day dealt %+v", qs)
 	}
 	st.chat(s, guild, a, "here again", t0.Add(time.Hour))
-	if n := len(s.members[a].quests); n != 1 {
+	if n := len(s.members[a].quests); n != 2 {
 		t.Errorf("a second visit the same day dealt more: %d", n)
 	}
 	st.chat(s, guild, a, "back after a while", t0.Add(5*24*time.Hour))
