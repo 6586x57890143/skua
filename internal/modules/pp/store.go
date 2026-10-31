@@ -21,7 +21,7 @@ type DB interface {
 func (st *state) load(ctx context.Context, db DB) error {
 	rows, err := db.Query(ctx, `select guild_id, user_id, total, purse, season, season_pp, week, week_voice, week_chat,
 		day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, class_day, livery, livery_until, voice_min, messages,
-		day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld, quests, quest_day, quests_done, name, pact, signs, laurels, pact_channel, pact_started, withdraws, pact_at from pp_member`)
+		day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld, quests, quest_day, quests_done, name, pact, signs, laurels, pact_channel, pact_started, withdraws, pact_at, seat, staked from pp_member`)
 	if err != nil {
 		return err
 	}
@@ -33,7 +33,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		m := &member{}
 		if err := rows.Scan(&guild, &user, &m.total, &m.purse, &m.season, &m.seasonPP, &m.week, &m.weekAct[BoardVoice], &m.weekAct[BoardChat],
 			&m.dayN, &m.day.Voice, &m.day.Chat, &m.day.Talk, &m.day.Rested, &m.class, &m.classSeason, &m.classChanges, &m.classDay, &m.livery, &m.liveryUntil, &m.voiceMin, &m.messages,
-			&m.dayGot, &m.buffLo, &m.buffHi, &m.day.Minutes, &m.day.Paid, &m.dayLevy, &m.granted, &m.grantSeason, &m.rung, &m.dayWithheld, &quests, &m.questDay, &m.questsDone, &m.name, &pact, &signs, &m.laurels, &pactChannel, &started, &withdraws, &pactAt); err != nil {
+			&m.dayGot, &m.buffLo, &m.buffHi, &m.day.Minutes, &m.day.Paid, &m.dayLevy, &m.granted, &m.grantSeason, &m.rung, &m.dayWithheld, &quests, &m.questDay, &m.questsDone, &m.name, &pact, &signs, &m.laurels, &pactChannel, &started, &withdraws, &pactAt, &m.seat, &m.staked); err != nil {
 			rows.Close()
 			return err
 		}
@@ -52,15 +52,15 @@ func (st *state) load(ctx context.Context, db DB) error {
 		return err
 	}
 	rows, err = db.Query(ctx, `select guild_id, day, raw, history, lit, lit_before, beta_role, log_channel,
-		treasury, levy_open, levy_full, levy_days, fund, fund_seeded, season_mint, season_burn, sink_last, heavy, selfie_channel, livery_anchor, heralds_channel, yard_open, livery_slots from pp_guild`)
+		treasury, levy_open, levy_full, levy_days, fund, fund_seeded, season_mint, season_burn, sink_last, heavy, selfie_channel, livery_anchor, heralds_channel, yard_open, livery_slots, hold, house_noted, house_channel from pp_guild`)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
-		var guild, beta, logCh, selfies, anchor, heralds int64
+		var guild, beta, logCh, selfies, anchor, heralds, house int64
 		var s server
 		if err := rows.Scan(&guild, &s.day, &s.raw, &s.history, &s.lit, &s.litBefore, &beta, &logCh,
-			&s.treasury, &s.levyOpen, &s.levyFull, &s.levyDays, &s.fund, &s.seeded, &s.seasonMint, &s.seasonBurn, &s.sinkLast, &s.heavy, &selfies, &anchor, &heralds, &s.yardOpen, &s.slots); err != nil {
+			&s.treasury, &s.levyOpen, &s.levyFull, &s.levyDays, &s.fund, &s.seeded, &s.seasonMint, &s.seasonBurn, &s.sinkLast, &s.heavy, &selfies, &anchor, &heralds, &s.yardOpen, &s.slots, &s.hold, &s.noted, &house); err != nil {
 			rows.Close()
 			return err
 		}
@@ -74,6 +74,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		into.selfies = snowflake.ID(selfies)
 		into.anchor, into.heralds = snowflake.ID(anchor), snowflake.ID(heralds)
 		into.yardOpen, into.slots = s.yardOpen, s.slots
+		into.hold, into.noted, into.houseCh = s.hold, s.noted, snowflake.ID(house)
 		into.mu.Unlock()
 	}
 	rows.Close()
@@ -115,6 +116,7 @@ type memberRows struct {
 	granted, grantSeason, rung, dayWithheld                       []int64
 	questDay, questsDone, laurels, pactChannel, withdraws, pactAt []int64
 	pactStarted                                                   []bool
+	seat, staked                                                  []int64
 	quests, name, livery, pact, signs                             []string
 	class                                                         []string
 }
@@ -170,6 +172,8 @@ func (r *memberRows) add(guild, user snowflake.ID, m *member) {
 	r.pactStarted = append(r.pactStarted, started)
 	// A day and a count under 8, in one column.
 	r.withdraws = append(r.withdraws, m.withdrawDay*8+min(m.withdrawn, 7))
+	r.seat = append(r.seat, m.seat)
+	r.staked = append(r.staked, m.staked)
 }
 
 // flush writes every member, server and grant paid since the last flush in
@@ -190,7 +194,8 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 	tookStats := map[*server]map[statKey]int64{}
 	var guilds, days, raws, lits, before []int64
 	var treasuries, open, full, funds, smint, sburn, slast []int64
-	var heavy, seeded []bool
+	var heavy, seeded, noted []bool
+	var holds []int64
 	var levyDays [][]int64
 	var histories [][]int64
 	type mark struct {
@@ -238,6 +243,7 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			before = append(before, int64(s.litBefore))
 			treasuries, open, full = append(treasuries, s.treasury), append(open, s.levyOpen), append(full, s.levyFull)
 			funds, seeded = append(funds, s.fund), append(seeded, s.seeded)
+			holds, noted = append(holds, s.hold), append(noted, s.noted)
 			smint, sburn, slast, heavy = append(smint, s.seasonMint), append(sburn, s.seasonBurn), append(slast, s.sinkLast), append(heavy, s.heavy)
 			levyDays = append(levyDays, append([]int64{}, s.levyDays...))
 			s.dirty = false
@@ -286,7 +292,7 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 	}
 	if err := pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
 		if err := writeFlush(ctx, tx, &rows, &ledger, paid, guilds, func(i int) []any {
-			return []any{guilds[i], days[i], raws[i], histories[i], lits[i], before[i], treasuries[i], open[i], full[i], levyDays[i], funds[i], seeded[i], smint[i], sburn[i], slast[i], heavy[i]}
+			return []any{guilds[i], days[i], raws[i], histories[i], lits[i], before[i], treasuries[i], open[i], full[i], levyDays[i], funds[i], seeded[i], smint[i], sburn[i], slast[i], heavy[i], holds[i], noted[i]}
 		}); err != nil {
 			return err
 		}
@@ -332,11 +338,11 @@ func writeFlush(ctx context.Context, tx pgx.Tx, rows *memberRows, ledger *ledger
 			)
 			insert into pp_member (guild_id, user_id, total, purse, season, season_pp, week, week_voice,
 				week_chat, day, day_voice, day_chat, day_talk, rested, class, class_season, class_changes, voice_min, messages,
-				day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld, quests, quest_day, quests_done, name, class_day, livery, livery_until, pact, signs, laurels, pact_channel, pact_started, withdraws, pact_at)
+				day_got, buff_lo, buff_hi, day_minutes, day_paid, day_levy, granted, grant_season, rung, day_withheld, quests, quest_day, quests_done, name, class_day, livery, livery_until, pact, signs, laurels, pact_channel, pact_started, withdraws, pact_at, seat, staked)
 			select * from unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[], $5::bigint[], $6::bigint[], $7::bigint[],
 				$8::bigint[], $9::bigint[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[], $15::text[],
 				$16::bigint[], $17::bigint[], $18::bigint[], $19::bigint[],
-				$30::bigint[], $31::bigint[], $32::bigint[], $33::bigint[], $34::bigint[], $35::bigint[], $36::bigint[], $37::bigint[], $38::bigint[], $39::bigint[], $40::text[], $41::bigint[], $42::bigint[], $43::text[], $44::bigint[], $45::text[], $46::bigint[], $47::text[], $48::text[], $49::bigint[], $50::bigint[], $51::boolean[], $52::bigint[], $53::bigint[])
+				$30::bigint[], $31::bigint[], $32::bigint[], $33::bigint[], $34::bigint[], $35::bigint[], $36::bigint[], $37::bigint[], $38::bigint[], $39::bigint[], $40::text[], $41::bigint[], $42::bigint[], $43::text[], $44::bigint[], $45::text[], $46::bigint[], $47::text[], $48::text[], $49::bigint[], $50::bigint[], $51::boolean[], $52::bigint[], $53::bigint[], $54::bigint[], $55::bigint[])
 			on conflict (guild_id, user_id) do update set total = excluded.total, purse = excluded.purse, season = excluded.season,
 				season_pp = excluded.season_pp, week = excluded.week, week_voice = excluded.week_voice,
 				week_chat = excluded.week_chat, day = excluded.day, day_voice = excluded.day_voice,
@@ -351,13 +357,14 @@ func writeFlush(ctx context.Context, tx pgx.Tx, rows *memberRows, ledger *ledger
 				livery = excluded.livery, livery_until = excluded.livery_until,
 				pact = excluded.pact, signs = excluded.signs, laurels = excluded.laurels,
 				pact_channel = excluded.pact_channel, pact_started = excluded.pact_started,
-				withdraws = excluded.withdraws, pact_at = excluded.pact_at`,
+				withdraws = excluded.withdraws, pact_at = excluded.pact_at,
+				seat = excluded.seat, staked = excluded.staked`,
 			rows.guild, rows.user, rows.total, rows.purse, rows.season, rows.seasonPP, rows.week, rows.weekVoice,
 			rows.weekChat, rows.day, rows.dayVoice, rows.dayChat, rows.dayTalk, rows.rested, rows.class, rows.classSeason,
 			rows.classChanges, rows.voiceMin, rows.messages,
 			ledger.guild, ledger.seq, ledger.user, ledger.day, ledger.reason, ledger.delta, ledger.hash, ledger.inputs,
 			ledger.off, ledger.n,
-			rows.dayGot, rows.buffLo, rows.buffHi, rows.dayMinutes, rows.dayPaid, rows.dayLevy, rows.granted, rows.grantSeason, rows.rung, rows.dayWithheld, rows.quests, rows.questDay, rows.questsDone, rows.name, rows.classDay, rows.livery, rows.liveryUntil, rows.pact, rows.signs, rows.laurels, rows.pactChannel, rows.pactStarted, rows.withdraws, rows.pactAt)
+			rows.dayGot, rows.buffLo, rows.buffHi, rows.dayMinutes, rows.dayPaid, rows.dayLevy, rows.granted, rows.grantSeason, rows.rung, rows.dayWithheld, rows.quests, rows.questDay, rows.questsDone, rows.name, rows.classDay, rows.livery, rows.liveryUntil, rows.pact, rows.signs, rows.laurels, rows.pactChannel, rows.pactStarted, rows.withdraws, rows.pactAt, rows.seat, rows.staked)
 		if err != nil {
 			return err
 		}
@@ -371,13 +378,14 @@ func writeFlush(ctx context.Context, tx pgx.Tx, rows *memberRows, ledger *ledger
 	// servers go one statement each; there are few, and few change.
 	for i := range guilds {
 		_, err := tx.Exec(ctx, `insert into pp_guild (guild_id, day, raw, history, lit, lit_before, treasury, levy_open, levy_full, levy_days,
-				fund, fund_seeded, season_mint, season_burn, sink_last, heavy)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+				fund, fund_seeded, season_mint, season_burn, sink_last, heavy, hold, house_noted)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 			on conflict (guild_id) do update set day = excluded.day, raw = excluded.raw, history = excluded.history,
 				lit = excluded.lit, lit_before = excluded.lit_before, treasury = excluded.treasury,
 				levy_open = excluded.levy_open, levy_full = excluded.levy_full, levy_days = excluded.levy_days,
 				fund = excluded.fund, fund_seeded = excluded.fund_seeded,
-				season_mint = excluded.season_mint, season_burn = excluded.season_burn, sink_last = excluded.sink_last, heavy = excluded.heavy`,
+				season_mint = excluded.season_mint, season_burn = excluded.season_burn, sink_last = excluded.sink_last, heavy = excluded.heavy,
+				hold = excluded.hold, house_noted = excluded.house_noted`,
 			guild(i)...)
 		if err != nil {
 			return err

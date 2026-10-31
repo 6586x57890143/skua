@@ -79,6 +79,11 @@ func New(ctx context.Context, log *slog.Logger, db DB, seed uint64, info GuildIn
 	m.st.regrant(DayOf(m.now()))
 	for _, s := range m.st.servers() {
 		s.mu.Lock()
+		s.refundSeats(DayOf(m.now()))
+		s.mu.Unlock()
+	}
+	for _, s := range m.st.servers() {
+		s.mu.Lock()
 		m.st.sureties(s, DayOf(m.now()))
 		s.mu.Unlock()
 	}
@@ -179,7 +184,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"banners", strconv.Itoa(banners)},
 		{"presences", presence},
 		{"gate book", gate},
-	}, Controls: slices.Concat(m.betaControls(guild), m.keyControls(), m.logControls(guild), m.selfieControls(guild), m.liveryControls(), m.grantControls())}
+	}, Controls: slices.Concat(m.betaControls(guild), m.keyControls(), m.logControls(guild), m.channelControls(guild), m.liveryControls(), m.grantControls())}
 }
 
 // Modals are the grant, key and redeem forms.
@@ -377,6 +382,8 @@ func (m *Module) tick(ctx context.Context, last *int64) {
 		*last = day
 	}
 	m.postCheckpoints()
+	m.staleTables(ctx)
+	m.bells(ctx)
 	m.postJoinders()
 	m.checkSelfies(ctx)
 	m.seasonTick(ctx, now)

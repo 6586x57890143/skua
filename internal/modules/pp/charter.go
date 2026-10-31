@@ -62,11 +62,18 @@ type Charter struct {
 	// measured again, in a new version, and every price moves with it.
 	RefVoice, RefMessages int64
 	Engaged               int64
+
+	// The slack tide: the note that seeds the hold and the waterline, in
+	// pp; the most one stake is, in basis points of the hold; and the most
+	// one bird stakes in a day, in pot days.
+	HouseNote, HouseLine int64
+	HouseStake           int64
+	HouseDay             int64
 }
 
 // Rules is the charter in force.
 var Rules = Charter{
-	Version:       "6",
+	Version:       "7",
 	Levy:          350,
 	TreasuryWeeks: 8,
 	FundShare:     300,
@@ -81,6 +88,10 @@ var Rules = Charter{
 	RefVoice:      4,
 	RefMessages:   27,
 	Engaged:       155,
+	HouseNote:     5000,
+	HouseLine:     50000,
+	HouseStake:    100,
+	HouseDay:      2,
 }
 
 // PotDay is the unit prices are set in, in hundredths of a pp.

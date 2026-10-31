@@ -558,19 +558,25 @@ func (m *Module) rerollPicked(guild snowflake.ID, e *events.ComponentInteraction
 	return m.answer(guild, e, msg, "pp:quests")
 }
 
-// selfieControls is the selfie channel picker for /pp's help page.
-func (m *Module) selfieControls(guild snowflake.ID) []discord.ContainerSubComponent {
+// channelControls are the selfie and slack tide channel pickers for /pp's
+// help page, under one heading so the page stays inside Discord's count.
+func (m *Module) channelControls(guild snowflake.ID) []discord.ContainerSubComponent {
 	s := m.st.server(guild)
 	s.mu.Lock()
-	ch := s.selfies
+	ch, house := s.selfies, s.houseCh
 	s.mu.Unlock()
 	pick := discord.ChannelSelectMenuComponent{CustomID: "pp:selfies", Placeholder: "pick the selfie channel", ChannelTypes: logChannels, MinValues: new(0), MaxValues: 1}
 	if ch != 0 {
 		pick.DefaultValues = []discord.SelectMenuDefaultValue{discord.NewSelectMenuDefaultChannel(ch)}
 	}
+	tide := discord.ChannelSelectMenuComponent{CustomID: "pp:house", Placeholder: "pick the slack tide's channel", ChannelTypes: logChannels, MinValues: new(0), MaxValues: 1}
+	if house != 0 {
+		tide.DefaultValues = []discord.SelectMenuDefaultValue{discord.NewSelectMenuDefaultChannel(house)}
+	}
 	return []discord.ContainerSubComponent{
-		discord.NewTextDisplay("### selfies\n-# some golden quests ask for a picture here that stays a day; with none picked they never come up"),
+		discord.NewTextDisplay("### selfies and the slack tide\n-# golden quests that ask for a picture want it in the first, where it stays a day; with none picked they never come up\n-# the purser's tables and the drowning hour's bell go in the second; with none picked the house stays shut"),
 		discord.NewActionRow(pick),
+		discord.NewActionRow(tide),
 	}
 }
 
