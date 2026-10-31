@@ -17,12 +17,28 @@ func TestSump(t *testing.T) {
 		}
 	}
 	line := houseLine()
-	out, in := Sump{Hold: 0, Line: line}, Sump{Hold: line, Line: line}
-	if out.lift() >= in.lift() {
+	low, half := Sump{Hold: 0, Line: line}, Sump{Hold: line * 3 / 4, Line: line}
+	if low.lift() >= half.lift() || low.tide() != tideUsual {
 		t.Error("the tide doesn't come further up the shingle as the hold fills")
 	}
-	if (Sump{Stage: bellDrawing, Line: line}).lift() >= out.lift() || (Sump{Stage: bellRinging, Line: line}).lift() <= in.lift()-1 {
-		t.Error("the water isn't drawn back before the bell, or back up while it rings")
+	for s, want := range map[Sump]int{
+		{Hold: line, Line: line}: tideHigh, {Stage: bellDrawing, Line: line}: tideLow,
+		{Stage: bellBoats, Line: line}: tideLow, {Stage: bellRinging, Line: line}: tideHigh,
+	} {
+		if s.tide() != want || s.lift() != 0 {
+			t.Errorf("%+v is painted at tide %d, want %d as painted", s, s.tide(), want)
+		}
+	}
+	// High water stands well up the shingle, low water off it.
+	mean := func(e []int) int {
+		n := 0
+		for x := shingle[0]; x < shingle[1]; x++ {
+			n += e[x]
+		}
+		return n / (shingle[1] - shingle[0])
+	}
+	if !(mean(shores[tideHigh]()) < mean(shores[tideUsual]())-8 && mean(shores[tideLow]()) > mean(shores[tideUsual]())) {
+		t.Errorf("waterlines high %d, usual %d, low %d", mean(shores[tideHigh]()), mean(shores[tideUsual]()), mean(shores[tideLow]()))
 	}
 	if !(Sump{Stage: bellBoats}).boatsUp() || (Sump{}).boatsUp() || !(Sump{Stage: bellRinging}).leaning() {
 		t.Error("the boats and the candles don't follow the bell")
@@ -36,7 +52,7 @@ func TestSump(t *testing.T) {
 			t.Errorf("%+v doesn't move", s)
 		}
 	}
-	if len(sumpArts[night]().stars) == 0 || len(sumpArts[night]().lamps) <= len(sumpArts[daylight]().lamps) {
+	if len(sumpArts[tideUsual][night]().stars) == 0 || len(sumpArts[tideUsual][night]().lamps) <= len(sumpArts[tideUsual][daylight]().lamps) {
 		t.Error("the night has no stars, or no more lamps lit than the day")
 	}
 }

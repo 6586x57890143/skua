@@ -22,20 +22,30 @@ import (
 // going out from under her. The sky over it is the hour's: dawn with its
 // mist, the grey day, the evening and the night with its stars.
 
-// The painted sump under each light, finished art: ChatGPT paintings of
-// the same scene, averaged onto the scene's grid and flattened to 40
-// colours each, with no boats so they can be drawn where the tide puts
-// them. Every painting is the same picture to the pixel, so what's drawn
-// over them sits in the same places. Replace one whole, framed the same.
+// The painted sump at each tide under each light, finished art: ChatGPT
+// paintings of the same scene, averaged onto the scene's grid and
+// flattened to 40 colours each, with no boats so they can be drawn where
+// the tide puts them. The usual tide was painted in all four lights; low
+// and high water were painted at dusk and carried into the others by the
+// ratio between the usual tide's paintings, pixel by pixel. Every painting
+// is the same picture to the pixel, so what's drawn over them sits in the
+// same places. Replace one whole, framed the same.
+//
+//go:embed sump*.png
+var sumpFS embed.FS
+
+// The tides the sump is painted at: as usual, drawn far back off the
+// steps before the bell, and up over the shingle when the bell rings or
+// the hold is full to its line.
+const (
+	tideUsual = iota
+	tideLow
+	tideHigh
+)
+
 var (
-	//go:embed sump.png
-	sumpDusk []byte
-	//go:embed sump_night.png
-	sumpNight []byte
-	//go:embed sump_dawn.png
-	sumpDawn []byte
-	//go:embed sump_day.png
-	sumpDay []byte
+	tideNames  = [3]string{"sump", "sump_low", "sump_high"}
+	lightNames = [4]string{"", "_night", "_dawn", "_day"}
 )
 
 // The light over the sump, from the hour in UTC: the evening the first
@@ -71,22 +81,77 @@ type sumpArt struct {
 	stones [3]uint32 // wet stones, dark to light
 	mist   uint32
 	shade  float64 // how much light the sky gives what's drawn in it
+	edge   []int   // the water's top edge in each column, from the tide
 }
 
-var sumpArts = [4]func() *sumpArt{
-	sync.OnceValue(func() *sumpArt { return readSump(sumpDusk, "dusk", 1, 0x8A8494) }),
-	sync.OnceValue(func() *sumpArt { return readSump(sumpNight, "night", 0.45, 0x2A3348) }),
-	sync.OnceValue(func() *sumpArt { return readSump(sumpDawn, "dawn", 0.8, 0x9C93A6) }),
-	sync.OnceValue(func() *sumpArt { return readSump(sumpDay, "day", 0.95, 0xA9AFB4) }),
+// The sky's light on what's drawn into it, and the mist's colour, by
+// light.
+var (
+	lightShade = [4]float64{1, 0.45, 0.8, 0.95}
+	lightMist  = [4]uint32{0x8A8494, 0x2A3348, 0x9C93A6, 0xA9AFB4}
+)
+
+// sumpArts are the paintings, read once each: [tide][light].
+var sumpArts [3][4]func() *sumpArt
+
+func init() {
+	for tide := range sumpArts {
+		for light := range sumpArts[tide] {
+			sumpArts[tide][light] = sync.OnceValue(func() *sumpArt {
+				name := tideNames[tide] + lightNames[light]
+				b, err := sumpFS.ReadFile(name + ".png")
+				if err != nil {
+					panic("pp: no painting " + name)
+				}
+				a := readSump(b, name, light, lightShade[light], lightMist[light])
+				a.edge = shores[tide]()
+				return a
+			})
+		}
+	}
 }
 
-func readSump(b []byte, what string, shade float64, mist uint32) *sumpArt {
-	img := decodeArt(b, "sump at "+what)
+// shores are the water's top edge at each tide, from its dusk painting:
+// in each column, the top of the water reaching up from the bottom, or the
+// bottom where the beach or the wall stop it.
+var shores [3]func() []int
+
+func init() {
+	for tide := range shores {
+		shores[tide] = sync.OnceValue(func() []int {
+			b, err := sumpFS.ReadFile(tideNames[tide] + ".png")
+			if err != nil {
+				panic("pp: no painting " + tideNames[tide])
+			}
+			img := decodeArt(b, tideNames[tide])
+			// Water is dark and blue; the lamps' light on it and the foam
+			// break it up, so a few rows that aren't are passed over.
+			water := func(x, y int) bool { return wet(img.At(x, y)) && lum(img.At(x, y)) < 95 }
+			edge := make([]int, sumpSize.X)
+			for x := range edge {
+				edge[x] = sumpSize.Y
+				gap := 0
+				for y := sumpSize.Y - 1; y >= 60 && gap <= 4; y-- {
+					switch {
+					case water(x, y):
+						edge[x], gap = y, 0
+					case edge[x] < sumpSize.Y || y < sumpSize.Y-3:
+						gap++
+					}
+				}
+			}
+			return edge
+		})
+	}
+}
+
+func readSump(b []byte, what string, light int, shade float64, mist uint32) *sumpArt {
+	img := decodeArt(b, what)
 	a := &sumpArt{img: img, shade: shade, mist: mist}
 	a.lamps = glows(img)
 	// Stars: points of the night sky over the open sea that stand well out
 	// of the dark around them. A day's or an evening's sky has none.
-	for y := 1; y < 60 && what == "night"; y++ {
+	for y := 1; y < 60 && light == night; y++ {
 		for x := 200; x < sumpSize.X-1; x++ {
 			around, sky := 0, true
 			for _, d := range []image.Point{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
@@ -95,7 +160,7 @@ func readSump(b []byte, what string, shade float64, mist uint32) *sumpArt {
 				r, _, b := rgbOf(img.At(x+d.X, y+d.Y))
 				sky = sky && b > r
 			}
-			if l := lum(img.At(x, y)); sky && l > 70 && l-around/4 > 35 && !lit(img.At(x, y)) {
+			if l := lum(img.At(x, y)); sky && skyAt(x, y) && l > 70 && l-around/4 > 35 && !lit(img.At(x, y)) {
 				a.stars = append(a.stars, image.Pt(x, y))
 			}
 		}
@@ -114,15 +179,12 @@ func readSump(b []byte, what string, shade float64, mist uint32) *sumpArt {
 		}
 	}
 	a.stars = alone
-	// The painting's faint stars were lost in fitting it, so a few more are
-	// set in open sky: dark and blue, with dark blue sky all round.
-	open := func(x, y int) bool {
-		r, _, b := rgbOf(img.At(x, y))
-		return b > r && lum(img.At(x, y)) < 50
-	}
-	for y := 2; y < 58 && what == "night"; y++ {
+	// The painting.s faint stars were lost in fitting it, so a few more are
+	// set in open sky, with sky all round.
+	open := func(x, y int) bool { return skyAt(x, y) }
+	for y := 2; y < 58 && light == night; y++ {
 	cell:
-		for x := 285; x < sumpSize.X-2; x++ {
+		for x := 2; x < sumpSize.X-2; x++ {
 			if hash(x, y)%61 != 0 {
 				continue
 			}
@@ -224,18 +286,28 @@ type Sump struct {
 	Light int
 }
 
-// lift is how far above its painted edge the water stands: up the shingle
-// when the tide's in, drawn right back before the bell, and high while it
-// rings.
+// tide is which tide the sump is painted at: drawn far back from an hour
+// before the bell, up over the shingle while it rings and whenever the
+// hold is full to its line, and as usual otherwise.
+func (s Sump) tide() int {
+	switch {
+	case s.Stage == bellDrawing || s.Stage == bellBoats:
+		return tideLow
+	case s.Stage == bellRinging || s.Line > 0 && s.Hold >= s.Line:
+		return tideHigh
+	}
+	return tideUsual
+}
+
+// lift is how far above its painted edge the usual tide stands: a little
+// down the shingle while the hold is low, a little up it as it fills.
+// Low and high water are painted as they stand.
 func (s Sump) lift() int {
-	switch s.Stage {
-	case bellDrawing, bellBoats:
-		return -7
-	case bellRinging:
-		return 6
+	if s.tide() != tideUsual {
+		return 0
 	}
 	full := min(max(s.Hold, 0), s.Line)
-	return -2 + int(6*full/max(s.Line, 1))
+	return -2 + int(5*full/max(s.Line, 1))
 }
 
 // leaning is whether the wall's candles lean the same way with no wind to
@@ -245,27 +317,10 @@ func (s Sump) leaning() bool { return s.Stage == bellBoats || s.Stage == bellRin
 // boatsUp is whether the ferrymen have pulled their boats up the shingle.
 func (s Sump) boatsUp() bool { return s.Stage == bellBoats || s.Stage == bellRinging }
 
-// shore is the painted water's top edge in each column, the bottom row
-// where the beach and the wall stop it, the same in every painting.
-var shore = sync.OnceValue(func() []int {
-	img := sumpArts[dusk]().img
-	edge := make([]int, sumpSize.X)
-	for x := range edge {
-		edge[x] = sumpSize.Y
-		for y := sumpSize.Y - 1; y >= sumpSize.Y-20; y-- {
-			if !wet(img.At(x, y)) {
-				break
-			}
-			edge[x] = y
-		}
-	}
-	return edge
-})
-
 // handleMask is the painted handle's pixels, from the day's painting,
 // where it stands out against the sky best.
 var handleMask = sync.OnceValue(func() map[image.Point]bool {
-	img := sumpArts[daylight]().img
+	img := sumpArts[tideUsual][daylight]().img
 	m := map[image.Point]bool{}
 	for y := pumpHandle.Min.Y; y < pumpHandle.Max.Y; y++ {
 		for x := pumpHandle.Min.X; x < pumpHandle.Max.X; x++ {
@@ -280,11 +335,11 @@ var handleMask = sync.OnceValue(func() map[image.Point]bool {
 // sumpScene draws the scene over the top of base, and returns it a frame
 // at a time: the painting, then everything that moves on it.
 func sumpScene(base *pixel.Canvas, s Sump) []*pixel.Canvas {
-	art := sumpArts[s.Light]()
+	art := sumpArts[s.tide()][s.Light]()
 	base.Picture(art.img, image.Point{}, 1)
 	ink := func(rgb uint32) uint8 { return base.Dye(rgb) }
 	lift := s.lift()
-	edge := shore()
+	edge := art.edge
 
 	// The painted handle, taken out: each of its pixels the sky beside it.
 	for p := range handleMask() {
@@ -342,8 +397,8 @@ func sumpScene(base *pixel.Canvas, s Sump) []*pixel.Canvas {
 		if s.Stage == bellRinging {
 			rings(c, art, f, lift)
 		}
-		if s.Light == dawn {
-			mist(c, art, f)
+		if thick := fogThick[s.Light]; thick > 0 {
+			fog(c, art, f, thick)
 		}
 		frames = append(frames, c)
 	}
@@ -354,7 +409,7 @@ func sumpScene(base *pixel.Canvas, s Sump) []*pixel.Canvas {
 // lit along its crest, with foam where it breaks on the stones and drawn
 // back down them after.
 func surf(c *pixel.Canvas, art *sumpArt, lift, f int) {
-	edge := shore()
+	edge := art.edge
 	deep, swell, crest, foam := c.Dye(art.water[0]), c.Dye(art.water[1]), c.Dye(art.water[2]), c.Dye(art.water[3])
 	for x := range sumpSize.X {
 		top := edge[x]
@@ -498,29 +553,53 @@ func gull(c *pixel.Canvas, p image.Point, rows []string, inks map[rune]uint8) {
 	}
 }
 
-// mist lies on the water at dawn and rolls along it, thick in some places
-// and thin in others, more of it out past her bow.
-func mist(c *pixel.Canvas, art *sumpArt, f int) {
-	t := 2 * math.Pi * float64(f) / sumpFrames
+// The fog, finished art: a ChatGPT painting of a band of sea mist on
+// black, tiling side to side, fitted to the scene's grid; how bright it is
+// is how thick. fogDrop sets the band low on the water, and fogThick is how
+// much of it each light brings: a dawn mist, a thin one on the night sea,
+// and none in the evening or the day.
+var (
+	fogPic   = sync.OnceValue(func() image.Image { return sprite("fog") })
+	fogThick = [4]float64{0, 0.45, 0.85, 0}
+)
+
+const (
+	fogDrop  = 22
+	fogDrift = 3 // pixels a frame
+)
+
+// fogAt is how thick the fog is at x, y, 0 to 1, the band moved along by
+// shift and wrapped round.
+func fogAt(x, y, shift int) float64 {
+	img := fogPic()
+	b := img.Bounds()
+	fy := y - fogDrop
+	if fy < 0 || fy >= b.Dy() {
+		return 0
+	}
+	fx := ((x+shift)%b.Dx() + b.Dx()) % b.Dx()
+	return float64(lum(img.At(b.Min.X+fx, b.Min.Y+fy))) / 255
+}
+
+// fog rolls along the water at frame f. The band drifts east a few pixels
+// a frame, and so that the eighth frame meets the first it's two bands a
+// loop's drift apart, the one fading out as the other fades in.
+func fog(c *pixel.Canvas, art *sumpArt, f int, thick float64) {
+	t := float64(f) / sumpFrames
 	cache := map[[2]uint8]uint8{}
-	for y := 62; y < sumpSize.Y; y++ {
+	for y := 40; y < sumpSize.Y; y++ {
 		for x := range sumpSize.X {
-			// How thick: lying low, heavier to the east and over the water,
-			// with two drifts of it rolling through at their own speeds.
-			low := float64(y-62) / float64(sumpSize.Y-62)
-			east := float64(x) / float64(sumpSize.X)
-			n := 0.5*math.Sin(float64(x)/23+t+math.Sin(float64(y)/7)) + 0.3*math.Sin(float64(x)/9-2*t+float64(y)/4)
-			d := 0.32*low*low + 0.32*east*east*(0.4+0.6*low) + 0.2*n
-			if wet(c.At(x, y)) {
-				d += 0.1
-			}
+			d := (1-t)*fogAt(x, y, -f*fogDrift) + t*fogAt(x, y, (sumpFrames-f)*fogDrift)
+			d *= thick
 			var lv uint8
 			switch {
-			case d > 0.42:
+			case d > 0.55:
+				lv = 4
+			case d > 0.4:
 				lv = 3
-			case d > 0.3:
+			case d > 0.26:
 				lv = 2
-			case d > 0.2:
+			case d > 0.14:
 				lv = 1
 			default:
 				continue
@@ -528,7 +607,7 @@ func mist(c *pixel.Canvas, art *sumpArt, f int) {
 			i := c.ColorIndexAt(x, y)
 			to, ok := cache[[2]uint8{i, lv}]
 			if !ok {
-				to = c.Dye(blend(hexOf(c.Palette[i]), art.mist, []float64{0, 0.18, 0.32, 0.48}[lv]))
+				to = c.Dye(blend(hexOf(c.Palette[i]), art.mist, []float64{0, 0.15, 0.28, 0.42, 0.56}[lv]))
 				cache[[2]uint8{i, lv}] = to
 			}
 			c.SetColorIndex(x, y, to)
@@ -580,7 +659,7 @@ func pump(c *pixel.Canvas, art *sumpArt, f int) {
 // rings go out over the water from under the steps while the bell rings,
 // two at a time, each wider than the last, fading as they go.
 func rings(c *pixel.Canvas, art *sumpArt, f, lift int) {
-	edge := shore()
+	edge := art.edge
 	from := image.Pt(36, sumpSize.Y+2)
 	for k := range 2 {
 		step := (f + k*sumpFrames/2) % sumpFrames
@@ -669,7 +748,7 @@ func boats(c *pixel.Canvas, s Sump, art *sumpArt, f int) {
 		}
 		return
 	}
-	edge, lift := shore(), s.lift()
+	edge, lift := art.edge, s.lift()
 	for i, x := range afloatAt {
 		img := sprite(names[i])
 		w := img.Bounds().Dx()
@@ -737,4 +816,12 @@ func hash(x, y int) uint32 {
 	h := uint32(x)*374761393 + uint32(y)*668265263
 	h = (h ^ h>>13) * 1274126177
 	return h ^ h>>16
+}
+
+// skyAt is whether x, y is open sky, read off the day's painting, where
+// the sky is flat and pale and the cliff, the ship and her rigging are
+// all darker. At night the cliff's shadows are the sky's colour.
+func skyAt(x, y int) bool {
+	img := sumpArts[tideUsual][daylight]().img
+	return image.Pt(x, y).In(image.Rect(0, 0, sumpSize.X, sumpSize.Y)) && lum(img.At(x, y)) >= 150
 }
