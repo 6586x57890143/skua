@@ -519,3 +519,25 @@ func (m *Module) bells(ctx context.Context) {
 		}
 	}
 }
+
+// bellLine is the drowning hour as the status screen tells it, the same
+// words as the house channel's message, for a server whose house is open:
+// nothing before the water draws back or after the bell stops.
+func (m *Module) bellLine(guild snowflake.ID) string {
+	s := m.st.server(guild)
+	s.mu.Lock()
+	open := s.houseCh != 0
+	s.mu.Unlock()
+	if !open {
+		return ""
+	}
+	at, ok := m.nextBell(m.now())
+	if !ok {
+		return ""
+	}
+	switch stage := bellStage(at, m.now()); stage {
+	case bellDrawing, bellBoats, bellRinging:
+		return "\n-# " + (&bellPost{}).bellText(stage)
+	}
+	return ""
+}

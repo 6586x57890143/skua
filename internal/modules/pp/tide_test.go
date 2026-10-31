@@ -399,3 +399,39 @@ func TestHouseSheet(t *testing.T) {
 		t.Error("an admin couldn't turn to the house")
 	}
 }
+
+// The status screen tells the bell's coming in the house channel's words,
+// only where the house is open and only from the hour before it rings
+// until it stops.
+func TestBellLine(t *testing.T) {
+	m, _ := houseModule(t)
+	at := Bells(m.st.seedOf(DayOf(t0)+1), DayOf(t0)+1)[0]
+	for _, c := range []struct {
+		d    time.Duration
+		want string
+	}{{-2 * time.Hour, ""}, {-30 * time.Minute, "drawing back"}, {-5 * time.Minute, "shingle"}, {30 * time.Minute, "ringing"}, {90 * time.Minute, ""}} {
+		m.now = func() time.Time { return at.Add(c.d) }
+		got := m.bellLine(guild)
+		if (c.want == "") != (got == "") || !strings.Contains(got, c.want) {
+			t.Errorf("at %v the status says %q", c.d, got)
+		}
+	}
+	// On the title screen a newcomer sees, and on the status screen once
+	// they've picked a class.
+	m.now = func() time.Time { return at.Add(-30 * time.Minute) }
+	for _, picked := range []bool{false, true} {
+		if picked {
+			if err := m.pick(guild, 5, Classes[1].Key); err != nil {
+				t.Fatal(err)
+			}
+		}
+		msg, err := m.status(guild, who(5, "steve"), true)
+		if err != nil || !strings.Contains(js(msg.Components), "drawing back") {
+			t.Errorf("picked %v: the screen doesn't carry the bell: %v %s", picked, err, js(msg.Components))
+		}
+	}
+	m.st.server(guild).houseCh = 0
+	if got := m.bellLine(guild); got != "" {
+		t.Errorf("a shut house tells the bell: %q", got)
+	}
+}

@@ -343,7 +343,7 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	picked := mem.classSeason != -1
 	s.mu.Unlock()
 	if !picked {
-		return titleMessage(buttons)
+		return titleMessage(buttons, strings.TrimPrefix(m.bellLine(guild), "\n"))
 	}
 
 	sh.Name = who.EffectiveName()
@@ -356,7 +356,7 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	}
 	alt := fmt.Sprintf("%s, %s, level %d, %s pp to spend", pixel.Plain(sh.Name), sh.Class.Name(), sh.Level, grouped(sh.Purse/unit))
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", turnsOver(today),
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", turnsOver(today)+m.bellLine(guild),
 			discord.NewMediaGallery(screenItem(pic, alt)))},
 		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagIsComponentsV2,
@@ -410,7 +410,7 @@ func withIcon(b discord.ButtonComponent, icon string) discord.ButtonComponent {
 
 // titleMessage is the title screen as a message, for a member who hasn't
 // picked a class: their own copy carries the button to pick one.
-func titleMessage(buttons bool) (discord.MessageCreate, error) {
+func titleMessage(buttons bool, note string) (discord.MessageCreate, error) {
 	pic, err := TitleScreen()
 	if err != nil {
 		return discord.MessageCreate{}, err
@@ -423,7 +423,7 @@ func titleMessage(buttons bool) (discord.MessageCreate, error) {
 		extra = append(extra, discord.NewActionRow(withIcon(discord.NewPrimaryButton("pick a class", "pp:class"), "lantern")))
 	}
 	return discord.MessageCreate{
-		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "melting pot", "", extra...)},
+		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "melting pot", note, extra...)},
 		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
