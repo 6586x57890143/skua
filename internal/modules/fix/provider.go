@@ -184,8 +184,8 @@ type fixData struct {
 }
 
 // Discord identifies video media from the URL extension. FxEmbed's Instagram
-// video proxy URL has no extension, so use its supplied poster image when the
-// proxy URL cannot be identified as a playable video.
+// video proxy URL has no extension, so it goes out as a relay link that ends
+// in .mp4; without a relay, the poster image stands in for it.
 func (a *API) instagramMediaPreview(l Link, d *fixData, media []Media) []Media {
 	if d.Video == nil {
 		return media

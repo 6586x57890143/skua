@@ -54,6 +54,8 @@ func TestInstagramRelayResolvesAnySourceOnFetch(t *testing.T) {
 	if err != nil || len(p.Media) != 1 || len(p.Media[0].URL) > 300 {
 		t.Fatalf("media %+v err=%v", p.Media, err)
 	}
+	a.media.serving <- struct{}{} // two slow clips hold every clip slot
+	a.media.serving <- struct{}{}
 	for range 2 {
 		w := httptest.NewRecorder()
 		a.MediaHandler().ServeHTTP(w, httptest.NewRequest("GET", p.Media[0].URL, nil))

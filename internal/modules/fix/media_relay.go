@@ -25,6 +25,7 @@ type mediaRelay struct {
 	base, secret string
 	slot         chan struct{}
 	serving      chan struct{}
+	streaming    chan struct{}
 	cachedID     string
 	cached       []byte
 	until        time.Time
@@ -42,7 +43,7 @@ func newMediaRelay(a *API, base, secret string) *mediaRelay {
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(secret) < 16 {
 		return nil
 	}
-	return &mediaRelay{api: a, base: strings.TrimRight(base, "/"), secret: secret, slot: make(chan struct{}, 1), serving: make(chan struct{}, 2), sources: map[string]instagramSource{}}
+	return &mediaRelay{api: a, base: strings.TrimRight(base, "/"), secret: secret, slot: make(chan struct{}, 1), serving: make(chan struct{}, 2), streaming: make(chan struct{}, 2), sources: map[string]instagramSource{}}
 }
 
 // kind is "kick" or "reddit"; each signs its IDs in its own namespace.
@@ -142,13 +143,19 @@ func (m *mediaRelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
+	// Instagram streams through and never touches the clip cache, so it gets
+	// its own slots: two slow Kick clips can't starve it.
+	serving := m.serving
+	if instagramVideo {
+		serving = m.streaming
+	}
 	select {
-	case m.serving <- struct{}{}:
+	case serving <- struct{}{}:
 	case <-ctx.Done():
 		http.Error(w, "media busy", http.StatusServiceUnavailable)
 		return
 	}
-	defer func() { <-m.serving }()
+	defer func() { <-serving }()
 	if instagramVideo {
 		m.proxyInstagramVideo(ctx, w, r, p[1], instagramPost)
 		return
