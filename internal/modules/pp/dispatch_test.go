@@ -17,7 +17,7 @@ import (
 // the next day.
 func TestMorningOncePerDay(t *testing.T) {
 	picked := func() *Module {
-		m := testModule(&fakeDB{})
+		m := launched(testModule(&fakeDB{}))
 		if err := m.pick(3, 5, "thief"); err != nil {
 			t.Fatal(err)
 		}
@@ -90,7 +90,7 @@ func TestNotes(t *testing.T) {
 // The first /pp of the day is the sheet, with the way on to the pot; the
 // next is the status screen.
 func TestMorningFirst(t *testing.T) {
-	m := testModule(&fakeDB{})
+	m := launched(testModule(&fakeDB{}))
 	if err := m.pick(3, 5, "thief"); err != nil {
 		t.Fatal(err)
 	}

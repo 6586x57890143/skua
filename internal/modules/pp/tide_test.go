@@ -58,7 +58,7 @@ func (f *tideRest) UpdateMessage(_ snowflake.ID, msg snowflake.ID, u discord.Mes
 // channel coretest's presses come from, and member 5 with pp to stake.
 func houseModule(t *testing.T) (*Module, *tideRest) {
 	t.Helper()
-	m := testModule(&fakeDB{})
+	m := launched(testModule(&fakeDB{}))
 	r := &tideRest{}
 	m.rest, m.Guard = r, guard.New()
 	s := m.st.server(guild)

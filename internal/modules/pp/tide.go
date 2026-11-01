@@ -643,7 +643,7 @@ func (m *Module) bellAt(ctx context.Context, at time.Time) {
 			continue
 		}
 		s.mu.Lock()
-		if s.houseCh == 0 || (s.bell.at.Equal(at) && s.bell.stage >= stage) {
+		if s.houseCh == 0 || !s.released(DayOf(m.now())) || (s.bell.at.Equal(at) && s.bell.stage >= stage) {
 			s.mu.Unlock()
 			continue
 		}
@@ -702,7 +702,7 @@ func (m *Module) bellAt(ctx context.Context, at time.Time) {
 func (m *Module) bellLine(guild snowflake.ID) string {
 	s := m.st.server(guild)
 	s.mu.Lock()
-	open := s.houseCh != 0
+	open := s.houseCh != 0 && s.released(DayOf(m.now()))
 	s.mu.Unlock()
 	if !open {
 		return ""

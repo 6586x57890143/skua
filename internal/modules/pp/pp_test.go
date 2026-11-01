@@ -55,7 +55,7 @@ func (fakeTx) Commit(context.Context) error   { return nil }
 func (fakeTx) Rollback(context.Context) error { return nil }
 
 func testModule(db DB) *Module {
-	return &Module{
+	m := &Module{
 		log: slog.New(slog.NewTextHandler(io.Discard, nil)), db: db, st: newState(&Default, 42),
 		info: func(snowflake.ID) (snowflake.ID, string) { return afkCh, "melted" },
 		now:  func() time.Time { return t0 },
@@ -63,6 +63,21 @@ func testModule(db DB) *Module {
 		Admin:  func(discord.Interaction) bool { return true },
 		inline: true,
 	}
+	return m
+}
+
+// launched is m with its test server launched.
+func launched(m *Module) *Module {
+	m.st.server(guild).open = true
+	return m
+}
+
+// newTestState is a state whose test server, guild, has launched, so a
+// test sees what's new as members will once it has.
+func newTestState() *state {
+	st := newState(&Default, 42)
+	st.server(guild).open = true
+	return st
 }
 
 func js(v any) string { b, _ := json.Marshal(v); return string(b) }
@@ -72,7 +87,7 @@ func js(v any) string { b, _ := json.Marshal(v); return string(b) }
 // the wanderer counts as a pick though it's the class they start as.
 func TestTitleUntilAPick(t *testing.T) {
 	realScreens(t)
-	m := testModule(&fakeDB{})
+	m := launched(testModule(&fakeDB{}))
 	e, sent := coretest.Event(t, "pp", nil)
 	if err := m.Commands()[0].Run(context.Background(), e); err != nil {
 		t.Fatal(err)

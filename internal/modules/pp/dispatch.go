@@ -44,7 +44,7 @@ func (m *Module) morning(guild, user snowflake.ID) (Morning, bool) {
 	defer s.mu.Unlock()
 	mem := m.st.member(s, guild, user, today)
 	// A bird who hasn't picked a class yet starts on the title screen.
-	if mem.dispatchDay == today || mem.classSeason == -1 {
+	if mem.dispatchDay == today || mem.classSeason == -1 || !s.released(today) {
 		return Morning{}, false
 	}
 	mem.dispatchDay = today

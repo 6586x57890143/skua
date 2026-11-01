@@ -23,7 +23,7 @@ func old(n int) snowflake.ID {
 func in(ch snowflake.ID) discord.VoiceState { return discord.VoiceState{ChannelID: &ch} }
 
 func testState() (*state, *server) {
-	st := newState(&Default, 42)
+	st := newTestState()
 	return st, st.server(guild)
 }
 

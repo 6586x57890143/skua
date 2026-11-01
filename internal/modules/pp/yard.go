@@ -104,8 +104,9 @@ func (s *server) setDye(key string, role snowflake.ID) {
 // leasePrice is a week of d. st's pot day is the unit.
 func (st *state) leasePrice(d dye) int64 { return st.pot() * d.price / 100 }
 
-// yardMessage is page of the yard as mem sees it. s.mu held.
-func (st *state) yardMessage(s *server, user snowflake.ID, mem *member, page int, today int64) (discord.MessageCreate, error) {
+// yardMessage is page of the yard as mem sees it, the way back to its
+// front, or to the stair before the launch. s.mu held.
+func (st *state) yardMessage(s *server, user snowflake.ID, mem *member, page int, today int64, front bool) (discord.MessageCreate, error) {
 	title := "the sump's trades"
 	if page == factionsPage {
 		title = "the factions"
@@ -153,6 +154,10 @@ func (st *state) yardMessage(s *server, user snowflake.ID, mem *member, page int
 		}
 	}
 	alt = clip(alt+". you hold "+grouped(mem.purse/unit)+" pp", altLimit)
+	back := discord.NewSecondaryButton("◂ the yard", "pp:yard")
+	if !front {
+		back = discord.NewSecondaryButton("◂ the stair", "pp:back")
+	}
 	other, otherID := "the factions ▸", "pp:yard:1"
 	if page == factionsPage {
 		other, otherID = "◂ the sump's trades", "pp:yard:0"
@@ -161,7 +166,7 @@ func (st *state) yardMessage(s *server, user snowflake.ID, mem *member, page int
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
 			discord.NewMediaGallery(screenItem(pic, alt)),
 			discord.NewActionRow(discord.NewStringSelectMenu("pp:dye", "look closer at a livery", look...)),
-			yardRow(discord.NewSecondaryButton("◂ the yard", "pp:yard"), discord.NewSecondaryButton(other, otherID), mem.rung >= ownStyles[0].rung))},
+			yardRow(back, discord.NewSecondaryButton(other, otherID), mem.rung >= ownStyles[0].rung))},
 		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
@@ -182,7 +187,7 @@ func (st *state) wearing(s *server, user snowflake.ID, mem *member, today int64)
 
 // dyeMessage is d's own card as mem sees it, with the way back to its page
 // and the button to lease it. s.mu held.
-func (st *state) dyeMessage(mem *member, d dye, today int64) (discord.MessageCreate, error) {
+func (st *state) dyeMessage(mem *member, d dye, today int64, renews bool) (discord.MessageCreate, error) {
 	days, weeks, ahead := term(mem.rung)
 	price := st.leasePrice(d) * weeks
 	worn := mem.livery == d.key
@@ -211,7 +216,7 @@ func (st *state) dyeMessage(mem *member, d dye, today int64) (discord.MessageCre
 		lease = lease.AsDisabled()
 	}
 	row := discord.NewActionRow(discord.NewSecondaryButton("◂ the yard", "pp:yard:"+strconv.Itoa(d.page())), lease)
-	if worn {
+	if worn && renews {
 		row = row.AddComponents(renewButton(mem.renew, days))
 	}
 	return discord.MessageCreate{
@@ -289,7 +294,8 @@ func (m *Module) yard(ctx context.Context, guild snowflake.ID, e *events.Compone
 	s := m.st.server(guild)
 	s.mu.Lock()
 	mem := m.st.member(s, guild, user, today)
-	if id == "pp:yard" {
+	front := s.released(today) || m.Admin != nil && m.Admin(e)
+	if id == "pp:yard" && front {
 		// The yard itself moves, so it's drawn outside the lock.
 		build := m.st.yardFront(s, user, mem, today, lightAt(m.now()))
 		s.mu.Unlock()
@@ -303,7 +309,7 @@ func (m *Module) yard(ctx context.Context, guild snowflake.ID, e *events.Compone
 	if id == "pp:yard:1" {
 		page = factionsPage
 	}
-	msg, err := m.st.yardMessage(s, user, mem, page, today)
+	msg, err := m.st.yardMessage(s, user, mem, page, today, front)
 	s.mu.Unlock()
 	if err != nil {
 		return err
@@ -344,7 +350,7 @@ func (m *Module) dyeCard(guild snowflake.ID, e *events.ComponentInteractionCreat
 	today := DayOf(m.now())
 	s := m.st.server(guild)
 	s.mu.Lock()
-	msg, err := m.st.dyeMessage(m.st.member(s, guild, e.User().ID, today), d, today)
+	msg, err := m.st.dyeMessage(m.st.member(s, guild, e.User().ID, today), d, today, s.released(today))
 	s.mu.Unlock()
 	if err != nil {
 		return err
@@ -425,7 +431,7 @@ func (m *Module) leased(ctx context.Context, guild, user snowflake.ID, d dye) (d
 	if old == ownKey {
 		delete(s.own, user)
 	}
-	msg, err := m.st.dyeMessage(mem, d, today)
+	msg, err := m.st.dyeMessage(mem, d, today, s.released(today))
 	s.mu.Unlock()
 	// What was paid lands with its ledger row now, not at the minute.
 	m.Save()

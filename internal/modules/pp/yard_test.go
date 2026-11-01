@@ -47,7 +47,7 @@ func yardServer(r int64, purse int64) (*Module, *yardRest) {
 // Until an admin opens it, only admins see the yard: the shop has no way
 // in and its pages refuse. Opening it is once, for good.
 func TestYardGate(t *testing.T) {
-	m := testModule(&fakeDB{})
+	m := launched(testModule(&fakeDB{}))
 	admin := false
 	m.Admin = func(discord.Interaction) bool { return admin }
 	m.st.server(3).beta = 1
@@ -110,7 +110,7 @@ func TestYardPages(t *testing.T) {
 	mem.livery, mem.liveryUntil = "hide", today+5
 	seen := map[string]bool{}
 	for _, page := range []int{tradesPage, factionsPage} {
-		msg, err := m.st.yardMessage(s, 5, mem, page, today)
+		msg, err := m.st.yardMessage(s, 5, mem, page, today, true)
 		if err != nil {
 			t.Fatal(err)
 		}

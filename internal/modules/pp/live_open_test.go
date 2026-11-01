@@ -66,7 +66,7 @@ func TestLiveOpen(t *testing.T) {
 	m := testModule(&fakeDB{})
 	s := m.st.server(3)
 	s.beta = snowflake.New(time.Now()) // a role Discord echoes as a string, as a real one is
-	post("the beta panel", panel(m), "pp:beta", "pp:open")
+	post("the beta panel", panel(m), "pp:beta", "pp:arm")
 	s.open = true
 	post("the beta panel, open", panel(m), "open to everyone here")
 

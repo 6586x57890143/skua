@@ -110,7 +110,7 @@ func (m *Module) sendLetters(ctx context.Context) {
 		}
 		s.mu.Lock()
 		var due []snowflake.ID
-		if s.sealed > 0 {
+		if s.sealed > 0 && s.released(DayOf(m.now())) {
 			for u, mem := range s.members {
 				if mem.signs.rings >= LetterRings && s.letters[u] == nil {
 					due = append(due, u)

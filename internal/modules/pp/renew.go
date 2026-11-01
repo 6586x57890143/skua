@@ -78,6 +78,11 @@ func (m *Module) renewLeases(today int64) {
 	for _, s := range m.st.servers() {
 		s.leasing.Lock()
 		s.mu.Lock()
+		if !s.released(today) {
+			s.mu.Unlock()
+			s.leasing.Unlock()
+			continue
+		}
 		for user, mem := range s.members {
 			if !mem.renew || mem.livery == "" || mem.liveryUntil > today+1 || today >= mem.liveryUntil+fadeDays {
 				continue

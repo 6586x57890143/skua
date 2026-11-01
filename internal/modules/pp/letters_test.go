@@ -114,7 +114,7 @@ func TestSealedLetters(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
 	letterGuild(t, db, 3)
-	m := testModule(db)
+	m := launched(testModule(db))
 	var logs bytes.Buffer
 	m.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	s := m.st.server(3)
@@ -188,7 +188,7 @@ func TestSealedLetters(t *testing.T) {
 		t.Errorf("a code in the logs: %s", logs.String())
 	}
 
-	back := newState(&Default, 42)
+	back := newTestState()
 	if err := back.loadLetters(ctx, db); err != nil {
 		t.Fatal(err)
 	}
@@ -219,11 +219,11 @@ func TestLoadLettersGate(t *testing.T) {
 
 // The menu offers the letter to whoever holds one, lit until it's opened.
 func TestLetterMenu(t *testing.T) {
-	rows := js(menuRows("bard", false, "pp:status", true, true))
+	rows := js(menuRows("bard", false, "pp:status", true, true, true))
 	if !strings.Contains(rows, "pp:letter") || !strings.Contains(rows, `"style":1`) {
 		t.Errorf("sealed: %s", rows)
 	}
-	if rows := js(menuRows("bard", false, "pp:status", false, false)); strings.Contains(rows, "pp:letter") {
+	if rows := js(menuRows("bard", false, "pp:status", true, false, false)); strings.Contains(rows, "pp:letter") {
 		t.Errorf("none: %s", rows)
 	}
 }

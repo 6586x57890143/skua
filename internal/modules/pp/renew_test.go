@@ -16,6 +16,7 @@ import (
 func TestRenewSwitch(t *testing.T) {
 	m, y := yardServer(1, 10000)
 	s := m.st.server(3)
+	s.open = true // launched
 	s.yardOpen = true
 	db := m.db.(*fakeDB)
 	press := func(id string) string {
@@ -41,7 +42,7 @@ func TestRenewSwitch(t *testing.T) {
 		t.Errorf("switched off: %v %s", mem.renew, got)
 	}
 	d, _ := dyeOf("hide")
-	msg, err := m.st.dyeMessage(mem, d, DayOf(m.now()))
+	msg, err := m.st.dyeMessage(mem, d, DayOf(m.now()), true)
 	if err != nil || strings.Contains(js(msg), "pp:yardrenew") {
 		t.Errorf("the switch on a livery not worn: %v", err)
 	}
@@ -50,7 +51,7 @@ func TestRenewSwitch(t *testing.T) {
 	if err := m.toggleRenew(context.Background(), 3, 5); err != nil || !mem.renew {
 		t.Errorf("their own: %v %v", err, mem.renew)
 	}
-	own, err := m.st.ownMessage(mem, nil, ownState{wearing: true, days: leaseDays, ahead: leaseCap})
+	own, err := m.st.ownMessage(mem, nil, ownState{wearing: true, renews: true, days: leaseDays, ahead: leaseCap})
 	if err != nil || !strings.Contains(js(own), "renews each week") {
 		t.Errorf("their own page: %v %s", err, js(own))
 	}
@@ -62,6 +63,7 @@ func TestRenewSwitch(t *testing.T) {
 func TestRenewLeases(t *testing.T) {
 	m, _ := yardServer(1, 10000)
 	s := m.st.server(3)
+	s.open = true // launched
 	today := DayOf(m.now())
 	d, _ := dyeOf("tallow")
 	price := m.st.leasePrice(d)
@@ -108,7 +110,7 @@ func TestRenewLeases(t *testing.T) {
 func TestRenewLoads(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
-	st := newState(&Default, 42)
+	st := newTestState()
 	g := old(900)
 	s := st.server(g)
 	st.chat(s, g, old(1), "a real thing to say", t0)
@@ -118,7 +120,7 @@ func TestRenewLoads(t *testing.T) {
 	if _, err := db.Exec(ctx, `insert into pp_renew (guild_id, user_id) values ($1, $2) on conflict do nothing`, int64(g), int64(old(1))); err != nil {
 		t.Fatal(err)
 	}
-	back := newState(&Default, 42)
+	back := newTestState()
 	if err := back.load(ctx, db); err != nil {
 		t.Fatal(err)
 	}
@@ -132,6 +134,7 @@ func TestRenewLoads(t *testing.T) {
 func TestRenewOnTheSheet(t *testing.T) {
 	m, _ := yardServer(1, 10000)
 	s := m.st.server(3)
+	s.open = true // launched
 	today := DayOf(m.now())
 	mem := s.members[5]
 	mem.livery, mem.liveryUntil, mem.renew = "tallow", today, true
