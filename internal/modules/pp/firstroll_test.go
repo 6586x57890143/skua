@@ -63,15 +63,18 @@ func TestFirstRollOnStatus(t *testing.T) {
 	}
 }
 
-// The ribbon is worn through the first season only: the place is kept, the
-// screen goes back to how it was.
-func TestFirstRollWornOneSeason(t *testing.T) {
+// The ribbon is worn through the first season's first week only: the place
+// is kept, the screen goes back to how it was.
+func TestFirstRollWornOneWeek(t *testing.T) {
 	sh := Sheet{Name: "steve", Class: ClassOf("knight"), Need: Default.Need(0), FirstRoll: 2}
-	for season, worn := range map[int64]bool{1: true, 2: false} {
-		sh.Season = season
-		with, without := statusCanvas(sh), statusCanvas(Sheet{Name: sh.Name, Class: sh.Class, Need: sh.Need, Season: season})
-		if differs := !bytes.Equal(with.Pix, without.Pix); differs != worn {
-			t.Errorf("season %d: the ribbon is worn %v, want %v", season, differs, worn)
+	for _, c := range []struct {
+		season, week int64
+		worn         bool
+	}{{1, 1, true}, {1, 2, false}, {2, 1, false}} {
+		sh.Season, sh.Week = c.season, c.week
+		with, without := statusCanvas(sh), statusCanvas(Sheet{Name: sh.Name, Class: sh.Class, Need: sh.Need, Season: c.season, Week: c.week})
+		if differs := !bytes.Equal(with.Pix, without.Pix); differs != c.worn {
+			t.Errorf("season %d week %d: the ribbon is worn %v, want %v", c.season, c.week, differs, c.worn)
 		}
 	}
 }

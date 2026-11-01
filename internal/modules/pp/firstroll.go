@@ -14,13 +14,13 @@ import (
 // stamped on it. It's taken once, at the turn into season 1, and never
 // again.
 
-// firstRollPlaces is how many places the first roll holds, and
-// firstRollSeason the season its ribbons are worn: the first. The places
-// are kept after it, off the status screen.
-const (
-	firstRollPlaces = 10
-	firstRollSeason = 1
-)
+// firstRollPlaces is how many places the first roll holds. Its ribbons
+// are worn through the first week of the first season; the places are
+// kept after it, off the status screen.
+const firstRollPlaces = 10
+
+// wornRoll is whether the first roll's ribbon is worn in season's week.
+func wornRoll(season, week int64) bool { return season == 1 && week == 1 }
 
 // rollFirst takes the first roll of s: every member's place on the level
 // ladder as the preseason left it, kept for the first firstRollPlaces. It

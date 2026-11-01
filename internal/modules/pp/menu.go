@@ -425,7 +425,7 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 		return discord.MessageCreate{}, err
 	}
 	alt := fmt.Sprintf("%s, %s, level %d, %s pp to spend", pixel.Plain(sh.Name), sh.Class.Name(), sh.Level, grouped(sh.Purse/unit))
-	if sh.FirstRoll > 0 && sh.Season == firstRollSeason {
+	if sh.FirstRoll > 0 && wornRoll(sh.Season, sh.Week) {
 		alt += fmt.Sprintf(", %s on the first roll", ordinal(sh.FirstRoll))
 	}
 	return discord.MessageCreate{
