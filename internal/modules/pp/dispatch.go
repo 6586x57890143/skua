@@ -131,8 +131,10 @@ var (
 )
 
 // The panes: the sheet under the drying sheets' tops, and the bird's day
-// under the window, and how much of the parchment is parchment.
+// under the window, how much of the parchment is parchment, and how tall
+// a quest's line is on the day.
 const (
+	questRow = pixel.IconCells + 2
 	sheetTop = 12
 	dayTop   = 76
 	paper    = 0.85
@@ -245,19 +247,19 @@ func morningPanes(c *pixel.Canvas, s Morning) {
 		if i == 0 {
 			c.Cursor(x-2, y+6)
 		}
+		// One line a quest, so the notes have room: its icon, what it asks
+		// and, at the right, the reward in its tier's ink, as on the quests
+		// screen. The pp are in the alt text.
 		c.Icon(q.Icon, image.Pt(x, y-iconLift))
-		// The tier is the reward's ink, as on the quests screen.
-		c.Print(pixel.Bold, x+pixel.IconCells+3, y, grouped(q.Reward/unit)+" pp", tier[q.Tier])
-		y += questHead
+		at := rightIn(c, pixel.Regular, r, y, grouped(q.Reward/unit), tier[q.Tier])
 		if len(q.Tasks) > 0 {
 			t := q.Tasks[0]
 			if len(q.Tasks) > 1 {
 				t.What += fmt.Sprintf(" +%d", len(q.Tasks)-1)
 			}
-			c.FitIn(pixel.Light, x+pixel.IconCells+3, y, t.What, pixel.Dim, r-x-pixel.IconCells-3)
-			y += questTask
+			c.FitIn(pixel.Light, x+pixel.IconCells+3, y, t.What, pixel.Ink, at-4-(x+pixel.IconCells+3))
 		}
-		y += questGap
+		y += questRow
 	}
 	if len(s.Quests) == 0 {
 		label(c, x, y, "no notices yet")
