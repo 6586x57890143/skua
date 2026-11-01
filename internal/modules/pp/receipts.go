@@ -73,7 +73,7 @@ func (m *Module) journal(ctx context.Context, guild snowflake.ID, who *discord.R
 	}
 	var lines []line
 	rows, err := m.db.Query(ctx, `select day, reason, delta, inputs from pp_ledger
-		where guild_id = $1 and user_id = $2 order by seq desc limit $3`, int64(guild), int64(user), journalRows)
+		where guild_id = $1 and user_id = $2 and not (reason = 'open' and delta = 0) order by seq desc limit $3`, int64(guild), int64(user), journalRows)
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
@@ -94,7 +94,8 @@ func (m *Module) journal(ctx context.Context, guild snowflake.ID, who *discord.R
 	s.mu.Lock()
 	// Lines chained but not yet written come first, newest first.
 	for _, e := range slices.Backward(s.pending) {
-		if e.user == user {
+		// An opening of nothing only dates the bird; it isn't a line.
+		if e.user == user && (e.reason != reasonOpen || e.delta != 0) {
 			lines = append([]line{{e.day, e.delta, e.reason, e.inputs}}, lines...)
 		}
 	}

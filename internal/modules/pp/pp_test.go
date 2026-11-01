@@ -67,7 +67,8 @@ func testModule(db DB) *Module {
 
 func js(v any) string { b, _ := json.Marshal(v); return string(b) }
 
-// Before a first pick /pp is the title screen with the button to pick;
+// Before a first pick /pp is the title screen with the button to pick and
+// the one to the quests a newcomer already holds;
 // the wanderer counts as a pick though it's the class they start as.
 func TestTitleUntilAPick(t *testing.T) {
 	realScreens(t)
@@ -77,7 +78,7 @@ func TestTitleUntilAPick(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := js((*sent)[0])
-	for _, want := range []string{"melting pot", "pick a class", "pp:class", "attachment://pp.webp"} {
+	for _, want := range []string{"melting pot", "pick a class", "pp:class", "pp:quests", "attachment://pp.webp"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the title lacks %q: %s", want, got)
 		}
