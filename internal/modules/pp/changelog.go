@@ -11,6 +11,14 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.16.0",
+	Date:    "2026-11-02",
+	Balance: "a3b070",
+	Lines: []string{
+		"the morning sheet: the first /pp you open each day is the broadsheet, with the city's news, a rumour from the coffee rooms and your day beside it, your quests and anything worth knowing",
+		"to the pot takes you on to your status screen, and the next sheet comes at the turn",
+	},
+}, {
 	Version: "0.15.0",
 	Date:    "2026-11-02",
 	Balance: "42c7ce",

@@ -286,3 +286,31 @@ Not done yet:
 - The letter screens move only by the hand. An ambient loop (the ribbon, the wax) waits
   for `pixel.Animate` from #189.
 - The owner still has to read LORE.md's sealed letters section.
+
+## /pp: the morning sheet (M5, 2026-11-01)
+
+- **The first `/pp` a member opens each day is a screen of its own**, the morning sheet
+  (`dispatch.go`). It shows once they've picked a class: the title stays a newcomer's
+  first screen. Its only button is "to the pot" (`pp:status`).
+  - **The left panel is the broadsheet.** It holds the day's news (`worldLines` by season
+    and day, the same for everyone) and a rumour (`Roll`, slot `slotDispatch`, so it can't
+    be rerolled).
+  - **The right panel is "your day".** It holds the quests dealt that morning, with the reward
+    in the tier's ink and the hand on the first. Below them are notes, as many as fit: livery
+    fading tonight, close to a level, hearth lit.
+  - Everything is on the picture, as the owner wants.
+  - `dispatchDay` is in memory only, so a restart can show the day's sheet again.
+- **Content is LORE.md's "The broadsheet"**, written there first, mirrored in
+  `dispatch_text.go`. Season 1 week 1 only. Write more once players are seen reading it.
+
+Not done yet:
+
+- **Notes from the warm side** ("cooling in N days") and a guest seen at the rim wait for
+  M1 (#187) on main.
+- Only the slash command shows it. A button press on an old message doesn't.
+- **It moves** (on #192's scenes): the sheet is set over the pressroom at dawn
+  (`press.png`, the owner's ChatGPT painting fitted to 384x216 at 40 colours, finished
+  art). Both panes are 85% parchment the room shows through (`seeThrough`), placed over its
+  quiet wall and bench so the lantern and the window stay clear. The pegged sheets sway
+  and the lantern breathes. `pixel.Animate` now keeps a canvas's hand and bobs it, so the
+  hand at the first quest points on a moving screen too.

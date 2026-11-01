@@ -62,6 +62,13 @@ func (m *Module) Commands() []core.Command {
 				return e.CreateMessage(msg)
 			}
 			m.enlist(*guild, e.Member())
+			if sheet, due := m.morning(*guild, e.User().ID); due {
+				msg, err := morningMessage(sheet)
+				if err != nil {
+					return err
+				}
+				return e.CreateMessage(msg.WithEphemeral(true))
+			}
 			msg, err := m.status(*guild, e.Member(), true)
 			if err != nil {
 				return err
