@@ -200,7 +200,7 @@ func TestBuffsCard(t *testing.T) {
 	mem := m.st.member(s, guild, old(1), DayOf(t0))
 	mem.wear.Crest = true
 	s.lit = 2
-	buffs := m.st.buffList(s, mem, "Melted", 0)
+	buffs := m.st.buffList(s, mem, "Melted", 0, DayOf(t0)+Default.WarmDays)
 	if len(buffs) != 5 || !buffs[0].On || buffs[1].On || buffs[1].How != "put .gg/melted in your custom status" || buffs[3].Name != "surety" || buffs[3].On || buffs[4].Name != "hearth ii" || !buffs[4].On || !strings.Contains(buffs[4].How, "of its day, rises at") {
 		t.Errorf("buffs: %+v", buffs)
 	}
@@ -222,7 +222,7 @@ func TestBuffsCard(t *testing.T) {
 	if err := m.press(context.Background(), e); err != nil {
 		t.Fatal(err)
 	}
-	if got := js((*sent)[0]); strings.Contains(got, "-# ") || !strings.Contains(got, "crest, hearth ii worn") {
+	if got := js((*sent)[0]); strings.Contains(got, "-# ") || !strings.Contains(got, "crest, hearth ii, warm side worn") {
 		t.Errorf("the buffs card: %s", got)
 	}
 }

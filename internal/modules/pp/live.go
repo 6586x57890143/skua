@@ -54,6 +54,9 @@ type member struct {
 	// questsDone how many ever finished.
 	quests               []heldQuest
 	questDay, questsDone int64
+	// first is the first day they earned, or were first seen: the warm
+	// side lasts WarmDays from it.
+	first int64
 	// laurels are the weekly checkpoints they've placed at this season.
 	laurels int64
 	// pact is the chirograph or round robin they've signed, shared with
@@ -109,6 +112,8 @@ type server struct {
 	// beta is the role whose members may play while /pp is in closed
 	// beta, beside admins; 0 is none.
 	beta snowflake.ID
+	// open is whether /pp is open to everyone here, beta or not.
+	open bool
 	// logChannel is where the ledger's head and the seasons' seeds are
 	// posted; 0 is nowhere.
 	logChannel snowflake.ID
@@ -258,7 +263,7 @@ func (st *state) member(s *server, guild, user snowflake.ID, today int64) *membe
 	st.rollServer(s, today)
 	m, ok := s.members[user]
 	if !ok {
-		m = &member{class: Classes[0].Key, classSeason: -1, dayN: today}
+		m = &member{class: Classes[0].Key, classSeason: -1, dayN: today, first: today}
 		m.wear.Banner = s.banners[user]
 		delete(s.banners, user)
 		m.wear.Guests, _ = st.vouched(s, user, today)
@@ -354,6 +359,7 @@ func (s *server) hearth() int { return max(s.lit, s.litBefore) }
 // toward the server's hearth and m's week. s.mu held.
 func (st *state) earn(s *server, m *member, guild, user snowflake.ID, chat bool, raw int64) int64 {
 	before, act := m.day.Voice+m.day.Chat, m.day.Activity()
+	m.wear.Warm = st.bal().Warm(m.first, m.dayN)
 	buff := st.bal().Buff(m.wear, s.hearth())
 	got := st.bal().Earn(&m.day, st.pools(guild, user, m.dayN), chat, raw, buff)
 	if m.day.Minutes+m.day.Paid == 1 {

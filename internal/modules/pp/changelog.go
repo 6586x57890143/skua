@@ -11,6 +11,15 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.14.0",
+	Date:    "2026-11-02",
+	Balance: "92296d",
+	Lines: []string{
+		"/pp is open to everyone: no beta role needed. your first /pp gives you the beta role anyway, so everyone who played from the start carries it",
+		"the warm side, a new buff: for your first 14 days after you first earn, everything but quests pays 10% more. the buffs card counts the days",
+		"your first day brings a second quest, a good one that only asks you to talk, and the title screen has a button to your quests before you've picked a class",
+	},
+}, {
 	Version: "0.13.0",
 	Date:    "2026-11-02",
 	Balance: "7e95dc",
