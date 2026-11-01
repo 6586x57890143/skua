@@ -23,7 +23,8 @@ import (
 // and again when the bones are thrown; and the bell's one message, edited
 // through the drowning hour.
 
-// setHouse keeps the house channel an admin picked.
+// setHouse keeps the channel an admin picked for the slack tide's tables
+// (pp:house) or its news (pp:tidenews).
 func (m *Module) setHouse(ctx context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate) error {
 	if m.Admin == nil || !m.Admin(e) {
 		return errNotAdmin
@@ -36,19 +37,97 @@ func (m *Module) setHouse(ctx context.Context, guild snowflake.ID, e *events.Com
 	if len(data.Values) > 0 {
 		ch = data.Values[0]
 	}
-	if _, err := m.db.Exec(ctx, `insert into pp_guild (guild_id, house_channel) values ($1, $2)
-		on conflict (guild_id) do update set house_channel = excluded.house_channel`, int64(guild), int64(ch)); err != nil {
+	news := e.Data.CustomID() == "pp:tidenews"
+	// column is one of two constants, never input.
+	column := "house_channel"
+	if news {
+		column = "tide_news"
+	}
+	if _, err := m.db.Exec(ctx, `insert into pp_guild (guild_id, `+column+`) values ($1, $2)
+		on conflict (guild_id) do update set `+column+` = excluded.`+column, int64(guild), int64(ch)); err != nil {
 		return err
 	}
 	s := m.st.server(guild)
 	s.mu.Lock()
-	s.houseCh = ch
+	if news {
+		s.newsCh = ch
+	} else {
+		s.houseCh = ch
+	}
 	s.mu.Unlock()
 	said := "the slack tide's shut: no tables, no bell"
-	if ch != 0 {
-		said = fmt.Sprintf("the slack tide posts its tables and its bell in <#%s>", ch)
+	switch {
+	case news && ch == 0:
+		said = "the slack tide's news goes with its tables"
+	case news:
+		said = fmt.Sprintf("the slack tide tells its bell, all hands and duels in <#%s>, with a way to the table", ch)
+	case ch != 0:
+		said = fmt.Sprintf("the slack tide posts its tables in <#%s>", ch)
 	}
 	return e.CreateMessage(discord.NewMessageCreate().WithContent(said).WithEphemeral(true).WithAllowedMentions(core.NoPings()))
+}
+
+// news is where s's slack tide tells its news: its news channel, or beside
+// its tables. s.mu held.
+func (s *server) news() snowflake.ID {
+	if s.newsCh != 0 {
+		return s.newsCh
+	}
+	return s.houseCh
+}
+
+// duelPing is how long a bird called out at the rail goes before another
+// call-out pings them again: a call-out after that is told without one.
+const duelPing = time.Hour
+
+// pingDuel is whether a call-out of user now may ping them, and marks it.
+// s.mu held.
+func (s *server) pingDuel(user snowflake.ID, now time.Time) bool {
+	if last, ok := s.duelPinged[user]; ok && now.Sub(last) < duelPing {
+		return false
+	}
+	if s.duelPinged == nil {
+		s.duelPinged = map[snowflake.ID]time.Time{}
+	}
+	s.duelPinged[user] = now
+	return true
+}
+
+// tableLink is a way to t's message, or to its channel before it's posted.
+func tableLink(guild snowflake.ID, t *table) discord.ButtonComponent {
+	url := fmt.Sprintf("https://discord.com/channels/%s/%s", guild, t.channel)
+	if t.msg != 0 {
+		url += "/" + t.msg.String()
+	}
+	return withIcon(discord.NewLinkButton("go to the table", url), "bell")
+}
+
+// duelWord is a duel at the rail as the news tells it: called out, or how
+// it went once the bones are thrown. s.mu held.
+func duelWord(t *table, caller string) string {
+	switch {
+	case !t.settled:
+		return fmt.Sprintf("**a duel at the rail.** %s has called %s out, and the purser's holding the glass", caller, t.called)
+	case len(t.seats) < 2:
+		return fmt.Sprintf("**a duel at the rail.** %s called %s out, and nobody came to the rail", caller, t.called)
+	}
+	a, b := t.seats[0], t.seats[1]
+	if b.throw > a.throw {
+		a, b = b, a
+	}
+	if a.throw == b.throw {
+		return fmt.Sprintf("**a duel at the rail.** %s and %s both threw %d, and the honour stays at the rail", a.name, b.name, a.throw)
+	}
+	return fmt.Sprintf("**a duel at the rail.** %s takes the honour from %s, %d to %d", a.name, b.name, a.throw, b.throw)
+}
+
+// newsCard is a line of the slack tide's news with its way to the table.
+func newsCard(text string, link discord.ButtonComponent) discord.MessageCreate {
+	return discord.MessageCreate{
+		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "the slack tide", text, discord.NewActionRow(link))},
+		Flags:           discord.MessageFlagIsComponentsV2,
+		AllowedMentions: core.NoPings(),
+	}
 }
 
 // House is what the slack tide's screen shows: the hold against its
@@ -159,8 +238,20 @@ func (m *Module) openTable(ctx context.Context, guild snowflake.ID, e *events.Co
 		t, err = m.st.open(s, s.houseCh, now, bell)
 	}
 	var build func() (discord.MessageCreate, error)
+	// A call-out pings the bird called once, where it's told: in the news
+	// when the news has a channel of its own, on the table when it hasn't,
+	// and not at all if a call-out pinged them within the hour.
+	var news snowflake.ID
+	ping := false
 	if err == nil {
 		t.bellAt = at
+		if t.rail != 0 {
+			t.callerName = e.Member().EffectiveName()
+			if ch := s.news(); ch != t.channel {
+				news = ch
+			}
+			ping = s.pingDuel(t.rail, now)
+		}
 		build = m.tableView(s, t)
 	}
 	s.mu.Unlock()
@@ -173,7 +264,7 @@ func (m *Module) openTable(ctx context.Context, guild snowflake.ID, e *events.Co
 	// Nobody can sit before it's posted, so it's drawn outside the lock.
 	var posted *discord.Message
 	msg, err := build()
-	if t.rail != 0 {
+	if ping && news == 0 {
 		msg.AllowedMentions = &discord.AllowedMentions{Users: []snowflake.ID{t.rail}}
 	}
 	if err == nil {
@@ -192,7 +283,25 @@ func (m *Module) openTable(ctx context.Context, guild snowflake.ID, e *events.Co
 	}
 	s.mu.Lock()
 	t.msg = posted.ID
+	word := duelWord(t, t.callerName)
 	s.mu.Unlock()
+	if news != 0 {
+		card := newsCard(fmt.Sprintf("<@%s>, %s", t.rail, word), tableLink(guild, t))
+		if ping {
+			card.AllowedMentions = &discord.AllowedMentions{Users: []snowflake.ID{t.rail}}
+		}
+		if err := m.write(guild, guard.MessageSend, func() error {
+			told, err := m.rest.CreateMessage(news, card, rest.WithCtx(ctx))
+			if err == nil {
+				s.mu.Lock()
+				t.news, t.newsIn = told.ID, news
+				s.mu.Unlock()
+			}
+			return err
+		}); err != nil {
+			m.log.Warn("pp: telling a duel", "guild", guild, "err", err)
+		}
+	}
 	return e.CreateMessage(discord.NewMessageCreate().
 		WithContent(fmt.Sprintf("the purser's set a table in <#%s>: sit down before the glass runs out", t.channel)).
 		WithEphemeral(true).WithAllowedMentions(core.NoPings()))
@@ -308,6 +417,7 @@ func (m *Module) settleTable(ctx context.Context, guild snowflake.ID, t *table) 
 		}
 	}
 	posted := t.msg != 0
+	news, told, toldIn, word := s.news(), t.news, t.newsIn, duelWord(t, t.callerName)
 	s.mu.Unlock()
 	m.Save()
 	if m.rest == nil || !posted {
@@ -321,10 +431,19 @@ func (m *Module) settleTable(ctx context.Context, guild snowflake.ID, t *table) 
 	}); err != nil {
 		m.log.Warn("pp: showing a table's throw", "guild", guild, "err", err)
 	}
+	if told != 0 {
+		card := newsCard(word, tableLink(guild, t))
+		if err := m.write(guild, guard.MessageSend, func() error {
+			_, err := m.rest.UpdateMessage(toldIn, told, core.Edit(discord.NewMessageUpdateV2(card.Components...)), rest.WithCtx(ctx))
+			return err
+		}); err != nil {
+			m.log.Warn("pp: telling how a duel went", "guild", guild, "err", err)
+		}
+	}
 	for _, p := range hands {
 		line := fmt.Sprintf("**all hands.** %s threw a hundred in the drowning hour and the purser paid %s pp", p.name, grouped(p.won/unit))
 		if err := m.write(guild, guard.MessageSend, func() error {
-			_, err := m.rest.CreateMessage(t.channel, discord.MessageCreate{Content: line, AllowedMentions: core.NoPings()}, rest.WithCtx(ctx))
+			_, err := m.rest.CreateMessage(news, newsCard(line, tableLink(guild, t)), rest.WithCtx(ctx))
 			return err
 		}); err != nil {
 			m.log.Warn("pp: calling all hands", "guild", guild, "err", err)
@@ -662,7 +781,7 @@ func (m *Module) bellAt(ctx context.Context, at time.Time) {
 			s.count(DayOf(at), statBell, 0, 0)
 		}
 		s.bell.stage = stage
-		ch, msg, text := s.houseCh, s.bell.msg, s.bell.bellText(stage)
+		ch, house, msg, text := s.news(), s.houseCh, s.bell.msg, s.bell.bellText(stage)
 		s.mu.Unlock()
 		card := discord.MessageCreate{
 			Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "the drowning hour", text)},
@@ -670,8 +789,11 @@ func (m *Module) bellAt(ctx context.Context, at time.Time) {
 			AllowedMentions: core.NoPings(),
 		}
 		if stage == bellRinging {
-			card.Components[0] = brand.Card(brand.ColorNotice, "pp", "the drowning hour", text,
-				discord.NewActionRow(withIcon(discord.NewPrimaryButton("open a table", "pp:table"), "bell")))
+			row := discord.NewActionRow(withIcon(discord.NewPrimaryButton("open a table", "pp:table"), "bell"))
+			if ch != house {
+				row = row.AddComponents(withIcon(discord.NewLinkButton("go to the tables", fmt.Sprintf("https://discord.com/channels/%s/%s", g, house)), "bell"))
+			}
+			card.Components[0] = brand.Card(brand.ColorNotice, "pp", "the drowning hour", text, row)
 		}
 		var err error
 		if msg == 0 {

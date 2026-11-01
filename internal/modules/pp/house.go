@@ -115,6 +115,10 @@ type table struct {
 	// is the name they were called by.
 	rail, caller snowflake.ID
 	called       string
+	// callerName is who called out, by name, and news the call-out's
+	// message in newsIn, the news channel, 0 for none.
+	callerName   string
+	news, newsIn snowflake.ID
 	earned       []earned // the scraps its bones nailed up
 	seats        []seated
 	settled      bool

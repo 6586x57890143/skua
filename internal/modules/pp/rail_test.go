@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/6586x57890143/skua/internal/core/coretest"
 )
@@ -139,5 +140,83 @@ func TestRailScreens(t *testing.T) {
 		if pic, err := RailScreen(r); err != nil || !bytes.HasPrefix(pic, []byte("RIFF")) {
 			t.Errorf("a rail screen isn't moving: %v", err)
 		}
+	}
+}
+
+// With a news channel of its own the slack tide tells its news there, each
+// with a way to the table: the bell, all hands and a duel called out. The
+// duel pings the bird called out once, there and not on the table, and a
+// second call-out within the hour doesn't ping them again.
+func TestTideNews(t *testing.T) {
+	m, r := houseModule(t)
+	s := m.st.server(guild)
+	s.mu.Lock()
+	s.newsCh = 7
+	called := m.st.member(s, guild, 6, DayOf(t0))
+	called.purse, called.total = 1000*unit, 1000*unit
+	s.mu.Unlock()
+
+	callOut := func() {
+		t.Helper()
+		e, _ := coretest.Button(t, "pp:rail", func(p map[string]any) {
+			p["data"] = map[string]any{"custom_id": "pp:rail", "component_type": 5, "values": []any{"6"},
+				"resolved": map[string]any{"users": map[string]any{"6": map[string]any{"id": "6", "username": "tester", "discriminator": "0"}}}}
+		})
+		if err := m.press(context.Background(), e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	callOut()
+	if len(r.posts) != 2 || r.to[0] != 4 || r.to[1] != 7 {
+		t.Fatalf("the call-out went to %v: %v", r.to, r.posts)
+	}
+	if len(r.pings[0]) != 0 || len(r.pings[1]) != 1 || r.pings[1][0] != 6 {
+		t.Errorf("the call-out pinged %v on the table and %v in the news", r.pings[0], r.pings[1])
+	}
+	news := r.posts[1]
+	if !strings.Contains(news, "has called") || !strings.Contains(news, fmt.Sprintf("discord.com/channels/%s/4/", guild)) {
+		t.Errorf("the duel's news: %s", news)
+	}
+	tb := s.table
+	m.settleTable(context.Background(), guild, tb)
+	if last := r.edits[len(r.edits)-1]; !strings.Contains(last, "nobody came to the rail") {
+		t.Errorf("the duel's news after the throw: %s", last)
+	}
+
+	// Called out again within the hour: told, not pinged.
+	callOut()
+	if p := r.pings[len(r.pings)-1]; len(p) != 0 {
+		t.Errorf("a second call-out pinged %v", p)
+	}
+	if p := r.pings[len(r.pings)-2]; len(p) != 0 {
+		t.Errorf("the second table pinged %v", p)
+	}
+
+	// A hundred in the drowning hour calls all hands in the news.
+	s.mu.Lock()
+	s.table = nil
+	tb, _ = m.st.open(s, 4, t0, true)
+	tb.msg = 900
+	for i := 0; ; i++ {
+		tb.seed = []byte(fmt.Sprint("slate", i))
+		if throwOf(tb.seed, tb.id, 5) == 100 {
+			break
+		}
+	}
+	if err := m.st.sitDown(s, tb, guild, 5, "steve", stakes[0].pp, t0); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Unlock()
+	m.settleTable(context.Background(), guild, tb)
+	if last := r.posts[len(r.posts)-1]; r.to[len(r.to)-1] != 7 || !strings.Contains(last, "all hands") || !strings.Contains(last, "/4/900") {
+		t.Errorf("all hands went to %d: %s", r.to[len(r.to)-1], last)
+	}
+
+	// The bell rings in the news, with a way to the tables.
+	at := Bells(m.st.seedOf(DayOf(t0)+1), DayOf(t0)+1)[0]
+	m.now = func() time.Time { return at.Add(5 * time.Minute) }
+	m.bells(context.Background())
+	if last := r.posts[len(r.posts)-1]; r.to[len(r.to)-1] != 7 || !strings.Contains(last, "go to the tables") || !strings.Contains(last, "pp:table") {
+		t.Errorf("the bell went to %d: %s", r.to[len(r.to)-1], last)
 	}
 }
