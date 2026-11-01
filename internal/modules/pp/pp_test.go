@@ -99,6 +99,7 @@ func TestStatusCommand(t *testing.T) {
 	if err := m.pick(3, 5, "thief"); err != nil {
 		t.Fatal(err)
 	}
+	m.morning(3, 5) // the day's sheet is TestMorningFirst's
 	e, sent := coretest.Event(t, "pp", nil)
 	if err := m.Commands()[0].Run(context.Background(), e); err != nil {
 		t.Fatal(err)

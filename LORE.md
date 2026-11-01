@@ -319,11 +319,13 @@ the choir's broadsheet singers carry the morning sheet down the stair and
 sing it at the rim. A sheet is a penny, and most of the sump hears it for
 nothing. It prints three things. **The news** is the same on every sheet:
 company notices, the tally board's postings and gossip out of the gate
-book, set in order by the choir and checked by nobody. **Notes** are
-pinned in the margin for one bird, sent by whoever has something to tell
-them: a raven at the rim, the dyers' yard, the herons. **Rumour** is what
-the singers heard in the coffee rooms on the way down and put in to fill
-the column. The counting house buys a copy of every sheet and files it.
+book, set in order by the choir and checked by nobody. **Rumour** is what
+the singers heard in mother tern's on the way down and put in to fill the
+column. And for a penny more the board's clerk folds a **margin** into a
+bird's copy: the notices dealt them that morning, and notes from whoever
+has something to tell them, a raven at the rim, the dyers' yard, the
+herons. The counting house buys a copy of every sheet, margins included,
+and files it.
 
 Season 1's first week, a line a day, building on the slack tide:
 
@@ -349,13 +351,11 @@ The thread it leaves for week two: the company wants the bell's tongue, the
 step count is falling, the eels have moved and the bell has rung outside
 its hour. None of it is explained yet.
 
-Notes, each only when it's true of the bird:
+Notes in the margin, each only when it's true of the bird:
 
-- the dyers' yard sends word that your livery fades tonight unless the
-  lease is paid
-- a raven at the rim has you so many pp short of your next level
-- the herons lit the hearth before dawn, and what you pour in today goes
-  further
+- your livery fades tonight unless the yard is paid
+- a raven has you so many pp off your next level
+- the hearth is lit, and your work goes further today
 
 Rumour:
 
@@ -460,7 +460,7 @@ Rumour:
 | the levy and treasury | the pot's share, kept for the city |
 | the shop and the stair | buying a perch higher up the spire; what's spent goes back into the pot |
 | the hearth | the herons' public fire, lit on a day the city earns it |
-| the line over your first /pp of the day | the morning broadsheet: the news, a note for you, or a rumour |
+| the first /pp of the day | the morning sheet: the news, a rumour, and a margin with your notices and notes |
 | inviting someone to the server | standing surety for a newcomer in the gate book |
 | the surety buff | the pot paying a surety for each guest still about the city |
 | the guest badge | a surety's key: iron, gold, then the freedom of the city |

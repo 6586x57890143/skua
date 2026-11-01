@@ -61,11 +61,17 @@ func (m *Module) Commands() []core.Command {
 				}
 				return e.CreateMessage(msg)
 			}
+			if sheet, due := m.morning(*guild, e.User().ID); due {
+				msg, err := morningMessage(sheet)
+				if err != nil {
+					return err
+				}
+				return e.CreateMessage(msg.WithEphemeral(true))
+			}
 			msg, err := m.status(*guild, e.Member(), true)
 			if err != nil {
 				return err
 			}
-			msg = withDispatch(msg, m.morning(*guild, e.User().ID))
 			return e.CreateMessage(m.withMenu(*guild, e.User().ID, m.Admin != nil && m.Admin(e), msg, "pp:status").WithEphemeral(true))
 		},
 	}}

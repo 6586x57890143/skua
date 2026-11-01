@@ -246,12 +246,17 @@ Not done yet:
 - **The economy report's house figures**, after a week of real data.
 ## /pp: the morning sheet (M5, 2026-11-01)
 
-- **One `-#` line under the card's heading on the first `/pp` a member opens each day**
-  (`dispatch.go`), drawn by `Roll` from the season seed, day and member (slot
-  `slotDispatch`), so it can't be rerolled. Half the days the world's news (the same line
-  for everyone, `worldLines` by season and day), a quarter a note about the bird (livery
-  fading tonight, close to a level, hearth lit), a quarter a rumour. Each falls through to
-  the next when it has nothing. `dispatchDay` is in memory only: a restart can repeat a day's line.
+- **The first `/pp` a member opens each day is a screen of its own**, the morning sheet
+  (`dispatch.go`). It shows once they've picked a class: the title stays a newcomer's
+  first screen. Its only button is "to the pot" (`pp:status`).
+  - **The left panel is the broadsheet.** It holds the day's news (`worldLines` by season
+    and day, the same for everyone) and a rumour (`Roll`, slot `slotDispatch`, so it can't
+    be rerolled).
+  - **The right panel is "your day".** It holds the quests dealt that morning, with the reward
+    in the tier's ink and the hand on the first. Below them are notes, as many as fit: livery
+    fading tonight, close to a level, hearth lit.
+  - Everything is on the picture, as the owner wants.
+  - `dispatchDay` is in memory only, so a restart can show the day's sheet again.
 - **Content is LORE.md's "The broadsheet"**, written there first, mirrored in
   `dispatch_text.go`. Season 1 week 1 only. Write more once players are seen reading it.
 
@@ -260,3 +265,5 @@ Not done yet:
 - **Notes from the warm side** ("cooling in N days") and a guest seen at the rim wait for
   M1 (#187) on main.
 - Only the slash command shows it. A button press on an old message doesn't.
+- **The ambient loop** (every /pp surface moves: a candle at the press, steam) waits for
+  `pixel.Animate` from #189. Until then only the hand moves.

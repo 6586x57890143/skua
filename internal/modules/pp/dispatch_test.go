@@ -2,36 +2,46 @@ package pp
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/disgoorg/disgo/discord"
-
 	"github.com/6586x57890143/skua/internal/core/coretest"
 )
 
-// A member gets one dispatch a day, the same one whoever asks, and another
+// A member gets one sheet a day, the same one whoever asks, and another
 // the next day.
-func TestDispatchOncePerDay(t *testing.T) {
-	m := testModule(&fakeDB{})
-	first := m.morning(3, 5)
-	if first == "" {
-		t.Fatal("no dispatch on the first /pp of the day")
+func TestMorningOncePerDay(t *testing.T) {
+	picked := func() *Module {
+		m := testModule(&fakeDB{})
+		if err := m.pick(3, 5, "thief"); err != nil {
+			t.Fatal(err)
+		}
+		return m
 	}
-	if again := m.morning(3, 5); again != "" {
-		t.Errorf("a second dispatch the same day: %q", again)
+	if _, due := testModule(&fakeDB{}).morning(3, 5); due {
+		t.Error("a sheet before a class was picked")
 	}
-	if other := testModule(&fakeDB{}).morning(3, 5); other != first {
-		t.Errorf("the same member's day drew %q and %q", first, other)
+	m := picked()
+	first, due := m.morning(3, 5)
+	if !due || first.Rumour == "" {
+		t.Fatal("no sheet on the first /pp of the day")
+	}
+	if _, due := m.morning(3, 5); due {
+		t.Error("a second sheet the same day")
+	}
+	if other, _ := picked().morning(3, 5); other.Rumour != first.Rumour {
+		t.Errorf("the same member's day drew %q and %q", first.Rumour, other.Rumour)
 	}
 	m.now = func() time.Time { return t0.Add(24 * time.Hour) }
-	if m.morning(3, 5) == "" {
-		t.Error("no dispatch the next day")
+	if _, due := m.morning(3, 5); !due {
+		t.Error("no sheet the next day")
 	}
 }
 
-// The world's line follows the season's days and runs out past them.
+// The news follows the season's days and runs out past them; the date
+// counts the season's days from one.
 func TestWorldLine(t *testing.T) {
 	b := &Default
 	start := b.SeasonStart
@@ -45,81 +55,95 @@ func TestWorldLine(t *testing.T) {
 			t.Errorf("day %d reads %q", day-start, got)
 		}
 	}
-}
-
-// Over many members on a season's first day all three kinds turn up, and
-// everyone who gets the world's news gets the same line.
-func TestDispatchKinds(t *testing.T) {
-	m := testModule(&fakeDB{})
-	day := Default.SeasonStart
-	m.now = func() time.Time { return dayStart(day).Add(time.Hour) }
-	s := m.st.server(3)
-	m.st.member(s, 3, old(1), day) // rolls the day, so the fire stays lit
-	s.lit = 1
-	world, own, rumour := 0, 0, 0
-	for u := uint64(1); u <= 400; u++ {
-		switch l := m.morning(3, old(int(u))); {
-		case l == worldLines[1][0]:
-			world++
-		case strings.Contains(l, "hearth"):
-			own++
-		case l != "":
-			rumour++
-		default:
-			t.Fatalf("member %d got nothing", u)
-		}
+	if got := sheetDate(b, start+2); got != "season 1, day 3" {
+		t.Errorf("the third day is dated %q", got)
 	}
-	if world < 150 || own < 60 || rumour < 60 {
-		t.Errorf("world %d, own %d, rumour %d of 400", world, own, rumour)
+	if got := sheetDate(b, start-1); got != "before the season" {
+		t.Errorf("the day before is dated %q", got)
 	}
 }
 
-// Their own news is what's true of them, and nothing when nothing is.
-func TestOwnLine(t *testing.T) {
+// The notes are what's true of them, and none when nothing is.
+func TestNotes(t *testing.T) {
 	m := testModule(&fakeDB{})
 	today := DayOf(t0)
 	s := m.st.server(3)
 	mem := m.st.member(s, 3, 5, today)
-	if got := m.ownLine(s, mem, 0, today); got != "" {
-		t.Errorf("a new member's own news: %q", got)
+	if got := m.notes(s, mem, today); len(got) != 0 {
+		t.Errorf("a new member's notes: %q", got)
 	}
 	mem.livery, mem.liveryUntil = "tanners", today
-	if got := m.ownLine(s, mem, 0, today); !strings.Contains(got, "livery fades tonight") {
-		t.Errorf("a lease running out reads %q", got)
-	}
-	mem.livery = ""
 	_, _, need := m.st.bal().Level(0)
 	mem.total = need - unit
-	if got := m.ownLine(s, mem, 0, today); got != "a raven at the rim has you 1 pp short of level 1" {
-		t.Errorf("close to a level reads %q", got)
-	}
-	mem.total = 0
 	s.lit = 2
-	if got := m.ownLine(s, mem, 0, today); !strings.Contains(got, "hearth") {
-		t.Errorf("a lit hearth reads %q", got)
+	got := strings.Join(m.notes(s, mem, today), "|")
+	for _, want := range []string{"livery fades tonight", "1 pp off level 1", "hearth is lit"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the notes lack %q: %s", want, got)
+		}
 	}
 }
 
-// The dispatch sits under the card's heading, on the title screen too.
-func TestDispatchOnTheCard(t *testing.T) {
-	realScreens(t)
+// The first /pp of the day is the sheet, with the way on to the pot; the
+// next is the status screen.
+func TestMorningFirst(t *testing.T) {
 	m := testModule(&fakeDB{})
-	e, sent := coretest.Event(t, "pp", nil)
-	if err := m.Commands()[0].Run(context.Background(), e); err != nil {
+	if err := m.pick(3, 5, "thief"); err != nil {
 		t.Fatal(err)
 	}
-	head := (*sent)[0].Components[0].(discord.ContainerComponent).Components[0].(discord.TextDisplayComponent).Content
-	if lines := strings.Split(head, "\n"); len(lines) != 2 || !strings.HasPrefix(lines[1], "-# ") {
-		t.Errorf("the title's heading reads %q", head)
+	run := func() string {
+		e, sent := coretest.Event(t, "pp", nil)
+		if err := m.Commands()[0].Run(context.Background(), e); err != nil {
+			t.Fatal(err)
+		}
+		return js((*sent)[0])
 	}
-	if got := withDispatch(discord.MessageCreate{}, "x"); len(got.Components) != 0 {
-		t.Error("a dispatch made a card")
+	if got := run(); !strings.Contains(got, "the morning sheet") || !strings.Contains(got, "pp:status") || !strings.Contains(got, "overheard") {
+		t.Errorf("the first /pp: %s", got)
+	}
+	if got := run(); strings.Contains(got, "the morning sheet") || !strings.Contains(got, "pp:show") {
+		t.Errorf("the second /pp: %s", got)
 	}
 }
 
-// Every line is in the bird voice: lowercase, no semicolons.
-func TestDispatchVoice(t *testing.T) {
-	all := append(append([]string{}, rumours...), worldLines[1]...)
+// The sheet lays out clean with the longest news, three quests and every
+// note, and with nothing at all.
+func TestMorningLayout(t *testing.T) {
+	long := ""
+	for _, l := range worldLines[1] {
+		if len(l) > len(long) {
+			long = l
+		}
+	}
+	rumour := ""
+	for _, l := range rumours {
+		if len(l) > len(rumour) {
+			rumour = l
+		}
+	}
+	full := Morning{Date: "season 12, day 28", News: long, Rumour: rumour,
+		Notes: []string{"your livery fades tonight unless the yard is paid", "a raven has you 99,999 pp off level 99", "the hearth is lit, and your work goes further today"}}
+	for tier := range 3 {
+		full.Quests = append(full.Quests, QuestLine{Icon: "compass", Tier: tier, Reward: 99999 * unit,
+			Tasks: []TaskLine{{What: "a selfie that stays a day", Goal: 1}, {What: "messages", Goal: 9}}})
+	}
+	checkLayout(t, "full", morningCanvas(full))
+	checkLayout(t, "empty", morningCanvas(Morning{Date: "before the season", Rumour: rumours[0]}))
+	if dir := os.Getenv("SKUA_SHOT"); dir != "" {
+		realScreens(t)
+		pic, err := MorningScreen(full)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = os.WriteFile(dir+"/morning.webp", pic, 0o644)
+		png, _ := morningCanvas(full).PNG(3)
+		_ = os.WriteFile(dir+"/morning.png", png, 0o644)
+	}
+}
+
+// Every line is in the bird voice: lowercase, no semicolons, no stop.
+func TestMorningVoice(t *testing.T) {
+	all := append(append([]string{noNews}, rumours...), worldLines[1]...)
 	for _, l := range all {
 		if l != strings.ToLower(l) || strings.Contains(l, ";") || strings.HasSuffix(l, ".") {
 			t.Errorf("off voice: %q", l)

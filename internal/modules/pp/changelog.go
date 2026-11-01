@@ -15,7 +15,8 @@ var Changelog = []Entry{{
 	Date:    "2026-11-02",
 	Balance: "94afec",
 	Lines: []string{
-		"the morning sheet: the first /pp you open each day carries one line from the broadsheet, the city's news, a note for you or a rumour from the coffee rooms",
+		"the morning sheet: the first /pp you open each day is the broadsheet, with the city's news, a rumour from the coffee rooms and your day beside it, your quests and anything worth knowing",
+		"to the pot takes you on to your status screen, and the next sheet comes at the turn",
 	},
 }, {
 	Version: "0.15.0",
