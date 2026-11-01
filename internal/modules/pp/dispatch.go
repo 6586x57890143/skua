@@ -105,8 +105,34 @@ func (m *Module) notes(s *server, mem *member, today int64) []string {
 // noNews is the sheet on a day with no news written for it.
 const noNews = "the presses had nothing new to set, so the singers sang yesterday's sheet again and nobody minded"
 
-// MorningScreen is the sheet as a screen.
-func MorningScreen(s Morning) ([]byte, error) { return morningCanvas(s).Screen(screenScale) }
+// sheetBand is the piece of the pot square over the bird's day: the rim
+// where the singers sing the sheet, the board on it and the steam going
+// up, at dawn. sheetPic is where it's set, framed, at the top of the day's
+// column.
+var (
+	sheetBand = image.Rect(124, 50, 284, 86)
+	sheetPic  = image.Rectangle{image.Pt(220, 4), image.Pt(220, 4).Add(sheetBand.Size())}
+)
+
+// MorningScreen is the sheet as a screen, moving: the pot square at dawn
+// steaming over the bird's day, beside the sheet.
+func MorningScreen(s Morning) ([]byte, error) {
+	frames := morningFrames(s)
+	return pixel.Animate(frames, beatsOf(len(frames)), screenScale)
+}
+
+// morningFrames are the sheet with each frame of the pot square's loop
+// set in its frame.
+func morningFrames(s Morning) []*pixel.Canvas {
+	c := morningCanvas(s)
+	scene := potScene(pixel.New(sumpSize.X, sumpSize.Y), dawn)
+	out := make([]*pixel.Canvas, len(scene))
+	for i, f := range scene {
+		out[i] = c.Copy()
+		out[i].Picture(f.SubImage(sheetBand), sheetPic.Min, 1)
+	}
+	return out
+}
 
 func morningCanvas(s Morning) *pixel.Canvas {
 	c := pixel.New(screenW, screenH)
@@ -137,11 +163,12 @@ func morningCanvas(s Morning) *pixel.Canvas {
 	}
 
 	// Their own day: the quests dealt them, then notes.
-	day := image.Rect(220, 4, 380, 212)
+	c.Outline(sheetPic.Inset(-1), pixel.Line)
+	day := image.Rect(220, sheetPic.Max.Y+4, 380, 212)
 	c.Window(day)
 	c.Tab(day, "your day")
 	x, r := 240, 368
-	y = 26
+	y = day.Min.Y + 22
 	tier := [3]uint8{pixel.Ink, pixel.Green, pixel.Gold}
 	for i, q := range s.Quests {
 		if i == 0 {

@@ -194,10 +194,15 @@ func (c *Canvas) Screen(scale int) ([]byte, error) {
 // differs from the one before, softened on its own, so a scene that moves
 // in a few places costs little more than a still one. Frames are the same
 // size. A run of frames that never changes is no animation, and goes out
-// still: Discord breaks on a one-frame WebP.
+// still: Discord breaks on a one-frame WebP. A hand on a frame is nudged
+// through Bob as the frames go, so it points on a moving screen too.
 func Animate(frames []*Canvas, beats []int, scale int) ([]byte, error) {
 	if Draft.Load() {
 		return draft, nil
+	}
+	frames = slices.Clone(frames)
+	for i, f := range frames {
+		frames[i] = f.frame(Bob[i%len(Bob)])
 	}
 	full := image.Rect(0, 0, frames[0].Rect.Dx()*scale, frames[0].Rect.Dy()*scale)
 	type part struct {
@@ -251,7 +256,7 @@ func changed(a, b *Canvas) image.Rectangle {
 	return r
 }
 
-// Copy is a copy of c to draw the next frame on.
+// Copy is a copy of c to draw the next frame on, its hands still pointing.
 func (c *Canvas) Copy() *Canvas {
-	return &Canvas{Paletted: &image.Paletted{Pix: slices.Clone(c.Pix), Stride: c.Stride, Rect: c.Rect, Palette: slices.Clone(c.Palette)}}
+	return &Canvas{Paletted: &image.Paletted{Pix: slices.Clone(c.Pix), Stride: c.Stride, Rect: c.Rect, Palette: slices.Clone(c.Palette)}, hands: slices.Clone(c.hands)}
 }

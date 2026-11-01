@@ -1,6 +1,7 @@
 package pp
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"strings"
@@ -129,6 +130,9 @@ func TestMorningLayout(t *testing.T) {
 	}
 	checkLayout(t, "full", morningCanvas(full))
 	checkLayout(t, "empty", morningCanvas(Morning{Date: "before the season", Rumour: rumours[0]}))
+	if f := morningFrames(full); len(f) != ambientFrames || bytes.Equal(f[0].Pix, f[ambientFrames/2].Pix) {
+		t.Error("the pot square over the day stands still")
+	}
 	if dir := os.Getenv("SKUA_SHOT"); dir != "" {
 		realScreens(t)
 		pic, err := MorningScreen(full)
@@ -136,7 +140,7 @@ func TestMorningLayout(t *testing.T) {
 			t.Fatal(err)
 		}
 		_ = os.WriteFile(dir+"/morning.webp", pic, 0o644)
-		png, _ := morningCanvas(full).PNG(3)
+		png, _ := morningFrames(full)[0].PNG(3)
 		_ = os.WriteFile(dir+"/morning.png", png, 0o644)
 	}
 }

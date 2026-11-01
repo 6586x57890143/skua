@@ -342,4 +342,11 @@ func TestAnimate(t *testing.T) {
 	if got := changed(a, b); got != image.Rect(10, 10, 14, 14) {
 		t.Errorf("changed %v", got)
 	}
+	// A hand keeps pointing through Copy, and bobs on a moving screen
+	// even when nothing else moves.
+	a.Cursor(30, 15)
+	pointing, err := Animate([]*Canvas{a, a.Copy()}, []int{100, 100}, 2)
+	if err != nil || !bytes.HasPrefix(pointing, []byte("RIFF")) {
+		t.Fatalf("the hand stood still: %v", err)
+	}
 }
