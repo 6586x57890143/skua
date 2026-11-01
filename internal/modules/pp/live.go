@@ -125,6 +125,10 @@ type server struct {
 	// logChannel is where the ledger's head and the seasons' seeds are
 	// posted; 0 is nowhere.
 	logChannel snowflake.ID
+	// letters are the sealed letters sent, by who holds each, and sealed
+	// how many codes wait for a bird to earn one.
+	letters map[snowflake.ID]*letter
+	sealed  int
 	// The ledger: the server, the last row's number and hash, and the rows
 	// not yet written.
 	id      snowflake.ID
