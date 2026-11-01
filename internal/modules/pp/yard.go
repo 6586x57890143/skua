@@ -161,7 +161,7 @@ func (st *state) yardMessage(s *server, user snowflake.ID, mem *member, page int
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
 			discord.NewMediaGallery(screenItem(pic, alt)),
 			discord.NewActionRow(discord.NewStringSelectMenu("pp:dye", "look closer at a livery", look...)),
-			yardRow(discord.NewSecondaryButton("◂ the stair", "pp:back"), discord.NewSecondaryButton(other, otherID), mem.rung >= ownStyles[0].rung))},
+			yardRow(discord.NewSecondaryButton("◂ the yard", "pp:yard"), discord.NewSecondaryButton(other, otherID), mem.rung >= ownStyles[0].rung))},
 		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
@@ -285,19 +285,58 @@ func (m *Module) yard(ctx context.Context, guild snowflake.ID, e *events.Compone
 		}
 		return m.dyeCard(guild, e, d)
 	}
+	today := DayOf(m.now())
+	s := m.st.server(guild)
+	s.mu.Lock()
+	mem := m.st.member(s, guild, user, today)
+	if id == "pp:yard" {
+		// The yard itself moves, so it's drawn outside the lock.
+		build := m.st.yardFront(s, user, mem, today, lightAt(m.now()))
+		s.mu.Unlock()
+		msg, err := build()
+		if err != nil {
+			return err
+		}
+		return m.answer(guild, e, msg, "pp:shop")
+	}
 	page := tradesPage
 	if id == "pp:yard:1" {
 		page = factionsPage
 	}
-	today := DayOf(m.now())
-	s := m.st.server(guild)
-	s.mu.Lock()
-	msg, err := m.st.yardMessage(s, user, m.st.member(s, guild, user, today), page, today)
+	msg, err := m.st.yardMessage(s, user, mem, page, today)
 	s.mu.Unlock()
 	if err != nil {
 		return err
 	}
 	return m.answer(guild, e, msg, "pp:shop")
+}
+
+// yardFront is the yard's front as mem sees it, gathered while s.mu is
+// held and drawn after: the yard in light over their purse and the livery
+// they wear, with the ways to its two pages of liveries.
+func (st *state) yardFront(s *server, user snowflake.ID, mem *member, today int64, light int) func() (discord.MessageCreate, error) {
+	days, _, _ := term(mem.rung)
+	wear := st.wearing(s, user, mem, today)
+	purse, own := mem.purse, mem.rung >= ownStyles[0].rung
+	return func() (discord.MessageCreate, error) {
+		pic, err := YardFront(light, purse, wear, termWord(days))
+		if err != nil {
+			return discord.MessageCreate{}, err
+		}
+		alt := "the dyers' yard against the cliff, its vats boiling. you wear " + or(wear.Name, "your own feathers") + " and hold " + grouped(purse/unit) + " pp"
+		row := discord.NewActionRow(discord.NewSecondaryButton("◂ the stair", "pp:back"),
+			discord.NewSecondaryButton("the sump's trades", "pp:yard:0"), discord.NewSecondaryButton("the factions", "pp:yard:1"))
+		if own {
+			row = row.AddComponents(withIcon(discord.NewPrimaryButton("a livery of your own", "pp:own"), "quill"))
+		}
+		return discord.MessageCreate{
+			Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
+				discord.NewMediaGallery(screenItem(pic, alt)), row)},
+			Files:           []*discord.File{screenAttachment(pic, alt)},
+			Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
+			AllowedMentions: core.NoPings(),
+		}, nil
+	}
 }
 
 // dyeCard shows d's card.

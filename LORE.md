@@ -18,6 +18,25 @@ Think of Sigil in Planescape: a city that is a world of its own, run by
 factions with philosophies, where every street has someone working an angle.
 The people are birds: every kind of bird, in every trade and every gutter.
 
+### The people
+
+The rookery's people walk upright on two legs and work with two hands, and
+each wears the head of their kind: a raven's, a heron's, a gull's. They
+don't fly. They dress, eat at tables, sleep in beds, drink gin, sign their
+names and argue in coffee rooms, and their city is built the way a city of
+the 1700s is built, in brick, timber and stone, with stairs, doors and
+windows.
+
+Everything bird about them lives in the head, the habits and the language.
+A **perch** is a house or a ledge someone owns, a **roost** is where a bird
+sleeps tonight, a newcomer who has **just learned to fly** has just come of
+age, and to **preen** is to dress up for the bellward. Kinds keep their
+temperaments the way trades and families do: ravens count, herons wait,
+magpies take an interest in what shines. When the lore talks of feathers,
+nests, flocks or flight, it is the city's idiom, never a bird doing what a
+bird does. Write the architecture and the daily life as human, and let the
+birdness come through in the names, the manners and the turns of phrase.
+
 ### How it reads
 
 - **Lore, not poetry.** Give names, places, prices, institutions and
@@ -94,6 +113,22 @@ pot and is gone. The city runs on pp, and the pot is why it runs at all.
 Quests are notices pinned to the board at the pot's rim. Newcomers sleep
 against its warm side, a custom that is older than the city's laws.
 
+### The warm side
+
+The pot's iron never cools on the side that faces the spire, and by old
+custom that side belongs to newcomers. A bird new to the city may sleep
+there for the first two weeks after they first pour anything in, and the
+pot is kinder to them while they do: whatever they pour comes back a tenth
+heavier. The counting house enters it like any other earning and calls
+it the pot's own heat. Its clerks call it the cheapest hiring the city
+does, since a bird who has been paid well for two weeks rarely leaves. After
+two weeks the bird is expected to find a bed of their own, and most have by
+then.
+
+The keepers of the board hold one notice back for each newcomer, an easy
+one that asks only for talk, so their first day in the city ends with
+something done.
+
 ### The hearth
 
 Beside the pot stands **the hearth**, a public fire tended by the herons of
@@ -104,8 +139,11 @@ the herons is argued over in every coffee room.
 
 What counts as ordinary is kept on a **notch stick**. Each time the pot turns
 over, before dawn, a novice cuts the day just gone into the stick and shaves
-the oldest notch off, so it never holds more than seven. A good week raises
-the mark and a lean week lowers it. The keepers read the steam for talk and
+the oldest notch off, so it never holds more than seven. The keepers lay the
+notches side by side and read the middle one, not the average: one roaring
+night can't hold the mark up for a week of ordinary ones. A fire set at the
+middle notch lights on a day a little short of ordinary, burns higher on an
+ordinary one and higher still on a good one. They read the steam for talk and
 work poured in at the rim, and leave the notices on the board out of the
 count. The fire has three heights, and once lit it isn't let down until the
 next day is out, whatever the city does after.
@@ -255,6 +293,21 @@ round robin with all four places filled.
   three of the names are on the chapter house wall, among those who didn't
   come down.
 
+### Sealed letters
+
+Now and then the north sea company writes to a bird. The letter comes up
+from the bellward by company runner, never by the penny post, sealed in
+green wax stamped with a gannet over the waves and tied in a blue ribbon
+gone grey with salt. Inside is a line of figures and nothing else. A bird
+who takes the figures to the company's office is seen by the clerk, who
+knows them.
+
+Nobody posts these letters on the board, and the company has never said
+who it writes to or why. The ferrymen say it's crewing for whatever the
+kittiwake's round robin asked. The gin lanes say it can't be bought,
+because they've tried. The clerk is given paper for only so many, and when
+it's gone the office is shut.
+
 ### Liveries
 
 A **livery** is the colour a bird wears in the street, and in the rookery it
@@ -314,6 +367,345 @@ the fee of anyone they refuse. A granted livery is entered in the college's
 roll, and the name is the bird's to wear for as long as the lease is paid.
 The roll has room for only so many names at once, and the heralds charge
 more as it fills.
+
+### The sump
+
+The sump is the rookery's seaward foot: the streets between the pot and the
+sea, on the side of the spire that takes the weather. It is the lowest dry
+ground in the city, and until the drowning it wasn't the bottom of
+anything. It was the low town's back streets, the yards and lanes behind
+the harbour where the work that smelled was done out of sight of the quay.
+When the low town went under, its back streets became the waterfront in a
+night, and they have never had the money to look like one.
+
+From the pot the way down is **the gut**, a street of worn steps wide enough
+for two handcarts, running from the pot's seaward rim to the harbour wall.
+Most of the sump hangs off it.
+
+- **Chandlers' row** is the top of the gut, right under the pot. The first
+  winter's tallow perches were poured here, and the chandlers still pour
+  them in the same moulds. A tallow perch is the lowest a bird can own and
+  the first most of the sump ever does, and the row smells of hot fat all
+  year.
+- **The yards.** South of the gut along the cliff are the rendering yards,
+  with the tanners' pits behind them, put where the sea wind carries the
+  smell along the cliff instead of up the stair. The gilt paid for that,
+  and still pays the yards a sum every year not to move. The dyers' yard is
+  at the far end, and its run-off comes down **the runnel**, an open gutter
+  beside the gut that runs three colours into the harbour.
+- **The gin lanes.** North of the gut is a knot of lanes too narrow for a
+  cart, where the stills are. Juniper comes down from the bellward by the
+  sack and goes back up by the bottle. The fighting pits are in the cellars
+  under the stills, and a bird gets to them through whichever tavern is
+  paying that week.
+- **The cliff houses.** Rooming houses stacked up the cliff face on both
+  sides of the gut, ten to a room, reached by ladders and by planks from
+  the next roof. A bed is rented by the shift, and one bird sleeps in it
+  while another works. A grey bloom like felt grows on every wall that
+  faces the sea. Landlords scrape it every spring, and where nobody does,
+  it grows across the windows in lines that match the street plan of the
+  low town. Nobody in the cliff houses thinks this is worth mentioning.
+- **The lower reaches.** Behind the yards a cut in the cliff, with the tally
+  board's iron gate across it, goes down to the tally mines. Debtors go in
+  at dawn in a line, and the sump doesn't watch.
+- **The fish market** is at the bottom of the gut: wide stone steps where the
+  gulls lay the night's catch out on boards and the herring is sold before
+  it is light. The steps were the low town's market stair, and they go on
+  down under the water. At low tide the bottom steps come out wet and a bird
+  can walk down into what was the low town's market square. The ferrymen
+  count the steps every morning before they launch, and the count is not
+  always the same.
+- **The harbour wall** runs along the foot of the market, and **the shingle**
+  is the strip of stones beside it that the tide covers and uncovers. The
+  ferrymen keep their boats drawn up on it and row the flooded lanes and the
+  low town's roofs at low water. The wet guild's hall is the old customs
+  house on the end of the wall, the one building on the waterfront the
+  drowning didn't take, because it stood on the wall and the wall held.
+
+The sump is poor, and it isn't plain. Colour costs less here than anywhere
+in the city. The dyers' yard sells its seconds, cloth that took the dye
+badly, by the armful for a few pp, and the sumptuary roll governs liveries,
+not rags. So the gut is hung with it. Bunting of odd lengths runs across
+the steps from the cliff houses to the yards, doors are painted in whatever
+came down the runnel that week, and a sump bird on a feast day wears more
+colours at once than the gilt allows itself in a lifetime. The bellward
+calls it vulgar and sends its daughters down to copy it.
+
+At dusk the chandlers light the waterfront. Every window on the harbour
+wall gets a tallow candle from the row, a custom from the first winter that
+the chandlers still pay for themselves, and the ferrymen hang a lamp at
+every bow. From the bellward the sump at dusk is a line of small yellow
+lights along the water with the dark of the drowned town beyond it, and the
+playhouses have painted it on more backcloths than any view from the gilt.
+Down in it, it smells of fat, gin and fish, and the candle soot greys every
+sill by morning.
+
+There are good places in it for a bird who knows them. **Mother tern's** is
+a coffee room in the harbour wall's old sea gate, where the ferrymen drink
+something hot between tides and the choir's broadsheet singers try a new
+song on the sump before the bellward hears it. The cliff houses' roofs are
+planted in tubs and broken casks, with herbs, beans and the city's best
+geraniums, because the seaward cliff gets the afternoon sun that the
+bellward's galleries keep off each other. And on the night of the drowning
+every year the sump sets a candle on each of the fish market's steps, down
+to the water and as far under it as anyone can wade, and nobody from the
+gilt is asked.
+
+The sump keeps the tide's hours, not the pot's. The ferrymen and the wet
+guild work low water whenever it falls, the market works before dawn and
+the yards work the day. Nothing in the sump is ever entirely shut.
+
+### The slack tide
+
+On the night of the drowning a north sea company whaler, the *gannet*, was
+tied up at the harbour wall with a full hold of oil. The sea came in over
+the wall, carried her up the fish market's steps and set her down across
+them halfway up, where the water left her when it went back out. She has
+not moved since. Her stern is on the steps and her bow hangs over the
+drowned market square, her rail is level with the bottom of the gut, and
+at high tide the sea comes up inside her to the ribs. At low tide the
+ferrymen take birds down to the bottom steps through a door cut in her
+side, and charge for it. Every spring her timbers put out pale shoots, a
+century after the oak was felled, and the wet guild trims them and sells
+them for kindling that doesn't burn well. Her hull is painted every year
+in whatever the dyers' yard couldn't sell, a plank to a colour, and from
+the top of the gut she looks like a quilt thrown over the steps.
+
+The company claimed her as lost with all hands, which she was not, and the
+counting house refused to pay out on a ship any bird could walk aboard. The
+tally board has heard the case every season since, and while it is heard
+the hull belongs to whoever is standing in it. That has been the wet guild
+for longer than most of the sump has been alive. They took the oil out, put
+the gin in and painted **the slack tide** over the companionway. She sits a
+plank lower every winter, and the gin lanes keep a standing book on which
+winter she breaks her back.
+
+In the sump a **slack tide** is the hour after the gin, when a bird is found
+asleep on the shingle with the water at their feet. It is also the way the
+sump's trouble comes and goes: it rises with the drink, turns and goes back
+out by morning. The house keeps the same hours.
+
+A bird comes aboard from the bottom of the gut, over the rail and down the
+companionway into the taproom, which is the deck below where the whalers
+slung their hammocks. It is low, lit by tallow candles in sconces beaten from
+the harpoon irons and longer than it is wide, and the regulars have nailed
+their own scraps of colour to the deckhead above their usual benches. The
+purser's tables run down the middle where the oil casks were lashed, and
+the bar is at the stern under the ship's main beam. The purser's cabin is
+behind the bar, the hatch to the hold is beside it, and the pumps are up on
+the open deck where anyone in the gut can watch them work.
+
+The house is run by **the purser**, a magpie the sump calls the dry one,
+because he is the only bird in the wet guild who has never been down. He
+keeps the house's money where the company kept its oil, in **the hold**,
+and he pays every win out of it and drops every lost stake into it.
+
+**The bones.** A bird who wants to try their lot sits at one of the purser's
+tables and throws two bones of whale ivory, one marked in tens and one in
+ones, for a number between one and a hundred. The ivory is from the whale
+the *gannet* took on her last voyage, and it is always a little warm.
+Every bird at a table throws against the house, never against each other. Half the numbers lose the
+stake to the hold. The upper half pays the stake back and half again, the
+nineties pay two and a half times and a hundred pays ten. A table seats six
+and the purser turns a sand glass when the first bird sits down. When the
+glass runs out or the benches are full, everyone throws at once. The house
+takes four stakes, chalked over the bar and named for chandlers' row: a
+**wick**, a **candle**, a **lamp** and a **lantern**. A bird who stakes a
+lantern gets one lit and set on the table in front of them for the throw,
+and the whole taproom turns to look.
+
+Before anyone sits, the purser cuts the night's tally into a slate and
+turns it to the wall, and when the throws are done he turns it round. Any
+bird can read off the slate what their bones were always going to say, and
+the sump trusts the house for it more than it trusts the counting house.
+The ravens have tried to buy a slate twice.
+
+**The beam.** Whoever throws highest at a table gets their name chalked on
+the beam over the bar. It pays nothing. The beam is wiped at every new
+tide, and birds from the bellward have been seen coming down the stair to
+read it.
+
+**The waterline.** When the counting house let the wet guild keep a house,
+it set one condition, because a guild that holds the sump's money for long
+enough becomes a bank. The purser paints a **waterline** on the ribs of the
+hold, and the house may never keep more than the line. The hold's first
+water came on a note from the counting house, the only money the ravens have
+ever lent the sump, and it has never lent the hold another pp since.
+Everything the purser has paid out after that first night came out of
+stakes the house won. Each time the pot turns over before dawn, the purser works the pumps
+under a raven's eye, and everything above the line goes over the side into
+the sea. The sea does not give pp back. The magpies have dived for it under
+the hull every summer and never brought up a coin.
+
+Pale eels with no eyes live in the hold water and keep to the ribs, a
+finger's width under the painted line, whatever the tide. The purser won't
+let anyone catch them. The ravens who watch the pumps write the eels'
+height into the ledger beside the line's, and the two have never
+disagreed.
+
+When the house has been winning, the hold is full to the line and the
+purser tells the room the tide's in. When the house has been losing, the
+ship rides high on her ribs, the tide's out and the purser won't take a big
+stake until it comes back in. He never takes more on one throw than a
+hundredth of what's in the hold, and he won't take more than so much from
+one bird in a day, though he takes more from a bird higher on the stair.
+The house has seen what a bird does at dawn. Nothing won or lost at the
+slack tide is written in the counting house's books of a bird's earnings:
+the city knows a bird by the days they put in, not the bones.
+
+**The drowning hour.** The magpies brought up every piece of the chapel
+bell but its tongue, and the slack tide is sure the tongue is in the
+drowned square under her bow, because the bell is loudest through her
+keel. It rings under the floor at the hour of the drowning, and the hour
+comes with a tide the almanacs can't fix. It moves every day, mostly into
+the evening, and on some days the tide comes round twice and so does the
+bell.
+
+The sump always knows it's coming. An hour before, the water draws back
+off the fish market's bottom steps, further than any tide takes it, and the
+gulls stop selling. A quarter of an hour before, the ferrymen pull their
+boats up the shingle and won't say why, and the candles along the harbour
+wall all lean the same way with no wind to lean them. Then the bell starts
+under the floor, the sea comes back up the steps, and for an hour a hundred
+on the bones rings the bell too. The purser pays fifteen times the stake and
+calls **all hands** from the rail. When the call goes up, every bird in
+the sump who has a stake comes running down the gut. The fishmongers on
+the steps have complained to the tally board about it for years. When the
+hour is over the purser reads the hour's names off the beam, and the sump
+goes back to work.
+
+**The deckhead.** Some luck is too much for the beam to hold. A bird who
+throws something the slack tide has never seen, or has seen only a few
+times since the drowning, nails a scrap of their own colour to the deckhead
+over the bar, and nobody wipes the deckhead. The purser keeps the list of
+what earns a scrap in his cabin and doesn't show it, but the regulars know
+some of it:
+
+- **Rang the bell.** A hundred in the drowning hour.
+- **The gannet's luck.** Two hundreds in one day.
+- **Back off the bottom.** A one, and a hundred on the very next throw.
+- **A run of nineties.** Three throws in a row in the nineties.
+- **A dry bench.** A full table of six, and every bird on it wins the same
+  throw.
+- **Both bells.** A hundred in each drowning hour on a day the bell rings
+  twice.
+- **The dry one's nod.** Two birds called out at the rail and both threw a
+  hundred. It has happened once, and the purser came out of his cabin to
+  look.
+
+Every scrap has a story behind it, and the ravens who watch the pumps
+write each one into the ledger with the date and the tide. Under the
+oldest scraps the deckhead is carved with marks nobody in the sump can
+read, and the whalers swore they weren't there when the *gannet* was
+built.
+
+**The marker.** A newcomer still sleeping against the pot's warm side, with
+nobody standing surety for them, may sit at a table once a day at the
+lowest stake on the house's **marker**. Nothing is owed if the marker
+loses. If it wins, the purser pays out of the hold like any other stake.
+The wet guild says it is charity. The sump says it is how the guild meets
+everyone who comes up the cliff road before anyone else does.
+
+**Calling out at the rail.** Two birds who want to settle something stand
+at the rail and stake the same. Each throws against the house as usual, and
+the house pays each of them on their own throw. The higher throw takes the
+honour, and the purser keeps the tally of who has called out whom and how
+it went, which anyone can ask to see.
+### The broadsheet
+
+The presses in the bellward run all night, and before the pot turns over
+the choir's broadsheet singers carry the morning sheet down the stair and
+sing it at the rim. A sheet is a penny, and most of the sump hears it for
+nothing. It prints three things. **The news** is the same on every sheet:
+company notices, the tally board's postings and gossip out of the gate
+book, set in order by the choir and checked by nobody. **Rumour** is what
+the singers heard in mother tern's on the way down and put in to fill the
+column. And for a penny more the board's clerk folds a **margin** into a
+bird's copy: the notices dealt them that morning, and notes from whoever
+has something to tell them, a raven at the rim, the dyers' yard, the
+herons. The counting house buys a copy of every sheet, margins included,
+and files it.
+
+Season 1's first week, a line a day, building on the slack tide:
+
+1. the tally board opens the gannet case for the new season. the north sea
+   company's clerk asks for the hull again, and the wet guild opens the
+   purser's tables in it while he talks
+2. company notice: the north sea company pays a finder's fee for any bell
+   metal brought up from under the gannet's bow. the wet guild says there
+   isn't any
+3. the gate book took more names this week than any week since the summer
+   fair. the wardens put it down to the slack tide
+4. the ferrymen counted one step fewer on the fish market stair this
+   morning and pulled their boats up early
+5. debt court: a chandler from the row is called before the tally board for
+   staking a lantern he didn't own. the purser has sent his slate up as
+   evidence
+6. the counting house has sent a second raven to watch the pumps. the first
+   one wrote the eels a finger above the line last night
+7. the bell rang under the gannet's keel again after the hour was over, with
+   nobody at the tables. the purser slept in the hold
+
+The thread it leaves for week two: the company wants the bell's tongue, the
+step count is falling, the eels have moved and the bell has rung outside
+its hour. None of it is explained yet.
+
+Week two, a line a day, pulling the same threads tighter:
+
+8. company notice: the north sea company offers to buy the gannet's bell
+   outright, tongue and all, at a price the counting house calls generous.
+   the wet guild has asked what bell
+9. the ferrymen counted two steps fewer on the fish market stair. the
+   wardens measured it with a chain and say the stair is as long as ever,
+   only the steps are deeper
+10. the eels have left the gannet's hold for the dyers' runnel, where the
+   water runs three colours. the dyers say the green suits them
+11. the tally board adjourns the gannet case. the company's clerk brought
+   a bill of lading from the night of the drowning with a bell on it, and
+   the purser brought a list of his own
+12. debt court: the chandler from the row is cleared. his slate shows the
+   lantern staked and won, and the board could find no law against owing a
+   lantern you then win
+13. the second raven at the pumps was found asleep in the bilge with her
+   tally book, written up to a night that hasn't come yet. the counting
+   house has asked for it back
+14. the bell rang twice in the small hours with the tables empty and the
+   purser ashore. the ferrymen won't take a boat past the bottom step
+   after dark until someone owns to it
+
+The thread it leaves for week three: the company has a paper with a bell
+on it, the steps are deepening rather than going, the eels like the dye,
+a raven's book runs ahead of the days, and somebody rings the bell who
+isn't the purser. Still none of it explained.
+
+Notes in the margin, each only when it's true of the bird:
+
+- your livery fades tonight unless the yard is paid
+- a raven has you so many pp off your next level
+- the hearth is lit, and your work goes further today
+
+Rumour:
+
+- they say mother tern boils her coffee with water drawn from below the
+  drowned market, and that's why it keeps you up
+- a gull on the fish market steps swears the herring came in already
+  salted this morning
+- the standing book in the gin lanes has a new favourite winter for the
+  gannet to break her back, and it's this one
+- a jay from the college of heralds was seen in the sump buying dyers'
+  seconds by the armful
+- the kiln keepers pay sump children to scrape the grey bloom off the cliff
+  houses, and nobody knows what for
+- someone chalked a name on the beam that nobody at the slack tide
+  remembers throwing
+- the hedge company is hiring again and paying in advance, which it has
+  never done
+- a raven was seen at the pot's rim before dawn counting the newcomers
+  asleep against the warm side, twice
+- the choir is learning a new song for monday and won't say whose names
+  are in it
+- the north sea company's clerk drinks at the slack tide every night and
+  never sits at a table
 
 ## Beyond the hedge
 
@@ -382,7 +774,8 @@ more as it fills.
    blow the first pale glass from the ash.
 5. **The drowning.** The low town goes under in one night. The magpies spend
    three summers bringing up the chapel bell in pieces, and it is cast into
-   perches.
+   perches. The sea leaves the *gannet* across the fish market's steps, and
+   the wet guild opens the slack tide in her hull.
 6. **Now.** The city is at its largest, richest and most crowded, and the
    distance between the gilt and the sump has never been longer.
 
@@ -395,6 +788,7 @@ more as it fills.
 | the levy and treasury | the pot's share, kept for the city |
 | the shop and the stair | buying a perch higher up the spire; what's spent goes back into the pot |
 | the hearth | the herons' public fire, lit on a day the city earns it |
+| the first /pp of the day | the morning sheet: the news, a rumour, and a margin with your notices and notes |
 | inviting someone to the server | standing surety for a newcomer in the gate book |
 | the surety buff | the pot paying a surety for each guest still about the city |
 | the guest badge | a surety's key: iron, gold, then the freedom of the city |
@@ -410,6 +804,73 @@ more as it fills.
 | a shared colour role | a sump trade's or a faction's livery |
 | your own role (name, style, colours, icon) | a livery of your own: plain dye, shot silk or nacre, with a device |
 | the mods approving a role | the college of heralds granting a petition |
+| gambling | the slack tide, a tavern in the grounded whaler *gannet* |
+| a throw | two ivory bones against the house, one to a hundred |
+| a table | six benches and a sand glass |
+| commit-reveal randomness | the purser's slate, turned to the wall then round |
+| the highest throw at a table | a name chalked on the beam |
+| the house's reserve | the hold, filled to the waterline |
+| burning what's above the reserve | the pumps at dawn, over the side into the sea |
+| stakes capped while the house is low | the tide's out |
+| the daily jackpot hour | the drowning hour, when a hundred rings the bell |
+| a jackpot announced to the channel | the purser calling all hands from the rail |
+| the stake ladder (5, 25, 100, 500) | a wick, a candle, a lamp and a lantern |
+| the bell's warnings in the channel | the water drawing back, the boats pulled up |
+| luck achievements | scraps of colour nailed to the deckhead |
+| a newcomer's free throw | the marker, staked by the house |
+| a duel | calling out at the rail |
+
+### The five winds
+
+Every faction in the rookery says it serves the city, and every one means
+something different by it. The coffee rooms sort them by **wind**: an
+outlook a bird leans into, the way a gull leans into weather. Nobody joins
+a wind or signs for one, and most birds feel more than one. Each wind sits
+between two neighbours it gets on with and faces two across the city it
+can't stand, and the five go round in a ring: writ, vaunt, lot, stray, fold
+and back to writ.
+
+- **Writ.** "What's written binds." Order, record and obligation. The
+  counting house, the tally board and the college of heralds. A debt is
+  owed because it is in the book, and a bird is who the book says. Writ
+  gets on with vaunt, which needs its rank entered, and with fold, which
+  needs its promises kept. It can't stand lot, which won't stay entered, or
+  stray, which won't be entered at all. In the game it owns the levy,
+  lapse, surety as a debt, the ledger and the archive.
+- **Vaunt.** "Be seen to rise." Ambition, rank and display. The order of the
+  stair, the north sea company and the kiln keepers. A perch is worth what
+  it is seen to be worth. Vaunt gets on with writ, which records the
+  climb, and with lot, which can make a bird in a night. It can't stand
+  stray, which has no use for a perch, or fold, which shares what vaunt
+  would show. In the game it owns rungs, burning, liveries and laurels.
+- **Lot.** "Everything goes to lot." Chance, fate and salvage: a lot cast,
+  a bird's lot in life and a lot at auction. The wet guild, the sump and
+  the drowning. Whatever the sea took can be brought up and sold again.
+  Lot gets on with vaunt, which pays for what it brings up, and with stray,
+  which takes the same chances. It can't stand writ, which wants the odds
+  in a book, or fold, which wants nobody left to chance. In the game it
+  owns sealed things, the slack tide and dives.
+- **Stray.** "Owe nobody." Self-reliance, roaming and finding. The wardens
+  of the wood and the hedge company. A bird is what they can carry and what
+  they can find. Stray gets on with lot, which knows the wild is a gamble,
+  and with fold, which takes a stray in without asking. It can't stand
+  writ, which wants a name in the gate book, or vaunt, which wants a perch
+  to defend. In the game it owns finding things, beyond the hedge.
+- **Fold.** "Nobody eats alone." Belonging, company and care: the fold a
+  bird comes back to. The hearthkeepers and the choir. A day counts when it
+  is spent with others. Fold gets on with stray, which it feeds, and with
+  writ, which keeps its promises on paper. It can't stand vaunt, which would
+  climb over everyone, or lot, which would bet the fire. In the game it
+  owns company, the joinder, the hearth, the warm side and the morning's
+  news.
+
+**Surety** sits where writ meets fold: a debt in the gate book and a
+kinship at the north gate at once, which is why the wardens pay for it and
+the herons approve of it.
+
+The slack tide leans lot and vaunt. It runs on chance, and the beam and
+the bell are there to be seen. Writ watches it from the pumps, and fold
+would rather the sump's stakes went into the pot.
 
 ## Still to come
 
@@ -418,8 +879,6 @@ These are places, so stories can be set in them when they arrive:
 - **Story exploration** into the mire, the last wood, the grey north and the
   low town.
 - **Grinding** in the tally mines.
-- **The tavern.** Gambling in the sump, at **the sinking house**, a tavern
-  built in the hull of a ship that ran aground in the drowning.
 - **Books.** Lost books turn up in the low town's wreckage, the counting
   house's sales of debtors' goods, the mines and the wild beyond the hedge.
   Reading one adds its pages to the member's lore library, beside the class

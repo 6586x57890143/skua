@@ -61,6 +61,14 @@ func (m *Module) Commands() []core.Command {
 				}
 				return e.CreateMessage(msg)
 			}
+			m.enlist(*guild, e.Member())
+			if sheet, due := m.morning(*guild, e.User().ID); due {
+				msg, err := morningMessage(sheet)
+				if err != nil {
+					return err
+				}
+				return e.CreateMessage(msg.WithEphemeral(true))
+			}
 			msg, err := m.status(*guild, e.Member(), true)
 			if err != nil {
 				return err
@@ -93,14 +101,20 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.setLog(ctx, *guild, e)
 	case id == "pp:selfies":
 		return m.setSelfies(ctx, *guild, e)
+	case id == "pp:house":
+		return m.setHouse(ctx, *guild, e)
 	case id == "pp:anchor", id == "pp:heralds", id == "pp:slots":
 		return m.setLivery(ctx, *guild, e)
 	case id == "pp:liveries":
 		return m.liveryPanel(*guild, e)
+	case id == "pp:open":
+		return m.openPP(ctx, *guild, e)
 	case id == "pp:openyard":
 		return m.openYard(ctx, *guild, e)
 	case id == "pp:keys":
 		return m.openKeys(e)
+	case id == "pp:letters":
+		return m.openLetters(e)
 	case id == "pp:vouched":
 		return m.joinOnWord(ctx, *guild, e)
 	case id == "pp:redeem":
@@ -133,6 +147,10 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.rally(*guild, e)
 	case id == "pp:withdraw":
 		return m.withdrawPact(*guild, e)
+	case id == "pp:table", id == "pp:rail":
+		return m.openTable(ctx, *guild, e)
+	case strings.HasPrefix(id, "pp:sit:"):
+		return m.sitAt(*guild, e)
 	case id == "pp:start", strings.HasPrefix(id, "pp:start:"):
 		return m.startPact(*guild, e)
 	case buys(id):
@@ -170,11 +188,12 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return e.CreateMessage(msg)
 	case id == "pp:board":
 		msg, err = m.boardMessage(*guild, e.User().ID)
-	case id == "pp:treasury":
+	case id == "pp:treasury", strings.HasPrefix(id, "pp:treasury:"):
 		if m.Admin == nil || !m.Admin(e) {
 			return errNotAdmin
 		}
-		msg, err = m.treasuryMessage(ctx, *guild)
+		msg, err = m.sheetMessage(ctx, *guild, parseSheet(id))
+		id = "pp:treasury"
 	case id == "pp:quests":
 		msg, err = m.questsMessage(*guild, e.Member())
 	case id == "pp:notices", id == "pp:company":
@@ -182,12 +201,22 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		msg, err = m.noticesMessage(*guild, e.Member())
 	case id == "pp:buffs":
 		msg, err = m.buffsMessage(*guild, e.Member())
-	case id == "pp:shop", id == "pp:climb", id == "pp:look", id == "pp:back":
+	case id == "pp:shop", id == "pp:climb", id == "pp:look", id == "pp:back", id == "pp:ladder":
 		return m.shop(ctx, *guild, e)
 	case strings.HasPrefix(id, "pp:yard"), id == "pp:dye", strings.HasPrefix(id, "pp:lease:"), strings.HasPrefix(id, "pp:own"):
 		return m.yard(ctx, *guild, e)
 	case id == "pp:ledger":
 		msg, err = m.journal(ctx, *guild, e.Member())
+	case id == "pp:tide":
+		msg, err = m.tideMessage(*guild, e.User().ID)
+	case id == "pp:seal":
+		if err := m.breakSeal(ctx, *guild, e.User().ID); err != nil {
+			return err
+		}
+		id = "pp:letter"
+		msg, err = m.letterMessage(*guild, e.User().ID)
+	case id == "pp:letter":
+		msg, err = m.letterMessage(*guild, e.User().ID)
 	default:
 		return errNotAClass
 	}
@@ -227,6 +256,8 @@ func (m *Module) withMenu(guild, user snowflake.ID, admin bool, msg discord.Mess
 	s.mu.Lock()
 	mem := m.st.member(s, guild, user, DayOf(m.now()))
 	class, picked := mem.class, mem.classSeason != -1
+	l := s.letters[user]
+	held, sealed := l != nil, l != nil && !l.opened
 	s.mu.Unlock()
 	if !picked || len(msg.Components) == 0 {
 		return msg
@@ -235,7 +266,7 @@ func (m *Module) withMenu(guild, user snowflake.ID, admin bool, msg discord.Mess
 	if !ok {
 		return msg
 	}
-	card.Components = append(card.Components, menuRows(class, admin, current)...)
+	card.Components = append(card.Components, menuRows(class, admin, current, held, sealed)...)
 	msg.Components = append([]discord.LayoutComponent{card}, msg.Components[1:]...)
 	return msg
 }
@@ -331,10 +362,10 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	mem.life = now
 	seen(mem, &who.Member, who.User, guild)
 	sh := m.sheet(s, mem, guild, who.User.ID, today)
-	picked := mem.classSeason != -1
+	picked, quests := mem.classSeason != -1, held(mem.quests) > 0
 	s.mu.Unlock()
 	if !picked {
-		return titleMessage(buttons)
+		return titleMessage(buttons, quests, strings.TrimPrefix(m.bellLine(guild), "\n"))
 	}
 
 	sh.Name = who.EffectiveName()
@@ -347,7 +378,7 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	}
 	alt := fmt.Sprintf("%s, %s, level %d, %s pp to spend", pixel.Plain(sh.Name), sh.Class.Name(), sh.Level, grouped(sh.Purse/unit))
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", turnsOver(today),
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", turnsOver(today)+m.bellLine(guild),
 			discord.NewMediaGallery(screenItem(pic, alt)))},
 		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagIsComponentsV2,
@@ -366,7 +397,7 @@ func turnsOver(today int64) string {
 // the screens it opens, then what the member does from it, every one
 // wearing the icon of what it opens. The screen open now, current, is
 // greyed out; on the status screen share takes the place of status.
-func menuRows(class string, admin bool, current string) []discord.ContainerSubComponent {
+func menuRows(class string, admin bool, current string, letter, sealed bool) []discord.ContainerSubComponent {
 	btn := func(label, id, icon string) discord.InteractiveComponent {
 		b := withIcon(discord.NewSecondaryButton(label, id), icon)
 		if id == current {
@@ -383,9 +414,21 @@ func menuRows(class string, admin bool, current string) []discord.ContainerSubCo
 			btn("board", "pp:board", "laurel"), btn("shop", "pp:shop", "scales")),
 		discord.NewActionRow(home, btn("lore", "pp:class", classIcons[class]), btn("buffs", "pp:buffs", "hearth"), btn("journal", "pp:ledger", "quill")),
 	}
-	if admin {
-		rows = append(rows, discord.NewActionRow(btn("treasury", "pp:treasury", "pot")))
+	tide := []discord.InteractiveComponent{btn("slack tide", "pp:tide", "bell")}
+	if letter {
+		b := withIcon(discord.NewSecondaryButton("sealed letter", "pp:letter"), "envelope")
+		if sealed {
+			b = b.WithStyle(discord.ButtonStylePrimary)
+		}
+		if current == "pp:letter" {
+			b = b.AsDisabled()
+		}
+		tide = append(tide, b)
 	}
+	if admin {
+		tide = append(tide, btn("treasury", "pp:treasury", "pot"))
+	}
+	rows = append(rows, discord.NewActionRow(tide...))
 	return rows
 }
 
@@ -398,8 +441,10 @@ func withIcon(b discord.ButtonComponent, icon string) discord.ButtonComponent {
 }
 
 // titleMessage is the title screen as a message, for a member who hasn't
-// picked a class: their own copy carries the button to pick one.
-func titleMessage(buttons bool) (discord.MessageCreate, error) {
+// picked a class: their own copy carries the button to pick one and, when
+// they hold quests, the one to their quests, so a newcomer's first is a
+// press away.
+func titleMessage(buttons, quests bool, note string) (discord.MessageCreate, error) {
 	pic, err := TitleScreen()
 	if err != nil {
 		return discord.MessageCreate{}, err
@@ -409,10 +454,14 @@ func titleMessage(buttons bool) (discord.MessageCreate, error) {
 		Media: discord.UnfurledMediaItem{URL: "attachment://" + screenFile(pic)}, Description: alt,
 	})}
 	if buttons {
-		extra = append(extra, discord.NewActionRow(withIcon(discord.NewPrimaryButton("pick a class", "pp:class"), "lantern")))
+		row := []discord.InteractiveComponent{withIcon(discord.NewPrimaryButton("pick a class", "pp:class"), "lantern")}
+		if quests {
+			row = append(row, withIcon(discord.NewSecondaryButton("your quests", "pp:quests"), "compass"))
+		}
+		extra = append(extra, discord.NewActionRow(row...))
 	}
 	return discord.MessageCreate{
-		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "melting pot", "", extra...)},
+		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "melting pot", note, extra...)},
 		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),

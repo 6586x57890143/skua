@@ -324,3 +324,29 @@ func TestSoftInMatches(t *testing.T) {
 		}
 	}
 }
+
+// Frames that differ go out moving; frames that never change go out
+// still, since Discord breaks on a one-frame WebP.
+func TestAnimate(t *testing.T) {
+	a := New(40, 30)
+	b := a.Copy()
+	b.Fill(image.Rect(10, 10, 14, 14), Gold)
+	moving, err := Animate([]*Canvas{a, b, a.Copy()}, []int{100, 100, 100}, 2)
+	if err != nil || !bytes.HasPrefix(moving, []byte("RIFF")) {
+		t.Fatalf("differing frames: %v", err)
+	}
+	still, err := Animate([]*Canvas{a, a.Copy()}, []int{100, 100}, 2)
+	if err != nil || bytes.HasPrefix(still, []byte("RIFF")) {
+		t.Fatalf("still frames went out moving: %v", err)
+	}
+	if got := changed(a, b); got != image.Rect(10, 10, 14, 14) {
+		t.Errorf("changed %v", got)
+	}
+	// A hand keeps pointing through Copy, and bobs on a moving screen
+	// even when nothing else moves.
+	a.Cursor(30, 15)
+	pointing, err := Animate([]*Canvas{a, a.Copy()}, []int{100, 100}, 2)
+	if err != nil || !bytes.HasPrefix(pointing, []byte("RIFF")) {
+		t.Fatalf("the hand stood still: %v", err)
+	}
+}

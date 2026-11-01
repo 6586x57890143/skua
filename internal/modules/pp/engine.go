@@ -2,6 +2,7 @@ package pp
 
 import (
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -234,10 +235,12 @@ func fade(idle, grace, span time.Duration, floor int64) int64 {
 
 // Wearing is what a member shows that the server rewards: its tag (crest),
 // .gg/melted in their status (banner), a boost (plume), and the guests
-// they stand surety for who count now.
+// they stand surety for who count now, and whether they're new enough to
+// sleep on the pot's warm side.
 type Wearing struct {
 	Crest, Banner, Plume bool
 	Guests               int64
+	Warm                 bool
 }
 
 // Buff is the percent added to everything but quests for what w shows and
@@ -254,14 +257,21 @@ func (b *Balance) Buff(w Wearing, hearth int) int64 {
 		p += b.Plume
 	}
 	p += min(w.Guests*b.Surety, b.SuretyMax)
+	if w.Warm {
+		p += b.WarmSide
+	}
 	if hearth > 0 {
 		p += b.Hearth[hearth-1]
 	}
 	return p
 }
 
+// Warm is whether a member who first earned on day first is on the warm
+// side on day today: their first WarmDays days.
+func (b *Balance) Warm(first, today int64) bool { return today-first < b.WarmDays }
+
 // HearthTier is the tier a server's raw pp today reaches against its usual
-// day, the mean of the days in history it earned anything.
+// day (see Usual).
 func (b *Balance) HearthTier(today int64, history []int64) int {
 	usual := b.Usual(history)
 	tier := 0
@@ -273,19 +283,22 @@ func (b *Balance) HearthTier(today int64, history []int64) int {
 	return tier
 }
 
-// Usual is a server's usual day, the mean of the days in history it
-// earned anything, HearthFloor before it has one.
+// Usual is a server's usual day, the median of the days in history it
+// earned anything, HearthFloor before it has one. A median, not a mean: one
+// big day would hold a mean above every ordinary day after it.
 func (b *Balance) Usual(history []int64) int64 {
-	var sum, n int64
+	days := make([]int64, 0, len(history))
 	for _, h := range history {
 		if h > 0 {
-			sum, n = sum+h, n+1
+			days = append(days, h)
 		}
 	}
+	n := len(days)
 	if n == 0 {
 		return b.HearthFloor
 	}
-	return sum / n
+	slices.Sort(days)
+	return (days[(n-1)/2] + days[n/2]) / 2
 }
 
 // Need is what level l to l+1 costs.

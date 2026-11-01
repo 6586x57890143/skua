@@ -54,6 +54,9 @@ type member struct {
 	// questsDone how many ever finished.
 	quests               []heldQuest
 	questDay, questsDone int64
+	// first is the first day they earned, or were first seen: the warm
+	// side lasts WarmDays from it.
+	first int64
 	// laurels are the weekly checkpoints they've placed at this season.
 	laurels int64
 	// pact is the chirograph or round robin they've signed, shared with
@@ -68,6 +71,17 @@ type member struct {
 	// ticket is the confirm their last buying press asked with, 0 for
 	// none: in memory, voided by any other press and by the day turning.
 	ticket int64
+	// seat is the stake they have sat at a table not yet thrown, 0 for
+	// none, and staked what they've staked today.
+	seat, staked int64
+	// feats are the deckhead's scraps they've nailed up, a bit each, and
+	// luck what the bones have done for them lately (only in memory: a
+	// restart forgets a run, as the taproom does).
+	feats int64
+	luck  luck
+	// dispatchDay is the day they last had the morning's dispatch, in
+	// memory: after a restart they may get the day's again.
+	dispatchDay int64
 	// renew is whether the yard renews their livery on its own.
 	renew bool
 
@@ -111,9 +125,15 @@ type server struct {
 	// beta is the role whose members may play while /pp is in closed
 	// beta, beside admins; 0 is none.
 	beta snowflake.ID
+	// open is whether /pp is open to everyone here, beta or not.
+	open bool
 	// logChannel is where the ledger's head and the seasons' seeds are
 	// posted; 0 is nowhere.
 	logChannel snowflake.ID
+	// letters are the sealed letters sent, by who holds each, and sealed
+	// how many codes wait for a bird to earn one.
+	letters map[snowflake.ID]*letter
+	sealed  int
 	// The ledger: the server, the last row's number and hash, and the rows
 	// not yet written.
 	id      snowflake.ID
@@ -179,6 +199,16 @@ type server struct {
 	invitesErr bool
 	invitesAt  time.Time
 	inviting   sync.Mutex
+	// The slack tide: the hold, whether the note has seeded it, the
+	// channel its tables are posted in (0 shut), and the table open there,
+	// nil or settled for none. bell is the bell's message in houseCh.
+	hold    int64
+	noted   bool
+	houseCh snowflake.ID
+	table   *table
+	bell    bellPost
+	// beam is the day's highest throw, chalked over the bar.
+	beam beamMark
 }
 
 func newServer(id snowflake.ID) *server {
@@ -260,7 +290,7 @@ func (st *state) member(s *server, guild, user snowflake.ID, today int64) *membe
 	st.rollServer(s, today)
 	m, ok := s.members[user]
 	if !ok {
-		m = &member{class: Classes[0].Key, classSeason: -1, dayN: today}
+		m = &member{class: Classes[0].Key, classSeason: -1, dayN: today, first: today}
 		m.wear.Banner = s.banners[user]
 		delete(s.banners, user)
 		m.wear.Guests, _ = st.vouched(s, user, today)
@@ -276,6 +306,7 @@ func (st *state) member(s *server, guild, user snowflake.ID, today int64) *membe
 func (st *state) roll(s *server, m *member, guild, user snowflake.ID, today int64) {
 	if m.dayN != today {
 		m.ticket = 0 // a price may have moved with the day
+		m.staked = 0
 		st.close(s, user, m)
 		m.day = Day{Rested: st.bal().Rested(m.day, st.pools(guild, user, m.dayN), today-m.dayN)}
 		m.dayN = today
@@ -333,6 +364,7 @@ func (st *state) rollServer(s *server, today int64) {
 	if s.day == today-1 {
 		s.litBefore = s.lit
 	}
+	s.pump(s.day)
 	st.lapse(s, today)
 	st.sureties(s, today)
 	s.day, s.raw, s.lit, s.dirty = today, 0, 0, true
@@ -356,6 +388,7 @@ func (s *server) hearth() int { return max(s.lit, s.litBefore) }
 // toward the server's hearth and m's week. s.mu held.
 func (st *state) earn(s *server, m *member, guild, user snowflake.ID, chat bool, raw int64) int64 {
 	before, act := m.day.Voice+m.day.Chat, m.day.Activity()
+	m.wear.Warm = st.bal().Warm(m.first, m.dayN)
 	buff := st.bal().Buff(m.wear, s.hearth())
 	got := st.bal().Earn(&m.day, st.pools(guild, user, m.dayN), chat, raw, buff)
 	if m.day.Minutes+m.day.Paid == 1 {

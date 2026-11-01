@@ -126,3 +126,28 @@ func TestRenewLoads(t *testing.T) {
 		t.Error("renewing didn't come back")
 	}
 }
+
+// The morning sheet never warns a bird whose standing order went through,
+// and tells one whose purse was short why the livery fades.
+func TestRenewOnTheSheet(t *testing.T) {
+	m, _ := yardServer(1, 10000)
+	s := m.st.server(3)
+	today := DayOf(m.now())
+	mem := s.members[5]
+	mem.livery, mem.liveryUntil, mem.renew = "tallow", today, true
+	m.renewLeases(today)
+	for _, n := range m.notes(s, mem, today) {
+		if strings.Contains(n, "livery") {
+			t.Errorf("paid, and still told %q", n)
+		}
+	}
+	mem.liveryUntil, mem.purse = today, 0
+	m.renewLeases(today)
+	if n := m.notes(s, mem, today); len(n) == 0 || !strings.Contains(n[0], "purse short") {
+		t.Errorf("short, and told %q", n)
+	}
+	mem.renew = false
+	if n := m.notes(s, mem, today); len(n) == 0 || !strings.Contains(n[0], "unless the yard is paid") {
+		t.Errorf("no order, and told %q", n)
+	}
+}

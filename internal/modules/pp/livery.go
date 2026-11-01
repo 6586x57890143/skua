@@ -224,14 +224,11 @@ func gone(err error) bool {
 	return ok && re.Response != nil && re.Response.StatusCode == http.StatusNotFound
 }
 
-// liveryControls is the way from /pp's help page to the livery settings.
-// They have a panel of their own: a help page holds at most 40
-// components, and /pp's other settings already take most of them.
-func (m *Module) liveryControls() []discord.ContainerSubComponent {
-	return []discord.ContainerSubComponent{
-		discord.NewTextDisplay("### liveries\n-# the role liveries sit under, where petitions are reviewed, and the switch that opens the dyers' yard"),
-		discord.NewActionRow(withIcon(discord.NewSecondaryButton("livery settings", "pp:liveries"), "scales")),
-	}
+// liveryButton is the way from /pp's help page to the livery settings,
+// beside the grants. They have a panel of their own: a help page holds at
+// most 40 components, and /pp's other settings already take most of them.
+func liveryButton() discord.ButtonComponent {
+	return withIcon(discord.NewSecondaryButton("livery settings", "pp:liveries"), "scales")
 }
 
 // liveryPanel is the livery settings, for an admin only.

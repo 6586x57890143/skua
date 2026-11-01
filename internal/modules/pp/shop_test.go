@@ -178,7 +178,7 @@ func TestShopCards(t *testing.T) {
 // and every one wears an icon that's drawn.
 func TestMenuRows(t *testing.T) {
 	for _, admin := range []bool{false, true} {
-		for _, row := range menuRows("sorcerer", admin, "pp:status") {
+		for _, row := range menuRows("sorcerer", admin, "pp:status", false, false) {
 			if n := len(row.(discord.ActionRowComponent).Components); n > 4 {
 				t.Errorf("a row of %d buttons", n)
 			}
@@ -200,7 +200,7 @@ func TestBuffsCard(t *testing.T) {
 	mem := m.st.member(s, guild, old(1), DayOf(t0))
 	mem.wear.Crest = true
 	s.lit = 2
-	buffs := m.st.buffList(s, mem, "Melted", 0)
+	buffs := m.st.buffList(s, mem, "Melted", 0, DayOf(t0)+Default.WarmDays)
 	if len(buffs) != 5 || !buffs[0].On || buffs[1].On || buffs[1].How != "put .gg/melted in your custom status" || buffs[3].Name != "surety" || buffs[3].On || buffs[4].Name != "hearth ii" || !buffs[4].On || !strings.Contains(buffs[4].How, "of its day, rises at") {
 		t.Errorf("buffs: %+v", buffs)
 	}
@@ -209,7 +209,7 @@ func TestBuffsCard(t *testing.T) {
 	for _, c := range []struct {
 		lit, before int
 		want        string
-	}{{0, 0, "lights at 100%"}, {0, 1, "burns on tomorrow at 100%"}, {1, 0, "rises at 115%"}, {1, 2, "burns on tomorrow at 115%"}} {
+	}{{0, 0, "lights at 80%"}, {0, 1, "burns on tomorrow at 80%"}, {1, 0, "rises at 100%"}, {1, 2, "burns on tomorrow at 100%"}} {
 		s.lit, s.litBefore = c.lit, c.before
 		if got := m.st.hearthHow(s); !strings.HasSuffix(got, c.want) {
 			t.Errorf("lit %d, yesterday %d: %q", c.lit, c.before, got)
@@ -222,7 +222,7 @@ func TestBuffsCard(t *testing.T) {
 	if err := m.press(context.Background(), e); err != nil {
 		t.Fatal(err)
 	}
-	if got := js((*sent)[0]); strings.Contains(got, "-# ") || !strings.Contains(got, "crest, hearth ii worn") {
+	if got := js((*sent)[0]); strings.Contains(got, "-# ") || !strings.Contains(got, "crest, hearth ii, warm side worn") {
 		t.Errorf("the buffs card: %s", got)
 	}
 }

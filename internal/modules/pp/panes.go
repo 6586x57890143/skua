@@ -164,7 +164,32 @@ func shopCanvas(rungs []Rung, purse, nextPP int64, heldIcon, held string) *pixel
 		setName(c, look, nameX, y, g.Name, end-nameX, image.Rect(nameX-3, y-2, end+2, y+15))
 	}
 
-	purseR := image.Rect(4, 152, 252, 212)
+	stairWindows(c, 152, purse, nextPP, heldIcon, held)
+	return c
+}
+
+// StairScreen is the stair's front, moving: the pot square in the hour's
+// light, and under it the purse, the next rung's price and the perch the
+// member sits on. The ladder itself is ShopScreen, a press away.
+func StairScreen(light int, purse, nextPP int64, heldIcon, held string) ([]byte, error) {
+	base := pixel.New(screenW, screenH)
+	stairWindows(base, sumpSize.Y+4, purse, nextPP, heldIcon, held)
+	return pixel.Animate(potScene(base, light), beatsOf(ambientFrames), screenScale)
+}
+
+// beatsOf is n frames' beats, each the scenes' beat.
+func beatsOf(n int) []int {
+	beats := make([]int, n)
+	for i := range beats {
+		beats[i] = ambientBeat
+	}
+	return beats
+}
+
+// stairWindows are the purse and the perch held, from top down to the
+// screen's foot.
+func stairWindows(c *pixel.Canvas, top int, purse, nextPP int64, heldIcon, held string) {
+	purseR := image.Rect(4, top, 252, 212)
 	c.Window(purseR)
 	c.Tab(purseR, "purse")
 	y := purseR.Min.Y + pixel.TabDrop + 3
@@ -175,11 +200,10 @@ func shopCanvas(rungs []Rung, purse, nextPP int64, heldIcon, held string) *pixel
 	label(c, 16, y+17, "the next rung")
 	right(c, 240, y+17, grouped(nextPP/unit)+" pp", pixel.Ink)
 
-	you := image.Rect(256, 152, 380, 212)
+	you := image.Rect(256, top, 380, 212)
 	c.Window(you)
 	c.Tab(you, "you sit on")
 	perchLines(c, image.Rect(264, you.Min.Y+pixel.TabDrop, 372, you.Max.Y-4), heldIcon, held)
-	return c
 }
 
 // perchLines sets a perch's icon and name in the middle of r, its name
@@ -457,17 +481,12 @@ func TreasuryScreen(t Treasury) ([]byte, error) { return treasuryCanvas(t).Scree
 func treasuryCanvas(t Treasury) *pixel.Canvas {
 	c := pixel.New(screenW, screenH)
 	row := func(r image.Rectangle, i int, icon, name, value string, ink uint8) {
-		x, y := r.Min.X+12, paneTop(r)+i*19
-		if icon != "" {
-			c.Icon(icon, image.Pt(x, y-iconLift))
-		}
-		label(c, x+pixel.IconCells+4, y, name)
-		right(c, r.Max.X-12, y, value, ink)
+		paneRow(c, r, i, icon, name, value, ink)
 	}
 
 	tr := image.Rect(4, 4, 190, 106)
 	c.Window(tr)
-	c.Tab(tr, "treasury")
+	c.Tab(tr, sheetTab("treasury", 0))
 	row(tr, 0, "pot", "holds", grouped(t.Balance/unit)+" pp", pixel.Gold)
 	taking, ink := "full", pixel.Dim
 	if t.Taking {

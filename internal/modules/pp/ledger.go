@@ -114,6 +114,34 @@ func (st *state) loadLedger(ctx context.Context, db DB) error {
 		s.seq, s.head, s.saved = seq, head, seq
 		s.mu.Unlock()
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	return st.loadFirsts(ctx, db)
+}
+
+// loadFirsts sets each member's first day from their oldest ledger row:
+// a day closes into the ledger only once it earned. One with no rows yet
+// is on their first day still, which load set.
+func (st *state) loadFirsts(ctx context.Context, db DB) error {
+	rows, err := db.Query(ctx, `select guild_id, user_id, min(day) from pp_ledger group by guild_id, user_id`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var guild, user, first int64
+		if err := rows.Scan(&guild, &user, &first); err != nil {
+			return err
+		}
+		s := st.server(snowflake.ID(guild))
+		s.mu.Lock()
+		if m := s.members[snowflake.ID(user)]; m != nil {
+			m.first = min(m.first, first)
+		}
+		s.mu.Unlock()
+	}
 	return rows.Err()
 }
 
@@ -125,6 +153,23 @@ func (st *state) loadLedger(ctx context.Context, db DB) error {
 func (st *state) audit(ctx context.Context, db DB) (int, error) {
 	type key struct{ guild, user snowflake.ID }
 	sums := map[key]int64{}
+	house := map[snowflake.ID]int64{}
+	hrows, err := db.Query(ctx, `select guild_id, sum(delta)::bigint from pp_ledger where reason in ('stake', 'win', 'refund') group by guild_id`)
+	if err != nil {
+		return 0, err
+	}
+	for hrows.Next() {
+		var guild, sum int64
+		if err := hrows.Scan(&guild, &sum); err != nil {
+			hrows.Close()
+			return 0, err
+		}
+		house[snowflake.ID(guild)] = sum
+	}
+	hrows.Close()
+	if err := hrows.Err(); err != nil {
+		return 0, err
+	}
 	rows, err := db.Query(ctx, `select guild_id, user_id, sum(delta)::bigint from pp_ledger group by guild_id, user_id`)
 	if err != nil {
 		return 0, err
@@ -146,12 +191,19 @@ func (st *state) audit(ctx context.Context, db DB) (int, error) {
 		s.mu.Lock()
 		for _, e := range s.pending {
 			sums[key{g, e.user}] += e.delta
+			if houseMove(e.reason) {
+				house[g] += e.delta
+			}
 		}
 		for u, m := range s.members {
 			want := m.purse - m.dayGot
 			got, ok := sums[key{g, u}]
 			switch {
-			case !ok && want != 0:
+			case !ok && (want != 0 || m.total > m.dayGot+m.dayLevy+m.dayWithheld):
+				// A purse from before the ledger, or a bird who earned
+				// before it and holds nothing now: the row, even of
+				// nothing, dates them, so the warm side never takes them
+				// for new.
 				s.append(u, m.dayN, reasonOpen, want, nil)
 			case ok && got != want:
 				bad++
@@ -160,6 +212,11 @@ func (st *state) audit(ctx context.Context, db DB) (int, error) {
 		// The treasury is user 0: its rows sum to what it holds less the
 		// levy not yet written.
 		if sums[key{g, 0}] != s.treasury-s.levyOpen {
+			bad++
+		}
+		// The hold is its own rows (the note less the pumps) less every
+		// stake, win and refund, which move pp the other way.
+		if sums[key{g, houseID}]-house[g] != s.hold {
 			bad++
 		}
 		s.mu.Unlock()
@@ -188,4 +245,10 @@ func (r *ledgerRows) add(guild snowflake.ID, e entry) {
 	r.n = append(r.n, int64(len(e.inputs)))
 	r.inputs = append(r.inputs, e.inputs...)
 	r.hash = append(r.hash, e.hash)
+}
+
+// houseMove is whether a row of reason moves pp between a purse and the
+// hold.
+func houseMove(reason string) bool {
+	return reason == reasonStake || reason == reasonWin || reason == reasonRefund
 }
