@@ -113,6 +113,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.openYard(ctx, *guild, e)
 	case id == "pp:keys":
 		return m.openKeys(e)
+	case id == "pp:letters":
+		return m.openLetters(e)
 	case id == "pp:vouched":
 		return m.joinOnWord(ctx, *guild, e)
 	case id == "pp:redeem":
@@ -207,6 +209,14 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		msg, err = m.journal(ctx, *guild, e.Member())
 	case id == "pp:tide":
 		msg, err = m.tideMessage(*guild, e.User().ID)
+	case id == "pp:seal":
+		if err := m.breakSeal(ctx, *guild, e.User().ID); err != nil {
+			return err
+		}
+		id = "pp:letter"
+		msg, err = m.letterMessage(*guild, e.User().ID)
+	case id == "pp:letter":
+		msg, err = m.letterMessage(*guild, e.User().ID)
 	default:
 		return errNotAClass
 	}
@@ -246,6 +256,8 @@ func (m *Module) withMenu(guild, user snowflake.ID, admin bool, msg discord.Mess
 	s.mu.Lock()
 	mem := m.st.member(s, guild, user, DayOf(m.now()))
 	class, picked := mem.class, mem.classSeason != -1
+	l := s.letters[user]
+	held, sealed := l != nil, l != nil && !l.opened
 	s.mu.Unlock()
 	if !picked || len(msg.Components) == 0 {
 		return msg
@@ -254,7 +266,7 @@ func (m *Module) withMenu(guild, user snowflake.ID, admin bool, msg discord.Mess
 	if !ok {
 		return msg
 	}
-	card.Components = append(card.Components, menuRows(class, admin, current)...)
+	card.Components = append(card.Components, menuRows(class, admin, current, held, sealed)...)
 	msg.Components = append([]discord.LayoutComponent{card}, msg.Components[1:]...)
 	return msg
 }
@@ -385,7 +397,7 @@ func turnsOver(today int64) string {
 // the screens it opens, then what the member does from it, every one
 // wearing the icon of what it opens. The screen open now, current, is
 // greyed out; on the status screen share takes the place of status.
-func menuRows(class string, admin bool, current string) []discord.ContainerSubComponent {
+func menuRows(class string, admin bool, current string, letter, sealed bool) []discord.ContainerSubComponent {
 	btn := func(label, id, icon string) discord.InteractiveComponent {
 		b := withIcon(discord.NewSecondaryButton(label, id), icon)
 		if id == current {
@@ -403,6 +415,16 @@ func menuRows(class string, admin bool, current string) []discord.ContainerSubCo
 		discord.NewActionRow(home, btn("lore", "pp:class", classIcons[class]), btn("buffs", "pp:buffs", "hearth"), btn("journal", "pp:ledger", "quill")),
 	}
 	tide := []discord.InteractiveComponent{btn("slack tide", "pp:tide", "bell")}
+	if letter {
+		b := withIcon(discord.NewSecondaryButton("sealed letter", "pp:letter"), "envelope")
+		if sealed {
+			b = b.WithStyle(discord.ButtonStylePrimary)
+		}
+		if current == "pp:letter" {
+			b = b.AsDisabled()
+		}
+		tide = append(tide, b)
+	}
 	if admin {
 		tide = append(tide, btn("treasury", "pp:treasury", "pot"))
 	}

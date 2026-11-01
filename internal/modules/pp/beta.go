@@ -31,24 +31,30 @@ func (m *Module) plays(i discord.Interaction) bool {
 }
 
 // betaControls is the beta role picker for /pp's help page, which shows it
-// to admins only, and the switch that opens /pp to everyone until it's
-// pressed.
+// to admins only, with the switch that opens /pp to everyone and the
+// button that issues beta keys until it's opened, and the sealed letters
+// always. They share a section because the page holds at most 40
+// components.
 func (m *Module) betaControls(guild snowflake.ID) []discord.ContainerSubComponent {
 	s := m.st.server(guild)
 	s.mu.Lock()
 	beta, open := s.beta, s.open
 	s.mu.Unlock()
+	letters := m.letterText(guild)
 	if open {
-		return []discord.ContainerSubComponent{discord.NewTextDisplay("### open\n-# /pp is open to everyone here")}
+		return []discord.ContainerSubComponent{
+			discord.NewTextDisplay("### open\n-# /pp is open to everyone here\n" + letters),
+			discord.NewActionRow(lettersButton()),
+		}
 	}
 	pick := discord.NewRoleSelectMenu("pp:beta", "pick the beta testers' role").WithMinValues(0)
 	if beta != 0 {
 		pick = pick.AddDefaultValue(beta)
 	}
 	return []discord.ContainerSubComponent{
-		discord.NewTextDisplay("### beta testers\n-# /pp is in closed beta: admins play, and so do members with this role. opening it lets every member play, once, and can't be undone"),
+		discord.NewTextDisplay("### beta testers\n-# /pp is in closed beta: admins play, and so do members with this role. a beta key lets one member in: they redeem it on /pp and get the role. a key works once and skua keeps only its hash, so copy them when they're shown. opening /pp lets every member play, once, and can't be undone\n" + letters),
 		discord.NewActionRow(pick),
-		discord.NewActionRow(discord.NewPrimaryButton("open /pp to everyone", "pp:open")),
+		discord.NewActionRow(discord.NewPrimaryButton("open /pp to everyone", "pp:open"), keysButton(), lettersButton()),
 	}
 }
 
