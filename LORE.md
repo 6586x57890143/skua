@@ -312,6 +312,74 @@ roll, and the name is the bird's to wear for as long as the lease is paid.
 The roll has room for only so many names at once, and the heralds charge
 more as it fills.
 
+### The broadsheet
+
+The presses in the bellward run all night, and before the pot turns over
+the choir's broadsheet singers carry the morning sheet down the stair and
+sing it at the rim. A sheet is a penny, and most of the sump hears it for
+nothing. It prints three things. **The news** is the same on every sheet:
+company notices, the tally board's postings and gossip out of the gate
+book, set in order by the choir and checked by nobody. **Notes** are
+pinned in the margin for one bird, sent by whoever has something to tell
+them: a raven at the rim, the dyers' yard, the herons. **Rumour** is what
+the singers heard in the coffee rooms on the way down and put in to fill
+the column. The counting house buys a copy of every sheet and files it.
+
+Season 1's first week, a line a day, building on the slack tide:
+
+1. the tally board opens the gannet case for the new season. the north sea
+   company's clerk asks for the hull again, and the wet guild opens the
+   purser's tables in it while he talks
+2. company notice: the north sea company pays a finder's fee for any bell
+   metal brought up from under the gannet's bow. the wet guild says there
+   isn't any
+3. the gate book took more names this week than any week since the summer
+   fair. the wardens put it down to the slack tide
+4. the ferrymen counted one step fewer on the fish market stair this
+   morning and pulled their boats up early
+5. debt court: a chandler from the row is called before the tally board for
+   staking a lantern he didn't own. the purser has sent his slate up as
+   evidence
+6. the counting house has sent a second raven to watch the pumps. the first
+   one wrote the eels a finger above the line last night
+7. the bell rang under the gannet's keel again after the hour was over, with
+   nobody at the tables. the purser slept in the hold
+
+The thread it leaves for week two: the company wants the bell's tongue, the
+step count is falling, the eels have moved and the bell has rung outside
+its hour. None of it is explained yet.
+
+Notes, each only when it's true of the bird:
+
+- the dyers' yard sends word that your livery fades tonight unless the
+  lease is paid
+- a raven at the rim has you so many pp short of your next level
+- the herons lit the hearth before dawn, and what you pour in today goes
+  further
+
+Rumour:
+
+- they say mother tern boils her coffee with water drawn from below the
+  drowned market, and that's why it keeps you up
+- a gull on the fish market steps swears the herring came in already
+  salted this morning
+- the standing book in the gin lanes has a new favourite winter for the
+  gannet to break her back, and it's this one
+- a jay from the college of heralds was seen in the sump buying dyers'
+  seconds by the armful
+- the kiln keepers pay sump children to scrape the grey bloom off the cliff
+  houses, and nobody knows what for
+- someone chalked a name on the beam that nobody at the slack tide
+  remembers throwing
+- the hedge company is hiring again and paying in advance, which it has
+  never done
+- a raven was seen at the pot's rim before dawn counting the newcomers
+  asleep against the warm side, twice
+- the choir is learning a new song for monday and won't say whose names
+  are in it
+- the north sea company's clerk drinks at the slack tide every night and
+  never sits at a table
+
 ## Beyond the hedge
 
 - **The mire.** A drowned country of reed, peat and black water to the south
@@ -392,6 +460,7 @@ more as it fills.
 | the levy and treasury | the pot's share, kept for the city |
 | the shop and the stair | buying a perch higher up the spire; what's spent goes back into the pot |
 | the hearth | the herons' public fire, lit on a day the city earns it |
+| the line over your first /pp of the day | the morning broadsheet: the news, a note for you, or a rumour |
 | inviting someone to the server | standing surety for a newcomer in the gate book |
 | the surety buff | the pot paying a surety for each guest still about the city |
 | the guest badge | a surety's key: iron, gold, then the freedom of the city |

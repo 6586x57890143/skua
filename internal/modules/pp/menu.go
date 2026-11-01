@@ -65,6 +65,7 @@ func (m *Module) Commands() []core.Command {
 			if err != nil {
 				return err
 			}
+			msg = withDispatch(msg, m.morning(*guild, e.User().ID))
 			return e.CreateMessage(m.withMenu(*guild, e.User().ID, m.Admin != nil && m.Admin(e), msg, "pp:status").WithEphemeral(true))
 		},
 	}}

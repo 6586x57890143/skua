@@ -76,6 +76,9 @@ type member struct {
 	// restart forgets a run, as the taproom does).
 	feats int64
 	luck  luck
+	// dispatchDay is the day they last had the morning's dispatch, in
+	// memory: after a restart they may get the day's again.
+	dispatchDay int64
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, a fingerprint of their last message, when they last showed a
