@@ -157,7 +157,17 @@ Not done yet:
 
 ## /pp: season 1 launch (2026-11-02)
 
-The launch PRs stay drafts until 11-02, then merge in order: M0, M1, M3, M4.
+All launch PRs merged on 11-01 (#186-#195) with deploys paused, then the gate below,
+so they went live dark.
+
+- **The launch gate (#196).** /help's open switch arms the launch instead: `pp_guild.launch`
+  (migration 041) is the next pp day, and `server.released(today)` is open or that day
+  reached. Before it, admins see everything and members see the old screens: the slack
+  tide's presses (`launchFronts`) and menu button, the bell, sealed letters going out,
+  the morning sheet, the painted stair and yard, the warm side and its first quest, the
+  standing order. Balance tuning isn't gated. Something new that waits for a launch asks
+  `seesNew` or `released` and lists its presses in `launchFronts`. Arm it before the turn
+  it's meant for: arming after sets the next one.
 
 - **M0, launch balance (#186).** The hearth's usual day is the median of the notch stick,
   not the mean, and it lights at 80/100/120%. On the week before launch the old rule

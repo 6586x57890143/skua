@@ -12,9 +12,9 @@ import (
 	"github.com/6586x57890143/skua/internal/core"
 )
 
-// plays reports whether i may play /pp: anyone once an admin has opened
-// it, and while it is in closed beta its server's admins, skua's
-// break-glass admin, and members holding the server's beta role.
+// plays reports whether i may play /pp: anyone once its launch has come,
+// and while it is in closed beta its server's admins, skua's break-glass
+// admin, and members holding the server's beta role.
 func (m *Module) plays(i discord.Interaction) bool {
 	if m.Admin != nil && m.Admin(i) {
 		return true
@@ -25,20 +25,19 @@ func (m *Module) plays(i discord.Interaction) bool {
 	}
 	s := m.st.server(*guild)
 	s.mu.Lock()
-	beta, open := s.beta, s.open
+	beta, open := s.beta, s.released(DayOf(m.now()))
 	s.mu.Unlock()
 	return open || beta != 0 && slices.Contains(member.RoleIDs, beta)
 }
 
 // betaControls is the beta role picker for /pp's help page, which shows it
-// to admins only, with the switch that opens /pp to everyone and the
-// button that issues beta keys until it's opened, and the sealed letters
-// always. They share a section because the page holds at most 40
+// to admins only, with the launch's switch and the button that issues
+// beta keys until it's launched, and the sealed letters always. They share a section because the page holds at most 40
 // components.
 func (m *Module) betaControls(guild snowflake.ID) []discord.ContainerSubComponent {
 	s := m.st.server(guild)
 	s.mu.Lock()
-	beta, open := s.beta, s.open
+	beta, open, launch := s.beta, s.released(DayOf(m.now())), s.launch
 	s.mu.Unlock()
 	letters := m.letterText(guild)
 	if open {
@@ -52,28 +51,10 @@ func (m *Module) betaControls(guild snowflake.ID) []discord.ContainerSubComponen
 		pick = pick.AddDefaultValue(beta)
 	}
 	return []discord.ContainerSubComponent{
-		discord.NewTextDisplay("### beta testers\n-# /pp is in closed beta: admins play, and so do members with this role. a beta key lets one member in: they redeem it on /pp and get the role. a key works once and skua keeps only its hash, so copy them when they're shown. opening /pp lets every member play, once, and can't be undone\n" + letters),
+		discord.NewTextDisplay("### beta testers\n-# /pp is in closed beta: admins play, and so do members with this role. a beta key lets one member in: they redeem it on /pp and get the role. a key works once and skua keeps only its hash, so copy them when they're shown\n-# " + launchWord(launch) + "\n" + letters),
 		discord.NewActionRow(pick),
-		discord.NewActionRow(discord.NewPrimaryButton("open /pp to everyone", "pp:open"), keysButton(), lettersButton()),
+		discord.NewActionRow(launchButton(launch != 0), keysButton(), lettersButton()),
 	}
-}
-
-// openPP opens /pp to everyone in guild, for good.
-func (m *Module) openPP(ctx context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate) error {
-	if m.Admin == nil || !m.Admin(e) {
-		return errNotAdmin
-	}
-	if _, err := m.db.Exec(ctx, `insert into pp_guild (guild_id, open) values ($1, true)
-		on conflict (guild_id) do update set open = true`, int64(guild)); err != nil {
-		return err
-	}
-	s := m.st.server(guild)
-	s.mu.Lock()
-	s.open = true
-	s.mu.Unlock()
-	m.log.Info("pp: opened to everyone", "guild", guild)
-	return e.CreateMessage(discord.MessageCreate{Content: "/pp is open: every member here can play now",
-		Flags: discord.MessageFlagEphemeral, AllowedMentions: core.NoPings()})
 }
 
 // setBeta keeps the role an admin picked, or none when they cleared it,
@@ -105,14 +86,14 @@ func (m *Module) setBeta(ctx context.Context, guild snowflake.ID, e *events.Comp
 	return e.CreateMessage(discord.MessageCreate{Content: said, Flags: discord.MessageFlagEphemeral, AllowedMentions: core.NoPings()})
 }
 
-// enlist gives member the beta role on their first /pp once /pp is open
-// here, so everyone who played from the start carries it. It's asked of
+// enlist gives member the beta role on their first /pp once /pp has
+// launched here, so everyone who played from the start carries it. It's asked of
 // merlin in the background and never holds the reply up; a refusal is
 // logged and asked again on a later /pp, within redeemTries an hour.
 func (m *Module) enlist(guild snowflake.ID, member *discord.ResolvedMember) {
 	s := m.st.server(guild)
 	s.mu.Lock()
-	role, open := s.beta, s.open
+	role, open := s.beta, s.released(DayOf(m.now()))
 	s.mu.Unlock()
 	if !open || role == 0 || m.Grant == nil || member == nil || slices.Contains(member.RoleIDs, role) {
 		return

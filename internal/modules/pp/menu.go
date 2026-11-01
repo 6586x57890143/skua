@@ -107,8 +107,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.setLivery(ctx, *guild, e)
 	case id == "pp:liveries":
 		return m.liveryPanel(*guild, e)
-	case id == "pp:open":
-		return m.openPP(ctx, *guild, e)
+	case id == "pp:arm":
+		return m.armLaunch(ctx, *guild, e)
 	case id == "pp:openyard":
 		return m.openYard(ctx, *guild, e)
 	case id == "pp:keys":
@@ -136,6 +136,9 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return errBeta
 	}
 	id := e.Data.CustomID()
+	if launchOnly(id) && !m.seesNew(e, *guild) {
+		return errNotYet
+	}
 	switch {
 	case strings.HasPrefix(id, "pp:reroll:"):
 		return m.rerollPicked(*guild, e)
@@ -256,6 +259,7 @@ func (m *Module) withMenu(guild, user snowflake.ID, admin bool, msg discord.Mess
 	s.mu.Lock()
 	mem := m.st.member(s, guild, user, DayOf(m.now()))
 	class, picked := mem.class, mem.classSeason != -1
+	tide := admin || s.released(DayOf(m.now()))
 	l := s.letters[user]
 	held, sealed := l != nil, l != nil && !l.opened
 	s.mu.Unlock()
@@ -266,7 +270,7 @@ func (m *Module) withMenu(guild, user snowflake.ID, admin bool, msg discord.Mess
 	if !ok {
 		return msg
 	}
-	card.Components = append(card.Components, menuRows(class, admin, current, held, sealed)...)
+	card.Components = append(card.Components, menuRows(class, admin, current, tide, held, sealed)...)
 	msg.Components = append([]discord.LayoutComponent{card}, msg.Components[1:]...)
 	return msg
 }
@@ -362,7 +366,7 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	mem.life = now
 	seen(mem, &who.Member, who.User, guild)
 	sh := m.sheet(s, mem, guild, who.User.ID, today)
-	picked, quests := mem.classSeason != -1, held(mem.quests) > 0
+	picked, quests := mem.classSeason != -1, held(mem.quests) > 0 && s.released(today)
 	s.mu.Unlock()
 	if !picked {
 		return titleMessage(buttons, quests, strings.TrimPrefix(m.bellLine(guild), "\n"))
@@ -397,7 +401,7 @@ func turnsOver(today int64) string {
 // the screens it opens, then what the member does from it, every one
 // wearing the icon of what it opens. The screen open now, current, is
 // greyed out; on the status screen share takes the place of status.
-func menuRows(class string, admin bool, current string, letter, sealed bool) []discord.ContainerSubComponent {
+func menuRows(class string, admin bool, current string, tide, letter, sealed bool) []discord.ContainerSubComponent {
 	btn := func(label, id, icon string) discord.InteractiveComponent {
 		b := withIcon(discord.NewSecondaryButton(label, id), icon)
 		if id == current {
@@ -414,7 +418,10 @@ func menuRows(class string, admin bool, current string, letter, sealed bool) []d
 			btn("board", "pp:board", "laurel"), btn("shop", "pp:shop", "scales")),
 		discord.NewActionRow(home, btn("lore", "pp:class", classIcons[class]), btn("buffs", "pp:buffs", "hearth"), btn("journal", "pp:ledger", "quill")),
 	}
-	tide := []discord.InteractiveComponent{btn("slack tide", "pp:tide", "bell")}
+	var last []discord.InteractiveComponent
+	if tide {
+		last = append(last, btn("slack tide", "pp:tide", "bell"))
+	}
 	if letter {
 		b := withIcon(discord.NewSecondaryButton("sealed letter", "pp:letter"), "envelope")
 		if sealed {
@@ -423,12 +430,14 @@ func menuRows(class string, admin bool, current string, letter, sealed bool) []d
 		if current == "pp:letter" {
 			b = b.AsDisabled()
 		}
-		tide = append(tide, b)
+		last = append(last, b)
 	}
 	if admin {
-		tide = append(tide, btn("treasury", "pp:treasury", "pot"))
+		last = append(last, btn("treasury", "pp:treasury", "pot"))
 	}
-	rows = append(rows, discord.NewActionRow(tide...))
+	if len(last) > 0 {
+		rows = append(rows, discord.NewActionRow(last...))
+	}
 	return rows
 }
 

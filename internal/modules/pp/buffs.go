@@ -45,7 +45,7 @@ func (st *state) buffList(s *server, mem *member, vanity string, ever, today int
 		surety,
 		hearth,
 	}
-	if b.Warm(mem.first, today) {
+	if s.released(today) && b.Warm(mem.first, today) {
 		buffs = append(buffs, BuffInfo{Icon: "pot", Name: "warm side", Effect: fmt.Sprintf("+%d%%", b.WarmSide),
 			How: fmt.Sprintf("new here: day %d of %d", today-mem.first+1, b.WarmDays), On: true})
 	}

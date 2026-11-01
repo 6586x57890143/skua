@@ -138,7 +138,7 @@ const shopRungs = 6
 // purse and perch, the ladder the stair's rungs with what they hold and
 // what comes next. Both carry a menu to look closer at a rung and the
 // button to climb.
-func (st *state) shopMessage(s *server, m *member, yard, ladder bool, light int) func() (discord.MessageCreate, error) {
+func (st *state) shopMessage(s *server, m *member, yard, ladder, front bool, light int) func() (discord.MessageCreate, error) {
 	price := rungPrice(st.pot(), m.rung)
 	first := max(1, m.rung-1)
 	var rungs []Rung
@@ -164,7 +164,7 @@ func (st *state) shopMessage(s *server, m *member, yard, ladder bool, light int)
 		draw := func() ([]byte, error) { return StairScreen(light, purse, price, heldIcon, heldName) }
 		other := discord.NewSecondaryButton("the ladder", "pp:ladder")
 		alt := fmt.Sprintf("the pot square under the spire: you sit on %s, the %s costs %s pp and you hold %s pp", or(heldName, "the ground"), next, grouped(price/unit), grouped(purse/unit))
-		if ladder {
+		if ladder || !front {
 			draw = func() ([]byte, error) { return ShopScreen(rungs, purse, price, heldIcon, heldName) }
 			other = discord.NewSecondaryButton("◂ the square", "pp:back")
 			alt = fmt.Sprintf("the rookery stair: you sit on %s, the %s costs %s pp and you hold %s pp", or(heldName, "the ground"), next, grouped(price/unit), grouped(purse/unit))
@@ -177,7 +177,7 @@ func (st *state) shopMessage(s *server, m *member, yard, ladder bool, light int)
 			Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
 				discord.NewMediaGallery(screenItem(pic, alt)),
 				discord.NewActionRow(discord.NewStringSelectMenu("pp:look", "look closer at a rung", look...)),
-				stairRow(climbButton("climb to the "+next, purse >= price), other, yard))},
+				stairRow(climbButton("climb to the "+next, purse >= price), other, front, yard))},
 			Files:           []*discord.File{screenAttachment(pic, alt)},
 			Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 			AllowedMentions: core.NoPings(),
@@ -187,8 +187,11 @@ func (st *state) shopMessage(s *server, m *member, yard, ladder bool, light int)
 
 // stairRow is the stair's buttons: climbing, the way between the square
 // and the ladder, and the way into the dyers' yard for whoever may see it.
-func stairRow(climb, other discord.ButtonComponent, yard bool) discord.ActionRowComponent {
-	row := discord.NewActionRow(climb, other)
+func stairRow(climb, other discord.ButtonComponent, front, yard bool) discord.ActionRowComponent {
+	row := discord.NewActionRow(climb)
+	if front {
+		row = row.AddComponents(other)
+	}
 	if yard {
 		row = row.AddComponents(withIcon(discord.NewSecondaryButton("the dyers' yard", "pp:yard"), "scales"))
 	}
@@ -286,7 +289,8 @@ func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.Component
 		msg, drawn := m.st.itemMessage(mem, look)
 		build = func() (discord.MessageCreate, error) { return msg, drawn }
 	} else {
-		build = m.st.shopMessage(s, mem, yard, id == "pp:ladder", lightAt(m.now()))
+		front := s.released(today) || m.Admin != nil && m.Admin(e)
+		build = m.st.shopMessage(s, mem, yard, id == "pp:ladder", front, lightAt(m.now()))
 	}
 	s.mu.Unlock()
 	if err != nil {

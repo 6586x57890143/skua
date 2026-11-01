@@ -127,8 +127,11 @@ type server struct {
 	// beta is the role whose members may play while /pp is in closed
 	// beta, beside admins; 0 is none.
 	beta snowflake.ID
-	// open is whether /pp is open to everyone here, beta or not.
-	open bool
+	// open is whether /pp was opened to everyone here outright, and launch
+	// the pp day it's armed to open with everything new, 0 for none: see
+	// released.
+	open   bool
+	launch int64
 	// logChannel is where the ledger's head and the seasons' seeds are
 	// posted; 0 is nowhere.
 	logChannel snowflake.ID
@@ -390,7 +393,7 @@ func (s *server) hearth() int { return max(s.lit, s.litBefore) }
 // toward the server's hearth and m's week. s.mu held.
 func (st *state) earn(s *server, m *member, guild, user snowflake.ID, chat bool, raw int64) int64 {
 	before, act := m.day.Voice+m.day.Chat, m.day.Activity()
-	m.wear.Warm = st.bal().Warm(m.first, m.dayN)
+	m.wear.Warm = s.released(m.dayN) && st.bal().Warm(m.first, m.dayN)
 	buff := st.bal().Buff(m.wear, s.hearth())
 	got := st.bal().Earn(&m.day, st.pools(guild, user, m.dayN), chat, raw, buff)
 	if m.day.Minutes+m.day.Paid == 1 {

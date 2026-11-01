@@ -170,7 +170,7 @@ func (st *state) deal(s *server, m *member, guild, user snowflake.ID, today int6
 		m.quests = append(m.quests, q)
 		s.count(today, statDealt, q.tier, q.kind)
 	}
-	if k := talkKind(st.bal()); m.questDay == 0 && k >= 0 && held(m.quests) < st.bal().QuestHold {
+	if k := talkKind(st.bal()); m.questDay == 0 && s.released(today) && k >= 0 && held(m.quests) < st.bal().QuestHold {
 		m.quests = append(m.quests, heldQuest{kind: k})
 		s.count(today, statDealt, 0, k)
 	}

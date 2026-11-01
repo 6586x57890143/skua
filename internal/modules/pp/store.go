@@ -53,7 +53,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		return err
 	}
 	rows, err = db.Query(ctx, `select guild_id, day, raw, history, lit, lit_before, beta_role, log_channel,
-		treasury, levy_open, levy_full, levy_days, fund, fund_seeded, season_mint, season_burn, sink_last, heavy, selfie_channel, livery_anchor, heralds_channel, yard_open, livery_slots, open, hold, house_noted, house_channel from pp_guild`)
+		treasury, levy_open, levy_full, levy_days, fund, fund_seeded, season_mint, season_burn, sink_last, heavy, selfie_channel, livery_anchor, heralds_channel, yard_open, livery_slots, open, hold, house_noted, house_channel, launch from pp_guild`)
 	if err != nil {
 		return err
 	}
@@ -61,7 +61,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		var guild, beta, logCh, selfies, anchor, heralds, house int64
 		var s server
 		if err := rows.Scan(&guild, &s.day, &s.raw, &s.history, &s.lit, &s.litBefore, &beta, &logCh,
-			&s.treasury, &s.levyOpen, &s.levyFull, &s.levyDays, &s.fund, &s.seeded, &s.seasonMint, &s.seasonBurn, &s.sinkLast, &s.heavy, &selfies, &anchor, &heralds, &s.yardOpen, &s.slots, &s.open, &s.hold, &s.noted, &house); err != nil {
+			&s.treasury, &s.levyOpen, &s.levyFull, &s.levyDays, &s.fund, &s.seeded, &s.seasonMint, &s.seasonBurn, &s.sinkLast, &s.heavy, &selfies, &anchor, &heralds, &s.yardOpen, &s.slots, &s.open, &s.hold, &s.noted, &house, &s.launch); err != nil {
 			rows.Close()
 			return err
 		}
@@ -74,7 +74,7 @@ func (st *state) load(ctx context.Context, db DB) error {
 		into.seasonMint, into.seasonBurn, into.sinkLast, into.heavy = s.seasonMint, s.seasonBurn, s.sinkLast, s.heavy
 		into.selfies = snowflake.ID(selfies)
 		into.anchor, into.heralds = snowflake.ID(anchor), snowflake.ID(heralds)
-		into.yardOpen, into.slots, into.open = s.yardOpen, s.slots, s.open
+		into.yardOpen, into.slots, into.open, into.launch = s.yardOpen, s.slots, s.open, s.launch
 		into.hold, into.noted, into.houseCh = s.hold, s.noted, snowflake.ID(house)
 		into.mu.Unlock()
 	}

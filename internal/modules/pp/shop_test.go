@@ -84,7 +84,7 @@ func TestLadder(t *testing.T) {
 // past it a purse keeps a tenth of new earning, the level all of it. A
 // season that burns enough switches it off.
 func TestBackstop(t *testing.T) {
-	st := newState(&Default, 42)
+	st := newTestState()
 	s := st.server(guild)
 	quiet := func() { s.seasonMint, s.seasonBurn = 1000, 10; st.seasonTurn(s) }
 	busy := func() { s.seasonMint, s.seasonBurn = 1000, 300; st.seasonTurn(s) }
@@ -178,7 +178,7 @@ func TestShopCards(t *testing.T) {
 // and every one wears an icon that's drawn.
 func TestMenuRows(t *testing.T) {
 	for _, admin := range []bool{false, true} {
-		for _, row := range menuRows("sorcerer", admin, "pp:status", false, false) {
+		for _, row := range menuRows("sorcerer", admin, "pp:status", true, false, false) {
 			if n := len(row.(discord.ActionRowComponent).Components); n > 4 {
 				t.Errorf("a row of %d buttons", n)
 			}
@@ -194,7 +194,7 @@ func TestMenuRows(t *testing.T) {
 // The buffs button explains every buff, lighting the ones worn, and the
 // hearth names its tier while it's lit.
 func TestBuffsCard(t *testing.T) {
-	m := testModule(&fakeDB{})
+	m := launched(testModule(&fakeDB{}))
 	m.info = func(snowflake.ID) (snowflake.ID, string) { return 0, "Melted" }
 	s := m.st.server(guild)
 	mem := m.st.member(s, guild, old(1), DayOf(t0))

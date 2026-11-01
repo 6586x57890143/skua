@@ -58,7 +58,7 @@ func TestQuestsAskLessThanTheyPay(t *testing.T) {
 // missed day kept; a young account gets none. A first deal brings one more,
 // a good quest to talk.
 func TestQuestDeal(t *testing.T) {
-	st := newState(&Default, 42)
+	st := newTestState()
 	s := st.server(guild)
 	a := old(1)
 	st.chat(s, guild, a, "here", t0)
@@ -101,7 +101,7 @@ func TestQuestDeal(t *testing.T) {
 // labour: the levy's share to the treasury, the rest to the purse, all of
 // it to the level, a ledger row of its own.
 func TestQuestPays(t *testing.T) {
-	st := newState(&Default, 42)
+	st := newTestState()
 	s := st.server(guild)
 	a := old(1)
 	mem := st.member(s, guild, a, DayOf(t0))
@@ -148,7 +148,7 @@ func TestQuestPays(t *testing.T) {
 
 // Each quest held rerolls once a day, on its own.
 func TestQuestReroll(t *testing.T) {
-	st := newState(&Default, 42)
+	st := newTestState()
 	s := st.server(guild)
 	a := old(1)
 	today := DayOf(t0)
@@ -174,7 +174,7 @@ func TestQuestReroll(t *testing.T) {
 // A reroll never lands on the quest it replaces, whatever the day, the
 // tier or the selfie channel.
 func TestRerollNeverRepeats(t *testing.T) {
-	st := newState(&Default, 42)
+	st := newTestState()
 	s := st.server(guild)
 	a := old(1)
 	for day := DayOf(t0); day < DayOf(t0)+300; day++ {
@@ -309,7 +309,7 @@ func kindOf(t *testing.T, tier int, metric string) int {
 // A crowd counts a voice minute with three or more in the room, a stream or a
 // camera counts only its own, and only a bird earning is counted.
 func TestVoiceQuests(t *testing.T) {
-	st := newState(&Default, 42)
+	st := newTestState()
 	s := st.server(guild)
 	a, b, c := old(1), old(2), old(3)
 	crowd, camera := kindOf(t, 0, taskCrowd), kindOf(t, 2, taskCamera)

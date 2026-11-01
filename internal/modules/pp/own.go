@@ -452,6 +452,7 @@ type ownState struct {
 	drafted bool // a petition written, not only the livery worn
 	asked   bool
 	wearing bool
+	renews  bool  // the standing order is on offer: the launch has come
 	left    int64 // days on the lease of the livery worn
 	week    int64 // what a lease of it costs, pp hundredths
 	days    int64 // how long a lease runs
@@ -510,7 +511,10 @@ func (st *state) ownMessage(mem *member, d *draft, o ownState) (discord.MessageC
 		if mem.purse < o.week || o.left+o.days > o.ahead {
 			b = b.AsDisabled()
 		}
-		row = row.AddComponents(b, renewButton(mem.renew, o.days))
+		row = row.AddComponents(b)
+		if o.renews {
+			row = row.AddComponents(renewButton(mem.renew, o.days))
+		}
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
@@ -563,7 +567,7 @@ func (m *Module) ownPage(ctx context.Context, guild, user snowflake.ID) (discord
 		return discord.MessageCreate{}, errOwnPerch
 	}
 	o := ownState{letter: letter, asked: asked, drafted: drafted, wearing: worn.role != 0 && mem.livery == ownKey,
-		first: first, filled: filled, slots: slots, days: days, ahead: ahead}
+		first: first, filled: filled, slots: slots, days: days, ahead: ahead, renews: m.released(guild)}
 	if days == 0 {
 		o.days, _, o.ahead = term(mem.rung)
 	}

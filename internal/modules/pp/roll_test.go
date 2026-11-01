@@ -65,7 +65,7 @@ func TestSeasonLease(t *testing.T) {
 	if mem.liveryUntil != DayOf(m.now())+seasonDays || before-mem.purse != m.st.leasePrice(tallow)*seasonWeeks {
 		t.Errorf("a season: until %d, paid %d", mem.liveryUntil, before-mem.purse)
 	}
-	msg, _ := m.st.dyeMessage(mem, tallow, DayOf(m.now()))
+	msg, _ := m.st.dyeMessage(mem, tallow, DayOf(m.now()), true)
 	if !strings.Contains(js(msg), "another season") {
 		t.Errorf("the card: %s", js(msg))
 	}

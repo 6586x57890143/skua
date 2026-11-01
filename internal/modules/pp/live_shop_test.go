@@ -65,11 +65,11 @@ func TestLiveShop(t *testing.T) {
 	}
 
 	for light, name := range []string{"dusk", "night", "dawn", "day"} {
-		post("the stair at "+name, m.st.shopMessage(s, mem, true, false, light), "pp:ladder", "pp:climb", "pp:yard", "pp:look")
+		post("the stair at "+name, m.st.shopMessage(s, mem, true, false, true, light), "pp:ladder", "pp:climb", "pp:yard", "pp:look")
 	}
-	post("the ladder", m.st.shopMessage(s, mem, true, true, dusk), "pp:back", "pp:climb", "pp:look")
+	post("the ladder", m.st.shopMessage(s, mem, true, true, true, dusk), "pp:back", "pp:climb", "pp:look")
 	for light, name := range []string{"dusk", "night", "dawn", "day"} {
 		post("the yard at "+name, m.st.yardFront(s, 5, mem, today, light), "pp:back", "pp:yard:0", "pp:yard:1")
 	}
-	post("the sump's trades", func() (discord.MessageCreate, error) { return m.st.yardMessage(s, 5, mem, tradesPage, today) }, "pp:dye", "pp:yard\"")
+	post("the sump's trades", func() (discord.MessageCreate, error) { return m.st.yardMessage(s, 5, mem, tradesPage, today, true) }, "pp:dye", "pp:yard\"")
 }
