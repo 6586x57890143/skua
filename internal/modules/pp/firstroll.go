@@ -14,8 +14,13 @@ import (
 // stamped on it. It's taken once, at the turn into season 1, and never
 // again.
 
-// firstRollPlaces is how many places the first roll holds.
-const firstRollPlaces = 10
+// firstRollPlaces is how many places the first roll holds, and
+// firstRollSeason the season its ribbons are worn: the first. The places
+// are kept after it, off the status screen.
+const (
+	firstRollPlaces = 10
+	firstRollSeason = 1
+)
 
 // rollFirst takes the first roll of s: every member's place on the level
 // ladder as the preseason left it, kept for the first firstRollPlaces. It

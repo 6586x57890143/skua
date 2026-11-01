@@ -46,7 +46,8 @@ type Sheet struct {
 	Held        int // quests open
 	RerollReady bool
 	// FirstRoll is their place on the first roll, 0 for none: a ribbon
-	// pinned beside the portrait with the place on it.
+	// pinned beside the portrait with the place on it, worn through the
+	// first season.
 	FirstRoll int
 }
 
@@ -167,7 +168,7 @@ func statusCanvas(s Sheet) *pixel.Canvas {
 	} else {
 		c.Bird(image.Pt(8, 12))
 	}
-	if s.FirstRoll > 0 {
+	if s.FirstRoll > 0 && s.Season == firstRollSeason {
 		drawRoll(c, s.FirstRoll, rollAt)
 	}
 

@@ -139,7 +139,9 @@ who had poured the most were entered on **the first roll**, and each was
 sent a ribbon to pin beside their likeness: sea-green cloth from the
 north sea company's stores with a bone stripe down each tail, and a
 rosette stamped with their place. The first three were struck in gold,
-silver and bronze, and the rest in bone. The counting house has never
+silver and bronze, and the rest in bone. They wore them through the first
+season, and at its close the ribbons went back to the counting house to
+hang beside the roll. The counting house has never
 written another roll like it, and says it never will, because there are
 no years before the seasons left to close.
 

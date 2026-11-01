@@ -1,6 +1,7 @@
 package pp
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
@@ -59,5 +60,18 @@ func TestFirstRollOnStatus(t *testing.T) {
 	}
 	if got := js(*sent); !strings.Contains(got, "3rd on the first roll") {
 		t.Errorf("the status doesn't tell the first roll: %s", got)
+	}
+}
+
+// The ribbon is worn through the first season only: the place is kept, the
+// screen goes back to how it was.
+func TestFirstRollWornOneSeason(t *testing.T) {
+	sh := Sheet{Name: "steve", Class: ClassOf("knight"), Need: Default.Need(0), FirstRoll: 2}
+	for season, worn := range map[int64]bool{1: true, 2: false} {
+		sh.Season = season
+		with, without := statusCanvas(sh), statusCanvas(Sheet{Name: sh.Name, Class: sh.Class, Need: sh.Need, Season: season})
+		if differs := !bytes.Equal(with.Pix, without.Pix); differs != worn {
+			t.Errorf("season %d: the ribbon is worn %v, want %v", season, differs, worn)
+		}
 	}
 }
