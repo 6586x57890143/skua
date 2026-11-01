@@ -74,6 +74,8 @@ type member struct {
 	// seat is the stake they have sat at a table not yet thrown, 0 for
 	// none, and staked what they've staked today.
 	seat, staked int64
+	// markerDay is the day they last sat on the house's marker, in memory.
+	markerDay int64
 	// feats are the deckhead's scraps they've nailed up, a bit each, and
 	// luck what the bones have done for them lately (only in memory: a
 	// restart forgets a run, as the taproom does).

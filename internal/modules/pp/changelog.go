@@ -17,6 +17,7 @@ var Changelog = []Entry{{
 	Lines: []string{
 		"a standing order at the yard: the card of the livery you wear has a switch to renew it each week on its own",
 		"on the lease's last day the next one is paid from your purse at that day's price. if the purse can't pay, it fades as usual",
+		"the house's marker: once a day a newcomer still on the warm side may sit at a table on the purser's wick, and keeps whatever it wins past the stake. a bird with someone standing surety for them stakes their own",
 	},
 }, {
 	Version: "0.16.0",

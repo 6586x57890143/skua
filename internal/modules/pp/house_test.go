@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -291,5 +292,67 @@ func TestBellLeavesNextSeedAlone(t *testing.T) {
 	}
 	if ss.settled {
 		t.Fatal("the next season's seed was fixed before its beacon")
+	}
+}
+
+// The marker seats a newcomer on the warm side once a day at the house's
+// own wick: nothing leaves their purse or comes into the hold, a loss owes
+// nothing, a win pays only the winnings, and a restart's refund passes it
+// over. Birds past the warm side, vouched for, or at the rail are refused.
+func TestMarker(t *testing.T) {
+	st, s := houseState(t)
+	today := DayOf(t0)
+	for i := 1; i <= 4; i++ {
+		s.members[old(i)].first = today
+	}
+	s.members[old(2)].first = today - Default.WarmDays
+	s.guests = map[snowflake.ID]*guest{old(3): {by: old(1), day: today}}
+	tb, _ := st.open(s, 9, t0, false)
+	m := s.members[old(1)]
+	hold := s.hold
+	if err := st.sitOnMarker(s, tb, guild, old(1), "a", t0); err != nil {
+		t.Fatal(err)
+	}
+	if m.purse != 2000*unit || m.staked != 0 || m.seat != onMarker || s.hold != hold {
+		t.Fatalf("the marker moved purse %d staked %d seat %d hold %d", m.purse, m.staked, m.seat, s.hold)
+	}
+	for who, want := range map[int]error{1: errMarkerDone, 2: errMarkerWarm, 3: errMarkerWord} {
+		if err := st.sitOnMarker(s, tb, guild, old(who), "x", t0); !errors.Is(err, want) {
+			t.Errorf("bird %d: %v, want %v", who, err, want)
+		}
+	}
+
+	// A refund after a restart gives nothing back for it.
+	s.refundSeats(today)
+	if m.seat != 0 || m.purse != 2000*unit || s.hold != hold {
+		t.Fatalf("refunded the marker: purse %d hold %d", m.purse, s.hold)
+	}
+	m.seat = onMarker
+
+	// A winning slate: only the winnings come back, at a ledgered stake of
+	// nothing.
+	for n := 0; throwOf(tb.seed, tb.id, old(1)) <= 50; n++ {
+		tb.seed = fmt.Appendf(nil, "marker %d", n)
+	}
+	st.throw(s, tb, t0.Add(tableGlass))
+	p := tb.seats[0]
+	net := payout(p.throw, stakes[0].pp, false) - stakes[0].pp
+	if p.won != net || m.purse != 2000*unit+net || s.hold != hold-net || m.seat != 0 {
+		t.Errorf("won %d (want %d), purse %d, hold %d", p.won, net, m.purse, s.hold)
+	}
+	if e := s.pending[len(s.pending)-1]; e.reason != reasonWin || e.inputs[2] != 0 {
+		t.Errorf("the ledger: %+v", e)
+	}
+
+	// The next day the purser marks them again; never at the rail.
+	s.table = nil
+	next, _ := st.open(s, 9, t0.Add(24*time.Hour), false)
+	if err := st.sitOnMarker(s, next, guild, old(1), "a", t0.Add(24*time.Hour)); err != nil {
+		t.Errorf("the next day: %v", err)
+	}
+	s.table = nil
+	rail, _ := st.callOut(s, 9, t0, false, old(4), old(5), "e")
+	if err := st.sitOnMarker(s, rail, guild, old(4), "d", t0); !errors.Is(err, errMarkerRail) {
+		t.Errorf("at the rail: %v", err)
 	}
 }
