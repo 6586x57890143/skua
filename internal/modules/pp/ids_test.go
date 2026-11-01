@@ -21,7 +21,9 @@ func TestScreensKeepIDsApart(t *testing.T) {
 	who := &discord.ResolvedMember{Member: discord.Member{User: discord.User{ID: 5, Username: "member"}}}
 	mem.quests = []heldQuest{{tier: 0, kind: 0}}
 	screens := map[string]func() (discord.MessageCreate, error){
-		"shop":     func() (discord.MessageCreate, error) { return m.st.shopMessage(s, mem, true) },
+		"shop":     m.st.shopMessage(s, mem, true, false, dusk),
+		"ladder":   m.st.shopMessage(s, mem, true, true, dusk),
+		"yard":     m.st.yardFront(s, 5, mem, today, dusk),
 		"trades":   func() (discord.MessageCreate, error) { return m.st.yardMessage(s, 5, mem, tradesPage, today) },
 		"factions": func() (discord.MessageCreate, error) { return m.st.yardMessage(s, 5, mem, factionsPage, today) },
 		"card":     func() (discord.MessageCreate, error) { return m.st.dyeMessage(mem, tallow, today) },

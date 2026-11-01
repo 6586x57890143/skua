@@ -90,7 +90,10 @@ func TestYardGate(t *testing.T) {
 	if s, err := got("pp:shop"); err != nil || !strings.Contains(s, "pp:yard") {
 		t.Fatalf("an open yard isn't in the shop: %v %s", err, s)
 	}
-	for _, id := range []string{"pp:yard", "pp:yard:1"} {
+	if s, err := got("pp:yard"); err != nil || !strings.Contains(s, "pp:yard:0") || !strings.Contains(s, "pp:yard:1") {
+		t.Errorf("the yard's front doesn't lead to its pages: %v %s", err, s)
+	}
+	for _, id := range []string{"pp:yard:0", "pp:yard:1"} {
 		if s, err := got(id); err != nil || !strings.Contains(s, "pp:dye") {
 			t.Errorf("%s: %v %s", id, err, s)
 		}

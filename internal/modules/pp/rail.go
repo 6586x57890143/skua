@@ -157,7 +157,7 @@ func railFrames(r Rail) ([]*pixel.Canvas, []int) {
 		func(c *pixel.Canvas, f int) { lanternFlame(c, art, (f/2)%3) },
 		func(c *pixel.Canvas, f int) { windows(c, art.img, railTown, f) },
 		func(c *pixel.Canvas, f int) { windows(c, art.img, railCustoms, f) },
-		func(c *pixel.Canvas, f int) { runnelFlow(c, art, f) },
+		func(c *pixel.Canvas, f int) { runnelFlow(c, art, f, runnelTop, runnelFoot, runnelFan) },
 	) {
 		frames, beats = append(frames, c), append(beats, sumpBeat)
 	}
@@ -205,10 +205,10 @@ func swell(c *pixel.Canvas, art *sumpArt, step int) {
 	}
 }
 
-// runnelFlow runs the dyers' three colours down the runnel a frame at a
-// time, in bands that slide down it, and spreads them out over the
-// harbour where it spills.
-func runnelFlow(c *pixel.Canvas, art *sumpArt, f int) {
+// runnelFlow runs the dyers' three colours down a gutter from top to foot
+// a frame at a time, in bands that slide down it, and spreads them out in
+// the fan where it spills.
+func runnelFlow(c *pixel.Canvas, art *sumpArt, f int, runnelTop, runnelFoot image.Point, runnelFan image.Rectangle) {
 	// Each dye is seen through the gutter's own water and the light of the
 	// hour: mixed into what's there (the fog too, at dawn), never laid
 	// on top of it.

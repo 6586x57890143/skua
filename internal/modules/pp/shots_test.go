@@ -76,4 +76,12 @@ func TestShots(t *testing.T) {
 	write("sheet_house", []*pixel.Canvas{houseSheetCanvas(HouseSheet{Period: "season 1", Hold: 6230 * unit, Line: houseLine(), Note: Rules.HouseNote * unit,
 		Staked: 24100 * unit, Won: 22870 * unit, Pumped: 0, Edge: 510, Week: -120, Throws: 1204, Throwers: 61, Bells: 9, Best: 5000 * unit})})
 	write("sheet_treasury", []*pixel.Canvas{treasuryCanvas(Treasury{Period: "season 1", Balance: 19600 * unit, Fund: 11250 * unit, Taking: true, Head: "3e8d0b55"})})
+	for light, name := range []string{"dusk", "night", "dawn", "day"} {
+		c := pixel.New(screenW, screenH)
+		stairWindows(c, sumpSize.Y+4, 1234*unit, 2500*unit, "pot", "copper perch")
+		write("stair_"+name, potScene(c, light))
+		c = pixel.New(screenW, screenH)
+		yardWindows(c, sumpSize.Y+4, 1234*unit, Livery{Name: "tallow", Color: 0xD9A030, Left: 4}, "week")
+		write("yard_"+name, yardScene(c, light))
+	}
 }
