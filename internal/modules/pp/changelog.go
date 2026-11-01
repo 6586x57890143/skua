@@ -13,11 +13,20 @@ type Entry struct {
 var Changelog = []Entry{{
 	Version: "0.14.0",
 	Date:    "2026-11-02",
-	Balance: "c283bd",
+	Balance: "92296d",
 	Lines: []string{
 		"/pp is open to everyone: no beta role needed. your first /pp gives you the beta role anyway, so everyone who played from the start carries it",
 		"the warm side, a new buff: for your first 14 days after you first earn, everything but quests pays 10% more. the buffs card counts the days",
 		"your first day brings a second quest, a good one that only asks you to talk, and the title screen has a button to your quests before you've picked a class",
+	},
+}, {
+	Version: "0.13.0",
+	Date:    "2026-11-02",
+	Balance: "7e95dc",
+	Lines: []string{
+		"the hearth lights easier. the keepers read the middle notch on the stick now, not the average, so one roaring day no longer holds the mark above every day after it",
+		"its three heights now light at 80%, 100% and 120% of that usual day, so an ordinary day lights it and a good one lights it higher",
+		"drum quests ask for 12 in a crowd instead of 20, and envelope quests 18 replies instead of 25",
 	},
 }, {
 	Version: "0.12.0",
