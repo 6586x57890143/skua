@@ -62,12 +62,40 @@ func (m *Module) morning(guild, user snowflake.ID) (Morning, bool) {
 		}
 		l := QuestLine{Icon: b.QuestKinds[q.tier][q.kind].Icon, Tier: q.tier, Reward: b.QuestPP[q.tier]}
 		for j, t := range q.tasks(b) {
-			l.Tasks = append(l.Tasks, TaskLine{What: shortTask(t, false), Progress: min(q.prog[j], t.Goal), Goal: t.Goal})
+			l.Tasks = append(l.Tasks, TaskLine{What: sheetTask(t), Progress: min(q.prog[j], t.Goal), Goal: t.Goal})
 		}
 		sh.Quests = append(sh.Quests, l)
 	}
 	return sh, true
 }
+
+// sheetTask is a task as the sheet's one line holds it: short, its goal
+// in it, each kind its own word.
+func sheetTask(t Task) string {
+	switch t.Metric {
+	case taskVoice:
+		return fmt.Sprintf("%dm voice", t.Goal)
+	case taskTalk:
+		return fmt.Sprintf("%d lines", t.Goal)
+	case taskHearth:
+		return fmt.Sprintf("%dm hearth", t.Goal)
+	case taskSelfie:
+		return "a selfie"
+	case taskCrowd:
+		return fmt.Sprintf("%dm crowd", t.Goal)
+	case taskReply:
+		return fmt.Sprintf("%d replies", t.Goal)
+	case taskStream:
+		return fmt.Sprintf("%dm stream", t.Goal)
+	case taskCamera:
+		return fmt.Sprintf("%dm camera", t.Goal)
+	}
+	return t.Metric
+}
+
+// sheetTaskRoom is how wide a quest's task may be on the sheet, beside the
+// widest reward.
+const sheetTaskRoom = 72
 
 // sheetDate is how the sheet dates today: by the season's day.
 func sheetDate(b *Balance, today int64) string {
@@ -255,7 +283,7 @@ func morningPanes(c *pixel.Canvas, s Morning) {
 		if len(q.Tasks) > 0 {
 			t := q.Tasks[0]
 			if len(q.Tasks) > 1 {
-				t.What += fmt.Sprintf(" +%d", len(q.Tasks)-1)
+				t.What += "+"
 			}
 			c.FitIn(pixel.Light, x+pixel.IconCells+3, y, t.What, pixel.Ink, at-4-(x+pixel.IconCells+3))
 		}

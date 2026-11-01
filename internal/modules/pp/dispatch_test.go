@@ -3,7 +3,9 @@ package pp
 import (
 	"bytes"
 	"context"
+	"github.com/6586x57890143/skua/internal/pixel"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -152,5 +154,25 @@ func TestMorningVoice(t *testing.T) {
 		if l != strings.ToLower(l) || strings.Contains(l, ";") || strings.HasSuffix(l, ".") {
 			t.Errorf("off voice: %q", l)
 		}
+	}
+}
+
+// Every kind of task fits its line on the sheet whole, with a second task
+// after it and the biggest reward beside it, so nothing is cut.
+func TestSheetTasksFit(t *testing.T) {
+	room := 368 - pixel.Regular.Width(grouped(slices.Max(Default.QuestPP[:])/unit)) - 4 - (252 + pixel.IconCells + 3)
+	if room < sheetTaskRoom {
+		t.Fatalf("the sheet leaves %d for a task, not %d", room, sheetTaskRoom)
+	}
+	seen := map[string]bool{}
+	for _, m := range []string{taskVoice, taskTalk, taskHearth, taskSelfie, taskCrowd, taskReply, taskStream, taskCamera} {
+		s := sheetTask(Task{Metric: m, Goal: 120})
+		if w := pixel.Light.Width(s + "+"); w > sheetTaskRoom {
+			t.Errorf("%q is %d wide", s, w)
+		}
+		if seen[s] {
+			t.Errorf("%q twice", s)
+		}
+		seen[s] = true
 	}
 }
