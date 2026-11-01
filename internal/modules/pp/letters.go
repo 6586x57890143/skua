@@ -174,7 +174,8 @@ func (m *Module) letterText(guild snowflake.ID) string {
 	}
 	s.mu.Unlock()
 	slices.SortFunc(sent, func(a, b held) int { return cmp.Compare(a.l.at, b.l.at) })
-	text := fmt.Sprintf("### sealed letters\n-# the first birds to close %d round robins with every place filled each get a letter with one of these codes, and claim it with a ticket. nobody is told until one comes\n**sealed** %d", LetterRings, sealed)
+	// Who earns one stays out of every word skua shows, here too.
+	text := fmt.Sprintf("### sealed letters\n-# the north sea company writes to a few birds, each letter holding one of these codes, and they claim it with a ticket. nobody is told until one comes\n**sealed** %d", sealed)
 	for _, h := range sent {
 		state := "unopened"
 		if h.l.opened {
