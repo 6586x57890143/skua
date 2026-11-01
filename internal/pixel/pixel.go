@@ -344,7 +344,7 @@ func (c *Canvas) Portrait(img image.Image, p image.Point, scale int) {
 
 // Picture draws img scale times its size with its top left at p, keeping
 // its own colours: each joins this canvas's palette while there's room,
-// and past that takes the nearest ink there.
+// and past that takes the nearest ink there. What's clear is left as it was.
 func (c *Canvas) Picture(img image.Image, p image.Point, scale int) {
 	b := img.Bounds()
 	known := map[[4]uint32]uint8{}
@@ -352,6 +352,9 @@ func (c *Canvas) Picture(img image.Image, p image.Point, scale int) {
 		for x := b.Min.X; x < b.Max.X; x++ {
 			col := img.At(x, y)
 			r, g, bl, a := col.RGBA()
+			if a < 0x8000 {
+				continue
+			}
 			i, ok := known[[4]uint32{r, g, bl, a}]
 			if !ok {
 				i = c.ink(col)

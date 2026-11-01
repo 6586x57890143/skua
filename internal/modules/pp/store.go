@@ -102,6 +102,9 @@ func (st *state) load(ctx context.Context, db DB) error {
 	if err := st.loadGuests(ctx, db); err != nil {
 		return err
 	}
+	if err := st.loadLetters(ctx, db); err != nil {
+		return err
+	}
 	return st.loadSeeds(ctx, db)
 }
 

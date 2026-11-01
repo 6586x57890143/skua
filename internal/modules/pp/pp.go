@@ -179,12 +179,12 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"banners", strconv.Itoa(banners)},
 		{"presences", presence},
 		{"gate book", gate},
-	}, Controls: slices.Concat(m.betaControls(guild), m.keyControls(), m.logControls(guild), m.selfieControls(guild), m.liveryControls(), m.grantControls())}
+	}, Controls: slices.Concat(m.betaControls(guild), m.keyControls(guild), m.logControls(guild), m.selfieControls(guild), m.liveryControls(), m.grantControls())}
 }
 
 // Modals are the grant, key and redeem forms.
 func (m *Module) Modals() []core.Modal {
-	return []core.Modal{{ID: grantForm, Run: m.submitGrant}, {ID: keyForm, Run: m.submitKeys}, {ID: redeemForm, Run: m.submitRedeem}, {ID: ownForm, Run: m.submitOwn}, {ID: heraldForm, Run: m.refusePetition}}
+	return []core.Modal{{ID: grantForm, Run: m.submitGrant}, {ID: keyForm, Run: m.submitKeys}, {ID: redeemForm, Run: m.submitRedeem}, {ID: letterForm, Run: m.submitLetters}, {ID: ownForm, Run: m.submitOwn}, {ID: heraldForm, Run: m.refusePetition}}
 }
 
 // savings is how much the server's active members (seen in the last 28
@@ -378,6 +378,7 @@ func (m *Module) tick(ctx context.Context, last *int64) {
 	}
 	m.postCheckpoints()
 	m.postJoinders()
+	m.sendLetters(ctx)
 	m.checkSelfies(ctx)
 	m.seasonTick(ctx, now)
 }

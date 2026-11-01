@@ -255,6 +255,21 @@ round robin with all four places filled.
   three of the names are on the chapter house wall, among those who didn't
   come down.
 
+### Sealed letters
+
+Now and then the north sea company writes to a bird. The letter comes up
+from the bellward by company runner, never by the penny post, sealed in
+green wax stamped with a gannet over the waves and tied in a blue ribbon
+gone grey with salt. Inside is a line of figures and nothing else. A bird
+who takes the figures to the company's office is seen by the clerk, who
+knows them.
+
+Nobody posts these letters on the board, and the company has never said
+who it writes to or why. The ferrymen say it's crewing for whatever the
+kittiwake's round robin asked. The gin lanes say it can't be bought,
+because they've tried. The clerk is given paper for only so many, and when
+it's gone the office is shut.
+
 ### Liveries
 
 A **livery** is the colour a bird wears in the street, and in the rookery it

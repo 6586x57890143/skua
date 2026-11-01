@@ -22,6 +22,7 @@ const (
 	statLapsed   = "notice_lapsed"    // b is how many had signed
 	statLeft     = "notice_withdrawn" // b is 1 once its work had started
 	statEnded    = "notice_ended"     // a withdrawal ended it for everyone; b as statLeft
+	statLetter   = "letter_sent"      // a is the winner's full rings
 )
 
 // statKey is one counter: a day, what it counts and its two particulars.

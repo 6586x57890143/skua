@@ -153,3 +153,26 @@ Not done yet:
   `hold` and `release` ledger reasons yet.
 - **Still screens**: lore pages, item cards, the treasury and the livery draft have no
   hand and don't move.
+
+## /pp: sealed letters (M4, 2026-10-31, draft #191)
+
+The north sea company's letters (LORE.md, sealed letters), each holding a code an admin
+loaded. Who gets one is deliberately not written down here or in the lore: the code in
+`letters.go` is the only record, so keep it out of comments, docs and PR text too.
+
+- **Codes** are loaded by admins from /help ("load letters"). They live in `pp_letter`
+  only (migration 039): never in the repo, the ledger or a log line. /help shows each
+  holder with their code's last four, enough to check a ticket.
+- **Plaintext, not hashed.** A holder reopens the letter on /pp, so the code has to be
+  readable.
+- Claims are one `update ... for update skip locked` with a unique index on (guild,
+  winner), so concurrent claims never share a code. No announcement: the holder finds a lit
+  "sealed letter" button under their /pp screens. `letter_sent` in `pp_stat` counts them.
+- Live check: `SKUA_LIVE=1 go test ./internal/modules/pp -run TestLiveLetters -v` posts
+  both screens to flightless's bench channel.
+
+Not done yet:
+
+- The letter screens move only by the hand. An ambient loop (the ribbon, the wax) waits
+  for `pixel.Animate` from #189.
+- The owner still has to read LORE.md's sealed letters section.

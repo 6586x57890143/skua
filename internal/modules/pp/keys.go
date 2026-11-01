@@ -109,11 +109,14 @@ func (t *tries) take(user snowflake.ID, now time.Time) bool {
 	return t.n[user] <= redeemTries
 }
 
-// keyControls is the button for /pp's help page that issues keys.
-func (m *Module) keyControls() []discord.ContainerSubComponent {
+// keyControls is /pp's help page's codes: the button that issues beta
+// keys, and the sealed letters beside it, in one block that keeps the page
+// under Discord's count of components.
+func (m *Module) keyControls(guild snowflake.ID) []discord.ContainerSubComponent {
 	return []discord.ContainerSubComponent{
-		discord.NewTextDisplay("### beta keys\n-# each key lets one member into the beta: they redeem it on /pp and get the beta testers' role. a key works once, and skua keeps only its hash, so copy them when they're shown"),
-		discord.NewActionRow(withIcon(discord.NewSecondaryButton("issue keys", "pp:keys"), "envelope")),
+		discord.NewTextDisplay("### beta keys\n-# each key lets one member into the beta: they redeem it on /pp and get the beta testers' role. a key works once, and skua keeps only its hash, so copy them when they're shown\n" + m.letterText(guild)),
+		discord.NewActionRow(withIcon(discord.NewSecondaryButton("issue keys", "pp:keys"), "envelope"),
+			withIcon(discord.NewSecondaryButton("load letters", "pp:letters"), "envelope")),
 	}
 }
 
