@@ -133,10 +133,12 @@ func perch(n int64) (name, icon string) {
 // the member's.
 const shopRungs = 6
 
-// shopMessage is the shop's front as a member sees it: the stair with what
-// they hold and what comes next, their purse, a menu to look closer at a
-// rung and the button to climb.
-func (st *state) shopMessage(s *server, m *member, yard bool) (discord.MessageCreate, error) {
+// shopMessage is the shop as a member sees it, gathered while s.mu is
+// held and drawn after: the front is the pot square in light over their
+// purse and perch, the ladder the stair's rungs with what they hold and
+// what comes next. Both carry a menu to look closer at a rung and the
+// button to climb.
+func (st *state) shopMessage(s *server, m *member, yard, ladder bool, light int) func() (discord.MessageCreate, error) {
 	price := rungPrice(st.pot(), m.rung)
 	first := max(1, m.rung-1)
 	var rungs []Rung
@@ -156,27 +158,37 @@ func (st *state) shopMessage(s *server, m *member, yard bool) (discord.MessageCr
 	if m.rung > 0 {
 		heldName, heldIcon = perch(m.rung)
 	}
-	pic, err := ShopScreen(rungs, m.purse, price, heldIcon, heldName)
-	if err != nil {
-		return discord.MessageCreate{}, err
-	}
 	next, _ := perch(m.rung + 1)
-	alt := fmt.Sprintf("the rookery stair: you sit on %s, the %s costs %s pp and you hold %s pp", or(heldName, "the ground"), next, grouped(price/unit), grouped(m.purse/unit))
-	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
-			discord.NewMediaGallery(screenItem(pic, alt)),
-			discord.NewActionRow(discord.NewStringSelectMenu("pp:look", "look closer at a rung", look...)),
-			stairRow(climbButton("climb to the "+next, m.purse >= price), yard))},
-		Files:           []*discord.File{screenAttachment(pic, alt)},
-		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
-		AllowedMentions: core.NoPings(),
-	}, nil
+	purse := m.purse
+	return func() (discord.MessageCreate, error) {
+		draw := func() ([]byte, error) { return StairScreen(light, purse, price, heldIcon, heldName) }
+		other := discord.NewSecondaryButton("the ladder", "pp:ladder")
+		alt := fmt.Sprintf("the pot square under the spire: you sit on %s, the %s costs %s pp and you hold %s pp", or(heldName, "the ground"), next, grouped(price/unit), grouped(purse/unit))
+		if ladder {
+			draw = func() ([]byte, error) { return ShopScreen(rungs, purse, price, heldIcon, heldName) }
+			other = discord.NewSecondaryButton("◂ the square", "pp:back")
+			alt = fmt.Sprintf("the rookery stair: you sit on %s, the %s costs %s pp and you hold %s pp", or(heldName, "the ground"), next, grouped(price/unit), grouped(purse/unit))
+		}
+		pic, err := draw()
+		if err != nil {
+			return discord.MessageCreate{}, err
+		}
+		return discord.MessageCreate{
+			Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
+				discord.NewMediaGallery(screenItem(pic, alt)),
+				discord.NewActionRow(discord.NewStringSelectMenu("pp:look", "look closer at a rung", look...)),
+				stairRow(climbButton("climb to the "+next, purse >= price), other, yard))},
+			Files:           []*discord.File{screenAttachment(pic, alt)},
+			Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
+			AllowedMentions: core.NoPings(),
+		}, nil
+	}
 }
 
-// stairRow is the stair's buttons: climbing, and the way into the dyers'
-// yard for whoever may see it.
-func stairRow(climb discord.ButtonComponent, yard bool) discord.ActionRowComponent {
-	row := discord.NewActionRow(climb)
+// stairRow is the stair's buttons: climbing, the way between the square
+// and the ladder, and the way into the dyers' yard for whoever may see it.
+func stairRow(climb, other discord.ButtonComponent, yard bool) discord.ActionRowComponent {
+	row := discord.NewActionRow(climb, other)
 	if yard {
 		row = row.AddComponents(withIcon(discord.NewSecondaryButton("the dyers' yard", "pp:yard"), "scales"))
 	}
@@ -233,7 +245,8 @@ func or(s, otherwise string) string {
 // errNoRung is a look at a rung the menu never offered.
 var errNoRung = core.Tell("that rung isn't on the stair; open the shop again")
 
-// shop is a press in the shop: shop and back show its front, climb buys
+// shop is a press in the shop: shop and back show its front, ladder the
+// stair's rungs, climb buys
 // the next rung and shows that rung's card, and look shows the rung picked
 // in the menu.
 func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate) error {
@@ -268,17 +281,19 @@ func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.Component
 		// member's name already set in its look.
 		look = mem.rung
 	}
-	var msg discord.MessageCreate
-	var drawn error
+	var build func() (discord.MessageCreate, error)
 	if look > 0 {
-		msg, drawn = m.st.itemMessage(mem, look)
+		msg, drawn := m.st.itemMessage(mem, look)
+		build = func() (discord.MessageCreate, error) { return msg, drawn }
 	} else {
-		msg, drawn = m.st.shopMessage(s, mem, yard)
+		build = m.st.shopMessage(s, mem, yard, id == "pp:ladder", lightAt(m.now()))
 	}
 	s.mu.Unlock()
 	if err != nil {
 		return err
 	}
+	// The square moves, so it's drawn outside the lock.
+	msg, drawn := build()
 	if drawn != nil {
 		return drawn
 	}

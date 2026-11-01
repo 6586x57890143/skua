@@ -51,6 +51,11 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if _, err := st.flush(ctx, db); err != nil {
 		t.Fatal(err)
 	}
+	// The first day comes back from the ledger, once a day has closed into it.
+	st.chat(s, g, a, "the day after", t0.Add(24*time.Hour))
+	if _, err := st.flush(ctx, db); err != nil {
+		t.Fatal(err)
+	}
 
 	back := newState(&Default, 42)
 	if err := back.load(ctx, db); err != nil {
@@ -66,7 +71,10 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		gm.classDay != 12 || gm.livery != "ember" || gm.liveryUntil != 20800 {
 		t.Errorf("came back as %+v; want %+v", *gm, *m)
 	}
-	if got.day != s.day || got.raw != s.raw || len(got.history) != 2 || got.lit != s.lit {
+	if gm.first != DayOf(t0) {
+		t.Errorf("first came back as %d; want %d", gm.first, DayOf(t0))
+	}
+	if got.day != s.day || got.raw != s.raw || len(got.history) != len(s.history) || got.lit != s.lit {
 		t.Errorf("the server came back as day %d raw %d history %v lit %d", got.day, got.raw, got.history, got.lit)
 	}
 }
@@ -189,5 +197,62 @@ func TestReverseInStore(t *testing.T) {
 	}
 	if bm := back.server(g).members[u]; bm.purse != 10*unit+got[0].Paid || bm.rung != 0 {
 		t.Errorf("came back with purse %d rung %d", bm.purse, bm.rung)
+	}
+}
+
+// The house comes back as it was saved: the hold, its note, its channel,
+// and a bird sat at a table when skua stopped, whose stake the boot then
+// gives back, with the ledger still agreeing with every purse and the hold.
+func TestHouseRoundTrip(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	g := snowflake.New(time.Now()) + snowflake.ID(time.Now().UnixNano()%4096)
+	st := newState(&Default, 42)
+	s := st.server(g)
+	s.houseCh = 9
+	a := old(1)
+	m := st.member(s, g, a, DayOf(t0))
+	m.purse, m.total, m.dirty = 500*unit, 500*unit, true
+	s.append(a, DayOf(t0), reasonOpen, m.purse, nil) // the purse as the ledger opens it
+	tb, err := st.open(s, 9, t0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.sitDown(s, tb, g, a, "a", stakes[1].pp, t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.flush(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `update pp_guild set house_channel = 9 where guild_id = $1`, int64(g)); err != nil {
+		t.Fatal(err)
+	}
+
+	back := newState(&Default, 42)
+	if err := back.load(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	// Only this test's server: the database holds other tests' too.
+	for id := range back.srv {
+		if id != g {
+			delete(back.srv, id)
+		}
+	}
+	got := back.server(g)
+	gm := got.members[a]
+	if got.hold != s.hold || !got.noted || got.houseCh != 9 || gm.seat != stakes[1].pp || gm.staked != stakes[1].pp {
+		t.Fatalf("the house came back as hold %d noted %v channel %d, seat %d staked %d", got.hold, got.noted, got.houseCh, gm.seat, gm.staked)
+	}
+	got.mu.Lock()
+	got.refundSeats(DayOf(t0))
+	got.mu.Unlock()
+	if gm.seat != 0 || gm.purse != 500*unit || got.hold != Rules.HouseNote*unit {
+		t.Errorf("the refund left purse %d hold %d", gm.purse, got.hold)
+	}
+	if _, err := back.flush(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if bad, err := back.audit(ctx, db); err != nil || bad != 0 {
+		t.Errorf("the audit after a refund: %d disagree, %v", bad, err)
 	}
 }

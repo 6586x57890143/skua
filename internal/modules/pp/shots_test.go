@@ -1,0 +1,87 @@
+package pp
+
+import (
+	"bytes"
+	"image/png"
+	"os"
+	"path/filepath"
+	"strconv"
+	"testing"
+
+	"github.com/6586x57890143/skua/internal/pixel"
+)
+
+// TestShots writes every slack tide frame as a PNG to SKUA_SHOTS, for
+// looking at while the art is worked on. Without it, it does nothing.
+func TestShots(t *testing.T) {
+	dir := os.Getenv("SKUA_SHOTS")
+	if dir == "" {
+		t.Skip("SKUA_SHOTS unset")
+	}
+	seats := []TableSeat{
+		{Name: "heavywinds", Class: Classes[1], Stake: stakes[0].pp, Throw: 37},
+		{Name: "steve", Class: Classes[3], Stake: stakes[3].pp, Throw: 100, Won: stakes[3].pp * 10},
+		{Name: "a very long name indeed", Class: Classes[5], Stake: stakes[1].pp, Throw: 64, Won: stakes[1].pp * 3 / 2},
+		{Name: "tester", Class: Classes[7], Stake: stakes[2].pp, Throw: 92, Won: stakes[2].pp * 5 / 2},
+	}
+	write := func(name string, frames []*pixel.Canvas) {
+		for i, f := range frames {
+			// As it ships: softened and dithered the way every screen is.
+			var buf bytes.Buffer
+			if err := png.Encode(&buf, f.SoftImage(screenScale)); err != nil {
+				t.Fatal(err)
+			}
+			b := buf.Bytes()
+			if err := os.WriteFile(filepath.Join(dir, name+"_"+strconv.Itoa(i)+".png"), b, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	f, _ := tableFrames(Table{Seats: seats[:2], Slate: "9f2c41ab77e0"})
+	write("table_open", f)
+	f, _ = tableFrames(Table{Seats: seats, Thrown: true, Slate: "3e8d0b5512aa",
+		Scraps: []Scrap{{Up: true, Color: 0xC0392B}, {}, {Up: true}, {Up: true, Color: 0x2E86AB}, {}, {}, {Up: true, Color: 0xE5B53A}}})
+	write("table_thrown", f)
+	f, _ = tableFrames(Table{Seats: seats, Bell: true})
+	write("table_bell", f)
+	f, _ = houseFrames(House{Hold: 31000 * unit, Line: houseLine(), MaxStake: 310 * unit, Staked: 125 * unit, Beam: "steve", BeamThrow: 97, Scraps: 3,
+		Sump: Sump{Hold: 31000 * unit, Line: houseLine(), Light: night}})
+	write("house", f)
+	f, _ = houseFrames(House{Hold: houseLine(), Line: houseLine(), MaxStake: 500 * unit, Bell: true,
+		Sump: Sump{Hold: houseLine(), Line: houseLine(), Stage: bellRinging}})
+	write("house_bell", f)
+	half := Sump{Hold: houseLine() / 2, Line: houseLine()}
+	for light, name := range []string{"dusk", "night", "dawn", "day"} {
+		s := half
+		s.Light = light
+		write("sump_"+name, sumpScene(pixel.New(sumpSize.X, sumpSize.Y), s))
+	}
+	for stage, name := range map[int]string{bellDrawing: "drawing", bellBoats: "boats", bellRinging: "ringing"} {
+		s := half
+		s.Stage = stage
+		write("sump_bell_"+name, sumpScene(pixel.New(sumpSize.X, sumpSize.Y), s))
+	}
+	duel := []TableSeat{
+		{Name: "steve", Class: Classes[1], Stake: stakes[1].pp, Throw: 83, Won: stakes[1].pp * 3 / 2},
+		{Name: "tester", Class: Classes[4], Stake: stakes[1].pp, Throw: 41},
+	}
+	for light, name := range []string{"dusk", "night", "dawn", "day"} {
+		f, _ = railFrames(Rail{Light: light, Seats: duel[:1], Called: "tester", Slate: "9f2c41ab77e0"})
+		write("rail_open_"+name, f)
+	}
+	f, _ = railFrames(Rail{Light: dusk, Seats: duel, Thrown: true, Slate: "3e8d0b5512aa"})
+	write("rail_thrown", f)
+	s := Sump{Hold: houseLine(), Line: houseLine(), Pumping: true, Light: dawn}
+	write("sump_pumping", sumpScene(pixel.New(sumpSize.X, sumpSize.Y), s))
+	write("sheet_house", []*pixel.Canvas{houseSheetCanvas(HouseSheet{Period: "season 1", Hold: 6230 * unit, Line: houseLine(), Note: Rules.HouseNote * unit,
+		Staked: 24100 * unit, Won: 22870 * unit, Pumped: 0, Edge: 510, Week: -120, Throws: 1204, Throwers: 61, Bells: 9, Best: 5000 * unit})})
+	write("sheet_treasury", []*pixel.Canvas{treasuryCanvas(Treasury{Period: "season 1", Balance: 19600 * unit, Fund: 11250 * unit, Taking: true, Head: "3e8d0b55"})})
+	for light, name := range []string{"dusk", "night", "dawn", "day"} {
+		c := pixel.New(screenW, screenH)
+		stairWindows(c, sumpSize.Y+4, 1234*unit, 2500*unit, "pot", "copper perch")
+		write("stair_"+name, potScene(c, light))
+		c = pixel.New(screenW, screenH)
+		yardWindows(c, sumpSize.Y+4, 1234*unit, Livery{Name: "tallow", Color: 0xD9A030, Left: 4}, "week")
+		write("yard_"+name, yardScene(c, light))
+	}
+}

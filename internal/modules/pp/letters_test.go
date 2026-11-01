@@ -158,7 +158,7 @@ func TestSealedLetters(t *testing.T) {
 	}
 
 	// The help page says who holds one by its last four only.
-	help := js(m.keyControls(3))
+	help := js(m.betaControls(3))
 	if !strings.Contains(help, "**sealed** 0") || !strings.Contains(help, old(2).String()) || strings.Contains(help, "STEAM-SECRET") {
 		t.Errorf("help: %s", help)
 	}

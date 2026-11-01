@@ -240,3 +240,44 @@ func TestLedgerRoundTrip(t *testing.T) {
 		t.Errorf("a purse that disagrees passed the audit: %d", n)
 	}
 }
+
+// A bird who earned before the ledger began and holds nothing now is dated
+// by an opening of nothing, so the warm side never takes them for new; a
+// newcomer who has only earned today gets no such row.
+func TestLedgerDatesEarlyBirds(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	g := snowflake.New(time.Now()) + snowflake.ID(time.Now().UnixNano()%4096)
+	st := newState(&Default, 42)
+	s := st.server(g)
+	early, fresh := old(1), old(2)
+	long := DayOf(t0) - 30
+	st.member(s, g, early, long).total = 5000
+	st.chat(s, g, fresh, "a real thing to say", t0)
+	if _, err := st.audit(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var opened []snowflake.ID
+	for _, e := range s.pending {
+		if e.reason == reasonOpen {
+			opened = append(opened, e.user)
+		}
+	}
+	if len(opened) != 1 || opened[0] != early {
+		t.Fatalf("opened %v; want only the early bird", opened)
+	}
+	if _, err := st.flush(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	back := newState(&Default, 42)
+	if err := back.load(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	bs := back.server(g)
+	if m := bs.members[early]; m == nil || back.bal().Warm(m.first, DayOf(t0)) {
+		t.Errorf("the early bird is on the warm side")
+	}
+	if m := bs.members[fresh]; m == nil || !back.bal().Warm(m.first, DayOf(t0)) {
+		t.Errorf("the newcomer isn't on the warm side")
+	}
+}

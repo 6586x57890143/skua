@@ -188,3 +188,70 @@ func (c *Canvas) Screen(scale int) ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
+
+// Animate is frames as one moving screen, each shown for its beat in
+// milliseconds: the first whole, and each after it only the box where it
+// differs from the one before, softened on its own, so a scene that moves
+// in a few places costs little more than a still one. Frames are the same
+// size. A run of frames that never changes is no animation, and goes out
+// still: Discord breaks on a one-frame WebP.
+func Animate(frames []*Canvas, beats []int, scale int) ([]byte, error) {
+	if Draft.Load() {
+		return draft, nil
+	}
+	full := image.Rect(0, 0, frames[0].Rect.Dx()*scale, frames[0].Rect.Dy()*scale)
+	type part struct {
+		f    *Canvas
+		box  image.Rectangle
+		beat int
+	}
+	parts := []part{{frames[0], full, beats[0]}}
+	for i := 1; i < len(frames); i++ {
+		d := changed(frames[i-1], frames[i])
+		if d.Empty() {
+			parts[len(parts)-1].beat += beats[i]
+			continue
+		}
+		d = d.Inset(-1)
+		box := image.Rect(d.Min.X*scale&^1, d.Min.Y*scale&^1, d.Max.X*scale, d.Max.Y*scale).Intersect(full)
+		parts = append(parts, part{frames[i], box, beats[i]})
+	}
+	if len(parts) == 1 {
+		return frames[0].Soft(scale)
+	}
+	imgs := make([]*image.RGBA, len(parts))
+	var wg sync.WaitGroup
+	for k, p := range parts {
+		wg.Go(func() { imgs[k] = p.f.softIn(scale, p.box) })
+	}
+	wg.Wait()
+	ani := nativewebp.Animation{}
+	for k, p := range parts {
+		ani.Images = append(ani.Images, imgs[k])
+		ani.Durations = append(ani.Durations, uint(p.beat))
+		ani.Disposals = append(ani.Disposals, 0)
+	}
+	var buf bytes.Buffer
+	if err := nativewebp.EncodeAll(&buf, &ani, &nativewebp.Options{CompressionLevel: nativewebp.BestSpeed}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// changed is the box of cells where b differs from a.
+func changed(a, b *Canvas) image.Rectangle {
+	var r image.Rectangle
+	w := a.Rect.Dx()
+	for i := range a.Pix {
+		if a.Palette[a.Pix[i]] != b.Palette[b.Pix[i]] {
+			p := image.Pt(i%w, i/w)
+			r = r.Union(image.Rectangle{p, p.Add(image.Pt(1, 1))})
+		}
+	}
+	return r
+}
+
+// Copy is a copy of c to draw the next frame on.
+func (c *Canvas) Copy() *Canvas {
+	return &Canvas{Paletted: &image.Paletted{Pix: slices.Clone(c.Pix), Stride: c.Stride, Rect: c.Rect, Palette: slices.Clone(c.Palette)}}
+}

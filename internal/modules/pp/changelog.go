@@ -11,6 +11,40 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.15.0",
+	Date:    "2026-11-02",
+	Balance: "42c7ce",
+	Lines: []string{
+		"the slack tide opens in the sump: the wet guild's house in the hull of the gannet, where you throw the bones against the purser's hold",
+		"a table seats six and every bird throws against the house, never each other. the stakes are a wick, a candle, a lamp and a lantern, 5 to 500 pp",
+		"half the numbers lose. the upper half pays your stake back and half again, the nineties two and a half times and a hundred ten times",
+		"the purser takes no more than a hundredth of the hold on one throw, and only so much from one bird a day, more for birds higher on the stair. lanterns wait for the tide to come in",
+		"once a day, and some days twice, the drowned bell rings for an hour and a hundred pays fifteen times. the house channel says when the water draws back",
+		"what the house holds past its waterline is pumped over the side at the turn of the day, gone for good",
+		"the slack tide opens on the sump outside her, by the hour's light: the tide on the shingle shows how full the hold is, and the water draws back before the bell",
+		"the highest throw of the day is chalked on the beam over the bar, and wiped at the new tide",
+		"luck the house has seen only a few times nails a scrap of your colour to the deckhead for good. seven are known. they pay nothing",
+		"duel a bird at the rail: you both stake the same, each throws against the house and the higher throw takes the honour. no pp passes between you",
+	},
+}, {
+	Version: "0.14.0",
+	Date:    "2026-11-02",
+	Balance: "92296d",
+	Lines: []string{
+		"/pp is open to everyone: no beta role needed. your first /pp gives you the beta role anyway, so everyone who played from the start carries it",
+		"the warm side, a new buff: for your first 14 days after you first earn, everything but quests pays 10% more. the buffs card counts the days",
+		"your first day brings a second quest, a good one that only asks you to talk, and the title screen has a button to your quests before you've picked a class",
+	},
+}, {
+	Version: "0.13.0",
+	Date:    "2026-11-02",
+	Balance: "7e95dc",
+	Lines: []string{
+		"the hearth lights easier. the keepers read the middle notch on the stick now, not the average, so one roaring day no longer holds the mark above every day after it",
+		"its three heights now light at 80%, 100% and 120% of that usual day, so an ordinary day lights it and a good one lights it higher",
+		"drum quests ask for 12 in a crowd instead of 20, and envelope quests 18 replies instead of 25",
+	},
+}, {
 	Version: "0.12.0",
 	Date:    "2026-10-26",
 	Balance: "5cbf9a",

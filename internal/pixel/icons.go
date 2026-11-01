@@ -327,6 +327,78 @@ var Icons = map[string][]string{
 		"................",
 		"................",
 	},
+	"wick": {
+		"................",
+		"................",
+		".......kk.......",
+		"......kOOk......",
+		"......kODk......",
+		"......kNOk......",
+		".......kk.......",
+		".......kk.......",
+		".....kkkkkk.....",
+		"....krwrrqpk....",
+		"....krrrrqpk....",
+		"...kkkkkkkkkk...",
+		"...kGHGGGFFEk...",
+		"....kkkkkkkk....",
+		"................",
+		"................",
+	},
+	"candle": {
+		"................",
+		".......kk.......",
+		"......kOOk......",
+		"......kODk......",
+		"......kNOk......",
+		".......kk.......",
+		"......kkkk......",
+		".....krwrqk.....",
+		".....krrrqk.....",
+		".....kwrrqk.....",
+		".....krrrpk.....",
+		".....krrqpk.....",
+		".....krrqpk.....",
+		"...kkkkkkkkkk...",
+		"...kGHGGGFFEk...",
+		"....kkkkkkkk....",
+	},
+	"lamp": {
+		".......kk.......",
+		"......k..k......",
+		".......kk.......",
+		"......kGGk......",
+		".....kWOOWk.....",
+		".....kWDOWk.....",
+		".....kWNOWk.....",
+		".....kVWWVk.....",
+		"....kkkkkkkk....",
+		"...kCDCCCCBBk...",
+		"..kBCCCCCCBBAk..",
+		"..kBBCCCCBBBAk..",
+		"...kABBBBBBAk...",
+		"....kkAAAAkk....",
+		"......kkkk......",
+		"................",
+	},
+	"bones": {
+		"................",
+		"....k...........",
+		"...kwk..........",
+		"..kqwrk.........",
+		".kqwwrqk........",
+		"kqqwwrrqk..k....",
+		"kqqwLrqqk.kwk...",
+		".kqqrqqk.kqwrk..",
+		"..kqrqk.kqwwrqk.",
+		"...kqk.kqqwwrrqk",
+		"....k..kqqwLrqqk",
+		"........kqqrqqk.",
+		".........kqrqk..",
+		"..........kqk...",
+		"...........k....",
+		"................",
+	},
 	"sword": {
 		"................",
 		"............kkk.",
@@ -617,6 +689,11 @@ func (c *Canvas) BigIcon(name string, p image.Point, scale int) {
 // thing drawn from several grids is one mark. A cell that isn't an ink is
 // left as it was.
 func (c *Canvas) Grid(g []string, p image.Point) image.Rectangle { return c.grid(g, p, 1) }
+
+// BigGrid draws g like Grid, scale pixels a cell.
+func (c *Canvas) BigGrid(g []string, p image.Point, scale int) image.Rectangle {
+	return c.grid(g, p, scale)
+}
 
 // grid draws g scale pixels a cell and returns the box its ink covers.
 func (c *Canvas) grid(g []string, p image.Point, scale int) image.Rectangle {

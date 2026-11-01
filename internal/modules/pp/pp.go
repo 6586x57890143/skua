@@ -49,10 +49,15 @@ type Module struct {
 	Admin func(discord.Interaction) bool
 	// Guard spends the herald's posts.
 	Guard *guard.Guard
-	// Grant hands out the beta role when a member redeems a key; nil
-	// without a bird to ask, and then keys aren't issued.
+	// Grant hands out the beta role: to every member on their first /pp
+	// once it's open, and to a member who redeems a key or comes in on a
+	// surety's word. nil without a bird to ask, and then keys aren't
+	// issued and nobody is given it.
 	Grant   Granter
 	redeems tries
+	// asks counts enlist's asks for the beta role, apart from redeems so
+	// a member's /pp never uses up their key tries.
+	asks tries
 	// rest posts for the herald, set once the gateway is ready, and beacon
 	// draws drand's randomness for the season seeds.
 	rest   rest.Rest
@@ -77,6 +82,11 @@ func New(ctx context.Context, log *slog.Logger, db DB, seed uint64, info GuildIn
 		return nil, err
 	}
 	m.st.regrant(DayOf(m.now()))
+	for _, s := range m.st.servers() {
+		s.mu.Lock()
+		s.refundSeats(DayOf(m.now()))
+		s.mu.Unlock()
+	}
 	for _, s := range m.st.servers() {
 		s.mu.Lock()
 		m.st.sureties(s, DayOf(m.now()))
@@ -179,7 +189,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		{"banners", strconv.Itoa(banners)},
 		{"presences", presence},
 		{"gate book", gate},
-	}, Controls: slices.Concat(m.betaControls(guild), m.keyControls(guild), m.logControls(guild), m.selfieControls(guild), m.liveryControls(), m.grantControls())}
+	}, Controls: slices.Concat(m.betaControls(guild), m.logControls(guild), m.channelControls(guild), m.grantControls())}
 }
 
 // Modals are the grant, key and redeem forms.
@@ -377,6 +387,8 @@ func (m *Module) tick(ctx context.Context, last *int64) {
 		*last = day
 	}
 	m.postCheckpoints()
+	m.staleTables(ctx)
+	m.bells(ctx)
 	m.postJoinders()
 	m.sendLetters(ctx)
 	m.checkSelfies(ctx)
