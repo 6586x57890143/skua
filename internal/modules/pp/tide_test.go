@@ -22,11 +22,13 @@ import (
 // tideRest records the house's posts and edits.
 type tideRest struct {
 	rest.Rest
-	next   snowflake.ID
-	posts  []string
-	edits  []string
-	to     []snowflake.ID
-	failed bool
+	next  snowflake.ID
+	posts []string
+	edits []string
+	// answers are presses answered late, each its redrawn message.
+	answers []string
+	to      []snowflake.ID
+	failed  bool
 }
 
 func (f *tideRest) CreateMessage(ch snowflake.ID, c discord.MessageCreate, _ ...rest.RequestOpt) (*discord.Message, error) {
@@ -37,6 +39,11 @@ func (f *tideRest) CreateMessage(ch snowflake.ID, c discord.MessageCreate, _ ...
 	f.to = append(f.to, ch)
 	f.posts = append(f.posts, js(c.Components)+c.Content)
 	return &discord.Message{ID: 1000 + f.next}, nil
+}
+
+func (f *tideRest) UpdateInteractionResponse(_ snowflake.ID, _ string, u discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	f.answers = append(f.answers, js(u.Components))
+	return &discord.Message{}, nil
 }
 
 func (f *tideRest) UpdateMessage(_ snowflake.ID, msg snowflake.ID, u discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
@@ -130,6 +137,10 @@ func TestTableFlow(t *testing.T) {
 	}
 	if len(tb.seats) != 1 || s.members[5].seat != stakes[1].pp {
 		t.Fatalf("seats %+v", tb.seats)
+	}
+	// The press is answered at once and the table redrawn after it.
+	if len(r.answers) != 1 || !strings.Contains(r.answers[0], "the glass runs out") {
+		t.Errorf("the sit wasn't answered with the table redrawn: %v", r.answers)
 	}
 	s.mu.Lock()
 	msg, _ := m.tableMessage(s, tb)
@@ -362,6 +373,10 @@ func TestHouseSheet(t *testing.T) {
 		}
 	}
 	m.st.throw(s, tb, t0)
+	// A stake given back by a restart was never thrown, so the sheet
+	// doesn't count it.
+	s.append(old(1), DayOf(t0), reasonStake, -stakes[1].pp, []int64{1})
+	s.append(old(1), DayOf(t0), reasonRefund, stakes[1].pp, nil)
 	s.count(DayOf(t0), statBell, 0, 0)
 	s.mu.Unlock()
 	if _, err := m.st.flush(ctx, db); err != nil {

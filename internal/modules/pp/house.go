@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"sync"
 	"time"
 
 	"github.com/disgoorg/snowflake/v2"
@@ -107,6 +108,10 @@ type table struct {
 	bell         bool      // opened in the drowning hour, so a hundred pays fifteen
 	seats        []seated
 	settled      bool
+	// draw lets one redraw of its message run at a time, each drawn from
+	// the table as it stands then, so a later picture never lands under an
+	// earlier one.
+	draw sync.Mutex
 }
 
 // slate is the hash of t's seed, posted before anyone sits.
