@@ -425,6 +425,9 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 		return discord.MessageCreate{}, err
 	}
 	alt := fmt.Sprintf("%s, %s, level %d, %s pp to spend", pixel.Plain(sh.Name), sh.Class.Name(), sh.Level, grouped(sh.Purse/unit))
+	if sh.FirstRoll > 0 {
+		alt += fmt.Sprintf(", %s on the first roll", ordinal(sh.FirstRoll))
+	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", turnsOver(today)+m.bellLine(guild),
 			discord.NewMediaGallery(screenItem(pic, alt)))},
@@ -531,7 +534,7 @@ func (m *Module) sheet(s *server, mem *member, guild, user snowflake.ID, today i
 		Portrait: Portrait(ClassOf(mem.class)), Rung: mem.rung,
 		Class: ClassOf(mem.class), Level: l, Into: into, Need: need, Total: mem.total, Purse: mem.purse,
 		Vigor: vigor, Phase: phase, Season: season, Week: week, Held: held(mem.quests),
-		Laurels: int(mem.laurels),
+		Laurels: int(mem.laurels), FirstRoll: int(mem.firstRoll),
 	}
 	for _, w := range []struct {
 		on   bool

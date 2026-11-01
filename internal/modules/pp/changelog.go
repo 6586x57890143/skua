@@ -37,6 +37,7 @@ var Changelog = []Entry{{
 		"on the lease's last day the next one is paid from your purse at that day's price. if the purse can't pay, it fades as usual",
 		"the house's marker: once a day a newcomer still on the warm side may sit at a table on the purser's wick, and keeps whatever it wins past the stake. a bird with someone standing surety for them stakes their own",
 		"the slack tide's news can have a channel of its own: the bell, all hands and a duel called out are told there with a way to the table, and the tables stay where they are. a bird called out is pinged once, and not again for an hour",
+		"the first roll: at the turn into season 1 the ten highest on the level ladder are entered on the first roll for good, and wear its ribbon beside their portrait with their place on it",
 	},
 }, {
 	Version: "0.16.0",

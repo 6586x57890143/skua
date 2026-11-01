@@ -129,6 +129,20 @@ The keepers of the board hold one notice back for each newcomer, an easy
 one that asks only for talk, so their first day in the city ends with
 something done.
 
+### The first roll
+
+The night before the first season was called, the counting house closed
+its books on the years before it. No ledger from that time was trusted,
+so the clerks went round the pot with a lamp and asked every bird what
+they had poured in, and wrote down what the pot itself agreed to. The ten
+who had poured the most were entered on **the first roll**, and each was
+sent a ribbon to pin beside their likeness: sea-green cloth from the
+north sea company's stores with a bone stripe down each tail, and a
+rosette stamped with their place. The first three were struck in gold,
+silver and bronze, and the rest in bone. The counting house has never
+written another roll like it, and says it never will, because there are
+no years before the seasons left to close.
+
 ### The hearth
 
 Beside the pot stands **the hearth**, a public fire tended by the herons of
