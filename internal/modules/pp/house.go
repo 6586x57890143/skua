@@ -94,6 +94,9 @@ type seated struct {
 	stake int64
 	throw int   // once settled
 	won   int64 // once settled
+	// marker is a seat on the house's marker: the stake is the house's
+	// own, so nothing left the purse and only the winnings come back.
+	marker bool
 }
 
 // table is one of the purser's tables: its slate (the seed, posted as its
@@ -160,7 +163,15 @@ var (
 	errRailStake  = core.Tell("at the rail both stake the same; pick the stake already on it")
 	errRailSelf   = core.Tell("you can't call yourself out")
 	errRailWho    = core.Tell("the purser doesn't know that bird: call out someone who earns about the city")
+	errMarkerWarm = core.Tell("the marker is for newcomers still sleeping on the warm side")
+	errMarkerWord = core.Tell("a bird with someone standing surety for them stakes their own")
+	errMarkerDone = core.Tell("the purser has marked you once today; come back after the turn")
+	errMarkerRail = core.Tell("the marker isn't taken at the rail")
 )
+
+// onMarker is a member's seat while they sit on the marker: not a stake of
+// theirs, so a restart's refund passes it over.
+const onMarker = -1
 
 // line is the waterline, and maxStake the most the purser takes on one
 // throw: a hundredth of the hold.
@@ -228,8 +239,44 @@ func (st *state) callOut(s *server, ch snowflake.ID, now time.Time, bell bool, c
 // time anywhere, so a double click or a retried press can't seat them
 // twice. s.mu held.
 func (st *state) sitDown(s *server, t *table, guild, user snowflake.ID, name string, stake int64, now time.Time) error {
+	return st.seat(s, t, guild, user, name, stake, now, false)
+}
+
+// sitOnMarker seats user at t on the house's marker: the lowest stake, the
+// house's own, once a day, for a newcomer still on the warm side whom
+// nobody stands surety for. Nothing is owed if it loses. s.mu held.
+func (st *state) sitOnMarker(s *server, t *table, guild, user snowflake.ID, name string, now time.Time) error {
 	today := DayOf(now)
 	m := st.member(s, guild, user, today)
+	g, vouched := s.guests[user]
+	switch {
+	case t.rail != 0:
+		return errMarkerRail
+	case !st.bal().Warm(m.first, today):
+		return errMarkerWarm
+	case vouched && g.gone == 0 && g.by != 0:
+		return errMarkerWord
+	case m.markerDay == today:
+		return errMarkerDone
+	}
+	if err := st.seat(s, t, guild, user, name, stakes[0].pp, now, true); err != nil {
+		return err
+	}
+	// ponytail: the day is kept in memory, so a restart the same day lets a
+	// bird take a second marker; persist it if that ever matters.
+	m.markerDay = today
+	return nil
+}
+
+// seat is sitDown and sitOnMarker: on the marker nothing leaves the purse
+// or comes into the hold, and it counts toward no day's stakes. s.mu held.
+func (st *state) seat(s *server, t *table, guild, user snowflake.ID, name string, stake int64, now time.Time, marker bool) error {
+	today := DayOf(now)
+	m := st.member(s, guild, user, today)
+	paid := stake
+	if marker {
+		paid = 0
+	}
 	worst := topPay(stake, t.bell)
 	for _, p := range t.seats {
 		worst += topPay(p.stake, t.bell)
@@ -247,22 +294,26 @@ func (st *state) sitDown(s *server, t *table, guild, user snowflake.ID, name str
 		return errHouseNew
 	case stake > s.maxStake():
 		return errTideOut
-	case m.staked+stake > st.stakeCap(m.rung):
+	case m.staked+paid > st.stakeCap(m.rung):
 		return errStakeCap
-	case m.purse < stake:
+	case m.purse < paid:
 		return errStakeShort
-	case worst > (s.hold+stake)/2:
+	case worst > (s.hold+paid)/2:
 		return errWorstCase
 	}
-	m.purse -= stake
-	m.seat, m.staked = stake, m.staked+stake
+	if marker {
+		m.seat = onMarker
+	} else {
+		m.purse -= stake
+		m.seat, m.staked = stake, m.staked+stake
+		s.hold += stake
+		s.append(user, today, reasonStake, -stake, []int64{t.id})
+	}
 	m.dirty, s.dirty = true, true
-	s.hold += stake
-	s.append(user, today, reasonStake, -stake, []int64{t.id})
 	if t.first.IsZero() {
 		t.first = now
 	}
-	t.seats = append(t.seats, seated{user: user, name: name, stake: stake})
+	t.seats = append(t.seats, seated{user: user, name: name, stake: stake, marker: marker})
 	return nil
 }
 
@@ -284,15 +335,21 @@ func (st *state) throw(s *server, t *table, now time.Time) bool {
 		p := &t.seats[i]
 		p.throw = throwOf(t.seed, t.id, p.user)
 		p.won = payout(p.throw, p.stake, t.bell)
+		ledgered := p.stake
+		if p.marker {
+			// The house's stake goes back to the house; the bird has the
+			// rest. The ledger shows it at a stake of nothing.
+			p.won, ledgered = max(p.won-p.stake, 0), 0
+		}
 		m := st.member(s, s.id, p.user, today)
 		m.seat = 0
 		m.purse += p.won
 		m.dirty = true
 		s.hold -= p.won
 		if p.won > 0 {
-			s.append(p.user, today, reasonWin, p.won, []int64{t.id, int64(p.throw), p.stake})
+			s.append(p.user, today, reasonWin, p.won, []int64{t.id, int64(p.throw), ledgered})
 		}
-		s.count(today, statThrow, int(p.stake/unit), p.throw)
+		s.count(today, statThrow, int(ledgered/unit), p.throw)
 		if t.rail != 0 {
 			s.count(today, statRail, int(p.stake/unit), p.throw)
 		}
@@ -312,6 +369,10 @@ func (st *state) throw(s *server, t *table, now time.Time) bool {
 func (s *server) refundSeats(today int64) {
 	for u, m := range s.members {
 		if m.seat == 0 {
+			continue
+		}
+		if m.seat == onMarker {
+			m.seat, m.dirty = 0, true
 			continue
 		}
 		s.hold -= m.seat

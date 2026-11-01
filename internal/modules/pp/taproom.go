@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"hash/fnv"
 	"image"
 	"image/color"
 	"image/png"
@@ -193,6 +194,42 @@ func stakeIcon(pp int64) string {
 	return "pot"
 }
 
+// markerFor is the house's marker as it lies in front of who: tilted
+// somewhere within a quarter turn either way of upright or over, and maybe
+// mirrored, so no two lie quite the same, and each the same way every
+// frame. Each pixel is the nearest of the marker's own, so it stays its
+// palette.
+func markerFor(who string) image.Image {
+	h := fnv.New32a()
+	h.Write([]byte(who))
+	n := h.Sum32()
+	src := sprite("marker_small")
+	b := src.Bounds()
+	angle := float64(int(n%4)*90+int(n>>2%41)-20) * math.Pi / 180
+	mirror := n>>8&1 == 1
+	sin, cos := math.Sin(angle), math.Cos(angle)
+	cx, cy := float64(b.Dx())/2, float64(b.Dy())/2
+	side := int(math.Ceil(math.Hypot(float64(b.Dx()), float64(b.Dy()))))
+	out := image.NewNRGBA(image.Rect(0, 0, side, side))
+	half := float64(side) / 2
+	for y := range side {
+		for x := range side {
+			// Back from the turned picture to the marker.
+			px, py := float64(x)+0.5-half, float64(y)+0.5-half
+			sx := int(math.Floor(cos*px + sin*py + cx))
+			sy := int(math.Floor(-sin*px + cos*py + cy))
+			if sx < 0 || sy < 0 || sx >= b.Dx() || sy >= b.Dy() {
+				continue
+			}
+			if mirror {
+				sx = b.Dx() - 1 - sx
+			}
+			out.Set(x, y, src.At(b.Min.X+sx, b.Min.Y+sy))
+		}
+	}
+	return out
+}
+
 // tableFrames are a table's frames and their beats: the room with its
 // birds and their stakes, the candles flickering and the glass running;
 // once thrown, the bones tumbling over each bird first, then landing.
@@ -214,7 +251,12 @@ func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 			// A lantern lit on the table in front of them.
 			base.Fill(image.Rect(x-12, tableTop+1, x+12, tableTop+7), pool)
 		}
-		base.Icon(stakeIcon(p.Stake), image.Pt(x-8, tableTop-9))
+		if p.Marker {
+			mk := markerFor(p.Name)
+			paste(base, mk, image.Pt(x, tableTop-2).Sub(mk.Bounds().Size().Div(2)))
+		} else {
+			base.Icon(stakeIcon(p.Stake), image.Pt(x-8, tableTop-9))
+		}
 	}
 	panel(base, t)
 
@@ -350,10 +392,22 @@ func panel(c *pixel.Canvas, t Table) {
 			ink = pixel.Gold
 		}
 		c.Print(pixel.Bold, x-pixel.Bold.Width(name)/2, y, name, ink)
-		c.Icon(stakeIcon(p.Stake), image.Pt(left, y+16-iconLift))
 		line, lineInk := grouped(p.Stake/unit), pixel.Gold
+		if p.Marker {
+			// The marker is pinned at the foot of the column, in the middle,
+			// over the ledger's lower edge where the column is clear; it says
+			// itself, so only the throw's word goes in the row.
+			mk := markerFor(p.Name)
+			paste(c, mk, image.Pt(x, foot+3).Sub(mk.Bounds().Size().Div(2)))
+			line = ""
+		} else {
+			c.Icon(stakeIcon(p.Stake), image.Pt(left, y+16-iconLift))
+		}
 		if t.Thrown {
 			line, lineInk = "lost", pixel.Red
+			if p.Marker {
+				line, lineInk = "nil", pixel.Dim
+			}
 			if p.Won > 0 {
 				line, lineInk = "+"+grouped(p.Won/unit), pixel.Green
 			}

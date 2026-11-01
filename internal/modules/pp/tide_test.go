@@ -1,9 +1,12 @@
 package pp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
 	"strconv"
 	"strings"
 	"testing"
@@ -469,6 +472,61 @@ func TestDiceFaces(t *testing.T) {
 	}
 	if len(dieTipped) != len(dieFace[0]) || len(dieTipped[0]) != len(dieFace) {
 		t.Error("the tipped die isn't the face turned a quarter")
+	}
+}
+
+// An open table carries the marker, and a newcomer on the warm side who
+// presses it is seated on it; a bird past it is told why not.
+func TestMarkerPress(t *testing.T) {
+	m, r := houseModule(t)
+	if e, _ := coretest.Button(t, "pp:table", nil); m.press(context.Background(), e) != nil {
+		t.Fatal("no table")
+	}
+	s := m.st.server(guild)
+	tb := s.table
+	if !strings.Contains(r.posts[0], fmt.Sprintf("pp:sit:%d:marker", tb.id)) {
+		t.Fatalf("the table has no marker: %s", r.posts[0])
+	}
+	mem := m.st.member(s, guild, 5, DayOf(m.now()))
+	mem.first = DayOf(m.now()) - Default.WarmDays
+	press := func() error {
+		e, _ := coretest.Button(t, fmt.Sprintf("pp:sit:%d:marker", tb.id), nil)
+		return m.press(context.Background(), e)
+	}
+	if err := press(); !errors.Is(err, errMarkerWarm) {
+		t.Errorf("past the warm side: %v", err)
+	}
+	mem.first = DayOf(m.now())
+	if err := press(); err != nil || len(tb.seats) != 1 || !tb.seats[0].marker {
+		t.Fatalf("on the marker: %v %+v", err, tb.seats)
+	}
+}
+
+// A bird's marker lies the same way every time, at its own angle, in the
+// marker's own colours.
+func TestMarkerLies(t *testing.T) {
+	src := sprite("marker_small")
+	own := map[color.Color]bool{}
+	b := src.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			own[color.NRGBAModel.Convert(src.At(x, y))] = true
+		}
+	}
+	a, again, other := markerFor("steve"), markerFor("steve"), markerFor("tester")
+	if !bytes.Equal(a.(*image.NRGBA).Pix, again.(*image.NRGBA).Pix) {
+		t.Error("the same bird's marker lay two ways")
+	}
+	if bytes.Equal(a.(*image.NRGBA).Pix, other.(*image.NRGBA).Pix) {
+		t.Error("two birds' markers lie the same")
+	}
+	ab := a.Bounds()
+	for y := ab.Min.Y; y < ab.Max.Y; y++ {
+		for x := ab.Min.X; x < ab.Max.X; x++ {
+			if c := color.NRGBAModel.Convert(a.At(x, y)); c.(color.NRGBA).A > 0 && !own[c] {
+				t.Fatalf("a colour not the marker's: %v", c)
+			}
+		}
 	}
 }
 

@@ -201,14 +201,15 @@ func (m *Module) openTable(ctx context.Context, guild snowflake.ID, e *events.Co
 // sitAt is a press on a table's stake: it seats the bird and redraws the
 // table, and throws the bones once its benches are full.
 func (m *Module) sitAt(guild snowflake.ID, e *events.ComponentInteractionCreate) error {
-	// pp:sit:<table>:<stake>
+	// pp:sit:<table>:<stake>, or pp:sit:<table>:marker
 	parts := strings.Split(e.Data.CustomID(), ":")
 	if len(parts) != 4 {
 		return errTableShut
 	}
 	id, err1 := strconv.ParseInt(parts[2], 10, 64)
+	marker := parts[3] == "marker"
 	k, err2 := strconv.Atoi(parts[3])
-	if err1 != nil || err2 != nil || k < 0 || k >= len(stakes) {
+	if err1 != nil || !marker && (err2 != nil || k < 0 || k >= len(stakes)) {
 		return errTableShut
 	}
 	now := m.now()
@@ -220,7 +221,13 @@ func (m *Module) sitAt(guild snowflake.ID, e *events.ComponentInteractionCreate)
 		return errTableShut
 	}
 	first := t.first.IsZero()
-	if err := m.st.sitDown(s, t, guild, e.User().ID, e.Member().EffectiveName(), stakes[k].pp, now); err != nil {
+	sit := func() error {
+		return m.st.sitDown(s, t, guild, e.User().ID, e.Member().EffectiveName(), stakes[k].pp, now)
+	}
+	if marker {
+		sit = func() error { return m.st.sitOnMarker(s, t, guild, e.User().ID, e.Member().EffectiveName(), now) }
+	}
+	if err := sit(); err != nil {
 		s.mu.Unlock()
 		return err
 	}
@@ -386,7 +393,7 @@ func (m *Module) tableView(s *server, t *table) func() (discord.MessageCreate, e
 		if mem != nil {
 			class = ClassOf(mem.class)
 		}
-		tb.Seats = append(tb.Seats, TableSeat{Name: p.name, Class: class, Stake: p.stake, Throw: p.throw, Won: p.won})
+		tb.Seats = append(tb.Seats, TableSeat{Name: p.name, Class: class, Stake: p.stake, Throw: p.throw, Won: p.won, Marker: p.marker})
 	}
 	light, rail, called := lightAt(m.now()), t.rail != 0, t.called
 	var lines []string
@@ -418,6 +425,15 @@ func (m *Module) tableView(s *server, t *table) func() (discord.MessageCreate, e
 				b = b.AsDisabled()
 			}
 			if st.pp > s.maxStake() {
+				b = b.AsDisabled()
+			}
+			row = append(row, b)
+		}
+		// The newcomers' marker, open to anyone to press: the purser asks
+		// who they are when they do.
+		if t.rail == 0 {
+			b := withIcon(discord.NewSecondaryButton("on the marker", fmt.Sprintf("pp:sit:%d:marker", t.id)), "wick")
+			if stakes[0].pp > s.maxStake() {
 				b = b.AsDisabled()
 			}
 			row = append(row, b)
@@ -471,6 +487,8 @@ type TableSeat struct {
 	Class      Class
 	Stake, Won int64
 	Throw      int
+	// Marker is a seat on the house's marker.
+	Marker bool
 }
 
 // best is the seat that threw highest, the first to throw it on a tie.
@@ -490,7 +508,11 @@ func (t Table) alt() string {
 		if t.Thrown {
 			parts = append(parts, fmt.Sprintf("%s threw %d for %s pp", p.Name, p.Throw, grouped(p.Won/unit)))
 		} else {
-			parts = append(parts, fmt.Sprintf("%s staked %s pp", p.Name, grouped(p.Stake/unit)))
+			if p.Marker {
+				parts = append(parts, p.Name+" on the house's marker")
+			} else {
+				parts = append(parts, fmt.Sprintf("%s staked %s pp", p.Name, grouped(p.Stake/unit)))
+			}
 		}
 	}
 	if len(parts) == 0 {
