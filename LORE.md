@@ -511,8 +511,10 @@ purser tells the room the tide's in. When the house has been losing, the
 ship rides high on her ribs, the tide's out and the purser won't take a big
 stake until it comes back in. He never takes more on one throw than a
 hundredth of what's in the hold, and he won't take more than so much from
-one bird in a day, whatever the hold says. The house has seen what a bird
-does at dawn.
+one bird in a day, though he takes more from a bird higher on the stair.
+The house has seen what a bird does at dawn. Nothing won or lost at the
+slack tide is written in the counting house's books of a bird's earnings:
+the city knows a bird by the days they put in, not the bones.
 
 **The drowning hour.** The magpies brought up every piece of the chapel
 bell but its tongue, and the slack tide is sure the tongue is in the
