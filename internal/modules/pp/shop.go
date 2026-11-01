@@ -296,12 +296,9 @@ func (m *Module) shop(_ context.Context, guild snowflake.ID, e *events.Component
 	if err != nil {
 		return err
 	}
-	// The square moves, so it's drawn outside the lock.
-	msg, drawn := build()
-	if drawn != nil {
-		return drawn
-	}
-	return m.answer(guild, e, msg, "pp:shop")
+	// The square moves, so it's drawn outside the lock, after the press is
+	// answered.
+	return m.answerSlow(guild, e, "pp:shop", build)
 }
 
 // sinksRow is the season's burn so far and the backstop, for the help

@@ -401,7 +401,7 @@ func TestHouseSheet(t *testing.T) {
 		won += p.won
 	}
 	got := js(msg.Components)
-	for _, want := range []string{"the house", "75 pp staked", fmt.Sprintf("%s won", grouped(won/unit)), "pp:treasury\""} {
+	for _, want := range []string{"the house", "75 pp staked", fmt.Sprintf("%s won", grouped(won/unit)), "pp:treasury:0\""} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the house sheet hasn't %q: %s", want, got)
 		}

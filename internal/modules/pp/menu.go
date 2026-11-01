@@ -49,7 +49,7 @@ func (m *Module) Commands() []core.Command {
 	return []core.Command{{
 		Create: discord.SlashCommandCreate{Name: "pp", Description: "your pot points, your level and how your day is going"},
 		Tier:   core.Public,
-		Run: func(_ context.Context, e *events.ApplicationCommandInteractionCreate) error {
+		Run: func(ctx context.Context, e *events.ApplicationCommandInteractionCreate) error {
 			guild := e.GuildID()
 			if guild == nil {
 				return errNotServer
@@ -63,11 +63,23 @@ func (m *Module) Commands() []core.Command {
 			}
 			m.enlist(*guild, e.Member())
 			if sheet, due := m.morning(*guild, e.User().ID); due {
-				msg, err := morningMessage(sheet)
-				if err != nil {
+				// The sheet moves, so it's answered at once and drawn after,
+				// unless there's no REST to edit it in through.
+				if e.Client().Rest == nil {
+					msg, err := morningMessage(sheet)
+					if err != nil {
+						return err
+					}
+					return e.CreateMessage(msg.WithEphemeral(true))
+				}
+				if err := e.DeferCreateMessage(true); err != nil {
 					return err
 				}
-				return e.CreateMessage(msg.WithEphemeral(true))
+				m.later(ctx, func(ctx context.Context) {
+					msg, err := morningMessage(sheet)
+					m.answerLater(ctx, *guild, e, e.Client(), msg, err, "the morning sheet", "the presses jammed; run /pp again")
+				})
+				return nil
 			}
 			msg, err := m.status(*guild, e.Member(), true)
 			if err != nil {
@@ -211,7 +223,7 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 	case id == "pp:ledger":
 		msg, err = m.journal(ctx, *guild, e.Member())
 	case id == "pp:tide":
-		msg, err = m.tideMessage(*guild, e.User().ID)
+		return m.answerSlow(*guild, e, id, func() (discord.MessageCreate, error) { return m.tideMessage(*guild, e.User().ID) })
 	case id == "pp:seal":
 		if err := m.breakSeal(ctx, *guild, e.User().ID); err != nil {
 			return err
@@ -232,6 +244,38 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 // answer shows msg, the screen current, with the menu under it: in place of
 // the screen pressed on while the chat hasn't moved past it, or as a new
 // one at the bottom once it has, so the menu is always at hand.
+// answerSlow is answer for a screen that moves: drawing one takes longer
+// on skua's host than a press waits, so the press is answered at once and
+// the screen edited in once it's drawn, as is a refusal. With no REST to
+// edit through it's drawn in place.
+func (m *Module) answerSlow(guild snowflake.ID, e *events.ComponentInteractionCreate, current string, build func() (discord.MessageCreate, error)) error {
+	if e.Client().Rest == nil {
+		msg, err := build()
+		if err != nil {
+			return err
+		}
+		return m.answer(guild, e, msg, current)
+	}
+	var err error
+	if moved(e) {
+		err = e.DeferCreateMessage(true)
+	} else {
+		err = e.DeferUpdateMessage()
+	}
+	if err != nil {
+		return err
+	}
+	admin := m.Admin != nil && m.Admin(e)
+	m.later(context.Background(), func(ctx context.Context) {
+		msg, err := build()
+		if err == nil {
+			msg = m.withMenu(guild, e.User().ID, admin, msg, current)
+		}
+		m.answerLater(ctx, guild, e, e.Client(), msg, err, "a screen", "that screen couldn't be drawn just now; try again")
+	})
+	return nil
+}
+
 func (m *Module) answer(guild snowflake.ID, e *events.ComponentInteractionCreate, msg discord.MessageCreate, current string) error {
 	msg = m.withMenu(guild, e.User().ID, m.Admin != nil && m.Admin(e), msg, current)
 	if moved(e) {

@@ -261,7 +261,40 @@ func (m *Module) openTable(ctx context.Context, guild snowflake.ID, e *events.Co
 	if m.rest == nil {
 		return e.CreateMessage(discord.NewMessageCreate().WithContent("the table's set").WithEphemeral(true))
 	}
-	// Nobody can sit before it's posted, so it's drawn outside the lock.
+	said := fmt.Sprintf("the purser's set a table in <#%s>: sit down before the glass runs out", t.channel)
+	// The table moves, so drawing it takes longer than a press waits: the
+	// press is answered at once and the table posted after.
+	if e.Client().Rest == nil {
+		if err := m.postTable(ctx, guild, t, build, news, ping); err != nil {
+			return err
+		}
+		return e.CreateMessage(discord.NewMessageCreate().WithContent(said).WithEphemeral(true).WithAllowedMentions(core.NoPings()))
+	}
+	if err := e.DeferCreateMessage(true); err != nil {
+		s.mu.Lock()
+		if s.table == t && len(t.seats) == 0 {
+			s.table = nil
+		}
+		s.mu.Unlock()
+		return err
+	}
+	m.later(ctx, func(ctx context.Context) {
+		if err := m.postTable(ctx, guild, t, build, news, ping); err != nil {
+			m.answerLater(ctx, guild, e, e.Client(), discord.MessageCreate{}, err, "a table", "the purser couldn't set the table just now; try again")
+			return
+		}
+		if _, err := e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(),
+			discord.MessageUpdate{Content: &said, AllowedMentions: core.NoPings()}, rest.WithCtx(ctx)); err != nil {
+			m.log.Warn("pp: saying where a table is", "guild", guild, "err", err)
+		}
+	})
+	return nil
+}
+
+// postTable draws t and posts it in its channel, and a call-out's news, or
+// takes an empty table down again if it can't. build is t's view.
+func (m *Module) postTable(ctx context.Context, guild snowflake.ID, t *table, build func() (discord.MessageCreate, error), news snowflake.ID, ping bool) error {
+	s := m.st.server(guild)
 	var posted *discord.Message
 	msg, err := build()
 	if ping && news == 0 {
@@ -302,9 +335,7 @@ func (m *Module) openTable(ctx context.Context, guild snowflake.ID, e *events.Co
 			m.log.Warn("pp: telling a duel", "guild", guild, "err", err)
 		}
 	}
-	return e.CreateMessage(discord.NewMessageCreate().
-		WithContent(fmt.Sprintf("the purser's set a table in <#%s>: sit down before the glass runs out", t.channel)).
-		WithEphemeral(true).WithAllowedMentions(core.NoPings()))
+	return nil
 }
 
 // sitAt is a press on a table's stake: it seats the bird and redraws the

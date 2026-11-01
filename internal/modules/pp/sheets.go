@@ -25,9 +25,7 @@ const treasurySheets = 2
 
 // sheetID is the press that opens sheet n.
 func sheetID(n int) string {
-	if n == 0 {
-		return "pp:treasury"
-	}
+	// Never the menu's own pp:treasury: Discord refuses two of one ID.
 	return "pp:treasury:" + strconv.Itoa(n)
 }
 

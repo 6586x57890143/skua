@@ -299,11 +299,7 @@ func (m *Module) yard(ctx context.Context, guild snowflake.ID, e *events.Compone
 		// The yard itself moves, so it's drawn outside the lock.
 		build := m.st.yardFront(s, user, mem, today, lightAt(m.now()))
 		s.mu.Unlock()
-		msg, err := build()
-		if err != nil {
-			return err
-		}
-		return m.answer(guild, e, msg, "pp:shop")
+		return m.answerSlow(guild, e, "pp:shop", build)
 	}
 	page := tradesPage
 	if id == "pp:yard:1" {
