@@ -61,6 +61,9 @@ var (
 	// railBirds are where the two birds stand on the deck, the middle of
 	// each, either side of the lantern's post.
 	railBirds = [2]int{96, 262}
+	// railPurser is where the purser stands, right of the duel, his
+	// figure's left edge on the deck.
+	railPurser = 318
 	// railLantern is the lantern on the rail's post.
 	railLantern = image.Rect(156, 52, 174, 72)
 	// railTown is the cliff houses' lit windows up the gut, and
@@ -121,6 +124,8 @@ func railFrames(r Rail) ([]*pixel.Canvas, []int) {
 		fig := cutout(Portrait(p.Class))
 		sitDownIn(base, fig, image.Pt(railBirds[i]-len(fig[0])/2, sumpSize.Y-len(fig)))
 	}
+	purser := purserFigure()
+	sitDownIn(base, purser, image.Pt(railPurser, sumpSize.Y-len(purser)))
 	railPanel(base, r)
 
 	// The still: the fog where it lies.
