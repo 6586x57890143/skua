@@ -48,6 +48,10 @@ const (
 	// tableStale is how long an open table may go unsettled before the
 	// minute's work settles it anyway.
 	tableStale = 10 * time.Minute
+	// tableIdle is how long a table may stand with nobody sat at it
+	// before the purser clears it, so an empty one can't keep the next
+	// from opening.
+	tableIdle = 5 * time.Minute
 )
 
 // payout is what a throw of 1 to 100 pays on stake, the stake included:

@@ -236,17 +236,42 @@ func (m *Module) settleTable(ctx context.Context, guild snowflake.ID, t *table) 
 }
 
 // staleTables throws every table whose glass ran out without its timer
-// firing, from the minute's work.
+// firing, and clears every table nobody sat at, from the minute's work.
 func (m *Module) staleTables(ctx context.Context) {
 	now := m.now()
 	for g, s := range m.st.servers() {
 		s.mu.Lock()
 		t := s.table
 		due := t != nil && !t.settled && len(t.seats) > 0 && now.Sub(t.first) >= tableStale
-		s.mu.Unlock()
-		if due {
-			m.settleTable(ctx, g, t)
+		idle := t != nil && !t.settled && len(t.seats) == 0 && now.Sub(t.opened) >= tableIdle
+		if idle {
+			// Nothing staked, so nothing to throw or give back: the table
+			// just goes, and a press on its old buttons finds it shut.
+			t.settled, s.table = true, nil
 		}
+		s.mu.Unlock()
+		switch {
+		case due:
+			m.settleTable(ctx, g, t)
+		case idle:
+			m.clearTable(ctx, g, t)
+		}
+	}
+}
+
+// clearTable edits an empty table's message to say the purser cleared
+// it, its buttons gone.
+func (m *Module) clearTable(ctx context.Context, guild snowflake.ID, t *table) {
+	if m.rest == nil || t.msg == 0 {
+		return
+	}
+	card := []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "a table at the slack tide",
+		"nobody sat, so the purser cleared the table\n-# open another from /pp")}
+	if err := m.write(guild, guard.MessageSend, func() error {
+		_, err := m.rest.UpdateMessage(t.channel, t.msg, discord.MessageUpdate{Components: &card, Attachments: &[]discord.AttachmentUpdate{}}, rest.WithCtx(ctx))
+		return err
+	}); err != nil {
+		m.log.Warn("pp: clearing an empty table", "guild", guild, "err", err)
 	}
 }
 

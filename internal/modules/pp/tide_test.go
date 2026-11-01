@@ -456,3 +456,45 @@ func TestDiceFaces(t *testing.T) {
 		t.Error("the tipped die isn't the face turned a quarter")
 	}
 }
+
+// A table nobody sits at is cleared after a while, its message saying so
+// and its buttons gone, so the next can open; one with a bird at it is
+// left to its glass.
+func TestIdleTable(t *testing.T) {
+	m, r := houseModule(t)
+	s := m.st.server(guild)
+	s.mu.Lock()
+	tb, _ := m.st.open(s, 4, t0, false)
+	tb.msg = 77
+	s.mu.Unlock()
+	m.now = func() time.Time { return t0.Add(tableIdle - time.Second) }
+	m.staleTables(context.Background())
+	if s.table != tb || tb.settled {
+		t.Fatal("cleared before its time")
+	}
+	m.now = func() time.Time { return t0.Add(tableIdle) }
+	m.staleTables(context.Background())
+	if s.table != nil || !tb.settled {
+		t.Fatal("an empty table kept the house")
+	}
+	if len(r.edits) != 1 || !strings.Contains(r.edits[0], "cleared the table") || strings.Contains(r.edits[0], "pp:sit:") {
+		t.Errorf("the cleared table read %v", r.edits)
+	}
+	if e, _ := coretest.Button(t, fmt.Sprintf("pp:sit:%d:0", tb.id), nil); !errors.Is(m.press(context.Background(), e), errTableShut) {
+		t.Error("sat at a cleared table")
+	}
+	s.mu.Lock()
+	next, err := m.st.open(s, 4, t0.Add(tableIdle), false)
+	if err != nil {
+		t.Fatalf("the next table: %v", err)
+	}
+	if err := m.st.sitDown(s, next, guild, 5, "x", stakes[0].pp, t0.Add(tableIdle)); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Unlock()
+	m.now = func() time.Time { return t0.Add(2 * tableIdle) }
+	m.staleTables(context.Background())
+	if s.table != next || next.settled {
+		t.Error("a table with a bird at it was cleared")
+	}
+}
