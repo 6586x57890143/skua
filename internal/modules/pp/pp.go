@@ -49,10 +49,15 @@ type Module struct {
 	Admin func(discord.Interaction) bool
 	// Guard spends the herald's posts.
 	Guard *guard.Guard
-	// Grant hands out the beta role when a member redeems a key; nil
-	// without a bird to ask, and then keys aren't issued.
+	// Grant hands out the beta role: to every member on their first /pp
+	// once it's open, and to a member who redeems a key or comes in on a
+	// surety's word. nil without a bird to ask, and then keys aren't
+	// issued and nobody is given it.
 	Grant   Granter
 	redeems tries
+	// asks counts enlist's asks for the beta role, apart from redeems so
+	// a member's /pp never uses up their key tries.
+	asks tries
 	// rest posts for the herald, set once the gateway is ready, and beacon
 	// draws drand's randomness for the season seeds.
 	rest   rest.Rest

@@ -61,6 +61,7 @@ func (m *Module) Commands() []core.Command {
 				}
 				return e.CreateMessage(msg)
 			}
+			m.enlist(*guild, e.Member())
 			msg, err := m.status(*guild, e.Member(), true)
 			if err != nil {
 				return err

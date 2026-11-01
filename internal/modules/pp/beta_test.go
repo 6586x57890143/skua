@@ -5,9 +5,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/core/coretest"
 )
@@ -88,5 +90,47 @@ func TestOpenToEveryone(t *testing.T) {
 	admin = false
 	if err := m.press(context.Background(), firstOf(coretest.Button(t, "pp:class", nil))); err != nil {
 		t.Errorf("a member without the role can't play an open /pp: %v", err)
+	}
+}
+
+// Once /pp is open, a member's first /pp asks for the beta role, in the
+// background; not before it's open, and not for a member who holds it.
+func TestEnlist(t *testing.T) {
+	m := testModule(&fakeDB{})
+	m.Admin = func(discord.Interaction) bool { return false }
+	asked := make(chan [3]snowflake.ID, 4)
+	m.Grant = func(_ context.Context, guild, user, role snowflake.ID) error {
+		asked <- [3]snowflake.ID{guild, user, role}
+		return nil
+	}
+	s := m.st.server(3)
+	s.beta = 77
+	run := func(roles ...any) {
+		e, _ := coretest.Event(t, "pp", func(p map[string]any) {
+			p["member"].(map[string]any)["roles"] = roles
+		})
+		_ = m.Commands()[0].Run(context.Background(), e)
+	}
+	none := func(why string) {
+		select {
+		case got := <-asked:
+			t.Errorf("%s: asked %v", why, got)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
+	run()
+	none("closed")
+	s.open = true
+	run("77")
+	none("already holds it")
+	run()
+	select {
+	case got := <-asked:
+		if got != [3]snowflake.ID{3, 5, 77} {
+			t.Errorf("asked %v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("never asked")
 	}
 }

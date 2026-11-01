@@ -3,6 +3,7 @@ package pp
 import (
 	"context"
 	"slices"
+	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -96,4 +97,31 @@ func (m *Module) setBeta(ctx context.Context, guild snowflake.ID, e *events.Comp
 		said = "members with <@&" + role.String() + "> play /pp here now, beside admins"
 	}
 	return e.CreateMessage(discord.MessageCreate{Content: said, Flags: discord.MessageFlagEphemeral, AllowedMentions: core.NoPings()})
+}
+
+// enlist gives member the beta role on their first /pp once /pp is open
+// here, so everyone who played from the start carries it. It's asked of
+// merlin in the background and never holds the reply up; a refusal is
+// logged and asked again on a later /pp, within redeemTries an hour.
+func (m *Module) enlist(guild snowflake.ID, member *discord.ResolvedMember) {
+	s := m.st.server(guild)
+	s.mu.Lock()
+	role, open := s.beta, s.open
+	s.mu.Unlock()
+	if !open || role == 0 || m.Grant == nil || member == nil || slices.Contains(member.RoleIDs, role) {
+		return
+	}
+	user := member.User.ID
+	if !m.asks.take(user, m.now()) {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := m.Grant(ctx, guild, user, role); err != nil {
+			m.log.Warn("pp: the beta role didn't come through", "guild", guild, "user", user, "err", err)
+			return
+		}
+		m.log.Info("pp: enlisted in the beta", "guild", guild, "user", user)
+	}()
 }
