@@ -13,6 +13,13 @@ var worldLines = map[int64][]string{
 		"debt court: a chandler from the row is called before the tally board for staking a lantern he didn't own. the purser has sent his slate up as evidence",
 		"the counting house has sent a second raven to watch the pumps. the first one wrote the eels a finger above the line last night",
 		"the bell rang under the gannet's keel again after the hour was over, with nobody at the tables. the purser slept in the hold",
+		"company notice: the north sea company offers to buy the gannet's bell outright, tongue and all, at a price the counting house calls generous. the wet guild has asked what bell",
+		"the ferrymen counted two steps fewer on the fish market stair. the wardens measured it with a chain and say the stair is as long as ever, only the steps are deeper",
+		"the eels have left the gannet's hold for the dyers' runnel, where the water runs three colours. the dyers say the green suits them",
+		"the tally board adjourns the gannet case. the company's clerk brought a bill of lading from the night of the drowning with a bell on it, and the purser brought a list of his own",
+		"debt court: the chandler from the row is cleared. his slate shows the lantern staked and won, and the board could find no law against owing a lantern you then win",
+		"the second raven at the pumps was found asleep in the bilge with her tally book, written up to a night that hasn't come yet. the counting house has asked for it back",
+		"the bell rang twice in the small hours with the tables empty and the purser ashore. the ferrymen won't take a boat past the bottom step after dark until someone owns to it",
 	},
 }
 
