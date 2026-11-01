@@ -16,7 +16,7 @@ var charterHashes = map[string]string{
 	"4": "c1240740934f",
 	"5": "bdc362200adf",
 	"6": "46cca2a33e57",
-	"7": "8d4b22e1b02f",
+	"7": "d3794004a69a",
 }
 
 func TestCharterPinned(t *testing.T) {
