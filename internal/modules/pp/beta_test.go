@@ -5,9 +5,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/core/coretest"
 )
@@ -59,4 +61,76 @@ func TestBetaGate(t *testing.T) {
 
 func firstOf(e *events.ComponentInteractionCreate, _ *[]discord.MessageCreate) *events.ComponentInteractionCreate {
 	return e
+}
+
+// An admin opens /pp to everyone once, from the help page, and then every
+// member plays without the role; nobody else can open it.
+func TestOpenToEveryone(t *testing.T) {
+	db := &fakeDB{}
+	m := testModule(db)
+	admin := false
+	m.Admin = func(discord.Interaction) bool { return admin }
+	if err := m.press(context.Background(), firstOf(coretest.Button(t, "pp:open", nil))); !errors.Is(err, errNotAdmin) {
+		t.Fatalf("a member opened /pp: %v", err)
+	}
+	if !strings.Contains(js(m.betaControls(3)), "pp:open\"") {
+		t.Fatal("the help page has no switch to open /pp")
+	}
+	admin = true
+	e, sent := coretest.Button(t, "pp:open", nil)
+	if err := m.press(context.Background(), e); err != nil || !m.st.server(3).open || !strings.Contains(db.execs[len(db.execs)-1], "open = true") {
+		t.Fatalf("opening /pp: %v %v", err, db.execs)
+	}
+	if len(*sent) != 1 || !strings.Contains((*sent)[0].Content, "open") {
+		t.Errorf("the admin was told %v", *sent)
+	}
+	if strings.Contains(js(m.betaControls(3)), "pp:open\"") {
+		t.Error("the switch is still there once /pp is open")
+	}
+	admin = false
+	if err := m.press(context.Background(), firstOf(coretest.Button(t, "pp:class", nil))); err != nil {
+		t.Errorf("a member without the role can't play an open /pp: %v", err)
+	}
+}
+
+// Once /pp is open, a member's first /pp asks for the beta role, in the
+// background; not before it's open, and not for a member who holds it.
+func TestEnlist(t *testing.T) {
+	m := testModule(&fakeDB{})
+	m.Admin = func(discord.Interaction) bool { return false }
+	asked := make(chan [3]snowflake.ID, 4)
+	m.Grant = func(_ context.Context, guild, user, role snowflake.ID) error {
+		asked <- [3]snowflake.ID{guild, user, role}
+		return nil
+	}
+	s := m.st.server(3)
+	s.beta = 77
+	run := func(roles ...any) {
+		e, _ := coretest.Event(t, "pp", func(p map[string]any) {
+			p["member"].(map[string]any)["roles"] = roles
+		})
+		_ = m.Commands()[0].Run(context.Background(), e)
+	}
+	none := func(why string) {
+		select {
+		case got := <-asked:
+			t.Errorf("%s: asked %v", why, got)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
+	run()
+	none("closed")
+	s.open = true
+	run("77")
+	none("already holds it")
+	run()
+	select {
+	case got := <-asked:
+		if got != [3]snowflake.ID{3, 5, 77} {
+			t.Errorf("asked %v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("never asked")
+	}
 }
