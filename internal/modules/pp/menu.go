@@ -420,7 +420,7 @@ func menuRows(class string, admin bool, current string, tide, letter, sealed boo
 	}
 	var last []discord.InteractiveComponent
 	if tide {
-		last = append(last, btn("slack tide", "pp:tide", "bell"))
+		last = append(last, btn("slack tide", "pp:tide", "bones"))
 	}
 	if letter {
 		b := withIcon(discord.NewSecondaryButton("sealed letter", "pp:letter"), "envelope")
