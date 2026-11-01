@@ -99,7 +99,7 @@ func tableLink(guild snowflake.ID, t *table) discord.ButtonComponent {
 	if t.msg != 0 {
 		url += "/" + t.msg.String()
 	}
-	return withIcon(discord.NewLinkButton("go to the table", url), "bell")
+	return withIcon(discord.NewLinkButton("go to the table", url), "bones")
 }
 
 // duelWord is a duel at the rail as the news tells it: called out, or how
@@ -179,11 +179,11 @@ func (m *Module) tideMessage(guild, user snowflake.ID) (discord.MessageCreate, e
 	if h.Shut {
 		lines = append(lines, "-# shut until an admin picks its channel on /help")
 	}
-	btn := withIcon(discord.NewPrimaryButton("open a table", "pp:table"), "bell")
+	btn := withIcon(discord.NewPrimaryButton("open a table", "pp:table"), "bones")
 	if h.Shut {
 		btn = btn.AsDisabled()
 	} else if h.Open {
-		btn = withIcon(discord.NewLinkButton("go to the table", fmt.Sprintf("https://discord.com/channels/%s/%s", guild, ch)), "bell")
+		btn = withIcon(discord.NewLinkButton("go to the table", fmt.Sprintf("https://discord.com/channels/%s/%s", guild, ch)), "bones")
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "the slack tide", strings.Join(lines, "\n"),
@@ -789,9 +789,9 @@ func (m *Module) bellAt(ctx context.Context, at time.Time) {
 			AllowedMentions: core.NoPings(),
 		}
 		if stage == bellRinging {
-			row := discord.NewActionRow(withIcon(discord.NewPrimaryButton("open a table", "pp:table"), "bell"))
+			row := discord.NewActionRow(withIcon(discord.NewPrimaryButton("open a table", "pp:table"), "bones"))
 			if ch != house {
-				row = row.AddComponents(withIcon(discord.NewLinkButton("go to the tables", fmt.Sprintf("https://discord.com/channels/%s/%s", g, house)), "bell"))
+				row = row.AddComponents(withIcon(discord.NewLinkButton("go to the tables", fmt.Sprintf("https://discord.com/channels/%s/%s", g, house)), "bones"))
 			}
 			card.Components[0] = brand.Card(brand.ColorNotice, "pp", "the drowning hour", text, row)
 		}
