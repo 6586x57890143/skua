@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"sync"
 	"time"
 
 	"github.com/disgoorg/snowflake/v2"
@@ -114,6 +115,10 @@ type table struct {
 	earned       []earned // the scraps its bones nailed up
 	seats        []seated
 	settled      bool
+	// draw lets one redraw of its message run at a time, each drawn from
+	// the table as it stands then, so a later picture never lands under an
+	// earlier one.
+	draw sync.Mutex
 }
 
 // slate is the hash of t's seed, posted before anyone sits.

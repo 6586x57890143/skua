@@ -158,10 +158,10 @@ func (m *Module) openTable(ctx context.Context, guild snowflake.ID, e *events.Co
 	} else {
 		t, err = m.st.open(s, s.houseCh, now, bell)
 	}
-	var msg discord.MessageCreate
+	var build func() (discord.MessageCreate, error)
 	if err == nil {
 		t.bellAt = at
-		msg, err = m.tableMessage(s, t)
+		build = m.tableView(s, t)
 	}
 	s.mu.Unlock()
 	if err != nil {
@@ -170,14 +170,19 @@ func (m *Module) openTable(ctx context.Context, guild snowflake.ID, e *events.Co
 	if m.rest == nil {
 		return e.CreateMessage(discord.NewMessageCreate().WithContent("the table's set").WithEphemeral(true))
 	}
+	// Nobody can sit before it's posted, so it's drawn outside the lock.
+	var posted *discord.Message
+	msg, err := build()
 	if t.rail != 0 {
 		msg.AllowedMentions = &discord.AllowedMentions{Users: []snowflake.ID{t.rail}}
 	}
-	var posted *discord.Message
-	if err := m.write(guild, guard.MessageSend, func() (err error) {
-		posted, err = m.rest.CreateMessage(t.channel, msg, rest.WithCtx(ctx))
-		return err
-	}); err != nil {
+	if err == nil {
+		err = m.write(guild, guard.MessageSend, func() (err error) {
+			posted, err = m.rest.CreateMessage(t.channel, msg, rest.WithCtx(ctx))
+			return err
+		})
+	}
+	if err != nil {
 		s.mu.Lock()
 		if s.table == t && len(t.seats) == 0 {
 			s.table = nil
@@ -220,11 +225,11 @@ func (m *Module) sitAt(guild snowflake.ID, e *events.ComponentInteractionCreate)
 		return err
 	}
 	full := len(t.seats) >= t.benches()
-	msg, err := m.tableMessage(s, t)
-	s.mu.Unlock()
-	if err != nil {
-		return err
+	var build func() (discord.MessageCreate, error)
+	if m.rest == nil {
+		build = m.tableView(s, t)
 	}
+	s.mu.Unlock()
 	switch {
 	case full:
 		m.later(context.Background(), func(ctx context.Context) { m.settleTable(ctx, guild, t) })
@@ -233,7 +238,48 @@ func (m *Module) sitAt(guild snowflake.ID, e *events.ComponentInteractionCreate)
 			m.later(context.Background(), func(ctx context.Context) { m.settleTable(ctx, guild, t) })
 		})
 	}
-	return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...))
+	if build != nil {
+		// No REST to answer through later: draw it now.
+		msg, err := build()
+		if err != nil {
+			return err
+		}
+		return e.UpdateMessage(core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...))
+	}
+	// The stake is taken; the picture takes longer than a press waits when
+	// a table fills at once, so the press is answered now and the table
+	// redrawn after. A full table is redrawn by its throw.
+	if err := e.DeferUpdateMessage(); err != nil {
+		return err
+	}
+	if !full {
+		m.later(context.Background(), func(ctx context.Context) {
+			if err := m.redraw(guild, t, func(msg discord.MessageCreate) error {
+				_, err := m.rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(),
+					core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...), rest.WithCtx(ctx))
+				return err
+			}); err != nil {
+				m.log.Warn("pp: redrawing a table", "guild", guild, "err", err)
+			}
+		})
+	}
+	return nil
+}
+
+// redraw draws t as it stands now, outside s.mu, and sends it: one redraw
+// of a table at a time, so each lands after the one before.
+func (m *Module) redraw(guild snowflake.ID, t *table, send func(discord.MessageCreate) error) error {
+	t.draw.Lock()
+	defer t.draw.Unlock()
+	s := m.st.server(guild)
+	s.mu.Lock()
+	build := m.tableView(s, t)
+	s.mu.Unlock()
+	msg, err := build()
+	if err != nil {
+		return err
+	}
+	return send(msg)
 }
 
 // settleTable throws t's bones and shows them on its message, and calls
@@ -248,21 +294,23 @@ func (m *Module) settleTable(ctx context.Context, guild snowflake.ID, t *table) 
 	if t.bell {
 		s.bell.tally(t)
 	}
-	msg, err := m.tableMessage(s, t)
 	var hands []seated
 	for _, p := range t.seats {
 		if p.throw == 100 && t.bell {
 			hands = append(hands, p)
 		}
 	}
+	posted := t.msg != 0
 	s.mu.Unlock()
-	if err != nil || m.rest == nil || t.msg == 0 {
+	m.Save()
+	if m.rest == nil || !posted {
 		return
 	}
-	m.Save()
-	if err := m.write(guild, guard.MessageSend, func() error {
-		_, err := m.rest.UpdateMessage(t.channel, t.msg, core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...), rest.WithCtx(ctx))
-		return err
+	if err := m.redraw(guild, t, func(msg discord.MessageCreate) error {
+		return m.write(guild, guard.MessageSend, func() error {
+			_, err := m.rest.UpdateMessage(t.channel, t.msg, core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...), rest.WithCtx(ctx))
+			return err
+		})
 	}); err != nil {
 		m.log.Warn("pp: showing a table's throw", "guild", guild, "err", err)
 	}
@@ -317,10 +365,17 @@ func (m *Module) clearTable(ctx context.Context, guild snowflake.ID, t *table) {
 	}
 }
 
-// tableMessage is t as its message: the screen, the slate's hash (or the
-// seed once thrown), and a button for each stake while it's open. s.mu
-// held.
+// tableMessage is t as its message, drawn in place. s.mu held.
 func (m *Module) tableMessage(s *server, t *table) (discord.MessageCreate, error) {
+	return m.tableView(s, t)()
+}
+
+// tableView is t as its message: the screen, the slate's hash (or the
+// seed once thrown), and a button for each stake while it's open. What it
+// shows is gathered while s.mu is held and drawn when the func it returns
+// runs, which needs no lock: a table's picture takes a good part of a
+// second.
+func (m *Module) tableView(s *server, t *table) func() (discord.MessageCreate, error) {
 	tb := Table{Bell: t.bell, Thrown: t.settled, Closes: t.closes(), Slate: t.slate(), Scraps: m.st.scraps(s, DayOf(m.now()))}
 	if t.settled {
 		tb.Slate = fmt.Sprintf("%x", t.seed)
@@ -333,16 +388,7 @@ func (m *Module) tableMessage(s *server, t *table) (discord.MessageCreate, error
 		}
 		tb.Seats = append(tb.Seats, TableSeat{Name: p.name, Class: class, Stake: p.stake, Throw: p.throw, Won: p.won})
 	}
-	var pic []byte
-	var err error
-	if t.rail != 0 {
-		pic, err = RailScreen(Rail{Light: lightAt(m.now()), Bell: tb.Bell, Thrown: tb.Thrown, Seats: tb.Seats, Called: t.called, Slate: tb.Slate})
-	} else {
-		pic, err = TableScreen(tb)
-	}
-	if err != nil {
-		return discord.MessageCreate{}, err
-	}
+	light, rail, called := lightAt(m.now()), t.rail != 0, t.called
 	var lines []string
 	var extra []discord.ContainerSubComponent
 	// The screen tells the table; the card keeps only what a picture can't:
@@ -385,14 +431,26 @@ func (m *Module) tableMessage(s *server, t *table) (discord.MessageCreate, error
 	case t.bell:
 		title = "a table in the drowning hour"
 	}
-	alt := tb.alt()
-	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", title, strings.Join(lines, "\n"),
-			append([]discord.ContainerSubComponent{discord.NewMediaGallery(screenItem(pic, alt))}, extra...)...)},
-		Files:           []*discord.File{screenAttachment(pic, alt)},
-		Flags:           discord.MessageFlagIsComponentsV2,
-		AllowedMentions: core.NoPings(),
-	}, nil
+	return func() (discord.MessageCreate, error) {
+		var pic []byte
+		var err error
+		if rail {
+			pic, err = RailScreen(Rail{Light: light, Bell: tb.Bell, Thrown: tb.Thrown, Seats: tb.Seats, Called: called, Slate: tb.Slate})
+		} else {
+			pic, err = TableScreen(tb)
+		}
+		if err != nil {
+			return discord.MessageCreate{}, err
+		}
+		alt := tb.alt()
+		return discord.MessageCreate{
+			Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", title, strings.Join(lines, "\n"),
+				append([]discord.ContainerSubComponent{discord.NewMediaGallery(screenItem(pic, alt))}, extra...)...)},
+			Files:           []*discord.File{screenAttachment(pic, alt)},
+			Flags:           discord.MessageFlagIsComponentsV2,
+			AllowedMentions: core.NoPings(),
+		}, nil
+	}
 }
 
 // Table is what a table's screen shows.
