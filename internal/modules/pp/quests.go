@@ -574,26 +574,33 @@ func (m *Module) rerollPicked(guild snowflake.ID, e *events.ComponentInteraction
 	return m.answer(guild, e, msg, "pp:quests")
 }
 
-// channelControls are the selfie and slack tide channel pickers for /pp's
-// help page, under one heading so the page stays inside Discord's count.
+// channelControls are /pp's channel pickers for its help page: the
+// ledger's, the selfies', and the slack tide's tables and news, under one
+// heading so the page stays inside Discord's count.
 func (m *Module) channelControls(guild snowflake.ID) []discord.ContainerSubComponent {
 	s := m.st.server(guild)
 	s.mu.Lock()
-	ch, house := s.selfies, s.houseCh
+	chans := []snowflake.ID{s.logChannel, s.selfies, s.houseCh, s.newsCh}
 	s.mu.Unlock()
-	pick := discord.ChannelSelectMenuComponent{CustomID: "pp:selfies", Placeholder: "pick the selfie channel", ChannelTypes: logChannels, MinValues: new(0), MaxValues: 1}
-	if ch != 0 {
-		pick.DefaultValues = []discord.SelectMenuDefaultValue{discord.NewSelectMenuDefaultChannel(ch)}
+	picks := []struct{ id, placeholder string }{
+		{"pp:log", "pick where the ledger is posted"},
+		{"pp:selfies", "pick the selfie channel"},
+		{"pp:house", "pick the slack tide's tables"},
+		{"pp:tidenews", "pick where the slack tide's news goes"},
 	}
-	tide := discord.ChannelSelectMenuComponent{CustomID: "pp:house", Placeholder: "pick the slack tide's channel", ChannelTypes: logChannels, MinValues: new(0), MaxValues: 1}
-	if house != 0 {
-		tide.DefaultValues = []discord.SelectMenuDefaultValue{discord.NewSelectMenuDefaultChannel(house)}
+	out := []discord.ContainerSubComponent{discord.NewTextDisplay("### channels\n" +
+		"-# the ledger's head goes in the first every day, and each season's seed before and after, so anyone can check the points\n" +
+		"-# golden quests that ask for a picture want it in the second, where it stays a day; with none picked they never come up\n" +
+		"-# the purser's tables go in the third; with none picked the house stays shut\n" +
+		"-# the bell, all hands and duels called out are told in the fourth, with a way to the table; with none picked they go with the tables")}
+	for i, p := range picks {
+		pick := discord.ChannelSelectMenuComponent{CustomID: p.id, Placeholder: p.placeholder, ChannelTypes: logChannels, MinValues: new(0), MaxValues: 1}
+		if chans[i] != 0 {
+			pick.DefaultValues = []discord.SelectMenuDefaultValue{discord.NewSelectMenuDefaultChannel(chans[i])}
+		}
+		out = append(out, discord.NewActionRow(pick))
 	}
-	return []discord.ContainerSubComponent{
-		discord.NewTextDisplay("### selfies and the slack tide\n-# golden quests that ask for a picture want it in the first, where it stays a day; with none picked they never come up\n-# the purser's tables and the drowning hour's bell go in the second; with none picked the house stays shut"),
-		discord.NewActionRow(pick),
-		discord.NewActionRow(tide),
-	}
+	return out
 }
 
 // setSelfies keeps the selfie channel an admin picked.

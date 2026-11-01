@@ -25,22 +25,6 @@ import (
 // logChannels are where the herald can post.
 var logChannels = []discord.ChannelType{discord.ChannelTypeGuildText, discord.ChannelTypeGuildNews}
 
-// logControls is the log channel picker for /pp's help page.
-func (m *Module) logControls(guild snowflake.ID) []discord.ContainerSubComponent {
-	s := m.st.server(guild)
-	s.mu.Lock()
-	ch := s.logChannel
-	s.mu.Unlock()
-	pick := discord.ChannelSelectMenuComponent{CustomID: "pp:log", Placeholder: "pick where the ledger is posted", ChannelTypes: logChannels, MinValues: new(0), MaxValues: 1}
-	if ch != 0 {
-		pick.DefaultValues = []discord.SelectMenuDefaultValue{discord.NewSelectMenuDefaultChannel(ch)}
-	}
-	return []discord.ContainerSubComponent{
-		discord.NewTextDisplay("### ledger\n-# every day she posts the ledger's head here, and each season's seed before and after, so anyone can check the points"),
-		discord.NewActionRow(pick),
-	}
-}
-
 // setLog keeps the channel an admin picked, or none when they cleared it.
 func (m *Module) setLog(ctx context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate) error {
 	if m.Admin == nil || !m.Admin(e) {

@@ -31,7 +31,9 @@ type tideRest struct {
 	// answers are presses answered late, each its redrawn message.
 	answers []string
 	to      []snowflake.ID
-	failed  bool
+	// pings are who each post may ping.
+	pings  [][]snowflake.ID
+	failed bool
 }
 
 func (f *tideRest) CreateMessage(ch snowflake.ID, c discord.MessageCreate, _ ...rest.RequestOpt) (*discord.Message, error) {
@@ -41,6 +43,11 @@ func (f *tideRest) CreateMessage(ch snowflake.ID, c discord.MessageCreate, _ ...
 	f.next++
 	f.to = append(f.to, ch)
 	f.posts = append(f.posts, js(c.Components)+c.Content)
+	var pinged []snowflake.ID
+	if c.AllowedMentions != nil {
+		pinged = c.AllowedMentions.Users
+	}
+	f.pings = append(f.pings, pinged)
 	return &discord.Message{ID: 1000 + f.next}, nil
 }
 

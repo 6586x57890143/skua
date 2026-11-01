@@ -206,12 +206,18 @@ type server struct {
 	inviting   sync.Mutex
 	// The slack tide: the hold, whether the note has seeded it, the
 	// channel its tables are posted in (0 shut), and the table open there,
-	// nil or settled for none. bell is the bell's message in houseCh.
+	// nil or settled for none. newsCh is where its news goes, the bell, all
+	// hands and a duel called out, 0 for houseCh: see news. bell is the
+	// bell's message there.
 	hold    int64
 	noted   bool
 	houseCh snowflake.ID
-	table   *table
-	bell    bellPost
+	newsCh  snowflake.ID
+	// duelPinged is when each bird was last pinged by a call-out at the
+	// rail, so a call-out pings them at most once a duelPing.
+	duelPinged map[snowflake.ID]time.Time
+	table      *table
+	bell       bellPost
 	// beam is the day's highest throw, chalked over the bar.
 	beam beamMark
 }
