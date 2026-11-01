@@ -63,6 +63,10 @@ type House struct {
 	Beam            string
 	BeamThrow       int
 	Throws, Throwrs int64
+	// Sump is the scene outside, the screen's top.
+	Sump Sump
+	// Scraps is how many of the deckhead's scraps are nailed up.
+	Scraps int
 }
 
 // tideMessage is the slack tide's screen for user.
@@ -78,18 +82,23 @@ func (m *Module) tideMessage(guild, user snowflake.ID) (discord.MessageCreate, e
 		h.Hold, h.MaxStake = Rules.HouseNote*unit, Rules.HouseNote*unit*Rules.HouseStake/10000
 	}
 	ch := s.houseCh
+	h.Beam, h.BeamThrow = s.onBeam(DayOf(now))
+	h.Scraps = nailed(m.st.scraps(s, DayOf(now)))
 	s.mu.Unlock()
+	h.Sump = m.sumpAt(h.Hold, h.Line, now)
 	pic, err := HouseScreen(h)
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
-	alt := fmt.Sprintf("the slack tide: the hold at %s of its %s pp line, %s", grouped(h.Hold/unit), grouped(h.Line/unit), tideWord(h))
-	lines := []string{"-# throw the bones against the purser's hold. a table seats six and every bird throws against the house, never each other"}
-	switch {
-	case h.Shut:
-		lines = append(lines, "-# the house is shut here until an admin picks its channel on /help")
-	case h.Bell:
-		lines = append(lines, "-# the bell's ringing under the gannet: a hundred pays fifteen times")
+	alt := fmt.Sprintf("the slack tide: the hold at %s of its %s pp line, %s; %d of %d scraps on the deckhead", grouped(h.Hold/unit), grouped(h.Line/unit), tideWord(h), h.Scraps, len(feats))
+	if h.Beam != "" {
+		alt += fmt.Sprintf("; %s on the beam with %d", h.Beam, h.BeamThrow)
+	}
+	// Everything a bird reads is on the screen; the card says only what
+	// an admin has to do.
+	var lines []string
+	if h.Shut {
+		lines = append(lines, "-# shut until an admin picks its channel on /help")
 	}
 	btn := withIcon(discord.NewPrimaryButton("open a table", "pp:table"), "bell")
 	if h.Shut {
@@ -99,7 +108,7 @@ func (m *Module) tideMessage(guild, user snowflake.ID) (discord.MessageCreate, e
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "the slack tide", strings.Join(lines, "\n"),
-			discord.NewMediaGallery(screenItem(pic, alt)), discord.NewActionRow(btn))},
+			discord.NewMediaGallery(screenItem(pic, alt)), discord.NewActionRow(btn), discord.NewActionRow(railPick(h.Shut || h.Open)))},
 		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
@@ -113,15 +122,45 @@ func tideWord(h House) string {
 	return "the tide's out"
 }
 
-// openTable opens a table in the house channel and says where.
+// railPick is the slack tide's picker for calling a bird out at the rail,
+// shut while a table is open or the house is.
+func railPick(shut bool) discord.UserSelectMenuComponent {
+	pick := discord.UserSelectMenuComponent{CustomID: "pp:rail", Placeholder: "duel a bird at the rail", MaxValues: 1}
+	if shut {
+		pick = pick.AsDisabled()
+	}
+	return pick
+}
+
+// openTable opens a table in the house channel and says where: an open
+// one from the slack tide's button, or from its picker a call-out at the
+// rail, which pings the bird called out and nobody else.
 func (m *Module) openTable(ctx context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate) error {
 	now := m.now()
-	_, bell := m.st.ringing(now)
+	at, bell := m.st.ringing(now)
 	s := m.st.server(guild)
 	s.mu.Lock()
-	t, err := m.st.open(s, s.houseCh, now, bell)
+	var t *table
+	var err error
+	if pick, ok := e.Data.(discord.UserSelectMenuInteractionData); ok {
+		if len(pick.Values) == 0 {
+			s.mu.Unlock()
+			return errRailWho
+		}
+		called := pick.Values[0]
+		name := called.String()
+		if rm, ok := pick.Resolved.Members[called]; ok {
+			name = rm.EffectiveName()
+		} else if u, ok := pick.Resolved.Users[called]; ok {
+			name = u.EffectiveName()
+		}
+		t, err = m.st.callOut(s, s.houseCh, now, bell, e.User().ID, called, name)
+	} else {
+		t, err = m.st.open(s, s.houseCh, now, bell)
+	}
 	var build func() (discord.MessageCreate, error)
 	if err == nil {
+		t.bellAt = at
 		build = m.tableView(s, t)
 	}
 	s.mu.Unlock()
@@ -134,6 +173,9 @@ func (m *Module) openTable(ctx context.Context, guild snowflake.ID, e *events.Co
 	// Nobody can sit before it's posted, so it's drawn outside the lock.
 	var posted *discord.Message
 	msg, err := build()
+	if t.rail != 0 {
+		msg.AllowedMentions = &discord.AllowedMentions{Users: []snowflake.ID{t.rail}}
+	}
 	if err == nil {
 		err = m.write(guild, guard.MessageSend, func() (err error) {
 			posted, err = m.rest.CreateMessage(t.channel, msg, rest.WithCtx(ctx))
@@ -182,7 +224,7 @@ func (m *Module) sitAt(guild snowflake.ID, e *events.ComponentInteractionCreate)
 		s.mu.Unlock()
 		return err
 	}
-	full := len(t.seats) >= tableSeats
+	full := len(t.seats) >= t.benches()
 	var build func() (discord.MessageCreate, error)
 	if m.rest == nil {
 		build = m.tableView(s, t)
@@ -334,7 +376,7 @@ func (m *Module) tableMessage(s *server, t *table) (discord.MessageCreate, error
 // runs, which needs no lock: a table's picture takes a good part of a
 // second.
 func (m *Module) tableView(s *server, t *table) func() (discord.MessageCreate, error) {
-	tb := Table{Bell: t.bell, Thrown: t.settled, Closes: t.closes(), Slate: t.slate()}
+	tb := Table{Bell: t.bell, Thrown: t.settled, Closes: t.closes(), Slate: t.slate(), Scraps: m.st.scraps(s, DayOf(m.now()))}
 	if t.settled {
 		tb.Slate = fmt.Sprintf("%x", t.seed)
 	}
@@ -346,21 +388,35 @@ func (m *Module) tableView(s *server, t *table) func() (discord.MessageCreate, e
 		}
 		tb.Seats = append(tb.Seats, TableSeat{Name: p.name, Class: class, Stake: p.stake, Throw: p.throw, Won: p.won})
 	}
+	light, rail, called := lightAt(m.now()), t.rail != 0, t.called
 	var lines []string
 	var extra []discord.ContainerSubComponent
+	// The screen tells the table; the card keeps only what a picture can't:
+	// the ping, the glass counting down, the whole slate to check the
+	// bones by, and the scraps a throw nailed up.
 	if t.settled {
-		best := tb.best()
-		lines = append(lines, fmt.Sprintf("the bones are thrown. **%s** throws highest and goes on the beam", tb.Seats[best].Name),
-			"-# the slate, turned round: `"+fmt.Sprintf("%x", t.seed)+"`. sha256(slate, table, bird) says every throw")
-	} else {
-		lines = append(lines, "pick a stake to sit down. every bird throws against the house, never each other")
-		if !t.first.IsZero() {
-			lines = append(lines, fmt.Sprintf("-# the glass runs out <t:%d:R>", t.closes().Unix()))
+		if t.rail != 0 && len(tb.Seats) == 1 {
+			lines = append(lines, "nobody came to the rail")
 		}
-		lines = append(lines, "-# the slate, turned to the wall: `"+t.slate()+"`")
+		for _, e := range t.earned {
+			lines = append(lines, nailedLine(e))
+		}
+		lines = append(lines, "-# slate `"+fmt.Sprintf("%x", t.seed)+"` · sha256(slate, table, bird) is each throw")
+	} else {
+		if t.rail != 0 && t.first.IsZero() {
+			lines = append(lines, fmt.Sprintf("<@%s>, you're called out: match the stake", t.rail))
+		}
+		glass := ""
+		if !t.first.IsZero() {
+			glass = fmt.Sprintf("glass out <t:%d:R> · ", t.closes().Unix())
+		}
+		lines = append(lines, "-# "+glass+"slate `"+t.slate()+"`")
 		var row []discord.InteractiveComponent
 		for k, st := range stakes {
 			b := discord.NewSecondaryButton(fmt.Sprintf("%s · %s", st.name, grouped(st.pp/unit)), fmt.Sprintf("pp:sit:%d:%d", t.id, k))
+			if t.rail != 0 && len(t.seats) == 1 && st.pp != t.seats[0].stake {
+				b = b.AsDisabled()
+			}
 			if st.pp > s.maxStake() {
 				b = b.AsDisabled()
 			}
@@ -369,11 +425,20 @@ func (m *Module) tableView(s *server, t *table) func() (discord.MessageCreate, e
 		extra = append(extra, discord.NewActionRow(row...))
 	}
 	title := "a table at the slack tide"
-	if t.bell {
+	switch {
+	case t.rail != 0:
+		title = "a duel at the rail"
+	case t.bell:
 		title = "a table in the drowning hour"
 	}
 	return func() (discord.MessageCreate, error) {
-		pic, err := TableScreen(tb)
+		var pic []byte
+		var err error
+		if rail {
+			pic, err = RailScreen(Rail{Light: light, Bell: tb.Bell, Thrown: tb.Thrown, Seats: tb.Seats, Called: called, Slate: tb.Slate})
+		} else {
+			pic, err = TableScreen(tb)
+		}
 		if err != nil {
 			return discord.MessageCreate{}, err
 		}
@@ -396,6 +461,8 @@ type Table struct {
 	// Slate is the slate's hash while it's turned to the wall, its seed
 	// once the bones are thrown, in hex.
 	Slate string
+	// Scraps are the deckhead overhead.
+	Scraps []Scrap
 }
 
 // TableSeat is one bench.
@@ -438,9 +505,9 @@ func TableScreen(t Table) ([]byte, error) {
 	return pixel.Animate(frames, beats, screenScale)
 }
 
-// HouseScreen draws the slack tide's screen, moving: see holdFrames.
+// HouseScreen draws the slack tide's screen, moving: see houseFrames.
 func HouseScreen(h House) ([]byte, error) {
-	frames, beats := holdFrames(h)
+	frames, beats := houseFrames(h)
 	return pixel.Animate(frames, beats, screenScale)
 }
 
@@ -627,4 +694,14 @@ func (m *Module) bellLine(guild snowflake.ID) string {
 		return "\n-# " + (&bellPost{}).bellText(stage)
 	}
 	return ""
+}
+
+// sumpAt is the scene outside at now, for a hold and its line: the hour's
+// light, how far the bell has come and whether the pumps are working.
+func (m *Module) sumpAt(hold, line int64, now time.Time) Sump {
+	s := Sump{Hold: hold, Line: line, Light: lightAt(now), Pumping: now.Sub(dayStart(DayOf(now))) < time.Hour}
+	if at, ok := m.nextBell(now); ok {
+		s.Stage = bellStage(at, now)
+	}
+	return s
 }

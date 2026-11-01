@@ -106,6 +106,13 @@ type table struct {
 	opened       time.Time
 	first        time.Time // when the first bird sat, which turns the glass
 	bell         bool      // opened in the drowning hour, so a hundred pays fifteen
+	bellAt       time.Time // the start of that hour
+	// rail is the bird called out at the rail, 0 for an open table, and
+	// caller who called them: only the two sit, at the same stake. called
+	// is the name they were called by.
+	rail, caller snowflake.ID
+	called       string
+	earned       []earned // the scraps its bones nailed up
 	seats        []seated
 	settled      bool
 	// draw lets one redraw of its message run at a time, each drawn from
@@ -149,6 +156,10 @@ var (
 	errStakeShort = core.Tell("your purse is short of that stake")
 	errWorstCase  = core.Tell("the purser's covering enough at this table; try a smaller stake or the next one")
 	errHouseNew   = core.Tell("the purser doesn't know you yet: earn about the city first, with an account at least a week old")
+	errNotCalled  = core.Tell("that call-out isn't yours: only the two at the rail throw there")
+	errRailStake  = core.Tell("at the rail both stake the same; pick the stake already on it")
+	errRailSelf   = core.Tell("you can't call yourself out")
+	errRailWho    = core.Tell("the purser doesn't know that bird: call out someone who earns about the city")
 )
 
 // line is the waterline, and maxStake the most the purser takes on one
@@ -187,6 +198,31 @@ func (st *state) open(s *server, ch snowflake.ID, now time.Time, bell bool) (*ta
 	return s.table, nil
 }
 
+// benches is how many sit at t: six, or two at the rail.
+func (t *table) benches() int {
+	if t.rail != 0 {
+		return 2
+	}
+	return tableSeats
+}
+
+// callOut opens a call-out at the rail in ch, caller against called, as
+// a table only they sit at. s.mu held.
+func (st *state) callOut(s *server, ch snowflake.ID, now time.Time, bell bool, caller, called snowflake.ID, name string) (*table, error) {
+	if caller == called {
+		return nil, errRailSelf
+	}
+	if m := s.members[called]; m == nil || m.total == 0 {
+		return nil, errRailWho
+	}
+	t, err := st.open(s, ch, now, bell)
+	if err != nil {
+		return nil, err
+	}
+	t.rail, t.caller, t.called = called, caller, name
+	return t, nil
+}
+
 // sitDown seats user at t for stake: the stake leaves their purse for the
 // hold in the same row that seats them, and a bird holds one seat at a
 // time anywhere, so a double click or a retried press can't seat them
@@ -199,8 +235,12 @@ func (st *state) sitDown(s *server, t *table, guild, user snowflake.ID, name str
 		worst += topPay(p.stake, t.bell)
 	}
 	switch {
-	case t != s.table || t.settled || len(t.seats) >= tableSeats || (!t.first.IsZero() && !now.Before(t.closes())):
+	case t != s.table || t.settled || len(t.seats) >= t.benches() || (!t.first.IsZero() && !now.Before(t.closes())):
 		return errTableShut
+	case t.rail != 0 && user != t.caller && user != t.rail:
+		return errNotCalled
+	case t.rail != 0 && len(t.seats) == 1 && stake != t.seats[0].stake:
+		return errRailStake
 	case m.seat != 0:
 		return errSeated
 	case !st.bal().old(user, now) || m.total == 0:
@@ -229,7 +269,7 @@ func (st *state) sitDown(s *server, t *table, guild, user snowflake.ID, name str
 // due is whether t should be thrown now: its glass is out or its benches
 // full.
 func (t *table) due(now time.Time) bool {
-	return !t.settled && len(t.seats) > 0 && (len(t.seats) >= tableSeats || !now.Before(t.closes()))
+	return !t.settled && len(t.seats) > 0 && (len(t.seats) >= t.benches() || !now.Before(t.closes()))
 }
 
 // throw settles t: every seat's bones from the slate, each win paid out of
@@ -253,10 +293,15 @@ func (st *state) throw(s *server, t *table, now time.Time) bool {
 			s.append(p.user, today, reasonWin, p.won, []int64{t.id, int64(p.throw), p.stake})
 		}
 		s.count(today, statThrow, int(p.stake/unit), p.throw)
+		if t.rail != 0 {
+			s.count(today, statRail, int(p.stake/unit), p.throw)
+		}
 		if p.throw == 100 && t.bell {
 			s.count(today, statAllHands, 0, 0)
 		}
 	}
+	s.chalk(t, today)
+	t.earned = st.deckhead(s, t, today)
 	s.dirty = true
 	return true
 }
@@ -294,6 +339,7 @@ const (
 	statThrow    = "house_throw"
 	statAllHands = "house_all_hands"
 	statBell     = "house_bell"
+	statRail     = "house_rail"
 )
 
 // The drowning hour. Its start is drawn from the season's seed and the

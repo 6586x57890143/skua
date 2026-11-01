@@ -139,13 +139,13 @@ func TestTableFlow(t *testing.T) {
 		t.Fatalf("seats %+v", tb.seats)
 	}
 	// The press is answered at once and the table redrawn after it.
-	if len(r.answers) != 1 || !strings.Contains(r.answers[0], "the glass runs out") {
+	if len(r.answers) != 1 || !strings.Contains(r.answers[0], "glass out") {
 		t.Errorf("the sit wasn't answered with the table redrawn: %v", r.answers)
 	}
 	s.mu.Lock()
 	msg, _ := m.tableMessage(s, tb)
 	s.mu.Unlock()
-	if !strings.Contains(js(msg), "the glass runs out") {
+	if !strings.Contains(js(msg), "glass out") {
 		t.Error("the table doesn't say when the glass runs out")
 	}
 	for _, bad := range []string{"pp:sit:1:1", fmt.Sprintf("pp:sit:%d:9", tb.id), "pp:sit:x"} {

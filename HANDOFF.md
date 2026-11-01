@@ -217,7 +217,49 @@ What's in:
 
 Not done yet:
 
-- **G2:** markers, duels, the beam screen and the deckhead feats.
 - **The economy report** needs the house's reasons (`note`, `stake`, `win`,
   `refund`, `pump`) from the first week of real data.
 - **The bell's message is in memory:** a restart mid-bell posts a fresh one.
+
+## /pp: the slack tide, G2 (2026-10-31, draft #190 on #189's branch, merges on 11-02 after it)
+
+Migration 038 (`pp_member.feats`). No balance change; its lines join 0.15.0.
+
+What's in:
+
+- **The sump** (`sump.go`): the slack tide's screen opens on the sump in front of the
+  *gannet*, painted at three tides (usual, low, high) in four lights (dusk, night,
+  dawn, day, by UTC hour). Low water an hour before the bell, high water while it rings
+  or the hold is full. The hold, the beam, the deckhead and the stakes sit in windows
+  under it; the card keeps only the admins' shut hint.
+- **Living scenes** (`ambient.go`): a still painting with a few chosen things moving a
+  small step every frame at their own pace, 12 frames of 200ms. At the sump: the swell
+  the length of the shore with the boats riding it, the wall's candles (leaning before
+  the bell), the town's windows and her portholes burning a little unevenly, a gull
+  over the mast by daylight, the pump at the turn and rings in the bell. At the rail:
+  slow bands on the harbour water, the lantern, the windows and the runnel's three
+  dyes. No random glints, stars painted still, lit windows never go dark. A card is 1.5
+  to 3.6 MB and about 0.6s to draw, which the owner OK'd. `TestLiveDemo` posts every
+  surface to the test bot.
+- **The beam and the deckhead** (`deckhead.go`): the day's highest throw is chalked on
+  the beam and wiped at the turn. Seven luck feats from LORE.md nail a scrap per bird,
+  standing only, counted `feat_<key>`. In the taproom the scraps hang dyed in the first
+  nailer's livery (wool for none), and unknown ones are chalk outlines. A run is in
+  memory, so a restart forgets one.
+- **A duel at the rail** (`rail.go`, the lore's calling out): a user picker on the tide card opens a
+  two-seat table pinging only the called bird. Same stake for both, each against the
+  house, so no transfer, and a loss says the stake goes to the house. Counted
+  `house_rail`. Its screen is the view from her rail in four lights.
+- **All art is finished art** fitted by box average and k-means (`sump*.png`,
+  `rail*.png`, `sprites/`). Replace whole. Every painted surface moves.
+
+Not done yet:
+
+- **The marker**, the newcomer's free throw: it reads M1's warm side, so it lands after
+  #187 is on `main`. Its sprite is in `sprites/marker*.png`.
+- **The purser** is drawn but not yet on any screen: `portraits/purser.png` (32x48, 15
+  colours: an Australian magpie rotoscoped from the owner's photo, dressed by the owner's
+  tool after the Tactics Ogre archer) and `figures/purser.png` (64x96, 19 colours, a
+  full-art figure with the slate and the ledger, its cheek and crown lit like the portrait's). Next he stands at the rail and the
+  table's end.
+- **The economy report's house figures**, after a week of real data.

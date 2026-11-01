@@ -31,3 +31,22 @@ var portraits = sync.OnceValue(func() map[string]image.Image {
 
 // Portrait is c's portrait, or nil for one not drawn, which shows skua.
 func Portrait(c Class) image.Image { return portraits()[c.Bird] }
+
+// figureFiles are the people who stand in the scenes at twice a portrait,
+// finished art like the portraits.
+//
+//go:embed figures/*.png
+var figureFiles embed.FS
+
+// purserFigure is the purser standing, 64 by 96, cut out once.
+var purserFigure = sync.OnceValue(func() figure {
+	data, err := figureFiles.ReadFile("figures/purser.png")
+	if err != nil {
+		panic("pp: no purser figure")
+	}
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		panic("pp: purser figure: " + err.Error())
+	}
+	return cutout(img)
+})
