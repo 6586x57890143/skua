@@ -52,13 +52,13 @@ func TestLiveDemo(t *testing.T) {
 
 	hold := int64(31000 * unit)
 	for light, name := range []string{"dusk", "night", "dawn", "day"} {
-		h := House{Hold: hold, Line: houseLine(), MaxStake: 310 * unit, Staked: 125 * unit, Cap: 1264 * unit,
+		h := House{Hold: hold, Line: houseLine(), MaxStake: 310 * unit, Staked: 125 * unit,
 			Beam: "steve", BeamThrow: 97, Scraps: 3, Sump: Sump{Hold: hold, Line: houseLine(), Light: light, Pumping: light == dawn}}
 		pic, err := HouseScreen(h)
 		post(fmt.Sprintf("demo: the slack tide at %s", name), pic, err)
 	}
 	for _, stage := range []int{bellDrawing, bellRinging} {
-		h := House{Hold: houseLine(), Line: houseLine(), MaxStake: 500 * unit, Bell: stage == bellRinging, Cap: 1264 * unit,
+		h := House{Hold: houseLine(), Line: houseLine(), MaxStake: 500 * unit, Bell: stage == bellRinging,
 			Sump: Sump{Hold: houseLine(), Line: houseLine(), Stage: stage}}
 		pic, err := HouseScreen(h)
 		post(fmt.Sprintf("demo: the bell, %s", map[int]string{bellDrawing: "the water draws back", bellRinging: "ringing"}[stage]), pic, err)
