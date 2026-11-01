@@ -92,7 +92,7 @@ func yardScene(base *pixel.Canvas, light int) []*pixel.Canvas {
 		func(c *pixel.Canvas, f int) { windows(c, art.img, yardTown, f) },
 		func(c *pixel.Canvas, f int) {
 			for i, r := range seconds {
-				sway(c, art, r, f, i)
+				sway(c, art, r, f, i, true)
 			}
 		},
 		func(c *pixel.Canvas, f int) {
@@ -204,8 +204,8 @@ func fire(c *pixel.Canvas, art *sumpArt, box image.Rectangle, f, seed int) {
 
 // sway is a cloth hung to dry at frame f: hanging from its top edge, its
 // lower half swung a pixel one way and then the other once round the
-// loop, and a drop gathering at its hem and falling.
-func sway(c *pixel.Canvas, art *sumpArt, r image.Rectangle, f, seed int) {
+// loop, and, when it's wet, a drop gathering at its hem and falling.
+func sway(c *pixel.Canvas, art *sumpArt, r image.Rectangle, f, seed int, wet bool) {
 	swing := math.Sin(2*math.Pi*float64(f)/ambientFrames + float64(seed))
 	for y := r.Min.Y; y < r.Max.Y; y++ {
 		dx := int(math.Round(swing * 1.6 * float64(y-r.Min.Y) / float64(r.Dy())))
@@ -219,7 +219,7 @@ func sway(c *pixel.Canvas, art *sumpArt, r image.Rectangle, f, seed int) {
 	// The drop: off the hem a third of the way along, falling over the
 	// second half of the loop, a pixel and then two a frame.
 	k := (f + seed*3) % ambientFrames
-	if k < ambientFrames/2 {
+	if !wet || k < ambientFrames/2 {
 		return
 	}
 	x := r.Min.X + r.Dx()/3 + seed

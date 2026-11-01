@@ -1,9 +1,11 @@
 package pp
 
 import (
+	_ "embed"
 	"fmt"
 	"image"
 	"strings"
+	"sync"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
@@ -105,47 +107,117 @@ func (m *Module) notes(s *server, mem *member, today int64) []string {
 // noNews is the sheet on a day with no news written for it.
 const noNews = "the presses had nothing new to set, so the singers sang yesterday's sheet again and nobody minded"
 
-// sheetBand is the piece of the pot square over the bird's day: the rim
-// where the singers sing the sheet, the board on it and the steam going
-// up, at dawn. sheetPic is where it's set, framed, at the top of the day's
-// column.
+// The pressroom high in the bellward where the sheet is set, at dawn:
+// finished art, a ChatGPT painting fitted to the screen's grid at 40
+// colours. Replace it whole, framed the same. The sheet's two panes sit
+// over its quiet wall and bench as parchment the room shows through, and
+// leave the lantern, the press and the window clear.
+//
+//go:embed press.png
+var pressPNG []byte
+
+var pressArt = sync.OnceValue(func() *sumpArt {
+	return &sumpArt{img: decodeArt(pressPNG, "press"), shade: 1, mist: lightMist[dawn]}
+})
+
+// The pressroom's own places: the sheets pegged up to dry, each from its
+// line, and the lantern by the press.
 var (
-	sheetBand = image.Rect(124, 50, 284, 86)
-	sheetPic  = image.Rectangle{image.Pt(220, 4), image.Pt(220, 4).Add(sheetBand.Size())}
+	drying = []image.Rectangle{
+		image.Rect(0, 0, 15, 35), image.Rect(22, 0, 38, 55), image.Rect(35, 2, 72, 58), image.Rect(82, 20, 124, 76),
+		image.Rect(130, 0, 186, 33), image.Rect(139, 40, 166, 86), image.Rect(190, 10, 216, 62), image.Rect(222, 24, 246, 62),
+	}
+	pressLantern = image.Rect(262, 40, 284, 78)
 )
 
-// MorningScreen is the sheet as a screen, moving: the pot square at dawn
-// steaming over the bird's day, beside the sheet.
+// The panes: the sheet under the drying sheets' tops, and the bird's day
+// under the window, and how much of the parchment is parchment.
+const (
+	sheetTop = 12
+	dayTop   = 76
+	paper    = 0.85
+)
+
+// MorningScreen is the sheet as a screen, moving: the pressroom at dawn,
+// the sheets drying and the lantern burning, under the sheet and the day.
 func MorningScreen(s Morning) ([]byte, error) {
 	frames := morningFrames(s)
 	return pixel.Animate(frames, beatsOf(len(frames)), screenScale)
 }
 
-// morningFrames are the sheet with each frame of the pot square's loop
-// set in its frame.
+// morningFrames are the pressroom's loop with the panes over each frame,
+// the room showing through their parchment.
 func morningFrames(s Morning) []*pixel.Canvas {
-	c := morningCanvas(s)
-	scene := potScene(pixel.New(sumpSize.X, sumpSize.Y), dawn)
-	out := make([]*pixel.Canvas, len(scene))
-	for i, f := range scene {
-		out[i] = c.Copy()
-		out[i].Picture(f.SubImage(sheetBand), sheetPic.Min, 1)
+	art := pressArt()
+	base := pixel.New(screenW, screenH)
+	base.Picture(art.img, image.Point{}, 1)
+	room := ambient(base,
+		func(c *pixel.Canvas, f int) {
+			for i, r := range drying {
+				sway(c, art, r, f, i, false)
+			}
+		},
+		func(c *pixel.Canvas, f int) { glow(c, art, pressLantern, f) },
+	)
+	out := make([]*pixel.Canvas, len(room))
+	for i, r := range room {
+		c := r.Copy()
+		morningPanes(c, s)
+		seeThrough(c, r, paper)
+		out[i] = c
 	}
 	return out
 }
 
+// seeThrough lets room show through the parchment of c's panes: each
+// pixel of parchment mixed with the room's under it, by parchment's share.
+// Text, icons and the panes' frames stay as drawn.
+func seeThrough(c, room *pixel.Canvas, by float64) {
+	parchment := map[uint8]bool{}
+	for _, i := range pixel.Sky {
+		parchment[i] = true
+	}
+	// Mixed against one parchment, its bands being all but the same, so
+	// the room's colours each take one ink and the palette holds.
+	sheet := hexOf(c.Palette[pixel.Sky[len(pixel.Sky)/2]])
+	inks := map[uint32]uint8{}
+	for _, pane := range c.Panes {
+		for y := pane.Min.Y; y < pane.Max.Y; y++ {
+			for x := pane.Min.X; x < pane.Max.X; x++ {
+				i := c.ColorIndexAt(x, y)
+				if !parchment[i] {
+					continue
+				}
+				under := hexOf(room.At(x, y))
+				to, ok := inks[under]
+				if !ok {
+					to = c.Dye(blend(under, sheet, by))
+					inks[under] = to
+				}
+				c.SetColorIndex(x, y, to)
+			}
+		}
+	}
+}
+
+// morningCanvas is the panes alone, for checking the layout.
 func morningCanvas(s Morning) *pixel.Canvas {
 	c := pixel.New(screenW, screenH)
+	morningPanes(c, s)
+	return c
+}
 
+// morningPanes draws the sheet and the bird's day onto c.
+func morningPanes(c *pixel.Canvas, s Morning) {
 	// The broadsheet: the news in the serif a press sets, the rumour light,
 	// as a sheet sets its column filler.
-	sheet := image.Rect(4, 4, 216, 212)
+	sheet := image.Rect(4, sheetTop, 228, 212)
 	c.Window(sheet)
 	c.Tab(sheet, "the morning sheet")
-	x, w := 14, 192
-	y := 26
+	x, w := 14, 204
+	y := sheet.Min.Y + 22
 	label(c, x, y, s.Date)
-	y += pixel.LineHeight + 2
+	y += pixel.LineHeight
 	news := s.News
 	if news == "" {
 		news = noNews
@@ -154,7 +226,7 @@ func morningCanvas(s Morning) *pixel.Canvas {
 		c.Print(pixel.Serif, x, y, l, pixel.Ink)
 		y += pixel.Serif.Height
 	}
-	y += 6
+	y += 4
 	label(c, x, y, "overheard at mother tern's")
 	y += pixel.LineHeight
 	for _, l := range pixel.Light.Wrap(s.Rumour, w) {
@@ -163,11 +235,10 @@ func morningCanvas(s Morning) *pixel.Canvas {
 	}
 
 	// Their own day: the quests dealt them, then notes.
-	c.Outline(sheetPic.Inset(-1), pixel.Line)
-	day := image.Rect(220, sheetPic.Max.Y+4, 380, 212)
+	day := image.Rect(232, dayTop, 380, 212)
 	c.Window(day)
 	c.Tab(day, "your day")
-	x, r := 240, 368
+	x, r := day.Min.X+20, day.Max.X-12
 	y = day.Min.Y + 22
 	tier := [3]uint8{pixel.Ink, pixel.Green, pixel.Gold}
 	for i, q := range s.Quests {
@@ -194,6 +265,8 @@ func morningCanvas(s Morning) *pixel.Canvas {
 	}
 	y += 4
 	// Notes as far as the page goes: the quests come first.
+	// Notes start at the pane's edge: the hand never points at them.
+	x = day.Min.X + 10
 	for _, n := range s.Notes {
 		lines := pixel.Light.Wrap(n, r-x)
 		if y+len(lines)*pixel.LineHeight > day.Max.Y-6 {
@@ -205,7 +278,6 @@ func morningCanvas(s Morning) *pixel.Canvas {
 		}
 		y += 3
 	}
-	return c
 }
 
 // morningMessage is the sheet as a message, with the way on to the pot.
