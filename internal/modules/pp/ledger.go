@@ -179,7 +179,11 @@ func (st *state) audit(ctx context.Context, db DB) (int, error) {
 			want := m.purse - m.dayGot
 			got, ok := sums[key{g, u}]
 			switch {
-			case !ok && want != 0:
+			case !ok && (want != 0 || m.total > m.dayGot+m.dayLevy+m.dayWithheld):
+				// A purse from before the ledger, or a bird who earned
+				// before it and holds nothing now: the row, even of
+				// nothing, dates them, so the warm side never takes them
+				// for new.
 				s.append(u, m.dayN, reasonOpen, want, nil)
 			case ok && got != want:
 				bad++
