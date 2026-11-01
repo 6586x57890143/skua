@@ -173,9 +173,11 @@ type Scrap struct {
 	Color uint32
 }
 
-// scraps are the deckhead as s stands, a scrap per feat: the colour of
-// the bird who first nailed each, by the order they came aboard, or
-// blank where nobody has yet. s.mu held.
+// scraps are the deckhead as s stands, a scrap per feat, or blank where
+// nobody has nailed it yet. Who nailed one first isn't kept, only that
+// they did, so each is dyed the colour of the oldest account among those
+// who have: a bird nailing it later with an older account takes it over.
+// s.mu held.
 func (st *state) scraps(s *server, today int64) []Scrap {
 	out := make([]Scrap, len(feats))
 	first := make([]snowflake.ID, len(feats))
