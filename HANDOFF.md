@@ -172,3 +172,52 @@ The launch PRs stay drafts until 11-02, then merge in order: M0, M1, M3, M4.
   drowning hour rings once or twice a day, leaning to NA and EU evenings, and pays 15x on a
   hundred, so every hour keeps a house edge. The hold is seeded once by a minted 12,500 pp
   note, and every win after that comes out of stakes won. Luck feats go on the deckhead as standing, never pp.
+
+## /pp: the slack tide, G1 (2026-10-31, draft #189, merges on 11-02)
+
+House-banked chance in the wet guild's house aboard the grounded *gannet*. Lore is in
+LORE.md (#188). Charter v7, balance 0.15.0, migration 037.
+
+What's in:
+
+- **The house** (`house.go`): every throw settles against the hold alone, so no pp
+  moves between birds. 1-50 lose, 51-90 pay 1.5x, 91-99 2.5x, 100 10x (15x in the bell
+  hour): 0.925 of a stake on average, 0.975 in the bell, pinned in `TestHouseEdge`.
+  Each table's seed comes from `crypto/rand`, and its sha256 (the slate) is posted
+  before anyone sits. A throw is `sha256(seed || table || user)`.
+- **The hold is its own fund.** The note mints 5,000 pp into it once (ledger reason
+  `note`, user 1). It never touches the treasury or the contest fund. At each turn
+  everything over the 50,000 pp line is pumped (`pump`, burned). A stake is at most 1%
+  of the hold, so the lamp opens at a 10k hold and the lantern at 50k. A bird stakes at
+  most 4 pot days a day, doubled each rung (`stakeCap`), and a table never covers more than half the hold at its worst
+  case.
+- **Money moves once.** Sitting debits the purse into the hold and sets `pp_member.seat`
+  in the same flush. A table that never threw (skua stopped) is refunded at boot
+  (`refundSeats`), and the audit holds the hold to its rows.
+- **The bell** is drawn from the season seed and the day: 45/45/10 across the europe,
+  americas and off-peak windows, twice on about 2 days in 7, four hours apart. It is
+  one message in the house channel, edited at T-60, T-15, T0 and T+60. Every hundred
+  in the hour posts its own all hands line. /pp's title and status screens carry the
+  same line. `nextBell` never reads next season's seed early, because reading it fixes
+  it.
+- **The house sim** (`house_sim_test.go`, A9 to A12): three years of six personas
+  through the real code. The house won 35 of 39 seasons in run 1, and A10 holds it to
+  3 in 4, not every season, since a lucky season is the point of a house. Every
+  persona's median season loses.
+- **The surface** (`taproom.go`, `pixel.Animate`): the taproom, table and benches are
+  owner-commissioned paintings (`taproom.png`, `board.png`, `settle.png`), finished
+  art fitted onto the taproom's 40 colours. Replace them whole. Birds are cut out of
+  their portraits. Candles flicker (and lean in the bell), the sand runs, the bones
+  tumble, and the winner is chalked on the beam. The hold screen is a cut-away of the
+  hull. `SKUA_SHOTS=dir go test ./internal/modules/pp -run TestShots` writes every
+  frame as it ships.
+- **The admins' money is in sheets**, sheet 1 the treasury and sheet 2 the house. A
+  new fund gets a sheet. Health is the hold at half its note (not half the line, which
+  it sits under for months) and a positive edge over 7 days.
+
+Not done yet:
+
+- **G2:** markers, duels, the beam screen and the deckhead feats.
+- **The economy report** needs the house's reasons (`note`, `stake`, `win`,
+  `refund`, `pump`) from the first week of real data.
+- **The bell's message is in memory:** a restart mid-bell posts a fresh one.

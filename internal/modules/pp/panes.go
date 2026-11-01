@@ -457,17 +457,12 @@ func TreasuryScreen(t Treasury) ([]byte, error) { return treasuryCanvas(t).Scree
 func treasuryCanvas(t Treasury) *pixel.Canvas {
 	c := pixel.New(screenW, screenH)
 	row := func(r image.Rectangle, i int, icon, name, value string, ink uint8) {
-		x, y := r.Min.X+12, paneTop(r)+i*19
-		if icon != "" {
-			c.Icon(icon, image.Pt(x, y-iconLift))
-		}
-		label(c, x+pixel.IconCells+4, y, name)
-		right(c, r.Max.X-12, y, value, ink)
+		paneRow(c, r, i, icon, name, value, ink)
 	}
 
 	tr := image.Rect(4, 4, 190, 106)
 	c.Window(tr)
-	c.Tab(tr, "treasury")
+	c.Tab(tr, sheetTab("treasury", 0))
 	row(tr, 0, "pot", "holds", grouped(t.Balance/unit)+" pp", pixel.Gold)
 	taking, ink := "full", pixel.Dim
 	if t.Taking {

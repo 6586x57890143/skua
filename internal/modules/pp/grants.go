@@ -34,12 +34,13 @@ var (
 	errGrantSelf  = core.Tell("a second admin has to approve this one, not the one who asked for it")
 )
 
-// grantControls is the grant button for /pp's help page.
+// grantControls is the grant button for /pp's help page, and the way to
+// the livery settings beside it.
 func (m *Module) grantControls() []discord.ContainerSubComponent {
 	return []discord.ContainerSubComponent{
-		discord.NewTextDisplay(fmt.Sprintf("### grants\n-# pay a contest winner from the contest fund, which grows with every quest: at most %s pp a prize and %s pp a season to anyone. a second admin approves anything over %s pp, and every grant is posted in the ledger channel",
+		discord.NewTextDisplay(fmt.Sprintf("### liveries and grants\n-# the livery settings hold the role liveries sit under, where petitions are reviewed, and the switch that opens the dyers' yard\n-# a grant pays a contest winner from the contest fund, which grows with every quest: at most %s pp a prize and %s pp a season to anyone. a second admin approves anything over %s pp, and every grant is posted in the ledger channel",
 			grouped(Rules.Prize(m.st.bal())/unit), grouped(Rules.GrantSeason*m.st.pot()/unit), grouped(Rules.GrantSecond*m.st.pot()/unit))),
-		discord.NewActionRow(withIcon(discord.NewSecondaryButton("grant pp", "pp:grant"), "envelope")),
+		discord.NewActionRow(liveryButton(), withIcon(discord.NewSecondaryButton("grant pp", "pp:grant"), "envelope")),
 	}
 }
 

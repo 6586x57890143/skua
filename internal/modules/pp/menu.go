@@ -94,6 +94,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.setLog(ctx, *guild, e)
 	case id == "pp:selfies":
 		return m.setSelfies(ctx, *guild, e)
+	case id == "pp:house":
+		return m.setHouse(ctx, *guild, e)
 	case id == "pp:anchor", id == "pp:heralds", id == "pp:slots":
 		return m.setLivery(ctx, *guild, e)
 	case id == "pp:liveries":
@@ -136,6 +138,10 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.rally(*guild, e)
 	case id == "pp:withdraw":
 		return m.withdrawPact(*guild, e)
+	case id == "pp:table":
+		return m.openTable(ctx, *guild, e)
+	case strings.HasPrefix(id, "pp:sit:"):
+		return m.sitAt(*guild, e)
 	case id == "pp:start", strings.HasPrefix(id, "pp:start:"):
 		return m.startPact(*guild, e)
 	case buys(id):
@@ -173,11 +179,12 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return e.CreateMessage(msg)
 	case id == "pp:board":
 		msg, err = m.boardMessage(*guild, e.User().ID)
-	case id == "pp:treasury":
+	case id == "pp:treasury", strings.HasPrefix(id, "pp:treasury:"):
 		if m.Admin == nil || !m.Admin(e) {
 			return errNotAdmin
 		}
-		msg, err = m.treasuryMessage(ctx, *guild)
+		msg, err = m.sheetMessage(ctx, *guild, parseSheet(id))
+		id = "pp:treasury"
 	case id == "pp:quests":
 		msg, err = m.questsMessage(*guild, e.Member())
 	case id == "pp:notices", id == "pp:company":
@@ -191,6 +198,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.yard(ctx, *guild, e)
 	case id == "pp:ledger":
 		msg, err = m.journal(ctx, *guild, e.Member())
+	case id == "pp:tide":
+		msg, err = m.tideMessage(*guild, e.User().ID)
 	default:
 		return errNotAClass
 	}
@@ -337,7 +346,7 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	picked, quests := mem.classSeason != -1, held(mem.quests) > 0
 	s.mu.Unlock()
 	if !picked {
-		return titleMessage(buttons, quests)
+		return titleMessage(buttons, quests, strings.TrimPrefix(m.bellLine(guild), "\n"))
 	}
 
 	sh.Name = who.EffectiveName()
@@ -350,7 +359,7 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	}
 	alt := fmt.Sprintf("%s, %s, level %d, %s pp to spend", pixel.Plain(sh.Name), sh.Class.Name(), sh.Level, grouped(sh.Purse/unit))
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", turnsOver(today),
+		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "status", turnsOver(today)+m.bellLine(guild),
 			discord.NewMediaGallery(screenItem(pic, alt)))},
 		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagIsComponentsV2,
@@ -386,9 +395,11 @@ func menuRows(class string, admin bool, current string) []discord.ContainerSubCo
 			btn("board", "pp:board", "laurel"), btn("shop", "pp:shop", "scales")),
 		discord.NewActionRow(home, btn("lore", "pp:class", classIcons[class]), btn("buffs", "pp:buffs", "hearth"), btn("journal", "pp:ledger", "quill")),
 	}
+	tide := []discord.InteractiveComponent{btn("slack tide", "pp:tide", "bell")}
 	if admin {
-		rows = append(rows, discord.NewActionRow(btn("treasury", "pp:treasury", "pot")))
+		tide = append(tide, btn("treasury", "pp:treasury", "pot"))
 	}
+	rows = append(rows, discord.NewActionRow(tide...))
 	return rows
 }
 
@@ -404,7 +415,7 @@ func withIcon(b discord.ButtonComponent, icon string) discord.ButtonComponent {
 // picked a class: their own copy carries the button to pick one and, when
 // they hold quests, the one to their quests, so a newcomer's first is a
 // press away.
-func titleMessage(buttons, quests bool) (discord.MessageCreate, error) {
+func titleMessage(buttons, quests bool, note string) (discord.MessageCreate, error) {
 	pic, err := TitleScreen()
 	if err != nil {
 		return discord.MessageCreate{}, err
@@ -421,7 +432,7 @@ func titleMessage(buttons, quests bool) (discord.MessageCreate, error) {
 		extra = append(extra, discord.NewActionRow(row...))
 	}
 	return discord.MessageCreate{
-		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "melting pot", "", extra...)},
+		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "melting pot", note, extra...)},
 		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
