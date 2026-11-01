@@ -91,7 +91,7 @@ var Rules = Charter{
 	RefVoice:      4,
 	RefMessages:   27,
 	Engaged:       155,
-	HouseNote:     10000,
+	HouseNote:     12500,
 	HouseLine:     50000,
 	HouseStake:    100,
 	HouseDay:      4,
