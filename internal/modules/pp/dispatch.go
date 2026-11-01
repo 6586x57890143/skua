@@ -120,7 +120,13 @@ func worldLine(b *Balance, today int64) string {
 // held.
 func (m *Module) notes(s *server, mem *member, today int64) []string {
 	var out []string
-	if mem.livery != "" && mem.liveryUntil == today {
+	// A standing order is paid at the turn, before anyone reads a sheet, so
+	// a renewing livery still ending today is one the dyer's boy couldn't
+	// collect for.
+	switch {
+	case mem.livery != "" && mem.liveryUntil == today && mem.renew:
+		out = append(out, "the dyer's boy found your purse short, so your livery fades tonight")
+	case mem.livery != "" && mem.liveryUntil == today:
 		out = append(out, "your livery fades tonight unless the yard is paid")
 	}
 	if l, into, need := m.st.bal().Level(mem.total); need-into <= need/10 {

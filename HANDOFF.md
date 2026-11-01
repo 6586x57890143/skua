@@ -314,3 +314,18 @@ Not done yet:
   quiet wall and bench so the lantern and the window stay clear. The pegged sheets sway
   and the lantern breathes. `pixel.Animate` now keeps a canvas's hand and bobs it, so the
   hand at the first quest points on a moving screen too.
+
+## /pp: a standing order at the yard (2026-11-01)
+
+- **Liveries can renew on their own** (`renew.go`). A switch on the worn livery's card
+  (`pp:yardrenew`), on a trade's or faction's card and on one's own page, flips it.
+  Opting in is kept in `pp_renew` (migration 040), a table of its own so the member upsert stays as it was.
+- **At the turn, before `fade`**, `renewLeases` pays another term for every renewing bird
+  whose lease ends that day or the next. It uses that day's price, a `lease` ledger row like a
+  press, and no Discord call, since the role is still worn. A purse that can't pay, a perch now too low,
+  or one's own livery with no role is left alone, and the livery fades as usual.
+
+Not done yet:
+
+- The morning sheet (#193) still says a livery "fades tonight" for a bird who renews.
+  Teach its note about `renew` once both are on main.

@@ -82,6 +82,8 @@ type member struct {
 	// dispatchDay is the day they last had the morning's dispatch, in
 	// memory: after a restart they may get the day's again.
 	dispatchDay int64
+	// renew is whether the yard renews their livery on its own.
+	renew bool
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, a fingerprint of their last message, when they last showed a

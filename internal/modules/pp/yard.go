@@ -210,10 +210,14 @@ func (st *state) dyeMessage(mem *member, d dye, today int64) (discord.MessageCre
 	case mem.purse < price, worn && mem.liveryUntil+days > today+ahead:
 		lease = lease.AsDisabled()
 	}
+	row := discord.NewActionRow(discord.NewSecondaryButton("◂ the yard", "pp:yard:"+strconv.Itoa(d.page())), lease)
+	if worn {
+		row = row.AddComponents(renewButton(mem.renew, days))
+	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
 			discord.NewMediaGallery(screenItem(pic, alt)),
-			discord.NewActionRow(discord.NewSecondaryButton("◂ the yard", "pp:yard:"+strconv.Itoa(d.page())), lease))},
+			row)},
 		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),
@@ -230,6 +234,19 @@ func (m *Module) yard(ctx context.Context, guild snowflake.ID, e *events.Compone
 	switch {
 	case id == "pp:ownwrite":
 		return m.openOwn(guild, e)
+	case id == "pp:yardrenew":
+		if err := m.toggleRenew(ctx, guild, user); err != nil {
+			return err
+		}
+		today := DayOf(m.now())
+		s := m.st.server(guild)
+		s.mu.Lock()
+		worn := m.st.member(s, guild, user, today).livery
+		s.mu.Unlock()
+		if d, ok := dyeOf(worn); ok {
+			return m.dyeCard(guild, e, d)
+		}
+		fallthrough
 	case id == "pp:own":
 		msg, err := m.ownPage(ctx, guild, user)
 		if err != nil {

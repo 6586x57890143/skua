@@ -319,6 +319,9 @@ Colour comes from **the dyers' yard** in the sump, where the vats boil day and
 night and the run-off turns the gutters three colours at once. Dye fades in
 the sea air, so the yard doesn't sell a colour, it leases it: a livery is paid
 by the week, and one that isn't paid for fades in three days and is gone.
+A bird who can't be bothered leaves a **standing order** at the yard's gate,
+and on a lease's last day a dyer's boy comes round for the next week's money.
+If the purse is empty he goes away again, and the colour fades as usual.
 
 The sump's own trades wear cheap, fast colours the yard boils by the barrel:
 

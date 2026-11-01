@@ -379,6 +379,7 @@ func (m *Module) tick(ctx context.Context, last *int64) {
 		// The audit may open members' ledgers, which the save writes; a
 		// boot only audits, so a restart doesn't post the head again.
 		m.audit(ctx)
+		m.renewLeases(day)
 		m.fade(ctx, day)
 		m.Save()
 		if *last != 0 {
