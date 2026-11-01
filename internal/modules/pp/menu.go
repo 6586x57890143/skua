@@ -189,7 +189,7 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		msg, err = m.noticesMessage(*guild, e.Member())
 	case id == "pp:buffs":
 		msg, err = m.buffsMessage(*guild, e.Member())
-	case id == "pp:shop", id == "pp:climb", id == "pp:look", id == "pp:back":
+	case id == "pp:shop", id == "pp:climb", id == "pp:look", id == "pp:back", id == "pp:ladder":
 		return m.shop(ctx, *guild, e)
 	case strings.HasPrefix(id, "pp:yard"), id == "pp:dye", strings.HasPrefix(id, "pp:lease:"), strings.HasPrefix(id, "pp:own"):
 		return m.yard(ctx, *guild, e)

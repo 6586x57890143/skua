@@ -67,7 +67,23 @@ func yardCanvas(title string, rows []YardRow, purse int64, wear Livery, lease st
 		c.FitIn(pixel.Bold, x+22, y, row.Name, c.Dye(row.Color), at-pixel.Advance-(x+22))
 	}
 
-	purseR := image.Rect(4, 152, 192, 212)
+	yardWindows(c, 152, purse, wear, lease)
+	return c
+}
+
+// YardFront is the yard's front, moving: the yard in the hour's light, and
+// under it the purse and the livery worn. The liveries themselves are
+// YardScreen, a press away.
+func YardFront(light int, purse int64, wear Livery, lease string) ([]byte, error) {
+	base := pixel.New(screenW, screenH)
+	yardWindows(base, sumpSize.Y+4, purse, wear, lease)
+	return pixel.Animate(yardScene(base, light), beatsOf(ambientFrames), screenScale)
+}
+
+// yardWindows are the purse and the livery worn, from top down to the
+// screen's foot.
+func yardWindows(c *pixel.Canvas, top int, purse int64, wear Livery, lease string) {
+	purseR := image.Rect(4, top, 192, 212)
 	c.Window(purseR)
 	c.Tab(purseR, "purse")
 	y := purseR.Min.Y + pixel.TabDrop + 3
@@ -77,13 +93,13 @@ func yardCanvas(title string, rows []YardRow, purse int64, wear Livery, lease st
 	label(c, 16, y+17, "a lease runs")
 	right(c, 180, y+17, "a "+or(lease, "week"), pixel.Ink)
 
-	you := image.Rect(196, 152, 380, 212)
+	you := image.Rect(196, top, 380, 212)
 	c.Window(you)
 	c.Tab(you, "you wear")
 	y = you.Min.Y + pixel.TabDrop + 3
 	if wear.Name == "" {
 		label(c, 208, y+8, "your own feathers")
-		return c
+		return
 	}
 	swatch(c, image.Rect(208, y, 222, y+11), wear.Color)
 	c.FitIn(pixel.Bold, 230, y, wear.Name, c.Dye(wear.Color), 368-230)
@@ -92,7 +108,6 @@ func yardCanvas(title string, rows []YardRow, purse int64, wear Livery, lease st
 		ink = pixel.Red
 	}
 	c.Text(230, y+17, leftWords(wear.Left), ink, 0)
-	return c
 }
 
 // leftWords is a lease's days left as a member reads them; a lease run out
