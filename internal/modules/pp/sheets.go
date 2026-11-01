@@ -136,41 +136,34 @@ func (m *Module) houseSheetMessage(ctx context.Context, guild snowflake.ID) (dis
 		from, period = DayOf(b.seasonStart(season)), fmt.Sprintf("season %d", season)
 	}
 	h := HouseSheet{Period: period, Line: houseLine(), Note: Rules.HouseNote * unit}
-	rows, err := m.db.Query(ctx, `select reason, coalesce(sum(delta), 0)::bigint, count(*), count(distinct user_id), coalesce(max(delta), 0)::bigint
-		from pp_ledger where guild_id = $1 and day >= $2 and reason in ('stake', 'win', 'pump') group by reason`, int64(guild), from)
-	if err != nil {
+	// A refunded stake was never thrown, so it comes off what was staked;
+	// the edge is measured on wins against a stake (a win's third input),
+	// which the house's own stakes on its marker aren't.
+	var wonStaked, refunds, refunded int64
+	if err := one(ctx, m.db, `select coalesce(-sum(delta) filter (where reason = 'stake'), 0)::bigint,
+			coalesce(sum(delta) filter (where reason = 'refund'), 0)::bigint,
+			count(*) filter (where reason = 'stake'), count(*) filter (where reason = 'refund'),
+			count(distinct user_id) filter (where reason = 'stake'),
+			coalesce(sum(delta) filter (where reason = 'win'), 0)::bigint,
+			coalesce(sum(delta) filter (where reason = 'win' and inputs[3] <> 0), 0)::bigint,
+			coalesce(max(delta) filter (where reason = 'win'), 0)::bigint,
+			coalesce(-sum(delta) filter (where reason = 'pump'), 0)::bigint
+		from pp_ledger where guild_id = $1 and day >= $2 and reason in ('stake', 'refund', 'win', 'pump')`, []any{int64(guild), from},
+		&h.Staked, &refunds, &h.Throws, &refunded, &h.Throwers, &h.Won, &wonStaked, &h.Best, &h.Pumped); err != nil {
 		return discord.MessageCreate{}, err
 	}
-	for rows.Next() {
-		var reason string
-		var sum, n, users, most int64
-		if err := rows.Scan(&reason, &sum, &n, &users, &most); err != nil {
-			rows.Close()
-			return discord.MessageCreate{}, err
-		}
-		switch reason {
-		case reasonStake:
-			h.Staked, h.Throws, h.Throwers = -sum, n, users
-		case reasonWin:
-			h.Won, h.Best = sum, most
-		case reasonPump:
-			h.Pumped = -sum
-		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return discord.MessageCreate{}, err
-	}
+	h.Staked, h.Throws = h.Staked-refunds, h.Throws-refunded
 	var weekStaked, weekWon int64
-	if err := one(ctx, m.db, `select coalesce(-sum(delta) filter (where reason = 'stake'), 0)::bigint, coalesce(sum(delta) filter (where reason = 'win'), 0)::bigint
-		from pp_ledger where guild_id = $1 and day > $2 and reason in ('stake', 'win')`, []any{int64(guild), today - 7}, &weekStaked, &weekWon); err != nil {
+	if err := one(ctx, m.db, `select coalesce(-sum(delta) filter (where reason in ('stake', 'refund')), 0)::bigint,
+			coalesce(sum(delta) filter (where reason = 'win' and inputs[3] <> 0), 0)::bigint
+		from pp_ledger where guild_id = $1 and day > $2 and reason in ('stake', 'refund', 'win')`, []any{int64(guild), today - 7}, &weekStaked, &weekWon); err != nil {
 		return discord.MessageCreate{}, err
 	}
 	if err := one(ctx, m.db, `select coalesce(sum(n), 0)::bigint from pp_stat where guild_id = $1 and what = $2 and day >= $3`,
 		[]any{int64(guild), statBell, from}, &h.Bells); err != nil {
 		return discord.MessageCreate{}, err
 	}
-	h.Edge, h.Week = edgeOf(h.Staked, h.Won), edgeOf(weekStaked, weekWon)
+	h.Edge, h.Week = edgeOf(h.Staked, wonStaked), edgeOf(weekStaked, weekWon)
 	s := m.st.server(guild)
 	s.mu.Lock()
 	h.Hold = s.hold
