@@ -126,7 +126,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.12.0",
+	Version: "0.13.0",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -163,7 +163,7 @@ var Default = Balance{
 	GuestSeen:   14,
 	GuestAge:    30 * 24 * time.Hour,
 	Hearth:      [3]int64{5, 10, 15},
-	HearthAt:    [3]int64{100, 115, 130},
+	HearthAt:    [3]int64{80, 100, 120},
 	HearthFloor: 3000 * unit,
 
 	CurveA: 25,
@@ -177,8 +177,8 @@ var Default = Balance{
 		{
 			{Icon: "campfire", Tasks: []Task{{taskVoice, 30}}},
 			{Icon: "quill", Tasks: []Task{{taskTalk, 45}}},
-			{Icon: "drum", Tasks: []Task{{taskCrowd, 20}}},
-			{Icon: "envelope", Tasks: []Task{{taskReply, 25}}},
+			{Icon: "drum", Tasks: []Task{{taskCrowd, 12}}},
+			{Icon: "envelope", Tasks: []Task{{taskReply, 18}}},
 		},
 		{
 			{Icon: "compass", Tasks: []Task{{taskVoice, 20}, {taskTalk, 30}}},

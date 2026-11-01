@@ -209,7 +209,7 @@ func TestBuffsCard(t *testing.T) {
 	for _, c := range []struct {
 		lit, before int
 		want        string
-	}{{0, 0, "lights at 100%"}, {0, 1, "burns on tomorrow at 100%"}, {1, 0, "rises at 115%"}, {1, 2, "burns on tomorrow at 115%"}} {
+	}{{0, 0, "lights at 80%"}, {0, 1, "burns on tomorrow at 80%"}, {1, 0, "rises at 100%"}, {1, 2, "burns on tomorrow at 100%"}} {
 		s.lit, s.litBefore = c.lit, c.before
 		if got := m.st.hearthHow(s); !strings.HasSuffix(got, c.want) {
 			t.Errorf("lit %d, yesterday %d: %q", c.lit, c.before, got)

@@ -2,6 +2,7 @@ package pp
 
 import (
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -261,7 +262,7 @@ func (b *Balance) Buff(w Wearing, hearth int) int64 {
 }
 
 // HearthTier is the tier a server's raw pp today reaches against its usual
-// day, the mean of the days in history it earned anything.
+// day (see Usual).
 func (b *Balance) HearthTier(today int64, history []int64) int {
 	usual := b.Usual(history)
 	tier := 0
@@ -273,19 +274,22 @@ func (b *Balance) HearthTier(today int64, history []int64) int {
 	return tier
 }
 
-// Usual is a server's usual day, the mean of the days in history it
-// earned anything, HearthFloor before it has one.
+// Usual is a server's usual day, the median of the days in history it
+// earned anything, HearthFloor before it has one. A median, not a mean: one
+// big day would hold a mean above every ordinary day after it.
 func (b *Balance) Usual(history []int64) int64 {
-	var sum, n int64
+	days := make([]int64, 0, len(history))
 	for _, h := range history {
 		if h > 0 {
-			sum, n = sum+h, n+1
+			days = append(days, h)
 		}
 	}
+	n := len(days)
 	if n == 0 {
 		return b.HearthFloor
 	}
-	return sum / n
+	slices.Sort(days)
+	return (days[(n-1)/2] + days[n/2]) / 2
 }
 
 // Need is what level l to l+1 costs.

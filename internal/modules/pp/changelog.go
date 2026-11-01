@@ -11,6 +11,15 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.13.0",
+	Date:    "2026-11-02",
+	Balance: "7e95dc",
+	Lines: []string{
+		"the hearth lights easier. the keepers read the middle notch on the stick now, not the average, so one roaring day no longer holds the mark above every day after it",
+		"its three heights now light at 80%, 100% and 120% of that usual day, so an ordinary day lights it and a good one lights it higher",
+		"drum quests ask for 12 in a crowd instead of 20, and envelope quests 18 replies instead of 25",
+	},
+}, {
 	Version: "0.12.0",
 	Date:    "2026-10-26",
 	Balance: "5cbf9a",
