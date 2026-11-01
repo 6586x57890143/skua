@@ -126,9 +126,10 @@ func TestSitAndThrow(t *testing.T) {
 func TestSitRefusals(t *testing.T) {
 	st, s := houseState(t)
 	tb, _ := st.open(s, 9, t0, false)
-	// The hold is 5,000 pp, so the purser takes 50 pp a throw at most.
-	if err := st.sitDown(s, tb, guild, old(1), "a", stakes[2].pp, t0); !errors.Is(err, errTideOut) {
-		t.Errorf("a lamp on a 5,000 hold: %v", err)
+	// The hold is the note, so the purser takes a lamp at most: never a
+	// lantern until the tide comes in.
+	if err := st.sitDown(s, tb, guild, old(1), "a", stakes[3].pp, t0); !errors.Is(err, errTideOut) {
+		t.Errorf("a lantern on the note: %v", err)
 	}
 	young := snowflake.New(t0.Add(-time.Hour))
 	st.member(s, guild, young, DayOf(t0)).purse = 1000 * unit
