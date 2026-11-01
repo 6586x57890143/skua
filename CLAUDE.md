@@ -52,8 +52,9 @@ a code block grid (`core.Readout`), art on an exact pixel grid.
   places) draws from. New lore is written there first, and the owner reads it before it
   ships.
 - `internal/modules/pp/title.png`: `/pp`'s title art, "melting pot" in a blackletter (UnifrakturMaguntia, OFL; only the picture ships) over a rust cauldron. Finished art, like the portraits.
-- `internal/modules/pp/figures`: full-art figures, three times a portrait (96x144), for the
-  characters who stand on a screen whole, the purser first. Finished art like the
+- `internal/modules/pp/figures`: full-art figures, twice a portrait (64x96), so a face gets
+  about the pixels a portrait gives it, for the characters who stand on a screen whole,
+  the purser first. Finished art like the
   portraits: replace a file whole.
 - `internal/modules/pp/portraits`: `/pp`'s class portraits, embedded and shown on the status screen, one per bird, 32x48, indexed at 16 colours on black in
   the style of Tactics Ogre. They are finished art, not generated: the head is

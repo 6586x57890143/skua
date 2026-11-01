@@ -31,12 +31,12 @@ func TestEveryClassHasItsPortrait(t *testing.T) {
 
 // The purser, the slack tide's magpie, is finished art at both sizes: his
 // portrait at a class portrait's 32 by 48 in at most 16 colours, and his
-// figure, three times that, in at most 24.
+// figure, twice that, in at most 24.
 func TestPurserArt(t *testing.T) {
 	for _, a := range []struct {
 		file          string
 		w, h, colours int
-	}{{"portraits/purser.png", 32, 48, 16}, {"figures/purser.png", 96, 144, 24}} {
+	}{{"portraits/purser.png", 32, 48, 16}, {"figures/purser.png", 64, 96, 24}} {
 		f, err := os.Open(a.file)
 		if err != nil {
 			t.Fatal(err)

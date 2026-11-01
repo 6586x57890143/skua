@@ -240,7 +240,7 @@ Not done yet:
   #187 is on `main`. Its sprite is in `sprites/marker*.png`.
 - **The purser** is drawn but not yet on any screen: `portraits/purser.png` (32x48, 15
   colours: an Australian magpie rotoscoped from the owner's photo, dressed by the owner's
-  tool after the Tactics Ogre archer) and `figures/purser.png` (96x144, 19 colours, a
-  full-art figure with the slate and the ledger). Next he stands at the rail and the
+  tool after the Tactics Ogre archer) and `figures/purser.png` (64x96, 19 colours, a
+  full-art figure with the slate and the ledger, its cheek and crown lit like the portrait's). Next he stands at the rail and the
   table's end.
 - **The economy report's house figures**, after a week of real data.
