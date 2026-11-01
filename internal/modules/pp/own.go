@@ -510,7 +510,7 @@ func (st *state) ownMessage(mem *member, d *draft, o ownState) (discord.MessageC
 		if mem.purse < o.week || o.left+o.days > o.ahead {
 			b = b.AsDisabled()
 		}
-		row = row.AddComponents(b)
+		row = row.AddComponents(b, renewButton(mem.renew, o.days))
 	}
 	return discord.MessageCreate{
 		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",

@@ -68,6 +68,8 @@ type member struct {
 	// ticket is the confirm their last buying press asked with, 0 for
 	// none: in memory, voided by any other press and by the day turning.
 	ticket int64
+	// renew is whether the yard renews their livery on its own.
+	renew bool
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, a fingerprint of their last message, when they last showed a
