@@ -505,7 +505,7 @@ func figures(c *pixel.Canvas, h House) {
 	}
 	yy := y + 4*17 + 2
 	label(c, st.Min.X+12, yy, "staked today")
-	right(c, st.Max.X-12, yy, grouped(h.Staked/unit)+" of "+grouped(h.Cap/unit), pixel.Ink)
+	right(c, st.Max.X-12, yy, grouped(h.Staked/unit)+" pp", pixel.Ink)
 }
 
 // figure is a portrait cut out of its black field, so the bird sits in the

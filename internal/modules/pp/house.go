@@ -140,7 +140,7 @@ var (
 	errTableShut  = core.Tell("that table's thrown; open another from /pp")
 	errSeated     = core.Tell("you're sat at a table already; wait for the bones")
 	errTideOut    = core.Tell("the tide's out: the purser won't take that stake until the hold fills")
-	errStakeCap   = core.Tell("that's past what the purser takes from one bird in a day; come back after the turn")
+	errStakeCap   = core.Tell("the purser won't take more from you today; come back after the turn. birds higher on the stair stake more")
 	errStakeShort = core.Tell("your purse is short of that stake")
 	errWorstCase  = core.Tell("the purser's covering enough at this table; try a smaller stake or the next one")
 	errHouseNew   = core.Tell("the purser doesn't know you yet: earn about the city first, with an account at least a week old")
@@ -151,8 +151,12 @@ var (
 func houseLine() int64            { return Rules.HouseLine * unit }
 func (s *server) maxStake() int64 { return s.hold * Rules.HouseStake / 10000 }
 
-// stakeCap is the most one bird stakes in a day, all tables and bells.
-func (st *state) stakeCap() int64 { return Rules.HouseDay * st.pot() }
+// stakeCap is the most a bird on rung stakes in a day, all tables and
+// bells: HouseDay pot days, doubled a rung. Its expected loss is the edge
+// of that, a fraction of a pot day at the foot.
+func (st *state) stakeCap(rung int64) int64 {
+	return Rules.HouseDay * st.pot() << min(rung, 10)
+}
 
 // note seeds the hold the first time it's needed, once. s.mu held.
 func (s *server) note(today int64) {
@@ -198,7 +202,7 @@ func (st *state) sitDown(s *server, t *table, guild, user snowflake.ID, name str
 		return errHouseNew
 	case stake > s.maxStake():
 		return errTideOut
-	case m.staked+stake > st.stakeCap():
+	case m.staked+stake > st.stakeCap(m.rung):
 		return errStakeCap
 	case m.purse < stake:
 		return errStakeShort

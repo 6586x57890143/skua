@@ -149,7 +149,7 @@ func runHouse(seed uint64, years int) houseRun {
 					stake /= 2
 				}
 				if err := st.sitDown(s, tb, guild, b.id, b.g.name, stake, now); err != nil {
-					if b.g.cap && m.staked < st.stakeCap() && err != errStakeCap && err != errStakeShort {
+					if b.g.cap && m.staked < st.stakeCap(m.rung) && err != errStakeCap && err != errStakeShort {
 						still = append(still, b) // full table or worst case: the next one
 					}
 					continue

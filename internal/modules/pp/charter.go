@@ -65,7 +65,10 @@ type Charter struct {
 
 	// The slack tide: the note that seeds the hold and the waterline, in
 	// pp; the most one stake is, in basis points of the hold; and the most
-	// one bird stakes in a day, in pot days.
+	// one bird stakes in a day, in pot days, at the foot of the stair. It
+	// doubles with each rung, as the rungs' prices do, so it sits well past
+	// what a bird spends there and only stops someone staking a whole purse
+	// in a sitting.
 	HouseNote, HouseLine int64
 	HouseStake           int64
 	HouseDay             int64
@@ -91,7 +94,7 @@ var Rules = Charter{
 	HouseNote:     5000,
 	HouseLine:     50000,
 	HouseStake:    100,
-	HouseDay:      2,
+	HouseDay:      4,
 }
 
 // PotDay is the unit prices are set in, in hundredths of a pp.

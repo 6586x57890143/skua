@@ -56,7 +56,7 @@ func (m *Module) setHouse(ctx context.Context, guild snowflake.ID, e *events.Com
 type House struct {
 	Hold, Line      int64
 	MaxStake        int64
-	Staked, Cap     int64
+	Staked          int64
 	Bell            bool
 	Open            bool // a table's open now
 	Shut            bool // no house channel
@@ -72,7 +72,7 @@ func (m *Module) tideMessage(guild, user snowflake.ID) (discord.MessageCreate, e
 	s := m.st.server(guild)
 	s.mu.Lock()
 	mem := m.st.member(s, guild, user, DayOf(now))
-	h := House{Hold: s.hold, Line: houseLine(), MaxStake: s.maxStake(), Staked: mem.staked, Cap: m.st.stakeCap(),
+	h := House{Hold: s.hold, Line: houseLine(), MaxStake: s.maxStake(), Staked: mem.staked,
 		Bell: bell, Open: s.table != nil && !s.table.settled, Shut: s.houseCh == 0}
 	if !s.noted {
 		h.Hold, h.MaxStake = Rules.HouseNote*unit, Rules.HouseNote*unit*Rules.HouseStake/10000

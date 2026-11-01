@@ -18,7 +18,7 @@ var Changelog = []Entry{{
 		"the slack tide opens in the sump: the wet guild's house in the hull of the gannet, where you throw the bones against the purser's hold",
 		"a table seats six and every bird throws against the house, never each other. the stakes are a wick, a candle, a lamp and a lantern, 5 to 500 pp",
 		"half the numbers lose. the upper half pays your stake back and half again, the nineties two and a half times and a hundred ten times",
-		"the purser takes no more than a hundredth of the hold on one throw, and only so much from one bird a day. lamps and lanterns wait for the tide to come in",
+		"the purser takes no more than a hundredth of the hold on one throw, and only so much from one bird a day, more for birds higher on the stair. lamps and lanterns wait for the tide to come in",
 		"once a day, and some days twice, the drowned bell rings for an hour and a hundred pays fifteen times. the house channel says when the water draws back",
 		"what the house holds past its waterline is pumped over the side at the turn of the day, gone for good",
 	},

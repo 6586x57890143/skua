@@ -139,9 +139,12 @@ func TestSitRefusals(t *testing.T) {
 	if err := st.sitDown(s, tb, guild, old(2), "b", stakes[0].pp, t0); !errors.Is(err, errStakeShort) {
 		t.Errorf("a short purse sat: %v", err)
 	}
-	s.members[old(3)].staked = st.stakeCap()
+	s.members[old(3)].staked = st.stakeCap(0)
 	if err := st.sitDown(s, tb, guild, old(3), "c", stakes[0].pp, t0); !errors.Is(err, errStakeCap) {
 		t.Errorf("a bird past the day's cap sat: %v", err)
+	}
+	if st.stakeCap(2) != 4*st.stakeCap(0) || st.stakeCap(40) != st.stakeCap(10) {
+		t.Errorf("the cap doesn't double a rung up to ten: %d %d %d", st.stakeCap(0), st.stakeCap(2), st.stakeCap(40))
 	}
 	// Six candles at ten times is 1,500 pp against a 5,150 hold: fine.
 	// In the bell, fifteen times: the table stops before half the hold.

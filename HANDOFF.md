@@ -170,7 +170,7 @@ What's in:
   `note`, user 1). It never touches the treasury or the contest fund. At each turn
   everything over the 50,000 pp line is pumped (`pump`, burned). A stake is at most 1%
   of the hold, so the lamp opens at a 10k hold and the lantern at 50k. A bird stakes at
-  most 2 pot days a day, and a table never covers more than half the hold at its worst
+  most 4 pot days a day, doubled each rung (`stakeCap`), and a table never covers more than half the hold at its worst
   case.
 - **Money moves once.** Sitting debits the purse into the hold and sets `pp_member.seat`
   in the same flush. A table that never threw (skua stopped) is refunded at boot

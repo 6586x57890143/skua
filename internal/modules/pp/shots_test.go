@@ -43,9 +43,9 @@ func TestShots(t *testing.T) {
 	write("table_thrown", f)
 	f, _ = tableFrames(Table{Seats: seats, Bell: true})
 	write("table_bell", f)
-	f, _ = holdFrames(House{Hold: 31000 * unit, Line: houseLine(), MaxStake: 310 * unit, Staked: 125 * unit, Cap: 1264 * unit})
+	f, _ = holdFrames(House{Hold: 31000 * unit, Line: houseLine(), MaxStake: 310 * unit, Staked: 125 * unit})
 	write("hold", f)
-	f, _ = holdFrames(House{Hold: houseLine(), Line: houseLine(), MaxStake: 500 * unit, Bell: true, Cap: 1264 * unit})
+	f, _ = holdFrames(House{Hold: houseLine(), Line: houseLine(), MaxStake: 500 * unit, Bell: true})
 	write("hold_full", f)
 	write("sheet_house", []*pixel.Canvas{houseSheetCanvas(HouseSheet{Period: "season 1", Hold: 6230 * unit, Line: houseLine(), Note: Rules.HouseNote * unit,
 		Staked: 24100 * unit, Won: 22870 * unit, Pumped: 0, Edge: 510, Week: -120, Throws: 1204, Throwers: 61, Bells: 9, Best: 5000 * unit})})
