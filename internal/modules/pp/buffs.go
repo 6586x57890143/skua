@@ -15,10 +15,10 @@ import (
 // member comes by it, and whether they have it now. A buff that runs out
 // says how long it has left; none do yet, and one that does sets Left.
 
-// buffList is every buff as mem stands in s, crest, banner, plume,
-// surety and the hearth; ever is how many guests ever counted for them.
-// s.mu held.
-func (st *state) buffList(s *server, mem *member, vanity string, ever int64) []BuffInfo {
+// buffList is every buff as mem stands in s on today: crest, banner,
+// plume, surety, the hearth and, while they're new, the warm side; ever is
+// how many guests ever counted for them. s.mu held.
+func (st *state) buffList(s *server, mem *member, vanity string, ever, today int64) []BuffInfo {
 	b := st.bal()
 	status := "put this server's invite in your custom status"
 	if vanity != "" {
@@ -38,13 +38,18 @@ func (st *state) buffList(s *server, mem *member, vanity string, ever int64) []B
 		surety.Effect, surety.On = fmt.Sprintf("+%d%%", min(n*b.Surety, b.SuretyMax)), true
 		surety.How = fmt.Sprintf("%d of your guests count, up to %d", n, b.SuretyMax/max(b.Surety, 1))
 	}
-	return []BuffInfo{
+	buffs := []BuffInfo{
 		{Icon: "crest", Name: "crest", Effect: fmt.Sprintf("+%d%%", b.Crest), How: "wear this server's tag as yours", On: mem.wear.Crest},
 		{Icon: "banner", Name: "banner", Effect: fmt.Sprintf("+%d%%", b.Banner), How: status, On: mem.wear.Banner},
 		{Icon: "plume", Name: "plume", Effect: fmt.Sprintf("+%d%%", b.Plume), How: "boost the server; it lasts while you boost", On: mem.wear.Plume},
 		surety,
 		hearth,
 	}
+	if b.Warm(mem.first, today) {
+		buffs = append(buffs, BuffInfo{Icon: "pot", Name: "warm side", Effect: fmt.Sprintf("+%d%%", b.WarmSide),
+			How: fmt.Sprintf("new here: day %d of %d", today-mem.first+1, b.WarmDays), On: true})
+	}
+	return buffs
 }
 
 // hearthHow is the hearth's line on the buffs screen: how close the
@@ -80,7 +85,7 @@ func (m *Module) buffsMessage(guild snowflake.ID, who *discord.ResolvedMember) (
 	s := m.st.server(guild)
 	s.mu.Lock()
 	_, ever := m.st.vouched(s, who.User.ID, today)
-	buffs := m.st.buffList(s, m.st.member(s, guild, who.User.ID, today), vanity, ever)
+	buffs := m.st.buffList(s, m.st.member(s, guild, who.User.ID, today), vanity, ever, today)
 	s.mu.Unlock()
 
 	pic, err := BuffScreen(pixelName(who), buffs)

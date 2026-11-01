@@ -42,7 +42,8 @@ func TestVoiceNeedsCompany(t *testing.T) {
 	if n := st.minute(s, guild, afkCh, t0.Add(3*time.Minute)); n != 2 {
 		t.Fatalf("two people earned as %d", n)
 	}
-	want := Default.VoiceBase * Default.Unmuted / 100
+	// a is new, so on the warm side.
+	want := Default.VoiceBase * Default.Unmuted / 100 * (100 + Default.WarmSide) / 100
 	if got := s.members[a].total; got != want {
 		t.Errorf("a minute with an open mic paid %d; want %d", got, want)
 	}
@@ -210,5 +211,28 @@ func TestWearing(t *testing.T) {
 	if !bannerOf(status("come hang .GG/Melted"), "melted") || bannerOf(status(".gg/melted"), "") ||
 		bannerOf(status("discord.gg/other"), "melted") || bannerOf(nil, "melted") {
 		t.Error("the banner isn't the server's invite in a custom status")
+	}
+}
+
+// A member earns on the warm side until WarmDays after they first earned,
+// and the buffs card says which day they're on.
+func TestWarmSideEarns(t *testing.T) {
+	st, s := testState()
+	a := old(1)
+	st.chat(s, guild, a, "hello there", t0)
+	mem := s.members[a]
+	if !mem.wear.Warm || mem.buffHi != Default.WarmSide {
+		t.Fatalf("a newcomer earned under %d, warm %v", mem.buffHi, mem.wear.Warm)
+	}
+	if b := st.buffList(s, mem, "", 0, DayOf(t0)); b[len(b)-1].Name != "warm side" || b[len(b)-1].How != "new here: day 1 of 14" {
+		t.Errorf("the buffs card: %+v", b[len(b)-1])
+	}
+	later := t0.Add(time.Duration(Default.WarmDays) * 24 * time.Hour)
+	st.chat(s, guild, a, "two weeks on", later)
+	if mem.wear.Warm || mem.buffHi != 0 {
+		t.Errorf("still warm after %d days: buff %d", Default.WarmDays, mem.buffHi)
+	}
+	if b := st.buffList(s, mem, "", 0, DayOf(later)); b[len(b)-1].Name == "warm side" {
+		t.Error("the card still shows the warm side")
 	}
 }
