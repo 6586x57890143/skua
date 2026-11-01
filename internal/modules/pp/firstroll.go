@@ -36,95 +36,111 @@ func (s *server) rollFirst() {
 	s.dirty = true
 }
 
-// The ribbon's inks: the sea-green cloth the counting house pins, a bone
-// stripe down each tail, and its rim the metal of the place.
-const (
-	rollCloth  = 0x2F5D58
-	rollShade  = 0x1F3F3C
-	rollStripe = 0xD9D2C4
-	rollCentre = 0x1E2328
+// The ribbon is a painting, sprites/roll.png: a pewter rosette with an
+// empty dark middle over two sea-green tails, each with a bone stripe. It's
+// drawn the way a sprite of the time was, every material on a hard ramp of
+// a few inks under a dark outline: the rosette dyed the place's metal by
+// how light each of its pixels is, the cloth and the stripe kept to their
+// own ramps, the middle flat, and the place stamped on it.
+
+// The ramps, darkest first.
+var (
+	rollCloth  = []uint32{0x1C3A36, 0x2F5D58, 0x4A7F78}
+	rollStripe = []uint32{0xB5AC9A, 0xE3DCCB}
+	rollMetals = [][]uint32{
+		{0x5C3D12, 0x9A6B1F, 0xC8962E, 0xF0CF6A}, // gold
+		{0x4A4E57, 0x7C818B, 0xAEB3BC, 0xE2E5EA}, // silver
+		{0x4A2814, 0x7A4520, 0xA9672F, 0xD89A60}, // bronze
+		{0x6B6458, 0x9C9483, 0xC9C0AE, 0xEDE7DB}, // bone, for the rest
+	}
 )
 
-// rollRim is the rosette's rim for place: gold, silver and bronze for the
+const (
+	rollCentre  = 0x1E2328
+	rollOutline = 0x16110D
+	// rollTails is the painting's first row of tails, under the rosette.
+	rollTails = 23
+)
+
+// rollMiddle is the middle of the rosette's dark disc in the painting, and
+// rollDisc its radius.
+var (
+	rollMiddle = image.Pt(12, 11)
+	rollDisc   = 6.3
+)
+
+// rollMetal is the rim's ramp for place: gold, silver and bronze for the
 // first three, bone for the rest.
-func rollRim(place int) (rim, light uint32) {
-	switch place {
-	case 1:
-		return 0xC8962E, 0xF0CF6A
-	case 2:
-		return 0x9EA3AC, 0xDCE0E6
-	case 3:
-		return 0x9A5A2E, 0xD08A52
+func rollMetal(place int) []uint32 { return rollMetals[min(max(place, 1), 4)-1] }
+
+// rollAt is where the ribbon's painting is pinned: its top left, in the
+// gutter right of the portrait, clear of the frame's corner.
+var rollAt = image.Pt(113, 32)
+
+// step is which of n inks a pixel of lightness l (0-255) takes, the edges
+// between them at cut.
+func step(l int, cut ...int) int {
+	for i, c := range cut {
+		if l < c {
+			return i
+		}
 	}
-	return 0xB9B0A0, 0xE8E2D6
+	return len(cut)
 }
 
-// rollAt is where the ribbon is pinned: in the gutter right of the
-// portrait, its rosette's middle.
-var rollAt = image.Pt(125, 46)
-
-// drawRoll pins the first roll's ribbon for place on c, its rosette's
-// middle at p: two swallowtail tails, the scalloped rosette in the
-// place's metal, and the place on its dark middle.
+// drawRoll pins the first roll's ribbon for place on c, its top left at p.
 func drawRoll(c *pixel.Canvas, place int, p image.Point) {
-	cloth, shade, stripe := c.Dye(rollCloth), c.Dye(rollShade), c.Dye(rollStripe)
-	rimRGB, lightRGB := rollRim(place)
-	rim, light, centre := c.Dye(rimRGB), c.Dye(lightRGB), c.Dye(rollCentre)
-
-	// The tails, hanging apart from under the rosette, a stripe down each
-	// and a swallowtail cut at the foot.
-	const tailW, tailH = 7, 28
-	for side, x0 := range []int{p.X - tailW, p.X} {
-		for y := 0; y < tailH; y++ {
-			slant := y / 10 // they part a little as they fall
-			if side == 0 {
-				slant = -slant
+	art := sprite("roll")
+	b := art.Bounds()
+	metal := rollMetal(place)
+	// Each opaque pixel's ink, by material and step, then a pass that
+	// gives a pixel alone among four of one ink that ink.
+	inks := map[image.Point]uint32{}
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			col := art.At(x, y)
+			if !opaque(col) {
+				continue
 			}
-			for x := 0; x < tailW; x++ {
-				// The swallowtail: a notch cut up the middle of the foot,
-				// widening to the hem.
-				if k := y - (tailH - 4); k >= 0 && abs(2*x-(tailW-1)) <= k {
-					continue
-				}
-				ink := cloth
-				switch {
-				case x == tailW/2:
-					ink = stripe
-				case side == 0 && x == 0, side == 1 && x == tailW-1:
-					ink = shade // the fold on the outer edge
-				}
-				c.SetColorIndex(x0+x+slant, p.Y+6+y, ink)
+			rgb := hexOf(col)
+			r, g := int(rgb>>16&0xFF), int(rgb>>8&0xFF)
+			l := lum(col)
+			q := image.Pt(x-b.Min.X, y-b.Min.Y)
+			switch {
+			case q.Y < rollTails && math.Hypot(float64(q.X-rollMiddle.X), float64(q.Y-rollMiddle.Y)) <= rollDisc:
+				inks[q] = rollCentre
+			case q.Y < rollTails && g <= r+15:
+				inks[q] = metal[step(l, 85, 125, 170)]
+			case g > r+15:
+				inks[q] = rollCloth[step(l, 70, 105)]
+			default:
+				inks[q] = rollStripe[step(l, 175)]
 			}
 		}
 	}
-
-	// The rosette: a scalloped rim of twelve petals round a ring of cloth
-	// and the dark middle the place is stamped on.
-	const outer, ring, middle = 11.6, 8.6, 7.4
-	for dy := -13; dy <= 13; dy++ {
-		for dx := -13; dx <= 13; dx++ {
-			d := math.Hypot(float64(dx), float64(dy))
-			a := math.Atan2(float64(dy), float64(dx))
-			petal := outer - 1.2*(1-math.Cos(12*a))/2
-			var ink uint8
-			switch {
-			case d > petal+1:
-				continue
-			case d > petal:
-				ink = shade // a dark edge, so a bone rim stands off the parchment
-			case d > ring:
-				ink = rim
-				if dy < 0 && dx < 0 {
-					ink = light // the light on the rim, from the top left
-				}
-			case d > middle:
-				ink = cloth
-			default:
-				ink = centre
+	for q, ink := range inks {
+		var around []uint32
+		for _, d := range []image.Point{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+			if n, ok := inks[q.Add(d)]; ok {
+				around = append(around, n)
 			}
-			c.SetColorIndex(p.X+dx, p.Y+dy, ink)
 		}
+		if len(around) == 4 && around[0] != ink && around[0] == around[1] && around[1] == around[2] && around[2] == around[3] {
+			inks[q] = around[0]
+		}
+	}
+	outline := c.Dye(rollOutline)
+	for q := range inks {
+		for _, d := range []image.Point{{1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+			if _, ok := inks[q.Add(d)]; !ok {
+				c.SetColorIndex(p.X+q.X+d.X, p.Y+q.Y+d.Y, outline)
+			}
+		}
+	}
+	for q, ink := range inks {
+		c.SetColorIndex(p.X+q.X, p.Y+q.Y, c.Dye(ink))
 	}
 	n := strconv.Itoa(place)
-	c.Shaded(p.X-pixel.Regular.Width(n)/2, p.Y-pixel.LineHeight/2, n, light, centre)
+	mid := p.Add(rollMiddle)
+	c.Shaded(mid.X-pixel.Regular.Width(n)/2+1, mid.Y-pixel.LineHeight/2+1, n, c.Dye(metal[3]), c.Dye(rollCentre))
 }
