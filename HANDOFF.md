@@ -9,6 +9,7 @@ Written 2026-10-02. Read this with `CLAUDE.md` and `SPEC.md`.
 | `main` | Milestone 0, pushed to `github.com/6586x57890143/skua`. |
 | `ci/deploy-foundry` | The CI/CD pipeline and repo hygiene. PR #1. |
 | `feat/fix-embeds` | social Components V2 cards, Reddit audio/video recovery, upstream tracking and /perf timing tables with p99 budgets; reviewed by gpt-6 astra |
+| `feat/pp-open-warm` | Launch M1 (draft until 11-02, merge after M0 #186): a one-shot "open /pp to everyone" switch on /help, the warm side (+10% labour for a member's first 14 days, first day read from the ledger), and a second, good talk quest on a first deal. Balance 0.14.0. |
 | `feat/notify` | Milestone 8, `/notify`: creator alerts for youtube, x, tiktok, twitch and kick. Not yet run against Discord. |
 
 ## What M0 did
@@ -156,11 +157,18 @@ Not done yet:
 
 ## /pp: season 1 launch (2026-11-02)
 
+The launch PRs stay drafts until 11-02, then merge in order: M0, M1, M3, M4.
+
+- **M0, launch balance (#186).** The hearth's usual day is the median of the notch stick,
+  not the mean, and it lights at 80/100/120%. On the week before launch the old rule
+  lit 0 of 7 days and the new one lights 4 (`TestHearthBacktest`). The drum and
+  envelope quests ask 12 and 18. Balance 0.13.0.
+
 - **M2, the slack tide lore (docs only).** LORE.md gains the sump as a walkable quarter and the slack tide, its gambling house (the
   *gannet*, the purser, the bones, the slate, the beam, the hold and its waterline, the
   pumps, the drowning hour, the marker, calling out at the rail) and the five winds in
   "How the game maps onto the world". The owner reads it before M3-G1 builds it. The lore
   pays 1.5x, 2.5x and 10x over 1-50 losing, the 7.5% house edge the owner chose. The
   drowning hour rings once or twice a day, leaning to NA and EU evenings, and pays 15x on a
-  hundred, so every hour keeps a house edge. The hold is seeded once by a minted 5k starter
-  fund, and every win after that comes out of stakes won. Luck feats go on the deckhead as standing, never pp.
+  hundred, so every hour keeps a house edge. The hold is seeded once by a minted 12,500 pp
+  note, and every win after that comes out of stakes won. Luck feats go on the deckhead as standing, never pp.

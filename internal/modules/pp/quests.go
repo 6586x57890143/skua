@@ -154,7 +154,9 @@ func (b *Balance) old(user snowflake.ID, now time.Time) bool {
 }
 
 // deal gives m a quest for each day since the last, up to QuestHold in
-// the slots. s.mu held.
+// the slots. A newcomer's first deal brings one more, a good quest to talk
+// (LORE.md, the warm side): one they can finish on their first day.
+// s.mu held.
 func (st *state) deal(s *server, m *member, guild, user snowflake.ID, today int64) {
 	if m.questDay >= today || !st.bal().old(user, dayStart(today)) {
 		return
@@ -168,7 +170,21 @@ func (st *state) deal(s *server, m *member, guild, user snowflake.ID, today int6
 		m.quests = append(m.quests, q)
 		s.count(today, statDealt, q.tier, q.kind)
 	}
+	if k := talkKind(st.bal()); m.questDay == 0 && k >= 0 && held(m.quests) < st.bal().QuestHold {
+		m.quests = append(m.quests, heldQuest{kind: k})
+		s.count(today, statDealt, 0, k)
+	}
 	m.questDay, m.dirty = today, true
+}
+
+// talkKind is the good quest that asks only for talk, -1 for none.
+func talkKind(b *Balance) int {
+	for k, q := range b.QuestKinds[0] {
+		if len(q.Tasks) == 1 && q.Tasks[0].Metric == taskTalk {
+			return k
+		}
+	}
+	return -1
 }
 
 // progress counts one of metric toward m's quests and pays any it
