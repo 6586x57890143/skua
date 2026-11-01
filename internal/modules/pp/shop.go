@@ -162,7 +162,7 @@ func (st *state) shopMessage(s *server, m *member, yard, ladder, front bool, lig
 	purse := m.purse
 	return func() (discord.MessageCreate, error) {
 		draw := func() ([]byte, error) { return StairScreen(light, purse, price, heldIcon, heldName) }
-		other := discord.NewSecondaryButton("the ladder", "pp:ladder")
+		other := withIcon(discord.NewSecondaryButton("the ladder", "pp:ladder"), "perch")
 		alt := fmt.Sprintf("the pot square under the spire: you sit on %s, the %s costs %s pp and you hold %s pp", or(heldName, "the ground"), next, grouped(price/unit), grouped(purse/unit))
 		if ladder || !front {
 			draw = func() ([]byte, error) { return ShopScreen(rungs, purse, price, heldIcon, heldName) }

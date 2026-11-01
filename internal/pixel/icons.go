@@ -633,7 +633,8 @@ func init() {
 		}
 		screenIcons[name] = g
 	}
-	screenIcons["perch"] = perchGrid
+	// The plain perch is an emoji too, on the shop's way to the ladder.
+	Icons["perch"] = perchGrid
 }
 
 // IconCells is an icon's side.
