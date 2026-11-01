@@ -42,7 +42,7 @@ func TestPurserArt(t *testing.T) {
 			t.Fatal(err)
 		}
 		img, err := png.Decode(f)
-		f.Close()
+		_ = f.Close()
 		if err != nil {
 			t.Fatal(a.file, err)
 		}
