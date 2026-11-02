@@ -501,24 +501,51 @@ func (m *Module) staleTables(ctx context.Context) {
 		case due:
 			m.settleTable(ctx, g, t)
 		case idle:
-			m.clearTable(ctx, g, t)
+			m.clearTable(ctx, g, t, "nobody sat, so the purser cleared the table")
 		}
 	}
 }
 
-// clearTable edits an empty table's message to say the purser cleared
-// it, its buttons gone.
-func (m *Module) clearTable(ctx context.Context, guild snowflake.ID, t *table) {
+// clearTable edits a table's message to say why the purser cleared it,
+// its buttons gone.
+func (m *Module) clearTable(ctx context.Context, guild snowflake.ID, t *table, why string) {
 	if m.rest == nil || t.msg == 0 {
 		return
 	}
 	card := []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "a table at the slack tide",
-		"nobody sat, so the purser cleared the table\n-# open another from /pp")}
+		why+"\n-# open another from /pp")}
 	if err := m.write(guild, guard.MessageSend, func() error {
 		_, err := m.rest.UpdateMessage(t.channel, t.msg, discord.MessageUpdate{Components: &card, Attachments: &[]discord.AttachmentUpdate{}}, rest.WithCtx(ctx))
 		return err
 	}); err != nil {
-		m.log.Warn("pp: clearing an empty table", "guild", guild, "err", err)
+		m.log.Warn("pp: clearing a table", "guild", guild, "err", err)
+	}
+}
+
+// Shut is skua going down. A table still open goes with the process and
+// its bones are never thrown, so every stake at it goes back to its purse
+// now and its message says so, rather than standing open after the
+// restart. (A crash skips this; the next boot refunds the stakes all the
+// same, and only the message is left as it was.) Run it before the last
+// Save.
+func (m *Module) Shut(ctx context.Context) {
+	today := DayOf(m.now())
+	for g, s := range m.st.servers() {
+		s.mu.Lock()
+		t := s.table
+		open := t != nil && !t.settled
+		seated := open && len(t.seats) > 0
+		if open {
+			t.settled, s.table = true, nil
+			s.refundSeats(today)
+		}
+		s.mu.Unlock()
+		switch {
+		case seated:
+			m.clearTable(ctx, g, t, "skua went down before the bones were thrown, so the purser shut the table and every stake went back to its purse")
+		case open:
+			m.clearTable(ctx, g, t, "nobody sat, so the purser cleared the table")
+		}
 	}
 }
 
