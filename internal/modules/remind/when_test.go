@@ -79,7 +79,7 @@ func TestRead(t *testing.T) {
 func TestReadRefuses(t *testing.T) {
 	for _, in := range []string{"", "banana", "5 banana", "every", "in 0m", "25:00", "13pm", "5:75", "fri sat 5pm", "2026-02-30",
 		"every tomorrow", "every 7 nov", "nov dec 5", "7th 8th", "day", "pm", "in 500 weeks", "in 999999h", "5 6 7",
-		"every month fri", "r:0:0:540", "r:x", "r:1:2", "t:x", "every week the 3rd", "monday the 3rd", "nov"} {
+		"every month fri", "31 apr", "feb 30 5pm", "29 feb", "in 30501w", "in 9000h 9000h", "r:0:0:540", "r:x", "r:1:2", "t:x", "every week the 3rd", "monday the 3rd", "nov"} {
 		if got := read(in, now, berlin); len(got) != 0 {
 			t.Errorf("%q read as %v", in, got)
 		}

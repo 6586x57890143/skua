@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -198,14 +199,16 @@ func TestFireSendsToDMsAndLearns(t *testing.T) {
 
 func TestLeadConverges(t *testing.T) {
 	m, _, _, g, _ := fresh(t)
-	for range 60 {
-		m.learn(g, 200*time.Millisecond, 0)
+	// a send that takes 200 ms from the timer to Discord lands 200 ms
+	// minus the lead late; the lead closes the gap
+	for range 80 {
+		m.learn(g, 200*time.Millisecond-m.lead())
 	}
-	if l := m.lead(); l < 195*time.Millisecond || l > 200*time.Millisecond {
+	if l := m.lead(); l < 195*time.Millisecond || l > 205*time.Millisecond {
 		t.Fatalf("lead %v", l)
 	}
 	for range 200 {
-		m.learn(g, 10*time.Second, 0)
+		m.learn(g, 10*time.Second)
 	}
 	if m.lead() != maxLead {
 		t.Fatalf("lead past max: %v", m.lead())
@@ -373,6 +376,15 @@ func TestResumeAndRun(t *testing.T) {
 	if _, err := claim(ctx, m.db, r, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
+	// a claim this fresh belongs to a process still sending it; one this
+	// old was left by a process that died
+	fresh := m.add(t, reminder{guild: g, owner: u, due: now.Add(-time.Minute), target: "channel", text: "still sending"})
+	if _, err := claim(ctx, m.db, fresh, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.db.Exec(ctx, "update remind set sent_at = now() - interval '5 minutes' where id = $1", r.id); err != nil {
+		t.Fatal(err)
+	}
 	old := m.add(t, reminder{guild: g, owner: u, due: now.Add(-8 * 24 * time.Hour)})
 	if _, err := m.db.Exec(ctx, "update remind set state = 'done' where id = $1", old.id); err != nil {
 		t.Fatal(err)
@@ -388,6 +400,9 @@ func TestResumeAndRun(t *testing.T) {
 	}
 	if _, ok, _ := get(ctx, m.db, old.id); ok {
 		t.Fatal("kept a done reminder past a week")
+	}
+	if got := m.row(t, fresh.id); got.state != "sending" {
+		t.Fatalf("took back a fresh claim: %s", got.state)
 	}
 }
 
@@ -755,7 +770,7 @@ func TestAutocomplete(t *testing.T) {
 	if len(got) != 1 || got[0].(discord.AutocompleteChoiceString).Name != "fri 6 nov 17:00 cet · in 4d 7h" || got[0].(discord.AutocompleteChoiceString).Value != "t:"+itoa(at(11, 6, 17, 0).Unix()) {
 		t.Fatalf("when %+v", got)
 	}
-	if got := autocomplete(t, m, u, "when", "", ""); len(got) < 4 || !strings.Contains(got[0].(discord.AutocompleteChoiceString).Name, "utc; set tz") {
+	if got := autocomplete(t, m, u, "when", "", ""); len(got) < 4 || !strings.Contains(got[0].(discord.AutocompleteChoiceString).Name, " · set tz") {
 		t.Fatalf("empty %+v", got)
 	}
 	if got := autocomplete(t, m, u, "when", "banana", ""); len(got) != 1 || !strings.Contains(got[0].(discord.AutocompleteChoiceString).Name, "can't read that") {
@@ -810,7 +825,7 @@ func TestModuleFacts(t *testing.T) {
 	if r := m.Report(g); r.Rows[1][1] != "not measured yet" {
 		t.Fatalf("report %+v", r)
 	}
-	m.learn(g, 30*time.Millisecond, 12*time.Millisecond)
+	m.learn(g, 12*time.Millisecond)
 	if r := m.Report(g); r.Rows[1][1] != "p50 12 ms · p99 12 ms" {
 		t.Fatalf("report %+v", r)
 	}
@@ -844,5 +859,58 @@ func TestNotConnected(t *testing.T) {
 	}
 	if _, err := m.warm(u); err == nil {
 		t.Fatal("opened a dm without a connection")
+	}
+}
+
+func TestRefusedSendIsNotRetried(t *testing.T) {
+	m, _, p, g, u := fresh(t)
+	p.err = &rest.Error{Code: rest.JSONErrorCodeUnknownChannel, Response: &http.Response{StatusCode: 404}}
+	r := m.add(t, reminder{guild: g, owner: u, due: now, target: "channel"})
+	m.fire(context.Background(), r)
+	if got := m.row(t, r.id); got.state != "done" {
+		t.Fatalf("a 404 left it %s", got.state)
+	}
+	if refused(&rest.Error{Response: &http.Response{StatusCode: 429}}) || refused(&rest.Error{Response: &http.Response{StatusCode: 502}}) || refused(errors.New("x")) || refused(&rest.Error{}) {
+		t.Fatal("refused too much")
+	}
+}
+
+func TestNewZoneMovesRepeats(t *testing.T) {
+	m, _, _, g, u := fresh(t)
+	ctx := context.Background()
+	rep := m.add(t, reminder{guild: g, owner: u, due: time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC), r: rule{mask: weekdays, at: 540}, tz: "UTC"})
+	one := m.add(t, reminder{guild: g, owner: u, due: now.Add(time.Hour), tz: "UTC"})
+	if err := m.keepZone(ctx, u, "Europe/Berlin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.row(t, rep.id); got.tz != "Europe/Berlin" || !got.due.Equal(at(11, 3, 9, 0)) {
+		t.Fatalf("repeat %s %v", got.tz, got.due)
+	}
+	if got := m.row(t, one.id); got.tz != "UTC" || !got.due.Equal(now.Add(time.Hour)) {
+		t.Fatalf("one-off moved: %s %v", got.tz, got.due)
+	}
+}
+
+func TestEditKeepsSeconds(t *testing.T) {
+	m, _, _, g, u := fresh(t)
+	due := now.Add(17*time.Second + 20*time.Minute)
+	r := m.add(t, reminder{guild: g, owner: u, due: due})
+	e, _ := coretest.Modal(t, form(r).CustomID, map[string]string{"what": "fixed typo", "when": typed(r)}, func(p map[string]any) {
+		p["member"].(map[string]any)["user"].(map[string]any)["id"] = u.String()
+	})
+	e.Respond = func(discord.InteractionResponseType, discord.InteractionResponseData, ...rest.RequestOpt) error {
+		return nil
+	}
+	if err := m.submit(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.row(t, r.id); !got.due.Equal(due) || got.text != "fixed typo" {
+		t.Fatalf("edit moved it to %v", got.due)
+	}
+	e, _ = coretest.Modal(t, form(r).CustomID, map[string]string{"what": " ", "when": typed(r)}, func(p map[string]any) {
+		p["member"].(map[string]any)["user"].(map[string]any)["id"] = u.String()
+	})
+	if err := m.submit(context.Background(), e); err == nil {
+		t.Fatal("emptied the text")
 	}
 }

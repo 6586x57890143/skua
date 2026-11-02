@@ -84,7 +84,7 @@ func setCard(r reminder, now time.Time, noZone bool, note string) []discord.Layo
 func repeatMenu(r reminder, sid string) discord.StringSelectMenuComponent {
 	l := r.due.In(r.loc())
 	opts := []discord.StringSelectMenuOption{
-		{Label: "never", Value: "never", Description: "just this once"},
+		{Label: "doesn't repeat", Value: "never", Description: "just this once"},
 		{Label: "every day", Value: "day"},
 		{Label: "weekdays", Value: "weekdays", Description: "monday to friday"},
 		{Label: "every " + strings.ToLower(l.Weekday().String()), Value: "week"},
@@ -308,6 +308,17 @@ func (m *Module) submit(ctx context.Context, e *events.ModalSubmitInteractionCre
 		return core.Tell("that reminder has already come; set a new one with /remind")
 	}
 	now := m.now()
+	if e.Data.Text("when") == typed(r) {
+		// Left as filled in: the exact time stands, seconds and all.
+		if r.text = oneLine(e.Data.Text("what")); r.text == "" {
+			return core.Tell("say what to remind you of")
+		}
+		if _, err := reschedule(ctx, m.db, r); err != nil {
+			return err
+		}
+		m.hold(r)
+		return e.UpdateMessage(discord.NewMessageUpdateV2(setCard(r, now, false, "✓ changed")...))
+	}
 	rs := read(e.Data.Text("when"), now, r.loc())
 	if len(rs) == 0 {
 		return core.Tell("skua can't read " + clip(e.Data.Text("when"), 40) + " as a time; try in 20m, fri 5pm or 7 nov 09:00")

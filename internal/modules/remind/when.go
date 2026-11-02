@@ -253,7 +253,12 @@ func spanOf(s string) (time.Duration, bool) {
 				return 0, false
 			}
 		}
-		total += time.Duration(n) * unit
+		if time.Duration(n) > horizonYr/unit {
+			return 0, false
+		}
+		if total += time.Duration(n) * unit; total > horizonYr {
+			return 0, false
+		}
 	}
 	if strings.TrimSpace(s[end:]) != "" {
 		return 0, false
@@ -382,6 +387,9 @@ func parts(words []string, every bool) (parsed, bool) {
 		if p.mday == 0 || p.date != nil || every {
 			return p, false
 		}
+		if p.mday > daysIn(2000, time.Month(monthAt+1)) {
+			return p, false // 31 apr
+		}
 		t := time.Date(0, time.Month(monthAt+1), p.mday, 0, 0, 0, 0, time.UTC)
 		p.date, p.mday = &t, 0
 	}
@@ -469,6 +477,9 @@ func onces(p parsed, now time.Time, loc *time.Location) []reading {
 	for _, at := range times {
 		var t time.Time
 		day := func(y int, m time.Month, d int) time.Time {
+			if d > daysIn(y, m) {
+				return time.Time{} // 31 apr, or 29 feb outside a leap year
+			}
 			return time.Date(y, m, d, at/60, at%60, 0, 0, loc)
 		}
 		switch {
@@ -476,6 +487,9 @@ func onces(p parsed, now time.Time, loc *time.Location) []reading {
 			t = day(l.Year(), p.date.Month(), p.date.Day())
 			if !t.After(now) {
 				t = day(l.Year()+1, p.date.Month(), p.date.Day())
+			}
+			for y := l.Year() + 2; t.IsZero() && y <= l.Year()+4; y++ {
+				t = day(y, p.date.Month(), p.date.Day()) // 29 feb, the next leap year
 			}
 		case p.date != nil:
 			t = day(p.date.Year(), p.date.Month(), p.date.Day())

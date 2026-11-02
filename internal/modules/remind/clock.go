@@ -133,12 +133,12 @@ func (m *Module) load(ctx context.Context) error {
 
 // run keeps the heap filled for the life of the process.
 func (m *Module) run(ctx context.Context) {
-	if err := resume(ctx, m.db, m.now()); err != nil {
-		m.log.Warn("remind: resuming", "err", err)
-	}
 	t := time.NewTicker(refill)
 	defer t.Stop()
 	for {
+		if err := tidyUp(ctx, m.db, m.now()); err != nil {
+			m.log.Warn("remind: tidying", "err", err)
+		}
 		if err := m.load(ctx); err != nil {
 			m.log.Warn("remind: loading what's due", "err", err)
 		}
@@ -176,11 +176,10 @@ func (m *Module) fire(ctx context.Context, r reminder) {
 	if !next.IsZero() {
 		m.hold(reminder{id: r.id, guild: r.guild, owner: r.owner, channel: r.channel, target: r.target, targetID: r.targetID, text: r.text, due: next, r: r.r, tz: r.tz, state: "pending", created: r.created})
 	}
-	start := m.now()
 	at, err := m.send(ctx, r, late)
 	if err == nil {
 		if late < lateBy {
-			m.learn(r.guild, at.Sub(start), at.Sub(r.due))
+			m.learn(r.guild, at.Sub(r.due))
 		}
 		if r.r.once() {
 			err = settle(ctx, m.db, r.id, time.Time{})
@@ -191,6 +190,12 @@ func (m *Module) fire(ctx context.Context, r reminder) {
 		return
 	}
 	m.log.Warn("remind: sending", "id", r.id, "err", err)
+	if r.r.once() && refused(err) {
+		if err := settle(ctx, m.db, r.id, time.Time{}); err != nil {
+			m.log.Warn("remind: dropping a refused send", "id", r.id, "err", err)
+		}
+		return
+	}
 	if !r.r.once() {
 		return // ponytail: a repeat's failed turn is dropped; the next one comes
 	}
@@ -246,6 +251,9 @@ func (m *Module) send(ctx context.Context, r reminder, late time.Duration) (time
 		m.mu.Lock()
 		m.fellBack[r.guild]++
 		m.mu.Unlock()
+		if err := m.guard.Allow(r.guild, guard.MessageSend); err != nil {
+			return time.Time{}, err
+		}
 	}
 	msg, err := p.CreateMessage(to, fired(r, late, true), rest.WithCtx(ctx))
 	m.guard.Done(r.guild, err)
@@ -253,6 +261,18 @@ func (m *Module) send(ctx context.Context, r reminder, late time.Duration) (time
 		return time.Time{}, err
 	}
 	return msg.ID.Time(), nil
+}
+
+// refused is whether err is Discord saying no in a way trying again won't
+// change: a 4xx other than a rate limit, such as a deleted channel or
+// skua's access to it taken away.
+func refused(err error) bool {
+	var re *rest.Error
+	if !errors.As(err, &re) || re.Response == nil {
+		return false
+	}
+	c := re.Response.StatusCode
+	return c >= 400 && c < 500 && c != 429
 }
 
 // closed is whether err is Discord refusing a dm: the member turned them
@@ -301,12 +321,12 @@ func (m *Module) warm(user snowflake.ID) (snowflake.ID, error) {
 // lead is how early to send.
 func (m *Module) lead() time.Duration { return time.Duration(m.leadNS.Load()) }
 
-// learn takes one on-time send: trip is snowflake minus when the send
-// began, which moves lead an eighth of the way to it, and off is how far
-// the message landed from its due time, kept for the server's report.
-func (m *Module) learn(guild snowflake.ID, trip, off time.Duration) {
-	lead := m.lead()
-	m.leadNS.Store(int64(min(max(lead+(trip-lead)/8, 0), maxLead)))
+// learn takes one on-time send that landed off its due time by
+// Discord's clock: lead moves an eighth of it, so whatever stands between
+// the timer and Discord (the claim, the round trip, the clocks' offset)
+// is counted. off is kept for the server's report.
+func (m *Module) learn(guild snowflake.ID, off time.Duration) {
+	m.leadNS.Store(int64(min(max(m.lead()+off/8, 0), maxLead)))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s := m.offs[guild]

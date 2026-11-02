@@ -201,9 +201,32 @@ func (m *Module) keepZone(ctx context.Context, user snowflake.ID, tz string) err
 	if err := saveTZ(ctx, m.db, user, tz); err != nil {
 		return err
 	}
+	if err := m.rezone(ctx, user, tz); err != nil {
+		return err
+	}
 	m.mu.Lock()
 	m.tzs[user] = tz
 	m.mu.Unlock()
+	return nil
+}
+
+// rezone moves user's waiting repeats into tz, so "every weekday at 9"
+// stays 9 where they are now. A one-off keeps the moment it was set for.
+func (m *Module) rezone(ctx context.Context, user snowflake.ID, tz string) error {
+	rs, err := repeatsOf(ctx, m.db, user)
+	if err != nil {
+		return err
+	}
+	for _, r := range rs {
+		if r.tz == tz {
+			continue
+		}
+		r.tz, r.due = tz, r.r.next(m.now(), zone(tz))
+		if _, err := retime(ctx, m.db, r); err != nil {
+			return err
+		}
+		m.hold(r)
+	}
 	return nil
 }
 
@@ -231,7 +254,7 @@ func whenChoices(typed, tz string, now time.Time) []discord.AutocompleteChoice {
 	loc := zone(tz)
 	suffix := ""
 	if tz == "" {
-		suffix = " · utc; set tz"
+		suffix = " · set tz"
 	}
 	var rs []reading
 	if strings.TrimSpace(typed) == "" {

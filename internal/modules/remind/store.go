@@ -92,7 +92,7 @@ func claim(ctx context.Context, db DB, r reminder, next time.Time) (bool, error)
 	var tag pgconn.CommandTag
 	var err error
 	if r.r.once() {
-		tag, err = db.Exec(ctx, "update remind set state = 'sending' where id = $1 and due_at = $2 and state = 'pending'", r.id, r.due)
+		tag, err = db.Exec(ctx, "update remind set state = 'sending', sent_at = now() where id = $1 and due_at = $2 and state = 'pending'", r.id, r.due)
 	} else {
 		tag, err = db.Exec(ctx, "update remind set due_at = $3 where id = $1 and due_at = $2 and state = 'pending'", r.id, r.due, next)
 	}
@@ -110,10 +110,15 @@ func settle(ctx context.Context, db DB, id int64, retry time.Time) error {
 	return err
 }
 
-// resume puts back what a restart cut off mid send, and forgets one-offs
-// that have rested long enough. Sending twice beats never sending.
-func resume(ctx context.Context, db DB, now time.Time) error {
-	if _, err := db.Exec(ctx, "update remind set state = 'pending' where state = 'sending'"); err != nil {
+// stuck is how long a claimed send can take before it is taken to have
+// died with its process: far past any send, so a deploy's other process
+// mid send is never taken for dead.
+const stuck = 2 * time.Minute
+
+// tidyUp puts back sends a dead process left claimed, and forgets
+// one-offs that have rested long enough. Sending twice beats never.
+func tidyUp(ctx context.Context, db DB, now time.Time) error {
+	if _, err := db.Exec(ctx, "update remind set state = 'pending' where state = 'sending' and sent_at < $1", now.Add(-stuck)); err != nil {
 		return err
 	}
 	_, err := db.Exec(ctx, "delete from remind where state = 'done' and due_at < $1", now.Add(-keepDone))
@@ -125,6 +130,30 @@ func resume(ctx context.Context, db DB, now time.Time) error {
 func reschedule(ctx context.Context, db DB, r reminder) (bool, error) {
 	tag, err := db.Exec(ctx, "update remind set text = $3, due_at = $4, mask = $5, mday = $6, at_min = $7, state = 'pending' where id = $1 and owner_id = $2",
 		r.id, int64(r.owner), r.text, r.due, int16(r.r.mask), int16(r.r.mday), int16(r.r.at))
+	return err == nil && tag.RowsAffected() == 1, err
+}
+
+// repeatsOf is user's waiting repeats.
+func repeatsOf(ctx context.Context, db DB, user snowflake.ID) ([]reminder, error) {
+	rows, err := db.Query(ctx, "select "+cols+" from remind where owner_id = $1 and state = 'pending' and (mask <> 0 or mday <> 0)", int64(user))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []reminder
+	for rows.Next() {
+		r, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// retime sets a pending reminder's zone and due time.
+func retime(ctx context.Context, db DB, r reminder) (bool, error) {
+	tag, err := db.Exec(ctx, "update remind set tz = $2, due_at = $3 where id = $1 and state = 'pending'", r.id, r.tz, r.due)
 	return err == nil && tag.RowsAffected() == 1, err
 }
 
