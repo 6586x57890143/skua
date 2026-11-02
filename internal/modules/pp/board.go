@@ -25,6 +25,10 @@ import (
 
 const boardRows, preseasonRows = 10, 8
 
+// boardMost is how far down a board's pages go: its top hundred. A member
+// further down still sees their own line on the first page.
+const boardMost = 100
+
 // standing is one member on a board.
 type standing struct {
 	user  snowflake.ID
@@ -63,7 +67,7 @@ func boardTop(board []standing, user snowflake.ID, n int) []standing {
 // boardPage is page p of a board n rows a page, the first as boardTop has
 // it; p past the last is the last.
 func boardPage(board []standing, user snowflake.ID, n, p int) (rows []standing, page, pages int) {
-	pages = max((len(board)+n-1)/n, 1)
+	pages = max((min(len(board), boardMost)+n-1)/n, 1)
 	page = min(max(p, 0), pages-1)
 	if page == 0 {
 		return boardTop(board, user, n), 0, pages
@@ -85,11 +89,25 @@ func boardID(levels bool, p int) string {
 // clamps it.
 func parseBoard(id string) (levels, plain bool, page int) {
 	f := strings.Split(id, ":")
-	if len(f) != 4 {
-		return false, true, 0
+	switch len(f) {
+	case 3:
+		return f[2] == "levels", false, 0
+	case 4:
+		page, _ = strconv.Atoi(f[3])
+		return f[2] == "levels", false, page
 	}
-	page, _ = strconv.Atoi(f[3])
-	return f[2] == "levels", false, page
+	return false, true, 0
+}
+
+// boardTab is the press that opens the levels board, or the season's, at
+// its first page. It's an ID of its own, never boardID(_, 0): Discord
+// refuses a message with two buttons of one ID, and the first page's turn
+// back would be one.
+func boardTab(levels bool) string {
+	if levels {
+		return "pp:board:levels"
+	}
+	return "pp:board:season"
 }
 
 // boardMessage is one page of the boards for user in guild, as a screen,
@@ -152,21 +170,19 @@ func (m *Module) boardMessage(guild, user snowflake.ID, id string) (discord.Mess
 		alt += fmt.Sprintf(", page %d of %d", at+1, pages)
 	}
 
-	var turns []discord.InteractiveComponent
+	// The boards on one row and the pages on another, never more than
+	// three to a row, so a phone lays them out the same every time.
+	extra := []discord.ContainerSubComponent{discord.NewMediaGallery(screenItem(pic, alt))}
 	if season > 0 {
-		turns = append(turns,
-			withIcon(discord.NewSecondaryButton(fmt.Sprintf("season %d", season), boardID(false, 0)), "laurel").WithDisabled(!levels),
-			discord.NewSecondaryButton("levels", boardID(true, 0)).WithDisabled(levels))
+		extra = append(extra, discord.NewActionRow(
+			withIcon(discord.NewSecondaryButton(fmt.Sprintf("season %d", season), boardTab(false)), "laurel").WithDisabled(!levels),
+			discord.NewSecondaryButton("levels", boardTab(true)).WithDisabled(levels)))
 	}
 	if pages > 1 {
-		turns = append(turns,
-			discord.NewSecondaryButton("◂", boardID(levels, at-1)).WithDisabled(at == 0),
+		extra = append(extra, discord.NewActionRow(
+			discord.NewSecondaryButton("◂", boardID(levels, max(at-1, 0))).WithDisabled(at == 0),
 			discord.NewSecondaryButton(fmt.Sprintf("%d / %d", at+1, pages), "pp:board:page").AsDisabled(),
-			discord.NewSecondaryButton("▸", boardID(levels, at+1)).WithDisabled(at == pages-1))
-	}
-	extra := []discord.ContainerSubComponent{discord.NewMediaGallery(screenItem(pic, alt))}
-	if len(turns) > 0 {
-		extra = append(extra, discord.NewActionRow(turns...))
+			discord.NewSecondaryButton("▸", boardID(levels, min(at+1, pages-1))).WithDisabled(at == pages-1)))
 	}
 	return discord.MessageCreate{
 		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "board", "", extra...)},
