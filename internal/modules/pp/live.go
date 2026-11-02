@@ -86,6 +86,9 @@ type member struct {
 	dispatchDay int64
 	// renew is whether the yard renews their livery on its own.
 	renew bool
+	// compact is whether their menu is icons only, which a phone lays out
+	// the same every time, rather than icons with their names.
+	compact bool
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, what chat remembers of their messages, when they last showed a

@@ -117,7 +117,7 @@ func TestLaunch(t *testing.T) {
 			t.Errorf("a beta tester pressed %s before the launch: %v", id, err)
 		}
 	}
-	if rows := js(menuRows("bard", false, "pp:status", false, false, false)); strings.Contains(rows, "pp:tide") {
+	if rows := js(menuRows("bard", false, "pp:status", false, false, false, false)); strings.Contains(rows, "pp:tide") {
 		t.Error("the menu shows the slack tide before the launch")
 	}
 	if m.seesNew(firstOf(coretest.Button(t, "pp:tide", nil)), 3) {
