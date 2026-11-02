@@ -23,7 +23,7 @@ func TestCheckpoint(t *testing.T) {
 	// Six talkers, each a little more than the one before, on a Tuesday.
 	for i := range 6 {
 		for k := range i + 1 {
-			st.chat(s, guild, old(i+1), "something worth saying "+string(rune('a'+k)), t0.Add(time.Duration(k)*time.Minute))
+			st.chat(s, guild, old(i+1), saysNew(k), t0.Add(time.Duration(k)*time.Minute))
 		}
 	}
 	// The contest fund is in the treasury, but no prize comes out of it.

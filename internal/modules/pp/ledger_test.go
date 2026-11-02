@@ -61,7 +61,7 @@ func TestTenureBlind(t *testing.T) {
 			before := s.members[a].dayGot
 			st.minute(s, guild, afkCh, now)
 			if i%3 == 0 {
-				st.chat(s, guild, a, "a real thing to say, number "+string(rune('a'+i%26)), now.Add(30*time.Second))
+				st.chat(s, guild, a, saysNew(i), now.Add(30*time.Second))
 			}
 			pays = append(pays, s.members[a].dayGot-before)
 		}

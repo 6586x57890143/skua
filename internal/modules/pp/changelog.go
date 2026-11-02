@@ -11,6 +11,15 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.18.1",
+	Date:    "2026-11-02",
+	Balance: "14114d",
+	Lines: []string{
+		"a message pays for what it says: a laugh, a row of emoji or a held key says too little however long it is",
+		"one of your last few lines again, padded, shouted or alternated with another, doesn't pay, and neither does one made mostly of words you've just used",
+		"a sticker or a picture with no words pays once; the same one again doesn't",
+	},
+}, {
 	Version: "0.18.0",
 	Date:    "2026-11-02",
 	Balance: "00e9ac",

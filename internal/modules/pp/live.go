@@ -1,12 +1,10 @@
 package pp
 
 import (
-	"hash/maphash"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
@@ -88,11 +86,11 @@ type member struct {
 	renew bool
 
 	// Only in memory: when they last earned by chat and last counted as
-	// active, a fingerprint of their last message, when they last showed a
+	// active, what chat remembers of their messages, when they last showed a
 	// sign of life and last left voice, and what they were last seen
 	// wearing.
 	lastPay, lastCount time.Time
-	lastHash           uint64
+	chatMem            chatMemory
 	life, leftVoice    time.Time
 	wear               Wearing
 	dirty              bool
@@ -512,7 +510,6 @@ func bannerOf(acts []discord.Activity, vanity string) bool {
 	return false
 }
 
-var hashSeed = maphash.MakeSeed()
 
 // chat counts one message by user: as activity once per ActivityGap, as pay
 // once per cooldown, neither when it is too short or the last one again.
@@ -527,9 +524,7 @@ func (st *state) talk(s *server, guild, user snowflake.ID, content string, now t
 	m := st.member(s, guild, user, DayOf(now))
 	runes, repeat := -1, false
 	if content != "" {
-		runes = utf8.RuneCountInString(content)
-		h := maphash.String(hashSeed, content)
-		repeat, m.lastHash = h == m.lastHash, h
+		runes, repeat = m.chatMem.judge(content)
 	}
 	if !st.bal().ChatCounts(now.Sub(m.lastCount), runes, repeat) {
 		return 0

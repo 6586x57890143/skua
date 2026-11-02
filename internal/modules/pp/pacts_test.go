@@ -729,7 +729,7 @@ func TestCorrespondence(t *testing.T) {
 	write := func(from, to snowflake.ID) {
 		n++
 		at = at.Add(Default.ChatCooldown + time.Second)
-		st.talk(s, guild, from, "a letter that says something "+strconv.Itoa(n), at, to)
+		st.talk(s, guild, from, saysNew(n), at, to)
 	}
 	write(a, c)
 	write(a, 0)

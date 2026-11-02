@@ -156,9 +156,10 @@ func (b *Balance) Vigor(d Day, p Pools) (left int64, phase string) {
 	return 100 - fill, phase
 }
 
-// ChatPays is whether a message earns: the cooldown has passed, and it is
-// neither too short nor the member's last message again. runes < 0 means
-// skua can't read content, and only the cooldown applies.
+// ChatPays is whether a message earns: the cooldown has passed, and it
+// holds at least ChatMinRunes different letters and digits and isn't
+// stale (chatcheck.go). runes < 0 means skua can't read content, and only
+// the cooldown applies.
 func (b *Balance) ChatPays(since time.Duration, runes int, repeat bool) bool {
 	return since >= b.ChatCooldown && (runes < 0 || runes >= b.ChatMinRunes && !repeat)
 }
