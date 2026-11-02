@@ -156,6 +156,7 @@ func (m *Module) agendaPanel(ctx context.Context, user snowflake.ID, note string
 		discord.NewActionRow(
 			icon(discord.NewPrimaryButton("new", id+":new"), "btn_new"),
 			icon(discord.NewSecondaryButton("settings", id+":set"), "btn_settings"),
+			icon(discord.NewSecondaryButton("teams", id+":teams"), "btn_team"),
 		),
 	)
 	foot := "-# a dm comes with snooze buttons; times show in your own zone"
@@ -279,7 +280,7 @@ func (m *Module) panelClick(ctx context.Context, e *events.ComponentInteractionC
 		}
 		return e.UpdateMessage(update(msg))
 	case "open":
-		v := e.StringSelectMenuInteractionData().Values
+		v := values(e)
 		rid, err := strconv.ParseInt(strings.Join(v, ""), 10, 64)
 		if len(v) != 1 || err != nil {
 			return core.Tell("pick one")
@@ -299,7 +300,7 @@ func (m *Module) panelClick(ctx context.Context, e *events.ComponentInteractionC
 	case "zone":
 		return e.Modal(zoneForm())
 	case "deliver":
-		v := e.StringSelectMenuInteractionData().Values
+		v := values(e)
 		if len(v) != 1 || v[0] != "dm" && v[0] != "here" {
 			return core.Tell("pick one")
 		}
@@ -309,7 +310,7 @@ func (m *Module) panelClick(ctx context.Context, e *events.ComponentInteractionC
 		return settings("✓ delivery changed")
 	case "snooze":
 		var picked []int
-		for _, v := range e.StringSelectMenuInteractionData().Values {
+		for _, v := range values(e) {
 			n, err := strconv.Atoi(v)
 			if err != nil || !slices.Contains(snoozes, n) {
 				return core.Tell("pick from the list")
@@ -326,7 +327,7 @@ func (m *Module) panelClick(ctx context.Context, e *events.ComponentInteractionC
 		}
 		return settings("✓ snooze buttons changed")
 	case "quiet":
-		v := e.StringSelectMenuInteractionData().Values
+		v := values(e)
 		if len(v) != 1 {
 			return core.Tell("pick one")
 		}

@@ -31,6 +31,8 @@ const perMember = 50
 type Module struct {
 	log   *slog.Logger
 	guard *guard.Guard
+	// admin is the router's rule, checked again on every team control.
+	admin func(discord.Interaction) bool
 	db    DB
 	now   func() time.Time
 	after func(time.Duration, func()) *time.Timer
@@ -50,9 +52,9 @@ type Module struct {
 }
 
 // New is remind on db, which it needs: without one it isn't offered.
-func New(log *slog.Logger, g *guard.Guard, db DB) *Module {
+func New(log *slog.Logger, g *guard.Guard, db DB, admin func(discord.Interaction) bool) *Module {
 	m := &Module{
-		log: log, guard: g, db: db, now: time.Now, after: time.AfterFunc,
+		log: log, guard: g, db: db, admin: admin, now: time.Now, after: time.AfterFunc,
 		held: map[int64]time.Time{}, tries: map[int64]int{},
 		pending: map[snowflake.ID]int{}, offs: map[snowflake.ID][]time.Duration{}, fellBack: map[snowflake.ID]int{},
 	}
@@ -74,7 +76,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorInfo,
 		Line:  "reminds you at the time you ask, to the second",
-		About: "run /remind with when and what. she reads a time the way you'd type it: in 20m, 5pm, fri 17:30, 7 nov or every weekday at 9, and the list under when shows how she read it before you send. pick your timezone once with tz and she keeps it. the reminder comes to your dms with buttons to snooze it or mark it done, or to a channel if you ask, and to the channel you set it in when your dms are closed. /reminders lists what you have waiting by day, opens one to change it or sets a new one, and keeps how they come to you: where they go, your three snooze buttons and quiet hours, when a dm waits until morning. she learns how long discord takes to make a message and sends that much early, so it lands on the second",
+		About: "run /remind with when and what. she reads a time the way you'd type it: in 20m, 5pm, fri 17:30, 7 nov or every weekday at 9, and the list under when shows how she read it before you send. pick your timezone once with tz and she keeps it. the reminder comes to your dms with buttons to snooze it or mark it done, or to a channel if you ask, and to the channel you set it in when your dms are closed. /reminders lists what you have waiting by day, opens one to change it or sets a new one, and keeps how they come to you: where they go, your three snooze buttons and quiet hours, when a dm waits until morning. with team or role it goes to a group instead: a team is a list admins make for a channel, which members join from the card she posts there, and its reminder pings exactly who is on it, with a here button that counts who showed up. she learns how long discord takes to make a message and sends that much early, so it lands on the second",
 	}
 }
 
@@ -165,6 +167,8 @@ func (m *Module) Commands() []core.Command {
 					{Name: "never", Value: "never"}, {Name: "every day", Value: "day"}, {Name: "weekdays", Value: "weekdays"}, {Name: "every week", Value: "week"}, {Name: "every month", Value: "month"},
 				}},
 				discord.ApplicationCommandOptionString{Name: "tz", Description: "your timezone, kept for next time", Autocomplete: true, MaxLength: &maxTZ},
+				discord.ApplicationCommandOptionString{Name: "team", Description: "ping a team in its channel instead", Autocomplete: true},
+				discord.ApplicationCommandOptionRole{Name: "role", Description: "ping a role, here or in channel, instead"},
 			},
 		},
 		Tier: core.Public,
@@ -175,7 +179,7 @@ func (m *Module) Commands() []core.Command {
 func (m *Module) Components() []core.Component { return []core.Component{{ID: id, Run: m.click}} }
 
 func (m *Module) Modals() []core.Modal {
-	return []core.Modal{{ID: editID, Run: m.submit}, {ID: newID, Run: m.create}, {ID: zoneID, Run: m.setZone}}
+	return []core.Modal{{ID: editID, Run: m.submit}, {ID: newID, Run: m.create}, {ID: zoneID, Run: m.setZone}, {ID: teamID, Run: m.makeTeam}}
 }
 
 // zoneOf is user's zone as kept, or "".
@@ -224,6 +228,17 @@ func (m *Module) suggest(e *events.AutocompleteInteractionCreate) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
+	if f.Name == "team" {
+		guild := e.GuildID()
+		if guild == nil {
+			return e.AutocompleteResult(nil)
+		}
+		cs, err := m.teamChoices(ctx, *guild, typed)
+		if err != nil {
+			return err
+		}
+		return e.AutocompleteResult(cs)
+	}
 	tz := known(e.Data.String("tz"))
 	if tz == "" {
 		tz = m.zoneOf(ctx, e.User().ID)
@@ -295,13 +310,19 @@ func (m *Module) remind(ctx context.Context, e *events.ApplicationCommandInterac
 		return err
 	}
 	to, said := d.OptString("to")
-	if ch, ok := d.OptChannel("channel"); ok {
+	if err := m.aimGroup(ctx, e, &r); err != nil {
+		return err
+	}
+	// A team's or a role's is aimed already.
+	if ch, ok := d.OptChannel("channel"); ok && r.target == "dm" {
 		if !ch.Permissions.Has(discord.PermissionViewChannel | discord.PermissionSendMessages) {
 			return core.Tell("you can't post in <#" + ch.ID.String() + ">, so skua won't either")
 		}
 		r.target, r.targetID = "channel", ch.ID
-	} else if err := m.aim(ctx, &r, to, said, e.Member()); err != nil {
-		return err
+	} else if r.target == "dm" {
+		if err := m.aim(ctx, &r, to, said, e.Member()); err != nil {
+			return err
+		}
 	}
 	if r, err = m.keep(ctx, r); err != nil {
 		return err

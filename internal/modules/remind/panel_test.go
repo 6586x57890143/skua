@@ -120,7 +120,7 @@ func TestSettings(t *testing.T) {
 		}
 	}
 	// kept across a restart
-	again := New(quiet(), m.guard, m.db)
+	again := New(quiet(), m.guard, m.db, m.admin)
 	p, err := again.person(context.Background(), u)
 	if err != nil || p.deliver != "here" || len(p.snooze) != 3 || p.snooze[2] != tomorrow || p.quietWords() != "23:00 → 07:00" {
 		t.Fatalf("after restart %+v %v", p, err)

@@ -39,6 +39,10 @@ func v2(color int, what, body string, extra ...discord.ContainerSubComponent) []
 // where is where r goes, as its card says it.
 func where(r reminder) string {
 	switch {
+	case r.target == "team":
+		return "the team in <#" + r.channel.String() + ">"
+	case r.target == "role":
+		return "<@&" + r.targetID.String() + "> in <#" + r.channel.String() + ">"
 	case r.target == "channel" && r.targetID != 0:
 		return "<#" + r.targetID.String() + ">"
 	case r.target == "channel":
@@ -154,11 +158,30 @@ func landed(msg snowflake.ID, dueMS int64) string {
 	return " · landed " + ms(off.Abs()) + " " + side
 }
 
+// values is what a select press picked. The custom ID comes from the
+// member's client, so a button can arrive under a select's ID: that
+// picked nothing.
+func values(e *events.ComponentInteractionCreate) []string {
+	if d, ok := e.Data.(discord.StringSelectMenuInteractionData); ok {
+		return d.Values
+	}
+	return nil
+}
+
 // click is every button and select on remind's cards. Who pressed and
 // what they pressed come from their client, so the reminder is read
 // again and has to be theirs.
 func (m *Module) click(ctx context.Context, e *events.ComponentInteractionCreate) error {
 	f := strings.Split(e.Data.CustomID(), ":")
+	if len(f) < 2 {
+		return core.Tell("that card is out of date")
+	}
+	switch f[1] {
+	case "teams", "mkteam", "team", "join", "leave", "post", "rmteam":
+		return m.teamClick(ctx, e, f)
+	case "here":
+		return m.here(ctx, e, f)
+	}
 	if len(f) == 2 {
 		return m.panelClick(ctx, e, f[1])
 	}
@@ -205,7 +228,7 @@ func (m *Module) click(ctx context.Context, e *events.ComponentInteractionCreate
 	case "edit":
 		return e.Modal(form(r))
 	case "rep":
-		v := e.StringSelectMenuInteractionData().Values
+		v := values(e)
 		if len(v) != 1 {
 			return core.Tell("pick one")
 		}
