@@ -482,6 +482,9 @@ func run(log *slog.Logger) error {
 				log.Warn("shutting down with preen work still owed")
 			}
 			if pot != nil {
+				shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				pot.Shut(shut)
+				cancel()
 				pot.Save()
 			}
 			return nil

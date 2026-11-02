@@ -578,3 +578,35 @@ func TestIdleTable(t *testing.T) {
 		t.Error("a table with a bird at it was cleared")
 	}
 }
+
+// Going down, skua shuts an open table: its stakes go back to their
+// purses at once and its message says why, so nothing stands open after
+// the restart, and the next boot finds nothing more to give back.
+func TestShutOpenTable(t *testing.T) {
+	m, r := houseModule(t)
+	s := m.st.server(guild)
+	s.mu.Lock()
+	tb, _ := m.st.open(s, 4, t0, false)
+	tb.channel, tb.msg = 77, 88
+	mem := m.st.member(s, guild, 5, DayOf(t0))
+	mem.purse = 100 * unit
+	if err := m.st.sitDown(s, tb, guild, 5, "x", stakes[0].pp, t0); err != nil {
+		t.Fatal(err)
+	}
+	staked := mem.purse
+	s.mu.Unlock()
+
+	m.Shut(context.Background())
+	if !tb.settled || s.table != nil || mem.seat != 0 || mem.purse != staked+stakes[0].pp {
+		t.Errorf("settled %v, table %v, seat %d, purse %d after %d", tb.settled, s.table != nil, mem.seat, mem.purse, staked)
+	}
+	if len(r.edits) == 0 || !strings.Contains(r.edits[len(r.edits)-1], "every stake went back") {
+		t.Errorf("the table's message: %v", r.edits)
+	}
+	s.mu.Lock()
+	s.refundSeats(DayOf(t0))
+	s.mu.Unlock()
+	if mem.purse != staked+stakes[0].pp {
+		t.Errorf("the next boot gave back again: %d", mem.purse)
+	}
+}
