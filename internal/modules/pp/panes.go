@@ -95,21 +95,19 @@ func boardPane(c *pixel.Canvas, r image.Rectangle, tab string, rows []BoardRow) 
 // first season starts and what ranks until it does.
 var boardStrip = image.Rect(4, 180, 380, 212)
 
-// BoardScreen draws the levels board on the left and the season's on the
-// right; or before the first season, the levels board across the screen
-// and under it a line on when the first season starts.
-func BoardScreen(levels, season []BoardRow, seasonTab, starts string) ([]byte, error) {
-	return boardCanvas(levels, season, seasonTab, starts).Screen(screenScale)
+// BoardScreen draws one board, tab its name, across the screen; before the
+// first season, starts is when it starts, on a line under the board.
+func BoardScreen(rows []BoardRow, tab, starts string) ([]byte, error) {
+	return boardCanvas(rows, tab, starts).Screen(screenScale)
 }
 
-func boardCanvas(levels, season []BoardRow, seasonTab, starts string) *pixel.Canvas {
+func boardCanvas(rows []BoardRow, tab, starts string) *pixel.Canvas {
 	c := pixel.New(screenW, screenH)
-	if seasonTab != "" {
-		boardPane(c, image.Rect(4, 4, 190, 212), "levels", levels)
-		boardPane(c, image.Rect(194, 4, 380, 212), seasonTab, season)
+	if starts == "" {
+		boardPane(c, image.Rect(4, 4, 380, 212), tab, rows)
 		return c
 	}
-	boardPane(c, image.Rect(4, 4, 380, boardStrip.Min.Y-4), "levels", levels)
+	boardPane(c, image.Rect(4, 4, 380, boardStrip.Min.Y-4), tab, rows)
 	c.Window(boardStrip)
 	y := midLine(boardStrip)
 	end := iconText(c, "bell", 16, y, "season 1 starts", pixel.Ink)

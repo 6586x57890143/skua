@@ -50,9 +50,23 @@ func TestBoard(t *testing.T) {
 		t.Errorf("the preseason board: %s", card)
 	}
 
+	// In a season its race leads, ten a page; levels is a press away, and
+	// a page past the last, or one that's no number, is the last or first.
 	m.now = func() time.Time { return t0 }
-	msg, err := m.boardMessage(3, me)
-	if err != nil || !strings.Contains(js(msg.Components), "season 1 board") {
-		t.Errorf("the season board: %s, %v", js(msg.Components), err)
+	for _, c := range []struct{ id, want, not string }{
+		{"pp:board", "the season 1 board, led by birdl, page 1 of 2", ""},
+		{"pp:board:season:1", "page 2 of 2", "led by"},
+		{"pp:board:season:9", "page 2 of 2", ""},
+		{"pp:board:levels:0", "the levels board, led by birda, page 1 of 2", "season 1 board"},
+		{"pp:board:levels:x", "the levels board, led by birda", ""},
+	} {
+		msg, err := m.boardMessage(3, me, c.id)
+		card := js(msg.Components)
+		if err != nil || !strings.Contains(card, c.want) || c.not != "" && strings.Contains(card, c.not) {
+			t.Errorf("%s: %s, %v", c.id, card, err)
+		}
+	}
+	if got, _, _ := boardPage(nil, me, boardRows, 3); len(got) != 0 {
+		t.Errorf("an empty board has %d rows", len(got))
 	}
 }

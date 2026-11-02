@@ -36,10 +36,11 @@ func TestPanes(t *testing.T) {
 	}
 	rows[9] = BoardRow{Place: 137, Icon: "lantern", Name: "you", Class: "albatross wanderer", Value: "lv 3", You: true}
 	srows[9] = BoardRow{Place: 137, Icon: "lantern", Name: "you", Class: "albatross wanderer", Value: "12", You: true, ValueIsGold: true}
-	save("board_pre.jpg", boardCanvas(append(rows[:preseasonRows-1:preseasonRows-1], rows[9]), nil, "", "2 nov"))
-	save("board.jpg", boardCanvas(rows, srows, "season 1", ""))
-	save("board_empty.jpg", boardCanvas(nil, nil, "season 1", ""))
-	save("board_pre_empty.jpg", boardCanvas(nil, nil, "", "2 nov"))
+	save("board_pre.jpg", boardCanvas(append(rows[:preseasonRows-1:preseasonRows-1], rows[9]), "levels", "2 nov"))
+	save("board.jpg", boardCanvas(srows, "season 1", ""))
+	save("board_levels.jpg", boardCanvas(rows, "levels", ""))
+	save("board_empty.jpg", boardCanvas(nil, "season 1", ""))
+	save("board_pre_empty.jpg", boardCanvas(nil, "levels", "2 nov"))
 
 	pd := Default.PotDay(Rules)
 	var rungs []Rung
@@ -84,8 +85,8 @@ func TestPanes(t *testing.T) {
 	for n := range int64(10) {
 		named = append(named, BoardRow{Place: int(n) + 1, Icon: icons[n], Name: names[n], Rung: n, Class: Classes[n%8].Name(), Value: "lv 9", You: n == 4})
 	}
-	save("board_looks.jpg", boardCanvas(named[:preseasonRows], nil, "", "2 nov"))
-	save("board_looks_season.jpg", boardCanvas(named, named, "season 1", ""))
+	save("board_looks.jpg", boardCanvas(named[:preseasonRows], "levels", "2 nov"))
+	save("board_looks_season.jpg", boardCanvas(named, "season 1", ""))
 
 	save("buffs.jpg", buffCanvas("heavywinds", []BuffInfo{
 		{Icon: "crest", Name: "crest", Effect: "+10%", How: "wear this server's tag as yours", On: true},
