@@ -227,8 +227,8 @@ func (m *Module) settingsCard(ctx context.Context, user snowflake.ID, note strin
 	body += "-# quiet hours hold a dm until they end; a reminder in a channel still comes"
 
 	deliver := discord.NewStringSelectMenu(id+":deliver", "where a reminder goes",
-		discord.StringSelectMenuOption{Label: "your dms", Value: "dm", Description: "unless you say otherwise", Default: who.deliver != "here"},
-		discord.StringSelectMenuOption{Label: "where you set it", Value: "here", Description: "the channel you ran /remind in", Default: who.deliver == "here"},
+		discord.StringSelectMenuOption{Label: "to your dms", Value: "dm", Description: "unless you say otherwise", Default: who.deliver != "here"},
+		discord.StringSelectMenuOption{Label: "to where you set it", Value: "here", Description: "the channel you ran /remind in", Default: who.deliver == "here"},
 	)
 	var snoozeOpts []discord.StringSelectMenuOption
 	for _, n := range snoozes {
@@ -240,7 +240,7 @@ func (m *Module) settingsCard(ctx context.Context, user snowflake.ID, note strin
 	var quietOpts []discord.StringSelectMenuOption
 	for _, q := range quiets {
 		p := person{quietFrom: q[0], quietTo: q[1]}
-		quietOpts = append(quietOpts, discord.StringSelectMenuOption{Label: p.quietWords(), Value: strconv.Itoa(q[0]) + "-" + strconv.Itoa(q[1]), Default: q[0] == who.quietFrom && q[1] == who.quietTo || q[0] < 0 && who.quietWords() == "off"})
+		quietOpts = append(quietOpts, discord.StringSelectMenuOption{Label: quietLabel(p), Value: strconv.Itoa(q[0]) + "-" + strconv.Itoa(q[1]), Default: q[0] == who.quietFrom && q[1] == who.quietTo || q[0] < 0 && who.quietWords() == "off"})
 	}
 	quiet := discord.NewStringSelectMenu(id+":quiet", "quiet hours", quietOpts...)
 	return v2(brand.ColorInfo, "settings", body,
@@ -249,6 +249,15 @@ func (m *Module) settingsCard(ctx context.Context, user snowflake.ID, note strin
 		discord.NewActionRow(quiet),
 		discord.NewActionRow(agendaButton(), icon(discord.NewSecondaryButton("zone", id+":zone"), "btn_zone")),
 	), nil
+}
+
+// quietLabel is a quiet hours choice as the closed select shows it, so it
+// says what it is about: "no quiet hours", "quiet 23:00 → 07:00".
+func quietLabel(p person) string {
+	if w := p.quietWords(); w != "off" {
+		return "quiet " + w
+	}
+	return "no quiet hours"
 }
 
 // panelClick is the agenda's and the settings' controls, which act on
