@@ -28,7 +28,7 @@ func TestScreensDiscordTakes(t *testing.T) {
 	mem.classSeason, mem.class, mem.purse, mem.total = 1, "knight", 5000*unit, 50000*unit
 	mem.quests = []heldQuest{{tier: 2, kind: 0}, {tier: 0, kind: 1}}
 	ids := regexp.MustCompile(`"custom_id":"([^"]+)"`)
-	screens := []string{"pp:status", "pp:quests", "pp:notices", "pp:board", "pp:board:levels:1", "pp:shop", "pp:ladder", "pp:yard", "pp:class", "pp:buffs", "pp:tide"}
+	screens := []string{"pp:status", "pp:quests", "pp:notices", "pp:board", "pp:board:levels:1", "pp:shop", "pp:ladder", "pp:yard", "pp:class", "pp:buffs", "pp:tide", "pp:gate"}
 	for _, compact := range []bool{false, true} {
 		mem.compact = compact
 		for _, id := range screens {
@@ -48,7 +48,7 @@ func TestScreensDiscordTakes(t *testing.T) {
 			if !ok {
 				t.Fatalf("%s: no card", id)
 			}
-			menu := menuRows(mem.class, true, "", true, false, false, compact)
+			menu := menuRows(mem.class, true, "", true, false, false, compact, false)
 			own := len(box.Components) - len(menu)
 			for i, c := range box.Components {
 				row, ok := c.(discord.ActionRowComponent)

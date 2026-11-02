@@ -11,6 +11,16 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.19.0",
+	Date:    "2026-11-02",
+	Balance: "3c9934",
+	Lines: []string{
+		"the north gate opens: once a day your bird can go out to the mire or the last wood, near or far, leaning into one of the five winds",
+		"out there your bird chooses by its lean and its class, and the bones decide how each choice goes. it only walks while the pot isn't paying you, so it's for the hours you're away",
+		"the day is told in pieces while your bird is out and whole when it's back, and every place you meet goes into your out pages to read",
+		"peat from the mire goes on the hearth and lights it sooner for everyone. three beads of amber from the wood buy a candle at the slack tide on the house's marker",
+	},
+}, {
 	Version: "0.18.2",
 	Date:    "2026-11-02",
 	Balance: "853b8b",
