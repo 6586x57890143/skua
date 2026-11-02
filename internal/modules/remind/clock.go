@@ -332,6 +332,7 @@ func (m *Module) group(ctx context.Context, p Poster, r reminder, late time.Dura
 			return nil, errors.New("remind: its team is gone")
 		}
 		to, who = t.channel, t.members
+		defer func() { go m.refresh(t.id) }()
 	}
 	return p.CreateMessage(to, called(r, late, who, 0), rest.WithCtx(ctx))
 }
@@ -413,4 +414,5 @@ func (m *Module) poster() Poster {
 type Poster interface {
 	CreateMessage(channel snowflake.ID, m discord.MessageCreate, opts ...rest.RequestOpt) (*discord.Message, error)
 	CreateDMChannel(user snowflake.ID, opts ...rest.RequestOpt) (*discord.DMChannel, error)
+	UpdateMessage(channel, message snowflake.ID, m discord.MessageUpdate, opts ...rest.RequestOpt) (*discord.Message, error)
 }

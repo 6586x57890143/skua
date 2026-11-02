@@ -146,7 +146,10 @@ func tidyUp(ctx context.Context, db DB, now time.Time) error {
 	if _, err := db.Exec(ctx, "update remind set state = 'pending' where state = 'sending' and sent_at < $1", now.Add(-stuck)); err != nil {
 		return err
 	}
-	_, err := db.Exec(ctx, "delete from remind where state = 'done' and due_at < $1", now.Add(-keepDone))
+	if _, err := db.Exec(ctx, "delete from remind where state = 'done' and due_at < $1", now.Add(-keepDone)); err != nil {
+		return err
+	}
+	_, err := db.Exec(ctx, "delete from remind_here where due_at < $1", now.Add(-keepDone))
 	return err
 }
 

@@ -42,10 +42,11 @@ type team struct {
 	members            []snowflake.ID
 }
 
-func scanTeam(row pgx.Row) (team, error) {
+// scanTeam reads teamCols, then into extra whatever the query adds.
+func scanTeam(row pgx.Row, extra ...any) (team, error) {
 	var t team
 	var guild, ch, by, card int64
-	err := row.Scan(&t.id, &guild, &t.name, &ch, &by, &card)
+	err := row.Scan(append([]any{&t.id, &guild, &t.name, &ch, &by, &card}, extra...)...)
 	t.guild, t.channel, t.by, t.card = snowflake.ID(guild), snowflake.ID(ch), snowflake.ID(by), snowflake.ID(card)
 	return t, err
 }
@@ -80,7 +81,7 @@ func teamOf(ctx context.Context, db DB, id int64) (team, bool, error) {
 func teamsOf(ctx context.Context, db DB, guild snowflake.ID) ([]team, []int, error) {
 	rows, err := db.Query(ctx, `select t.id, t.guild_id, t.name, t.channel_id, t.created_by, t.card_id, count(m.user_id)
 		from remind_team t left join remind_team_member m on m.team_id = t.id
-		where t.guild_id = $1 group by t.id order by lower(t.name)`, int64(guild))
+		where t.guild_id = $1 group by t.id order by lower(t.name) limit $2`, int64(guild), teamsPer)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -88,13 +89,11 @@ func teamsOf(ctx context.Context, db DB, guild snowflake.ID) ([]team, []int, err
 	var ts []team
 	var ns []int
 	for rows.Next() {
-		var t team
-		var g, ch, by, card int64
 		var n int
-		if err := rows.Scan(&t.id, &g, &t.name, &ch, &by, &card, &n); err != nil {
+		t, err := scanTeam(rows, &n)
+		if err != nil {
 			return nil, nil, err
 		}
-		t.guild, t.channel, t.by, t.card = snowflake.ID(g), snowflake.ID(ch), snowflake.ID(by), snowflake.ID(card)
 		ts, ns = append(ts, t), append(ns, n)
 	}
 	return ts, ns, rows.Err()
@@ -366,8 +365,16 @@ func (m *Module) teamClick(ctx context.Context, e *events.ComponentInteractionCr
 	case "team":
 		return redraw("")
 	case "join", "leave":
+		if f[1] == "join" && !admin && e.Channel().ID() != t.channel {
+			// Joining from where the team can't be seen would let anyone
+			// on a private channel's team.
+			return core.Tell("join " + t.name + " from its card in <#" + t.channel.String() + ">")
+		}
 		if err := enlist(ctx, m.db, tid, user, f[1] == "join"); err != nil {
 			return err
+		}
+		if ephemeral {
+			go m.refresh(tid)
 		}
 		if f[1] == "join" {
 			return redraw("✓ joined " + t.name)
@@ -377,10 +384,27 @@ func (m *Module) teamClick(ctx context.Context, e *events.ComponentInteractionCr
 		if !admin {
 			return core.Tell("only this server's admins can post a team's card")
 		}
+		// Posting waits on Discord, so the press is answered first.
+		if err := e.DeferUpdateMessage(); err != nil {
+			return err
+		}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+		defer cancel()
 		if err := m.postTeam(ctx, e.Client().Rest, t); err != nil {
 			return err
 		}
-		return redraw("✓ card posted in <#" + t.channel.String() + ">")
+		var next *reminder
+		if r, ok, err := nextFor(ctx, m.db, tid); err != nil {
+			return err
+		} else if ok {
+			next = &r
+		}
+		t, _, err := teamOf(ctx, m.db, tid)
+		if err != nil {
+			return err
+		}
+		_, err = e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(), v2Update(teamView(t, next, user, admin, "✓ card posted in <#"+t.channel.String()+">")), rest.WithCtx(ctx))
+		return err
 	case "rmteam":
 		if !admin {
 			return core.Tell("only this server's admins can delete a team")
@@ -397,13 +421,8 @@ func (m *Module) teamClick(ctx context.Context, e *events.ComponentInteractionCr
 	return core.Tell("that card is out of date")
 }
 
-// teamPoster is what posting a team's card needs.
-type teamPoster interface {
-	CreateMessage(channel snowflake.ID, m discord.MessageCreate, opts ...rest.RequestOpt) (*discord.Message, error)
-}
-
 // postTeam posts t's card in its channel, as skua.
-func (m *Module) postTeam(ctx context.Context, p teamPoster, t team) error {
+func (m *Module) postTeam(ctx context.Context, p Poster, t team) error {
 	if err := m.guard.Allow(t.guild, guard.MessageSend); err != nil {
 		return fmt.Errorf("%w: %w", core.Tell("skua is posting too much in this server; try again in a few minutes"), err)
 	}
@@ -447,6 +466,12 @@ func (m *Module) makeTeam(ctx context.Context, e *events.ModalSubmitInteractionC
 	if t.id, err = addTeam(ctx, m.db, t); err != nil {
 		return err
 	}
+	// Posting its card waits on Discord, so the form is answered first.
+	if err := e.DeferUpdateMessage(); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+	defer cancel()
 	note := "✓ made " + name + " and posted its card in <#" + t.channel.String() + ">"
 	if err := m.postTeam(ctx, e.Client().Rest, t); err != nil {
 		m.log.Warn("remind: posting a team's card", "err", err)
@@ -456,7 +481,8 @@ func (m *Module) makeTeam(ctx context.Context, e *events.ModalSubmitInteractionC
 	if err != nil {
 		return err
 	}
-	return e.UpdateMessage(v2Update(c))
+	_, err = e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(), v2Update(c), rest.WithCtx(ctx))
+	return err
 }
 
 // teamChoices is the team list on /remind as a member types.
@@ -466,7 +492,7 @@ func (m *Module) teamChoices(ctx context.Context, guild snowflake.ID, typed stri
 		return nil, err
 	}
 	out := []discord.AutocompleteChoice{}
-	for i, t := range ts {
+	for i, t := range ts[:min(len(ts), teamsPer)] {
 		if strings.Contains(strings.ToLower(t.name), strings.ToLower(strings.TrimSpace(typed))) {
 			out = append(out, discord.AutocompleteChoiceString{Name: clip(t.name+" · "+strconv.Itoa(ns[i])+" on it", 100), Value: strconv.FormatInt(t.id, 10)})
 		}
@@ -485,6 +511,9 @@ func (m *Module) aimGroup(ctx context.Context, e *events.ApplicationCommandInter
 	case isTeam && isRole:
 		return core.Tell("pick a team or a role, not both")
 	case isTeam:
+		if _, ok := d.OptString("to"); ok {
+			return core.Tell("a team's reminder goes to its own channel; leave out to")
+		}
 		tid, err := strconv.ParseInt(tv, 10, 64)
 		if err != nil {
 			return core.Tell("pick a team from the list")
@@ -495,11 +524,23 @@ func (m *Module) aimGroup(ctx context.Context, e *events.ApplicationCommandInter
 			return err
 		case !ok || t.guild != r.guild:
 			return core.Tell("that team is gone")
-		case !slices.Contains(t.members, r.owner) && !m.admin(e):
+		case !m.admin(e) && !slices.Contains(t.members, r.owner):
 			return core.Tell("join " + t.name + " to remind it of something")
+		case !m.admin(e) && e.Channel().ID() != t.channel:
+			// The text posts in the team's channel, so it is set from
+			// there, by someone who can post there.
+			return core.Tell("run this in <#" + t.channel.String() + ">, the team's channel")
+		case !m.admin(e) && (e.Member() == nil || !e.Member().Permissions.Has(discord.PermissionSendMessages)):
+			return core.Tell("you can't post in <#" + t.channel.String() + ">, so skua won't either")
+		}
+		if _, ok := d.OptChannel("channel"); ok {
+			return core.Tell("a team's reminder goes to its own channel; leave out channel")
 		}
 		r.target, r.targetID, r.channel = "team", snowflake.ID(t.id), t.channel
 	case isRole:
+		if _, ok := d.OptString("to"); ok {
+			return core.Tell("a role's reminder goes to a channel; leave out to, or pick one with channel")
+		}
 		mem := e.Member()
 		ch, picked := d.OptChannel("channel")
 		perms := discord.Permissions(0)
@@ -513,10 +554,12 @@ func (m *Module) aimGroup(ctx context.Context, e *events.ApplicationCommandInter
 		switch {
 		case role.ID == r.guild:
 			return core.Tell("skua never pings everyone; pick a role")
-		case !perms.Has(discord.PermissionSendMessages):
+		case !perms.Has(discord.PermissionViewChannel | discord.PermissionSendMessages):
 			return core.Tell("you can't post in <#" + r.channel.String() + ">, so skua won't either")
-		case !role.Mentionable && !perms.Has(discord.PermissionMentionEveryone):
-			return core.Tell("you can't ping @" + role.Name + " yourself, so skua won't either")
+		case !role.Mentionable:
+			// skua holds no mention everyone, so only a role anyone may
+			// ping is pinged at all.
+			return core.Tell("@" + role.Name + " can't be mentioned; turn on allow anyone to @mention this role, or pick another")
 		}
 		r.target, r.targetID = "role", role.ID
 	}
@@ -524,39 +567,81 @@ func (m *Module) aimGroup(ctx context.Context, e *events.ApplicationCommandInter
 }
 
 // here is a group reminder's here button: whoever presses it is counted
-// once for that turn, and the card says how many are.
+// once for that turn, and the card's tally line says how many are. The
+// rest of the card stays as it fired, whatever has changed since.
 func (m *Module) here(ctx context.Context, e *events.ComponentInteractionCreate, f []string) error {
-	if len(f) < 4 {
+	if len(f) < 4 || e.GuildID() == nil {
 		return core.Tell("that card is out of date")
 	}
 	rid, err1 := strconv.ParseInt(f[2], 10, 64)
 	dueMS, err2 := strconv.ParseInt(f[3], 10, 64)
-	if err1 != nil || err2 != nil {
+	if err1 != nil || err2 != nil || rid <= 0 {
 		return core.Tell("that card is out of date")
 	}
-	r, ok, err := get(ctx, m.db, rid)
-	switch {
-	case err != nil:
+	// A tally counts only presses from the reminder's own server; one gone
+	// since is counted on its card still.
+	if r, ok, err := get(ctx, m.db, rid); err != nil {
 		return err
-	case !ok || e.GuildID() == nil || *e.GuildID() != r.guild:
+	} else if ok && r.guild != *e.GuildID() {
 		return core.Tell("that reminder is gone")
 	}
-	turn := time.UnixMilli(dueMS)
-	n, err := answer(ctx, m.db, rid, turn, e.User().ID)
+	n, err := answer(ctx, m.db, rid, time.UnixMilli(dueMS), e.User().ID)
 	if err != nil {
 		return err
 	}
-	var who []snowflake.ID
-	if r.target == "team" {
-		t, _, err := teamOf(ctx, m.db, int64(r.targetID))
-		if err != nil {
-			return err
+	return e.UpdateMessage(tallied(e.Message.Components, n))
+}
+
+// tallied is a fired group card's components with its tally line set to
+// n here, everything else as it was.
+func tallied(cs []discord.LayoutComponent, n int) discord.MessageUpdate {
+	out := make([]discord.LayoutComponent, 0, len(cs))
+	for _, c := range cs {
+		box, ok := c.(discord.ContainerComponent)
+		if ok {
+			subs := slices.Clone(box.Components)
+			for i, s := range subs {
+				if t, ok := s.(discord.TextDisplayComponent); ok {
+					lines := slices.DeleteFunc(strings.Split(t.Content, "\n"), func(l string) bool {
+						return strings.HasPrefix(l, "✓ ") && strings.HasSuffix(l, " here")
+					})
+					t.Content = strings.Join(append(lines, "✓ "+strconv.Itoa(n)+" here"), "\n")
+					subs[i] = t
+					break
+				}
+			}
+			box.Components = subs
+			c = box
 		}
-		who = t.members
+		out = append(out, c)
 	}
-	r.due = turn
-	msg := called(r, 0, who, n)
-	u := v2Update(msg.Components)
+	u := v2Update(out)
 	u.AllowedMentions = core.NoPings()
-	return e.UpdateMessage(u)
+	return u
+}
+
+// refresh redraws team tid's card in its channel, if it has one, so its
+// count and next reminder stay true wherever they changed.
+func (m *Module) refresh(tid int64) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	t, ok, err := teamOf(ctx, m.db, tid)
+	p := m.poster()
+	if err != nil || !ok || t.card == 0 || p == nil {
+		return
+	}
+	var next *reminder
+	if r, ok, err := nextFor(ctx, m.db, tid); err == nil && ok {
+		next = &r
+	}
+	if err := m.guard.Allow(t.guild, guard.MessageSend); err != nil {
+		return
+	}
+	u := v2Update(teamCard(t, next))
+	u.AllowedMentions = core.NoPings()
+	_, err = p.UpdateMessage(t.channel, t.card, u, rest.WithCtx(ctx))
+	m.guard.Done(t.guild, err)
+	if err != nil {
+		m.log.Debug("remind: redrawing a team's card", "team", tid, "err", err)
+	}
 }
