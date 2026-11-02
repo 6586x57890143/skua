@@ -45,6 +45,10 @@ type Sheet struct {
 	Surety      bool
 	Held        int // quests open
 	RerollReady bool
+	// FirstRoll is their place on the first roll, 0 for none: a ribbon
+	// pinned beside the portrait with the place on it, worn through the
+	// first season's first week.
+	FirstRoll int
 }
 
 // Buff is one buff as the status screen shows it: its icon and its word.
@@ -163,6 +167,9 @@ func statusCanvas(s Sheet) *pixel.Canvas {
 		drawTrims(c, f, rule)
 	} else {
 		c.Bird(image.Pt(8, 12))
+	}
+	if s.FirstRoll > 0 && wornRoll(s.Season, s.Week) {
+		drawRoll(c, s.FirstRoll, rollAt)
 	}
 
 	// The lines sit 19 apart, a gauge centred on its label's x-height.

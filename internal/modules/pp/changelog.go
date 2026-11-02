@@ -18,6 +18,7 @@ var Changelog = []Entry{{
 		"a message pays for what it says: a laugh, a row of emoji or a held key says too little however long it is",
 		"one of your last few lines again, padded, shouted or alternated with another, doesn't pay, and neither does one made mostly of words you've just used",
 		"a sticker or a picture with no words pays once; the same one again doesn't",
+		"the first roll: the ten highest on the level ladder as the preseason left it are entered on the first roll for good, and wear its ribbon beside their portrait with their place on it through the first week of the season",
 	},
 }, {
 	Version: "0.18.0",

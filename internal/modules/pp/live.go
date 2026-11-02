@@ -78,7 +78,9 @@ type member struct {
 	// luck what the bones have done for them lately (only in memory: a
 	// restart forgets a run, as the taproom does).
 	feats int64
-	luck  luck
+	// firstRoll is their place on the first roll, 0 for none: see rollFirst.
+	firstRoll int64
+	luck      luck
 	// dispatchDay is the day they last had the morning's dispatch, in
 	// memory: after a restart they may get the day's again.
 	dispatchDay int64
@@ -350,6 +352,9 @@ func (st *state) rollServer(s *server, today int64) {
 	if s.day > 0 {
 		before, _ := st.bal().Season(s.day)
 		if now, _ := st.bal().Season(today); before != now {
+			if before == 0 {
+				s.rollFirst()
+			}
 			st.seasonTurn(s)
 		}
 	}
