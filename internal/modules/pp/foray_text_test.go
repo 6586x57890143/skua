@@ -7,26 +7,6 @@ import (
 	"unicode"
 )
 
-// taken is the option a bird of class leaning lean takes at e, carrying
-// marks: its class's own if e has one, else the first open option its lean
-// prefers. The engine walks the same rule.
-func taken(e Event, lean Wind, class string, marks map[string]bool) (Option, bool) {
-	open := func(o Option) bool { return o.After == "" || marks[o.After] }
-	for _, o := range e.Options {
-		if o.Class == class && open(o) {
-			return o, true
-		}
-	}
-	for _, w := range lean.prefers() {
-		for _, o := range e.Options {
-			if o.Class == "" && o.Wind == w && open(o) {
-				return o, true
-			}
-		}
-	}
-	return Option{}, false
-}
-
 // The lean's preference is the ring: itself, the two it gets on with, then
 // the two it can't stand, every wind once.
 func TestWindPrefers(t *testing.T) {

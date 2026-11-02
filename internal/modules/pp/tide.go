@@ -537,6 +537,7 @@ func (m *Module) Shut(ctx context.Context) {
 		seated := open && len(t.seats) > 0
 		if open {
 			t.settled, s.table = true, nil
+			s.refundAmber(t)
 			s.refundSeats(today)
 		}
 		s.mu.Unlock()
