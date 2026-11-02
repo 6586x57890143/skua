@@ -294,7 +294,7 @@ func run(log *slog.Logger) error {
 	}
 	// remind keeps every reminder in the database, so it runs only with one.
 	if purgeDB != nil {
-		all = append(all, remind.New(log, g, purgeDB))
+		all = append(all, remind.New(log, g, purgeDB, func(i discord.Interaction) bool { return router.Admin(i) }))
 	}
 	// /pp keeps every member's standing in the database, so it runs only
 	// with one. Its daily pools are seeded from the token, a secret skua

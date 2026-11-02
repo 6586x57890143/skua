@@ -119,7 +119,7 @@ func fresh(t *testing.T) (*Module, *clk, *poster, snowflake.ID, snowflake.ID) {
 	db := pool(t)
 	c := &clk{t: now}
 	p := &poster{c: c, trip: 80 * time.Millisecond}
-	m := New(quiet(), guard.New(), db)
+	m := New(quiet(), guard.New(), db, func(discord.Interaction) bool { return false })
 	m.now = c.now
 	m.after = func(time.Duration, func()) *time.Timer { return time.NewTimer(time.Hour) }
 	m.rest = p
@@ -838,7 +838,7 @@ func TestModuleFacts(t *testing.T) {
 	if m.Name() != "remind" || m.Perms() == 0 || m.Want().Required == 0 || m.Help().About == "" {
 		t.Fatal("facts")
 	}
-	if len(m.Commands()) != 2 || len(m.Components()) != 1 || len(m.Modals()) != 3 {
+	if len(m.Commands()) != 2 || len(m.Components()) != 1 || len(m.Modals()) != 4 {
 		t.Fatal("handlers")
 	}
 	if r := m.Report(g); len(r.Rows) != 0 {

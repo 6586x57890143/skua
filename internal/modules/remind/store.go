@@ -213,6 +213,9 @@ func pendingByGuild(ctx context.Context, db DB) (map[snowflake.ID]int, error) {
 }
 
 func dropGuild(ctx context.Context, db DB, guild snowflake.ID) error {
+	if _, err := db.Exec(ctx, "delete from remind_team where guild_id = $1", int64(guild)); err != nil {
+		return err
+	}
 	_, err := db.Exec(ctx, "delete from remind where guild_id = $1", int64(guild))
 	return err
 }
