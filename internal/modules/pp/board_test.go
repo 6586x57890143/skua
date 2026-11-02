@@ -81,14 +81,13 @@ func TestBoard(t *testing.T) {
 func TestBoardPages(t *testing.T) {
 	m := testModule(&fakeDB{})
 	s := m.st.server(3)
-	me := snowflake.ID(5)
 	for i := range 150 {
 		mem := m.st.member(s, 3, old(i+1), DayOf(t0))
 		mem.total = int64(1000-i) * 1000 * unit
 		mem.season, mem.seasonPP = 1, int64(i+1)*unit
 		mem.classSeason = 1
 	}
-	me = old(150)
+	me := old(150)
 	m.now = func() time.Time { return t0 }
 	ids := regexp.MustCompile(`"custom_id":"([^"]+)"`)
 	for _, board := range []string{"season", "levels"} {
