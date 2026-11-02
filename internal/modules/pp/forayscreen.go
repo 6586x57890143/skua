@@ -49,6 +49,11 @@ var forayArts = func() map[string][4]func() *sumpArt {
 	return out
 }()
 
+// forayPaper is how much of a foray pane is parchment and how much the
+// painting under it: less than the morning sheet's, so the place reads
+// through the page while its text stays clear.
+const forayPaper = 0.62
+
 // The panes: the gate's over its foreground and the left fork, a place's
 // down its quiet left third.
 var (
@@ -83,7 +88,7 @@ func forayFrames(v ForayView) []*pixel.Canvas {
 	for i, r := range scene {
 		c := r.Copy()
 		forayPane(c, v)
-		seeThrough(c, r, paper)
+		seeThrough(c, r, forayPaper)
 		out[i] = c
 	}
 	return out
@@ -387,6 +392,11 @@ func (m *Module) gateView(s *server, user snowflake.ID, view string, page, where
 		if len(act) > 0 {
 			rows = append(rows, discord.NewActionRow(act...))
 		}
+		// Only an admin reaches a shut gate: the switch that opens it to
+		// everyone is here, where they'd look for it.
+		if !s.gateOpen {
+			rows = append(rows, discord.NewActionRow(withIcon(discord.NewPrimaryButton("open the gate to everyone", "pp:opengate"), "gate")))
+		}
 	}
 	return func() (discord.MessageCreate, error) {
 		pic, err := ForayScreen(v)
@@ -433,22 +443,6 @@ func (st *state) gateWords(s *server, user snowflake.ID, today int64) string {
 	}
 	paras = append(paras, fmt.Sprintf("your out pages: %d of %d, and %d of %d endings.", len(f.pages), total, len(f.endings), ends))
 	return strings.Join(paras, " ")
-}
-
-// gateControls is the switch that opens the gate, on /pp's help page
-// until it's pressed.
-func (m *Module) gateControls(guild snowflake.ID) []discord.ContainerSubComponent {
-	s := m.st.server(guild)
-	s.mu.Lock()
-	open := s.gateOpen
-	s.mu.Unlock()
-	if open {
-		return nil
-	}
-	return []discord.ContainerSubComponent{
-		discord.NewTextDisplay("### the north gate\n-# forays are for admins only until this is pressed. it opens the gate to everyone, once, and can't be undone"),
-		discord.NewActionRow(discord.NewPrimaryButton("open the north gate", "pp:opengate")),
-	}
 }
 
 // openGate opens the gate to everyone, for good.

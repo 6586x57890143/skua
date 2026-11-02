@@ -263,7 +263,7 @@ func (m *Module) liverySettings(guild snowflake.ID) []discord.ContainerSubCompon
 		discord.NewActionRow(role),
 		discord.NewActionRow(ch),
 		m.rollControl(guild),
-	}, append(append(m.yardControls(guild), m.gateControls(guild)...), m.waiting(guild)...)...)
+	}, append(m.yardControls(guild), m.waiting(guild)...)...)
 }
 
 // rollControl picks the heralds' roll's room.
