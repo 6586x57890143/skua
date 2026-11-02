@@ -159,6 +159,9 @@ func TestVoiceRaw(t *testing.T) {
 		{"with a bot", Seat{}, []Seat{{Bot: true, Age: b.CompanionAge}}, 0},
 		{"with a fresh alt", Seat{}, []Seat{{Age: time.Hour}}, 0},
 		{"with someone deaf", Seat{}, []Seat{{Deaf: true, Age: b.CompanionAge}}, 0},
+		{"with someone muted and fading", Seat{}, []Seat{{SelfMute: true, Age: b.CompanionAge, Idle: grace + b.IdleFade - time.Minute}}, b.VoiceBase * b.Unmuted / 100},
+		{"with someone muted and asleep", Seat{}, []Seat{{SelfMute: true, Age: b.CompanionAge, Idle: grace + b.IdleFade}}, 0},
+		{"with a silent open mic still awake", Seat{}, []Seat{{Age: b.CompanionAge, Idle: open + grace}}, b.VoiceBase * b.Unmuted / 100},
 	}
 	for _, c := range cases {
 		if got := b.VoiceRaw(c.me, c.others, 100); got != c.want {

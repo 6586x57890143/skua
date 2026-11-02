@@ -129,18 +129,18 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.17.0",
+	Version: "0.18.0",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
 	Deafened:     50,
 	CompanionAge: 7 * 24 * time.Hour,
 
-	IdleGrace:  30 * time.Minute,
-	IdleFade:   90 * time.Minute,
-	OpenGrace:  3 * time.Hour,
+	IdleGrace:  20 * time.Minute,
+	IdleFade:   60 * time.Minute,
+	OpenGrace:  2 * time.Hour,
 	IdleJitter: 25,
-	IdleFloor:  5,
+	IdleFloor:  0,
 	DeafFloor:  0,
 
 	ChatMin:      2 * unit,

@@ -89,10 +89,11 @@ type member struct {
 
 	// Only in memory: when they last earned by chat and last counted as
 	// active, a fingerprint of their last message, when they last showed a
-	// sign of life, and what they were last seen wearing.
+	// sign of life and last left voice, and what they were last seen
+	// wearing.
 	lastPay, lastCount time.Time
 	lastHash           uint64
-	life               time.Time
+	life, leftVoice    time.Time
 	wear               Wearing
 	dirty              bool
 }
@@ -549,17 +550,23 @@ func (st *state) talk(s *server, guild, user snowflake.ID, content string, now t
 	return got
 }
 
-// sit puts user in voice as vs says, or takes them out. Joining, and
-// turning a camera or a stream on, is a sign of life; a mute toggle isn't,
-// since a macro can do it. s.mu held.
+// sit puts user in voice as vs says, or takes them out. Joining after
+// IdleGrace out of voice, and turning a camera or a stream on, is a sign of
+// life; a mute toggle, a move between channels and a quick leave and
+// rejoin aren't, since a macro can do them. s.mu held.
 func (st *state) sit(s *server, guild, user snowflake.ID, vs discord.VoiceState, bot bool, now time.Time) {
 	if vs.ChannelID == nil {
+		if m, ok := s.members[user]; ok {
+			m.leftVoice = now
+		}
 		delete(s.seats, user)
 		return
 	}
 	old, ok := s.seats[user]
-	if !bot && (!ok || old.channel != *vs.ChannelID || vs.SelfVideo && !old.camera || vs.SelfStream && !old.stream) {
-		st.member(s, guild, user, DayOf(now)).life = now
+	if !bot && (!ok || vs.SelfVideo && !old.camera || vs.SelfStream && !old.stream) {
+		if m := st.member(s, guild, user, DayOf(now)); ok || now.Sub(m.leftVoice) >= st.bal().IdleGrace {
+			m.life = now
+		}
 	}
 	s.seats[user] = &seat{
 		channel: *vs.ChannelID, bot: bot,
@@ -596,7 +603,11 @@ func (st *state) minute(s *server, guild, afk snowflake.ID, now time.Time) int {
 			for _, o := range users {
 				if o != u {
 					them := s.seats[o]
-					others = append(others, Seat{Bot: them.bot, Deaf: them.deaf, Age: now.Sub(o.Time())})
+					var idle time.Duration
+					if om, ok := s.members[o]; ok {
+						idle = now.Sub(om.life)
+					}
+					others = append(others, Seat{Bot: them.bot, Deaf: them.deaf, SelfMute: them.selfMute, Age: now.Sub(o.Time()), Idle: idle})
 				}
 			}
 			raw := st.bal().VoiceRaw(me, others, st.pools(guild, u, today).Pace)

@@ -56,6 +56,30 @@ func TestVoiceNeedsCompany(t *testing.T) {
 	}
 }
 
+// Joining is a sign of life, but moving channels and a quick leave and
+// rejoin aren't: a macro can do them. Coming back after IdleGrace away is.
+func TestVoiceSignsOfLife(t *testing.T) {
+	st, s := testState()
+	a := old(1)
+	st.sit(s, guild, a, in(room), false, t0)
+	if s.members[a].life != t0 {
+		t.Fatal("joining isn't a sign of life")
+	}
+	at := t0.Add(time.Hour)
+	st.sit(s, guild, a, in(afkCh), false, at)
+	st.sit(s, guild, a, discord.VoiceState{}, false, at)
+	st.sit(s, guild, a, in(room), false, at.Add(time.Minute))
+	if s.members[a].life != t0 {
+		t.Error("a move or a quick rejoin counted as a sign of life")
+	}
+	back := at.Add(Default.IdleGrace + time.Minute)
+	st.sit(s, guild, a, discord.VoiceState{}, false, at.Add(time.Minute))
+	st.sit(s, guild, a, in(room), false, back)
+	if s.members[a].life != back {
+		t.Error("coming back after the grace isn't a sign of life")
+	}
+}
+
 func TestAFKChannelEarnsNothing(t *testing.T) {
 	st, s := testState()
 	st.sit(s, guild, old(1), in(afkCh), false, t0)

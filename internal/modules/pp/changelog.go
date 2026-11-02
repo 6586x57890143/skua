@@ -11,6 +11,15 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.18.0",
+	Date:    "2026-11-02",
+	Balance: "00e9ac",
+	Lines: []string{
+		"voice notices a quiet seat sooner: muted or deafened with no sign of life, it starts to fade after twenty minutes and is gone an hour later. an open mic is taken at its word for two hours",
+		"moving channels, or leaving and coming straight back, is no longer a sign of life. a message, a button, a camera or a stream still is",
+		"a bird whose voice has faded all the way no longer counts as company, so a channel of sleepers pays nobody",
+	},
+}, {
 	Version: "0.17.0",
 	Date:    "2026-11-02",
 	Balance: "cd507f",
