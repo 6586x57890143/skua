@@ -296,10 +296,21 @@ func (b *Balance) HearthTier(today int64, history []int64) int {
 	return tier
 }
 
-// Usual is a server's usual day, the median of the days in history it
-// earned anything, HearthFloor before it has one. A median, not a mean: one
-// big day would hold a mean above every ordinary day after it.
+// Usual is a server's usual day: the median of the days in history it
+// earned anything, or of its last hearthWeek of them if that's higher,
+// HearthFloor before it has one. A median, not a mean: one big day would
+// hold a mean above every ordinary day after it. The longer one keeps a
+// slow week from dropping the bar so far that any ordinary day after it
+// lights the fire.
 func (b *Balance) Usual(history []int64) int64 {
+	return max(b.median(history), b.median(history[max(0, len(history)-hearthWeek):]))
+}
+
+// hearthWeek is the short window Usual reads, and hearthDays how many days
+// a server keeps.
+const hearthWeek, hearthDays = 7, 14
+
+func (b *Balance) median(history []int64) int64 {
 	days := make([]int64, 0, len(history))
 	for _, h := range history {
 		if h > 0 {

@@ -200,12 +200,12 @@ func TestHearth(t *testing.T) {
 	if s.hearth() != 0 {
 		t.Error("the hearth stayed lit across a quiet day")
 	}
-	for range 10 {
+	for range 20 {
 		s.raw = 7
 		st.rollServer(s, s.day+1)
 	}
-	if len(s.history) != 7 {
-		t.Errorf("history keeps %d days; want a week", len(s.history))
+	if len(s.history) != hearthDays {
+		t.Errorf("history keeps %d days; want %d", len(s.history), hearthDays)
 	}
 }
 

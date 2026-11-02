@@ -11,6 +11,13 @@ type Entry struct {
 
 // Changelog is newest first.
 var Changelog = []Entry{{
+	Version: "0.18.2",
+	Date:    "2026-11-02",
+	Balance: "853b8b",
+	Lines: []string{
+		"the hearth asks more of the server: its tiers light at 90, 110 and 130% of a usual day, and a usual day is read over the last two weeks as well as the last one, so a quiet week doesn't make any ordinary day after it a fire",
+	},
+}, {
 	Version: "0.18.1",
 	Date:    "2026-11-02",
 	Balance: "14114d",
