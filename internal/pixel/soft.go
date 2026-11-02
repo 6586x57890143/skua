@@ -2,12 +2,16 @@ package pixel
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
+	"errors"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/HugoSmits86/nativewebp"
 )
@@ -200,6 +204,9 @@ func Animate(frames []*Canvas, beats []int, scale int) ([]byte, error) {
 	if Draft.Load() {
 		return draft, nil
 	}
+	if timed := Timed; timed != nil {
+		defer func(start time.Time) { timed(time.Since(start)) }(time.Now())
+	}
 	frames = slices.Clone(frames)
 	for i, f := range frames {
 		frames[i] = f.frame(Bob[i%len(Bob)])
@@ -224,23 +231,141 @@ func Animate(frames []*Canvas, beats []int, scale int) ([]byte, error) {
 	if len(parts) == 1 {
 		return frames[0].Soft(scale)
 	}
-	imgs := make([]*image.RGBA, len(parts))
+	streams := make([][]byte, len(parts))
+	errs := make([]error, len(parts))
 	var wg sync.WaitGroup
 	for k, p := range parts {
-		wg.Go(func() { imgs[k] = p.f.softIn(scale, p.box) })
+		wg.Go(func() { streams[k], errs[k] = p.f.stream(scale, p.box) })
 	}
 	wg.Wait()
-	ani := nativewebp.Animation{}
-	for k, p := range parts {
-		ani.Images = append(ani.Images, imgs[k])
-		ani.Durations = append(ani.Durations, uint(p.beat))
-		ani.Disposals = append(ani.Disposals, 0)
-	}
-	var buf bytes.Buffer
-	if err := nativewebp.EncodeAll(&buf, &ani, &nativewebp.Options{CompressionLevel: nativewebp.BestSpeed}); err != nil {
+	if err := errors.Join(errs...); err != nil {
 		return nil, err
 	}
-	return buf.Bytes(), nil
+	// The container as nativewebp's EncodeAll writes it, byte for byte, but
+	// round streams that may have come from the cache.
+	var body bytes.Buffer
+	u24 := func(v int) { body.Write([]byte{byte(v), byte(v >> 8), byte(v >> 16)}) }
+	u32 := func(v int) { _ = binary.Write(&body, binary.LittleEndian, uint32(v)) }
+	body.WriteString("VP8X")
+	u32(10)
+	body.Write([]byte{1 << 1, 0, 0, 0}) // animated, opaque
+	u24(full.Dx() - 1)
+	u24(full.Dy() - 1)
+	body.WriteString("ANIM")
+	u32(6)
+	u32(0)                   // background
+	body.Write([]byte{0, 0}) // loop forever
+	for k, p := range parts {
+		body.WriteString("ANMF")
+		u32(16 + 8 + len(streams[k]))
+		u24(p.box.Min.X / 2)
+		u24(p.box.Min.Y / 2)
+		u24(p.box.Dx() - 1)
+		u24(p.box.Dy() - 1)
+		u24(min(p.beat, 1<<24-1))
+		body.WriteByte(0) // blend, and keep the frame under the next
+		body.WriteString("VP8L")
+		u32(len(streams[k]))
+		body.Write(streams[k])
+	}
+	out := bytes.NewBuffer(make([]byte, 0, 12+body.Len()))
+	out.WriteString("RIFF")
+	_ = binary.Write(out, binary.LittleEndian, uint32(4+body.Len()))
+	out.WriteString("WEBP")
+	out.Write(body.Bytes())
+	return out.Bytes(), nil
+}
+
+// streams caches the VP8L stream of every frame part Animate encodes, by
+// what it was drawn from: the box, the scale and the cells it reads. A
+// scene that moves the same for every member, the yard's steam or the
+// sump's water at an hour's light, is encoded once and not again, and the
+// member's own part costs a frame. Drawing the parts is most of what a
+// moving screen costs.
+var streams = struct {
+	sync.Mutex
+	m    map[[32]byte][]byte
+	size int
+}{m: map[[32]byte][]byte{}}
+
+// streamsMost bounds the cache's bytes: past it the cache starts over.
+// ponytail: dropped whole, not least recently used; a scene's parts come
+// back within a draw or two.
+const streamsMost = 64 << 20
+
+// Encoded counts the frame parts Animate encoded rather than found cached.
+var Encoded atomic.Int64
+
+// Timed, set once at boot, is told how long each moving screen took to
+// draw: the perf readout's screens row.
+var Timed func(time.Duration)
+
+// stream is the VP8L stream of c softened at scale within out, from the
+// cache when the same cells were softened in the same box before.
+func (c *Canvas) stream(scale int, out image.Rectangle) ([]byte, error) {
+	key := c.partKey(scale, out)
+	streams.Lock()
+	s, ok := streams.m[key]
+	streams.Unlock()
+	if ok {
+		return s, nil
+	}
+	var buf bytes.Buffer
+	if err := nativewebp.Encode(&buf, c.softIn(scale, out), &nativewebp.Options{CompressionLevel: nativewebp.BestSpeed}); err != nil {
+		return nil, err
+	}
+	s, err := vp8l(buf.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	Encoded.Add(1)
+	streams.Lock()
+	if streams.size+len(s) > streamsMost {
+		streams.m, streams.size = map[[32]byte][]byte{}, 0
+	}
+	if _, ok := streams.m[key]; !ok {
+		streams.m[key] = s
+		streams.size += len(s)
+	}
+	streams.Unlock()
+	return s, nil
+}
+
+// partKey is what softIn reads to soften out at scale: the box itself, as
+// the dither falls by place, and the colour of every cell out to three
+// past it, further than the smoothing reaches.
+func (c *Canvas) partKey(scale int, out image.Rectangle) [32]byte {
+	h := sha256.New()
+	var b [8]byte
+	for _, v := range []int{scale, out.Min.X, out.Min.Y, out.Max.X, out.Max.Y, c.Rect.Dx(), c.Rect.Dy()} {
+		binary.LittleEndian.PutUint64(b[:], uint64(v))
+		h.Write(b[:])
+	}
+	cells := image.Rect(out.Min.X/scale-3, out.Min.Y/scale-3, (out.Max.X+scale-1)/scale+3, (out.Max.Y+scale-1)/scale+3).Intersect(c.Rect)
+	for y := cells.Min.Y; y < cells.Max.Y; y++ {
+		for x := cells.Min.X; x < cells.Max.X; x++ {
+			r, g, bl, _ := c.Palette[c.Pix[c.PixOffset(x, y)]].RGBA()
+			h.Write([]byte{byte(r >> 8), byte(g >> 8), byte(bl >> 8)})
+		}
+	}
+	var sum [32]byte
+	h.Sum(sum[:0])
+	return sum
+}
+
+// vp8l is the VP8L stream of a still WebP: its one image's chunk.
+func vp8l(webp []byte) ([]byte, error) {
+	for at := 12; at+8 <= len(webp); {
+		n := int(binary.LittleEndian.Uint32(webp[at+4:]))
+		if at+8+n > len(webp) {
+			break
+		}
+		if string(webp[at:at+4]) == "VP8L" {
+			return webp[at+8 : at+8+n], nil
+		}
+		at += 8 + n + n&1
+	}
+	return nil, errors.New("pixel: a still WebP without its VP8L chunk")
 }
 
 // changed is the box of cells where b differs from a.

@@ -51,6 +51,7 @@ import (
 	"github.com/6586x57890143/skua/internal/modules/status"
 	"github.com/6586x57890143/skua/internal/modules/whisper"
 	"github.com/6586x57890143/skua/internal/obs"
+	"github.com/6586x57890143/skua/internal/pixel"
 	"github.com/6586x57890143/skua/internal/ratelimit"
 	"github.com/6586x57890143/skua/internal/sanction"
 	"github.com/6586x57890143/skua/internal/store"
@@ -226,6 +227,8 @@ func run(log *slog.Logger) error {
 	// Shutdown waits on preen, so a self-react's removal is never lost to a
 	// deploy.
 	preener := preen.New(g, obs.Default, whispers)
+	// Every moving screen's draw shows on /perf as screens.
+	pixel.Timed = func(d time.Duration) { obs.Default.Add("screens", obs.Run, d) }
 	// spam sanctions through bird, so bird exists first.
 	birds := bird.New(g, hooks, filter.Default(), os.Getenv("SKUA_XENO_CANTO_KEY"))
 	all := []core.Module{
