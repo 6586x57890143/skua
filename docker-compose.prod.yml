@@ -19,6 +19,9 @@ services:
     # (deployed-tag.env keeps it with its tag); empty for an unsigned build.
     environment:
       SKUA_ATTEST: ${SKUA_ATTEST:-}
+      # Under mem_limit, so the GC collects before the kernel kills: without
+      # it the heap doubles past 256m at boot and the bot is OOM killed.
+      GOMEMLIMIT: 200MiB
     depends_on:
       postgres:
         condition: service_healthy
