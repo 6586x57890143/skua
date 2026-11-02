@@ -79,8 +79,9 @@ func TestNotes(t *testing.T) {
 	_, _, need := m.st.bal().Level(0)
 	mem.total = need - unit
 	s.lit = 2
+	mem.firstRoll = 3
 	got := strings.Join(m.notes(s, mem, today), "|")
-	for _, want := range []string{"livery fades tonight", "1 pp off level 1", "hearth is lit"} {
+	for _, want := range []string{"livery fades tonight", "1 pp off level 1", "hearth is lit", "3rd on the first roll"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the notes lack %q: %s", want, got)
 		}
@@ -125,7 +126,7 @@ func TestMorningLayout(t *testing.T) {
 		}
 	}
 	full := Morning{Date: "season 12, day 28", News: long, Rumour: rumour,
-		Notes: []string{"your livery fades tonight unless the yard is paid", "a raven has you 99,999 pp off level 99", "the hearth is lit, and your work goes further today"}}
+		Notes: []string{"you're 10th on the first roll; wear its ribbon this week", "a raven has you 99,999 pp off level 99", "the hearth is lit, and your work goes further today"}}
 	for tier := range 3 {
 		full.Quests = append(full.Quests, QuestLine{Icon: "compass", Tier: tier, Reward: 99999 * unit,
 			Tasks: []TaskLine{{What: "a selfie that stays a day", Goal: 1}, {What: "messages", Goal: 9}}})

@@ -129,6 +129,11 @@ func (m *Module) notes(s *server, mem *member, today int64) []string {
 	case mem.livery != "" && mem.liveryUntil == today:
 		out = append(out, "your livery fades tonight unless the yard is paid")
 	}
+	// The roll's week comes once, so it goes ahead of what any day has; the
+	// pane keeps the notes that fit, in order.
+	if season, week := m.st.bal().Season(today); mem.firstRoll > 0 && wornRoll(season, week) {
+		out = append(out, fmt.Sprintf("you're %s on the first roll; wear its ribbon this week", ordinal(int(mem.firstRoll))))
+	}
 	if l, into, need := m.st.bal().Level(mem.total); need-into <= need/10 {
 		out = append(out, fmt.Sprintf("a raven has you %s pp off level %d", grouped((need-into+unit-1)/unit), l+1))
 	}
