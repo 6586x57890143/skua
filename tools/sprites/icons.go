@@ -326,6 +326,20 @@ var moduleGlyphs = map[string][]string{
 		"........................",
 		"........................",
 	},
+	"remind": doubleSocialGlyph([]string{ // drawn on the grid: an alarm clock
+		"............",
+		".ww......ww.",
+		"w..wwwwww..w",
+		"..w......w..",
+		".w...w....w.",
+		".w...w....w.",
+		".w...www..w.",
+		".w........w.",
+		"..w......w..",
+		"...wwwwww...",
+		"..w......w..",
+		"............",
+	}),
 	"notify": { // bell
 		"........................",
 		"........................",
@@ -352,6 +366,67 @@ var moduleGlyphs = map[string][]string{
 		"........................",
 		"........................",
 	},
+}
+
+// buttonGlyphs are what a button does, written bare as btn_<name> so they
+// read on a grey button as on a coloured one.
+var buttonGlyphs = map[string][]string{
+	"done": doubleSocialGlyph([]string{ // drawn on the grid: a tick
+		"............",
+		"............",
+		"............",
+		"..........w.",
+		".........w..",
+		".w......w...",
+		"..w....w....",
+		"...w..w.....",
+		"....ww......",
+		"............",
+		"............",
+		"............",
+	}),
+	"snooze": doubleSocialGlyph([]string{ // drawn on the grid: zz
+		"............",
+		"......wwwww.",
+		".........w..",
+		"........w...",
+		".......wwwww",
+		"wwwww.......",
+		"...w........",
+		"..w.........",
+		".w..........",
+		"wwwww.......",
+		"............",
+		"............",
+	}),
+	"edit": doubleSocialGlyph([]string{ // drawn on the grid: a pencil
+		"............",
+		"........ww..",
+		".......w..w.",
+		"......w..w..",
+		".....w..w...",
+		"....w..w....",
+		"...w..w.....",
+		"..w..w......",
+		"..www.......",
+		"..ww........",
+		"............",
+		"............",
+	}),
+	"cancel": doubleSocialGlyph([]string{ // drawn on the grid: a cross
+		"............",
+		"............",
+		"..w......w..",
+		"...w....w...",
+		"....w..w....",
+		".....ww.....",
+		".....ww.....",
+		"....w..w....",
+		"...w....w...",
+		"..w......w..",
+		"............",
+		"............",
+	}),
 }
 
 // platformGlyphs are the platforms notify follows, drawn by hand on the
@@ -794,6 +869,9 @@ func writeEmoji(b *image.NRGBA) {
 	tiles(out, "mod_", moduleGlyphs, nil)
 	tiles(out, "pf_", platformGlyphs, platformInk)
 	bare(out, "btn_notify", moduleGlyphs["notify"])
+	for name, g := range buttonGlyphs {
+		bare(out, "btn_"+name, g)
+	}
 	bare(out, "stat_reply", socialGlyphs["reply"])
 	bare(out, "stat_repost", socialGlyphs["repost"])
 	bare(out, "stat_views", socialGlyphs["views"])
