@@ -99,6 +99,31 @@ func claim(ctx context.Context, db DB, r reminder, next time.Time) (bool, error)
 	return err == nil && tag.RowsAffected() == 1, err
 }
 
+// move sets a pending one-off's due time, if it is still due when it
+// was queued.
+func move(ctx context.Context, db DB, r reminder, to time.Time) (bool, error) {
+	tag, err := db.Exec(ctx, "update remind set due_at = $3 where id = $1 and due_at = $2 and state = 'pending'", r.id, r.due, to)
+	return err == nil && tag.RowsAffected() == 1, err
+}
+
+// agenda is user's waiting reminders, soonest first, at most n.
+func agenda(ctx context.Context, db DB, user snowflake.ID, n int) ([]reminder, error) {
+	rows, err := db.Query(ctx, "select "+cols+" from remind where owner_id = $1 and state = 'pending' order by due_at limit $2", int64(user), n)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []reminder
+	for rows.Next() {
+		r, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // settle is a one-off's send: done once it is out, back to pending at
 // retry when it isn't.
 func settle(ctx context.Context, db DB, id int64, retry time.Time) error {
@@ -189,32 +214,5 @@ func pendingByGuild(ctx context.Context, db DB) (map[snowflake.ID]int, error) {
 
 func dropGuild(ctx context.Context, db DB, guild snowflake.ID) error {
 	_, err := db.Exec(ctx, "delete from remind where guild_id = $1", int64(guild))
-	return err
-}
-
-// person is what remind keeps about a member wherever they are.
-type person struct {
-	tz        string
-	dmChannel snowflake.ID
-}
-
-func personOf(ctx context.Context, db DB, user snowflake.ID) (person, error) {
-	var p person
-	var dm int64
-	err := db.QueryRow(ctx, "select tz, dm_channel from remind_user where user_id = $1", int64(user)).Scan(&p.tz, &dm)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return person{}, nil
-	}
-	p.dmChannel = snowflake.ID(dm)
-	return p, err
-}
-
-func saveTZ(ctx context.Context, db DB, user snowflake.ID, tz string) error {
-	_, err := db.Exec(ctx, "insert into remind_user (user_id, tz) values ($1, $2) on conflict (user_id) do update set tz = $2", int64(user), tz)
-	return err
-}
-
-func saveDM(ctx context.Context, db DB, user, ch snowflake.ID) error {
-	_, err := db.Exec(ctx, "insert into remind_user (user_id, dm_channel) values ($1, $2) on conflict (user_id) do update set dm_channel = $2", int64(user), int64(ch))
 	return err
 }

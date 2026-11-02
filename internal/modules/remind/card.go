@@ -3,6 +3,7 @@ package remind
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -73,6 +74,7 @@ func setCard(r reminder, now time.Time, noZone bool, note string) []discord.Layo
 	return v2(brand.ColorOK, "set", body+foot,
 		discord.NewActionRow(repeatMenu(r, sid)),
 		discord.NewActionRow(
+			agendaButton(),
 			icon(discord.NewSecondaryButton("edit", id+":edit:"+sid), "btn_edit"),
 			icon(discord.NewSecondaryButton("cancel", id+":x:"+sid), "btn_cancel"),
 		),
@@ -109,7 +111,7 @@ func repeatMenu(r reminder, sid string) discord.StringSelectMenuComponent {
 
 // fired is the reminder itself. In a channel it pings its owner and no one
 // else; in their dms a dm is ping enough.
-func fired(r reminder, late time.Duration, inChannel bool) discord.MessageCreate {
+func fired(r reminder, late time.Duration, inChannel bool, snooze []int) discord.MessageCreate {
 	sub := "-# set " + core.Duration(r.due.Sub(r.created)) + " ago"
 	if inChannel {
 		sub = "-# for <@" + r.owner.String() + "> · set " + core.Duration(r.due.Sub(r.created)) + " ago"
@@ -121,12 +123,11 @@ func fired(r reminder, late time.Duration, inChannel bool) discord.MessageCreate
 		sub += "\n-# ! late by " + core.Duration(late) + "; skua was away when it was due"
 	}
 	key := strconv.FormatInt(r.id, 10) + ":" + strconv.FormatInt(r.due.UnixMilli(), 10)
-	row := discord.NewActionRow(
-		icon(discord.NewSecondaryButton("done", id+":done:"+key), "btn_done"),
-		icon(discord.NewSecondaryButton("10m", id+":snz:"+key+":10"), "btn_snooze"),
-		icon(discord.NewSecondaryButton("1h", id+":snz:"+key+":60"), "btn_snooze"),
-		icon(discord.NewSecondaryButton("tomorrow", id+":snz:"+key+":tmr"), "btn_snooze"),
-	)
+	buttons := []discord.InteractiveComponent{icon(discord.NewSecondaryButton("done", id+":done:"+key), "btn_done")}
+	for _, n := range snooze[:min(len(snooze), 3)] {
+		buttons = append(buttons, icon(discord.NewSecondaryButton(snoozeWord(n), id+":snz:"+key+":"+strconv.Itoa(n)), "btn_snooze"))
+	}
+	row := discord.NewActionRow(buttons...)
 	mentions := core.NoPings()
 	if inChannel {
 		mentions.Users = []snowflake.ID{r.owner}
@@ -158,6 +159,9 @@ func landed(msg snowflake.ID, dueMS int64) string {
 // again and has to be theirs.
 func (m *Module) click(ctx context.Context, e *events.ComponentInteractionCreate) error {
 	f := strings.Split(e.Data.CustomID(), ":")
+	if len(f) == 2 {
+		return m.panelClick(ctx, e, f[1])
+	}
 	if len(f) < 3 {
 		return core.Tell("that card is out of date")
 	}
@@ -193,7 +197,11 @@ func (m *Module) click(ctx context.Context, e *events.ComponentInteractionCreate
 		if _, err := cancel(ctx, m.db, r.id, r.owner); err != nil {
 			return err
 		}
-		return e.UpdateMessage(discord.NewMessageUpdateV2(v2(brand.ColorIdle, "cancelled", "### "+r.text+"\n-# ✓ it won't come")...))
+		var back []discord.ContainerSubComponent
+		if e.Message.Flags.Has(discord.MessageFlagEphemeral) {
+			back = append(back, discord.NewActionRow(agendaButton()))
+		}
+		return e.UpdateMessage(discord.NewMessageUpdateV2(v2(brand.ColorIdle, "cancelled", "### "+r.text+"\n-# ✓ it won't come", back...)...))
 	case "edit":
 		return e.Modal(form(r))
 	case "rep":
@@ -219,17 +227,14 @@ func (m *Module) click(ctx context.Context, e *events.ComponentInteractionCreate
 // snooze brings r back after what was pressed: a one-off moves, a repeat
 // keeps its turns and gets a one-off copy.
 func (m *Module) snooze(ctx context.Context, e *events.ComponentInteractionCreate, r reminder, by string, dueMS int64, now time.Time) error {
-	back := now
-	switch by {
-	case "10":
-		back = now.Add(10 * time.Minute)
-	case "60":
-		back = now.Add(time.Hour)
-	case "tmr":
+	n, err := strconv.Atoi(by)
+	if err != nil || !slices.Contains(snoozes, n) {
+		return core.Tell("that card is out of date")
+	}
+	back := now.Add(time.Duration(n) * time.Minute)
+	if n == tomorrow {
 		l, d := now.In(r.loc()), time.UnixMilli(dueMS).In(r.loc())
 		back = time.Date(l.Year(), l.Month(), l.Day()+1, d.Hour(), d.Minute(), 0, 0, r.loc())
-	default:
-		return core.Tell("that card is out of date")
 	}
 	back = back.Truncate(time.Second)
 	snoozed := r

@@ -44,9 +44,7 @@ type Module struct {
 	held     map[int64]time.Time
 	timer    *time.Timer
 	tries    map[int64]int
-	dms      map[snowflake.ID]snowflake.ID // member -> their dm channel
-	tzs      map[snowflake.ID]string       // member -> their zone, as kept
-	pending  map[snowflake.ID]int          // guild -> reminders waiting
+	pending  map[snowflake.ID]int // guild -> reminders waiting
 	offs     map[snowflake.ID][]time.Duration
 	fellBack map[snowflake.ID]int // guild -> dms that went to the channel
 }
@@ -55,7 +53,7 @@ type Module struct {
 func New(log *slog.Logger, g *guard.Guard, db DB) *Module {
 	m := &Module{
 		log: log, guard: g, db: db, now: time.Now, after: time.AfterFunc,
-		held: map[int64]time.Time{}, tries: map[int64]int{}, dms: map[snowflake.ID]snowflake.ID{}, tzs: map[snowflake.ID]string{},
+		held: map[int64]time.Time{}, tries: map[int64]int{},
 		pending: map[snowflake.ID]int{}, offs: map[snowflake.ID][]time.Duration{}, fellBack: map[snowflake.ID]int{},
 	}
 	m.leadNS.Store(int64(firstLead))
@@ -76,7 +74,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorInfo,
 		Line:  "reminds you at the time you ask, to the second",
-		About: "run /remind with when and what. she reads a time the way you'd type it: in 20m, 5pm, fri 17:30, 7 nov or every weekday at 9, and the list under when shows how she read it before you send. pick your timezone once with tz and she keeps it. the reminder comes to your dms with buttons to snooze it or mark it done, or to a channel if you ask, and to the channel you set it in when your dms are closed. she learns how long discord takes to make a message and sends that much early, so it lands on the second",
+		About: "run /remind with when and what. she reads a time the way you'd type it: in 20m, 5pm, fri 17:30, 7 nov or every weekday at 9, and the list under when shows how she read it before you send. pick your timezone once with tz and she keeps it. the reminder comes to your dms with buttons to snooze it or mark it done, or to a channel if you ask, and to the channel you set it in when your dms are closed. /reminders lists what you have waiting by day, opens one to change it or sets a new one, and keeps how they come to you: where they go, your three snooze buttons and quiet hours, when a dm waits until morning. she learns how long discord takes to make a message and sends that much early, so it lands on the second",
 	}
 }
 
@@ -171,43 +169,29 @@ func (m *Module) Commands() []core.Command {
 		},
 		Tier: core.Public,
 		Run:  m.remind,
-	}}
+	}, m.agendaCommand()}
 }
 
 func (m *Module) Components() []core.Component { return []core.Component{{ID: id, Run: m.click}} }
 
-func (m *Module) Modals() []core.Modal { return []core.Modal{{ID: editID, Run: m.submit}} }
+func (m *Module) Modals() []core.Modal {
+	return []core.Modal{{ID: editID, Run: m.submit}, {ID: newID, Run: m.create}, {ID: zoneID, Run: m.setZone}}
+}
 
 // zoneOf is user's zone as kept, or "".
 func (m *Module) zoneOf(ctx context.Context, user snowflake.ID) string {
-	m.mu.Lock()
-	tz, ok := m.tzs[user]
-	m.mu.Unlock()
-	if ok {
-		return tz
-	}
-	p, err := personOf(ctx, m.db, user)
+	p, err := m.person(ctx, user)
 	if err != nil {
 		m.log.Warn("remind: reading a member's zone", "err", err)
-		return ""
 	}
-	m.mu.Lock()
-	m.tzs[user] = p.tz
-	m.mu.Unlock()
 	return p.tz
 }
 
 func (m *Module) keepZone(ctx context.Context, user snowflake.ID, tz string) error {
-	if err := saveTZ(ctx, m.db, user, tz); err != nil {
+	if _, err := m.change(ctx, user, func(p *person) { p.tz = tz }); err != nil {
 		return err
 	}
-	if err := m.rezone(ctx, user, tz); err != nil {
-		return err
-	}
-	m.mu.Lock()
-	m.tzs[user] = tz
-	m.mu.Unlock()
-	return nil
+	return m.rezone(ctx, user, tz)
 }
 
 // rezone moves user's waiting repeats into tz, so "every weekday at 9"
@@ -296,62 +280,104 @@ func (m *Module) remind(ctx context.Context, e *events.ApplicationCommandInterac
 	}
 	d := e.SlashCommandInteractionData()
 	user := e.User().ID
-	now := m.now()
-	tz := m.zoneOf(ctx, user)
 	if t, ok := d.OptString("tz"); ok {
-		if tz = known(t); tz == "" {
+		tz := known(t)
+		if tz == "" {
 			return core.Tell("skua doesn't know the timezone " + clip(t, 40) + "; pick one from the list")
 		}
 		if err := m.keepZone(ctx, user, tz); err != nil {
 			return err
 		}
 	}
-	loc := zone(tz)
-	rs := read(d.String("when"), now, loc)
-	if len(rs) == 0 {
-		return core.Tell("skua can't read " + clip(d.String("when"), 40) + " as a time; try in 20m, fri 5pm or 7 nov 09:00")
+	rep, _ := d.OptString("repeat")
+	r, err := m.draft(ctx, *guild, user, e.Channel().ID(), d.String("when"), d.String("what"), rep)
+	if err != nil {
+		return err
 	}
-	rd := rs[0]
-	if rep, ok := d.OptString("repeat"); ok {
-		rd = repeatAs(rd, rep, loc)
-	}
-	if !rd.at.After(now) || rd.at.Sub(now) > horizonYr {
-		return core.Tell("pick a time between now and a year from now")
-	}
-	what := oneLine(d.String("what"))
-	if what == "" {
-		return core.Tell("say what to remind you of")
-	}
-	r := reminder{guild: *guild, owner: user, channel: e.Channel().ID(), target: "dm", text: what, due: rd.at, r: rd.r, tz: tz, state: "pending", created: now}
-	if r.tz == "" {
-		r.tz = "UTC"
-	}
+	to, said := d.OptString("to")
 	if ch, ok := d.OptChannel("channel"); ok {
 		if !ch.Permissions.Has(discord.PermissionViewChannel | discord.PermissionSendMessages) {
 			return core.Tell("you can't post in <#" + ch.ID.String() + ">, so skua won't either")
 		}
 		r.target, r.targetID = "channel", ch.ID
-	} else if d.String("to") == "here" {
-		if mem := e.Member(); mem == nil || !mem.Permissions.Has(discord.PermissionSendMessages) {
+	} else if err := m.aim(ctx, &r, to, said, e.Member()); err != nil {
+		return err
+	}
+	if r, err = m.keep(ctx, r); err != nil {
+		return err
+	}
+	return e.CreateMessage(set(r, m.now(), m.zoneOf(ctx, user) == ""))
+}
+
+// draft is the reminder a member asked for, read in their zone and
+// checked: when it is, how it repeats, what it says. It goes to their dms
+// until aim says otherwise.
+func (m *Module) draft(ctx context.Context, guild, user, channel snowflake.ID, when, what, rep string) (reminder, error) {
+	now := m.now()
+	tz := m.zoneOf(ctx, user)
+	loc := zone(tz)
+	rs := read(when, now, loc)
+	if len(rs) == 0 {
+		return reminder{}, core.Tell("skua can't read " + clip(when, 40) + " as a time; try in 20m, fri 5pm or 7 nov 09:00")
+	}
+	rd := rs[0]
+	if rep != "" {
+		rd = repeatAs(rd, rep, loc)
+	}
+	if !rd.at.After(now) || rd.at.Sub(now) > horizonYr {
+		return reminder{}, core.Tell("pick a time between now and a year from now")
+	}
+	what = oneLine(what)
+	if what == "" {
+		return reminder{}, core.Tell("say what to remind you of")
+	}
+	if tz == "" {
+		tz = "UTC"
+	}
+	return reminder{guild: guild, owner: user, channel: channel, target: "dm", text: what, due: rd.at, r: rd.r, tz: tz, state: "pending", created: now}, nil
+}
+
+// aim sends r where to says, or where its owner's settings do when they
+// didn't say. Asking for here needs the right to post here; a setting
+// that can't be met here falls back to their dms.
+func (m *Module) aim(ctx context.Context, r *reminder, to string, said bool, mem *discord.ResolvedMember) error {
+	if !said {
+		who, err := m.person(ctx, r.owner)
+		if err != nil {
+			return err
+		}
+		to = who.deliver
+	}
+	if to != "here" {
+		return nil
+	}
+	if mem == nil || !mem.Permissions.Has(discord.PermissionSendMessages) {
+		if said {
 			return core.Tell("you can't post here, so skua won't either")
 		}
-		r.target = "channel"
+		return nil
 	}
-	n, err := pendingOf(ctx, m.db, user)
+	r.target = "channel"
+	return nil
+}
+
+// keep stores r and starts its clock, within the member's cap.
+func (m *Module) keep(ctx context.Context, r reminder) (reminder, error) {
+	n, err := pendingOf(ctx, m.db, r.owner)
 	if err != nil {
-		return err
+		return r, err
 	}
 	if n >= perMember {
-		return core.Tell(fmt.Sprintf("you have %d reminders waiting, which is the most skua keeps; cancel one first", perMember))
+		return r, core.Tell(fmt.Sprintf("you have %d reminders waiting, which is the most skua keeps; cancel one first", perMember))
 	}
 	if r.id, err = insert(ctx, m.db, r); err != nil {
-		return err
+		return r, err
 	}
 	m.hold(r)
 	m.mu.Lock()
 	m.pending[r.guild]++
 	m.mu.Unlock()
-	return e.CreateMessage(set(r, now, tz == ""))
+	return r, nil
 }
 
 // repeatAs is rd made to come back as rep says, keeping its time of day.
