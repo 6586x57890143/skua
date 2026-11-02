@@ -159,7 +159,31 @@ func (m *Module) row(t *testing.T, id int64) reminder {
 	return r
 }
 
-func text(m discord.MessageCreate) string { return coretest.Text(m.Content, m.Components) }
+func text(m discord.MessageCreate) string { return deep(m.Components) }
+
+// deep is every text display in cs, sections' included, a line each.
+func deep(cs []discord.LayoutComponent) string {
+	var out []string
+	for _, c := range cs {
+		box, ok := c.(discord.ContainerComponent)
+		if !ok {
+			continue
+		}
+		for _, s := range box.Components {
+			switch s := s.(type) {
+			case discord.TextDisplayComponent:
+				out = append(out, s.Content)
+			case discord.SectionComponent:
+				for _, t := range s.Components {
+					if t, ok := t.(discord.TextDisplayComponent); ok {
+						out = append(out, t.Content)
+					}
+				}
+			}
+		}
+	}
+	return strings.Join(out, "\n")
+}
 
 func TestFireSendsToDMsAndLearns(t *testing.T) {
 	m, c, p, g, u := fresh(t)
@@ -184,7 +208,6 @@ func TestFireSendsToDMsAndLearns(t *testing.T) {
 	}
 	// the dm channel is kept: a second fire opens none
 	r2 := m.add(t, reminder{guild: g, owner: u, due: now})
-	m.dms = map[snowflake.ID]snowflake.ID{}
 	m.fire(context.Background(), r2)
 	if p.dms != 1 {
 		t.Fatalf("opened %d dm channels", p.dms)
@@ -584,7 +607,7 @@ func click(t *testing.T, m *Module, u snowflake.ID, customID string, made time.T
 	if modal {
 		return "modal", nil
 	}
-	return coretest.Text("", *got.Components), nil
+	return deep(*got.Components), nil
 }
 
 func TestCardButtons(t *testing.T) {
@@ -619,7 +642,7 @@ func TestCardButtons(t *testing.T) {
 	if _, err = click(t, m, u, "remind:snz:"+key+":60", made, nil); err != nil || !m.row(t, r.id).due.Equal(now.Add(time.Hour)) {
 		t.Fatalf("snooze 60: %v", err)
 	}
-	if _, err = click(t, m, u, "remind:snz:"+key+":tmr", made, nil); err != nil || !m.row(t, r.id).due.Equal(at(11, 3, 10, 0)) {
+	if _, err = click(t, m, u, "remind:snz:"+key+":-1", made, nil); err != nil || !m.row(t, r.id).due.Equal(at(11, 3, 10, 0)) {
 		t.Fatalf("snooze tomorrow: %v %v", err, m.row(t, r.id).due)
 	}
 	if _, err = click(t, m, u, "remind:snz:"+key+":99", made, nil); err == nil {
@@ -716,7 +739,7 @@ func TestEditForm(t *testing.T) {
 		if err := m.submit(context.Background(), e); err != nil {
 			return "", err
 		}
-		return coretest.Text("", *got.Components), nil
+		return deep(*got.Components), nil
 	}
 	out, err := submit(u, f.CustomID, "call the bank", "every weekday at 9")
 	if err != nil || !strings.Contains(out, "### call the bank") || !strings.Contains(out, "✓ changed") {
@@ -815,7 +838,7 @@ func TestModuleFacts(t *testing.T) {
 	if m.Name() != "remind" || m.Perms() == 0 || m.Want().Required == 0 || m.Help().About == "" {
 		t.Fatal("facts")
 	}
-	if len(m.Commands()) != 1 || len(m.Components()) != 1 || len(m.Modals()) != 1 {
+	if len(m.Commands()) != 2 || len(m.Components()) != 1 || len(m.Modals()) != 3 {
 		t.Fatal("handlers")
 	}
 	if r := m.Report(g); len(r.Rows) != 0 {
@@ -853,7 +876,6 @@ func TestLeavingAServerForgetsIt(t *testing.T) {
 func TestNotConnected(t *testing.T) {
 	m, _, _, g, u := fresh(t)
 	m.rest = nil
-	m.dms = map[snowflake.ID]snowflake.ID{}
 	if _, err := m.send(context.Background(), reminder{guild: g, owner: u, target: "dm"}, 0); err == nil {
 		t.Fatal("sent without a connection")
 	}

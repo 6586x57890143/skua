@@ -162,6 +162,12 @@ func (m *Module) fire(ctx context.Context, r reminder) {
 		}
 		return
 	}
+	if r.target == "dm" {
+		if who, err := m.person(ctx, r.owner); err == nil && who.quiet(r.due) {
+			m.hush(ctx, r, who.quietEnd(r.due))
+			return
+		}
+	}
 	next := time.Time{}
 	if !r.r.once() {
 		next = r.r.next(r.due, r.loc())
@@ -220,6 +226,29 @@ func (m *Module) fire(ctx context.Context, r reminder) {
 	}
 }
 
+// hush holds r until its owner's quiet hours end: a one-off moves, a
+// repeat moves on and leaves a one-off copy for the end.
+func (m *Module) hush(ctx context.Context, r reminder, end time.Time) {
+	held := r
+	held.due = end
+	if r.r.once() {
+		if ok, err := move(ctx, m.db, r, end); err != nil || !ok {
+			return
+		}
+	} else {
+		if ok, err := claim(ctx, m.db, r, r.r.next(r.due, r.loc())); err != nil || !ok {
+			return
+		}
+		held.r = rule{}
+		var err error
+		if held.id, err = insert(ctx, m.db, held); err != nil {
+			m.log.Warn("remind: holding a repeat for quiet hours", "id", r.id, "err", err)
+			return
+		}
+	}
+	m.hold(held)
+}
+
 // send posts r where it goes and is when Discord made the message. A dm
 // that can't be delivered goes to the channel it was set in, pinging its
 // owner there.
@@ -235,11 +264,15 @@ func (m *Module) send(ctx context.Context, r reminder, late time.Duration) (time
 	if r.target == "channel" && r.targetID != 0 {
 		to = r.targetID
 	}
+	who, err := m.person(ctx, r.owner)
+	if err != nil {
+		who = defaults() // the buttons are a nicety; the reminder still goes
+	}
 	if inDM {
 		ch, err := m.warm(r.owner)
 		if err == nil {
 			var msg *discord.Message
-			msg, err = p.CreateMessage(ch, fired(r, late, false), rest.WithCtx(ctx))
+			msg, err = p.CreateMessage(ch, fired(r, late, false, who.snooze), rest.WithCtx(ctx))
 			m.guard.Done(r.guild, err)
 			if err == nil {
 				return msg.ID.Time(), nil
@@ -255,7 +288,7 @@ func (m *Module) send(ctx context.Context, r reminder, late time.Duration) (time
 			return time.Time{}, err
 		}
 	}
-	msg, err := p.CreateMessage(to, fired(r, late, true), rest.WithCtx(ctx))
+	msg, err := p.CreateMessage(to, fired(r, late, true, who.snooze), rest.WithCtx(ctx))
 	m.guard.Done(r.guild, err)
 	if err != nil {
 		return time.Time{}, err
@@ -285,37 +318,24 @@ func closed(err error) bool {
 // warm is user's dm channel, opened and kept ahead of time so a fire is
 // one round trip.
 func (m *Module) warm(user snowflake.ID) (snowflake.ID, error) {
-	m.mu.Lock()
-	ch, ok := m.dms[user]
-	m.mu.Unlock()
-	if ok {
-		return ch, nil
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	who, err := personOf(ctx, m.db, user)
+	who, err := m.person(ctx, user)
+	if err != nil || who.dmChannel != 0 {
+		return who.dmChannel, err
+	}
+	p := m.poster()
+	if p == nil {
+		return 0, errors.New("remind: not connected yet")
+	}
+	dm, err := p.CreateDMChannel(user, rest.WithCtx(ctx))
 	if err != nil {
 		return 0, err
 	}
-	ch = who.dmChannel
-	if ch == 0 {
-		p := m.poster()
-		if p == nil {
-			return 0, errors.New("remind: not connected yet")
-		}
-		dm, err := p.CreateDMChannel(user, rest.WithCtx(ctx))
-		if err != nil {
-			return 0, err
-		}
-		ch = dm.ID()
-		if err := saveDM(ctx, m.db, user, ch); err != nil {
-			m.log.Warn("remind: keeping a dm channel", "err", err)
-		}
+	if err := saveDM(ctx, m.db, user, dm.ID()); err != nil {
+		m.log.Warn("remind: keeping a dm channel", "err", err)
 	}
-	m.mu.Lock()
-	m.dms[user] = ch
-	m.mu.Unlock()
-	return ch, nil
+	return dm.ID(), nil
 }
 
 // lead is how early to send.
