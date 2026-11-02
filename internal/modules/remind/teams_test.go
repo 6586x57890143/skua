@@ -2,6 +2,7 @@ package remind
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -17,11 +18,23 @@ import (
 // restOf is the REST an interaction posts a team's card with.
 type restOf struct {
 	rest.Rest
-	p *poster
+	p   *poster
+	got *discord.MessageUpdate
 }
 
 func (r restOf) CreateMessage(ch snowflake.ID, m discord.MessageCreate, opts ...rest.RequestOpt) (*discord.Message, error) {
 	return r.p.CreateMessage(ch, m, opts...)
+}
+
+func (r restOf) UpdateMessage(ch, msg snowflake.ID, u discord.MessageUpdate, opts ...rest.RequestOpt) (*discord.Message, error) {
+	return r.p.UpdateMessage(ch, msg, u, opts...)
+}
+
+// UpdateInteractionResponse is a deferred answer, kept where the test
+// reads its reply.
+func (r restOf) UpdateInteractionResponse(_ snowflake.ID, _ string, u discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	*r.got = u
+	return &discord.Message{}, nil
 }
 
 func admins(m *Module) { m.admin = func(discord.Interaction) bool { return true } }
@@ -37,8 +50,8 @@ func makeTeam(t *testing.T, m *Module, p *poster, g, u snowflake.ID, name string
 			d["resolved"] = map[string]any{"channels": map[string]any{ch: map[string]any{"id": ch, "name": "dev", "type": 0, "permissions": "3072"}}}
 		}
 	})
-	e.Client().Rest = restOf{p: p}
 	var got discord.MessageUpdate
+	e.Client().Rest = restOf{p: p, got: &got}
 	e.Respond = func(_ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
 		got, _ = d.(discord.MessageUpdate)
 		return nil
@@ -63,8 +76,8 @@ func teamPress(t *testing.T, m *Module, p *poster, g, u snowflake.ID, customID s
 			edit(pl)
 		}
 	})
-	e.Client().Rest = restOf{p: p}
 	var got discord.MessageUpdate
+	e.Client().Rest = restOf{p: p, got: &got}
 	modal := false
 	e.Respond = func(typ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
 		if typ == discord.InteractionResponseTypeModal {
@@ -133,11 +146,26 @@ func TestTeams(t *testing.T) {
 	if err != nil || !strings.Contains(out, "### standup crew") || strings.Contains(out, "you're on it") {
 		t.Fatalf("open: %v %q", err, out)
 	}
-	if out, err = teamPress(t, m, p, g, u, "remind:join:"+sid, true, nil); err != nil || !strings.Contains(out, "✓ joined standup crew") || !strings.Contains(out, "you're on it") {
+	// joining from elsewhere would put anyone on a private channel's team
+	if _, err = teamPress(t, m, p, g, u, "remind:join:"+sid, true, nil); err == nil || !strings.Contains(err.Error(), "from its card in <#60>") {
+		t.Fatalf("join from elsewhere: %v", err)
+	}
+	inTeam := func(pl map[string]any) { pl["channel"].(map[string]any)["id"] = "60" }
+	if out, err = teamPress(t, m, p, g, u, "remind:join:"+sid, true, inTeam); err != nil || !strings.Contains(out, "✓ joined standup crew") || !strings.Contains(out, "you're on it") {
 		t.Fatalf("join: %v %q", err, out)
 	}
+	// the card in the channel is redrawn with the new count
+	for i := 0; len(p.edited()) == 0; i++ {
+		if i == 200 {
+			t.Fatal("the team's card wasn't redrawn")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if ed := p.edited()[0]; ed.ch != 60 || !strings.Contains(deep(*ed.u.Components), "members  1") {
+		t.Fatalf("redrawn %+v", ed)
+	}
 	// on the channel's card it redraws the card for everyone
-	if out, err = teamPress(t, m, p, g, u+1, "remind:join:"+sid, false, nil); err != nil || !strings.Contains(out, "members  2") || strings.Contains(out, "you're on it") {
+	if out, err = teamPress(t, m, p, g, u+1, "remind:join:"+sid, false, inTeam); err != nil || !strings.Contains(out, "members  2") || strings.Contains(out, "you're on it") {
 		t.Fatalf("card join: %v %q", err, out)
 	}
 	if out, err = teamPress(t, m, p, g, u+1, "remind:leave:"+sid, true, nil); err != nil || !strings.Contains(out, "✓ left") {
@@ -148,7 +176,7 @@ func TestTeams(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := teamPress(t, m, p, g, u+1, "remind:join:"+sid, true, nil); err == nil || !strings.Contains(err.Error(), "full") {
+	if _, err := teamPress(t, m, p, g, u+1, "remind:join:"+sid, true, inTeam); err == nil || !strings.Contains(err.Error(), "full") {
 		t.Fatalf("full: %v", err)
 	}
 	if err := enlist(ctx, m.db, tid, u, true); err != nil {
@@ -219,10 +247,16 @@ func TestTeamCap(t *testing.T) {
 	}
 }
 
-// group runs /remind naming a team or role.
+// group runs /remind naming a team or role, in channel 4.
 func group(t *testing.T, m *Module, g, u snowflake.ID, perms string, edit func(d map[string]any)) (string, error) {
 	t.Helper()
+	return groupIn(t, m, "4", g, u, perms, edit)
+}
+
+func groupIn(t *testing.T, m *Module, ch string, g, u snowflake.ID, perms string, edit func(d map[string]any)) (string, error) {
+	t.Helper()
 	e, sent := coretest.Event(t, "remind", as(u, g, func(pl map[string]any) {
+		pl["channel"].(map[string]any)["id"] = ch
 		opts("when", "in 1h", "what", "standup")(pl)
 		if perms != "" {
 			pl["member"].(map[string]any)["permissions"] = perms
@@ -265,10 +299,33 @@ func TestGroupReminders(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	out, err := group(t, m, g, u, "", func(d map[string]any) { withOpt(d, "team", 3, sid) })
+	team := func(d map[string]any) { withOpt(d, "team", 3, sid) }
+	if _, err := group(t, m, g, u, "2048", team); err == nil || !strings.Contains(err.Error(), "run this in <#60>") {
+		t.Fatalf("team from elsewhere: %v", err)
+	}
+	if _, err := groupIn(t, m, "60", g, u, "", team); err == nil || !strings.Contains(err.Error(), "can't post in <#60>") {
+		t.Fatalf("team without send: %v", err)
+	}
+	if _, err := groupIn(t, m, "60", g, u, "2048", func(d map[string]any) { team(d); withOpt(d, "to", 3, "here") }); err == nil || !strings.Contains(err.Error(), "leave out to") {
+		t.Fatalf("team with to: %v", err)
+	}
+	if _, err := groupIn(t, m, "60", g, u, "2048", func(d map[string]any) {
+		team(d)
+		withOpt(d, "channel", 7, "62")
+		d["resolved"] = map[string]any{"channels": map[string]any{"62": map[string]any{"id": "62", "name": "ops", "type": 0, "permissions": "3072"}}}
+	}); err == nil || !strings.Contains(err.Error(), "leave out channel") {
+		t.Fatalf("team with channel: %v", err)
+	}
+	out, err := groupIn(t, m, "60", g, u, "2048", team)
 	if err != nil || !strings.Contains(out, "**to** the team in <#60>") {
 		t.Fatalf("team: %v %q", err, out)
 	}
+	// an admin may set one from anywhere
+	admins(m)
+	if _, err := group(t, m, g, u+9, "", team); err != nil {
+		t.Fatalf("admin: %v", err)
+	}
+	m.admin = func(discord.Interaction) bool { return false }
 	if _, err := group(t, m, g, u, "", func(d map[string]any) { withOpt(d, "team", 3, sid); withRole(d, "77", true) }); err == nil {
 		t.Fatal("team and role")
 	}
@@ -279,11 +336,16 @@ func TestGroupReminders(t *testing.T) {
 	if _, err := group(t, m, g, u, "", func(d map[string]any) { withRole(d, "77", true) }); err == nil || !strings.Contains(err.Error(), "can't post") {
 		t.Fatalf("can't post: %v", err)
 	}
-	if _, err := group(t, m, g, u, "2048", func(d map[string]any) { withRole(d, "77", false) }); err == nil || !strings.Contains(err.Error(), "can't ping @devs") {
+	// skua holds no mention everyone, so a role nobody may ping is refused
+	// whoever asks
+	if _, err := group(t, m, g, u, "134144", func(d map[string]any) { withRole(d, "77", false) }); err == nil || !strings.Contains(err.Error(), "@devs can't be mentioned") {
 		t.Fatalf("not mentionable: %v", err)
 	}
-	if out, err := group(t, m, g, u, "133120", func(d map[string]any) { withRole(d, "77", false) }); err != nil || !strings.Contains(out, "<@&77> in <#4>") {
-		t.Fatalf("mention everyone: %v %q", err, out)
+	if _, err := group(t, m, g, u, "3072", func(d map[string]any) { withRole(d, "77", true); withOpt(d, "to", 3, "dm") }); err == nil || !strings.Contains(err.Error(), "leave out to") {
+		t.Fatalf("role with to: %v", err)
+	}
+	if out, err := group(t, m, g, u, "3072", func(d map[string]any) { withRole(d, "77", true) }); err != nil || !strings.Contains(out, "<@&77> in <#4>") {
+		t.Fatalf("role here: %v %q", err, out)
 	}
 	out, err = group(t, m, g, u, "", func(d map[string]any) {
 		withRole(d, "77", true)
@@ -311,10 +373,21 @@ func TestGroupReminders(t *testing.T) {
 	}
 	// nobody answered yet; then two do, one twice
 	key := itoa(tr.id) + ":" + itoa(now.UnixMilli())
-	for _, who := range []snowflake.ID{u, u, u + 5} {
-		out, err = teamPress(t, m, p, g, who, "remind:here:"+key, false, nil)
+	// the press arrives on the card as it fired, late note and all
+	fired := called(tr, 7*time.Minute, []snowflake.ID{u, u + 1}, 0)
+	raw, err := json.Marshal(fired.Components)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err != nil || !strings.Contains(out, "✓ 2 here") || !strings.Contains(out, "<@"+u.String()+">") {
+	onCard := func(pl map[string]any) {
+		var cs any
+		_ = json.Unmarshal(raw, &cs)
+		pl["message"].(map[string]any)["components"] = cs
+	}
+	for _, who := range []snowflake.ID{u, u, u + 5} {
+		out, err = teamPress(t, m, p, g, who, "remind:here:"+key, false, onCard)
+	}
+	if err != nil || !strings.Contains(out, "✓ 2 here") || strings.Count(out, "here") != 1 || !strings.Contains(out, "<@"+u.String()+">") || !strings.Contains(out, "late by 7m") {
 		t.Fatalf("here: %v %q", err, out)
 	}
 	for _, bad := range []string{"remind:here:" + itoa(tr.id), "remind:here:x:1", "remind:here:0:1"} {

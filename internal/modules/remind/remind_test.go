@@ -68,6 +68,7 @@ type poster struct {
 	c      *clk
 	trip   time.Duration
 	sent   []sent
+	edits  []edit
 	dmErr  error
 	err    error
 	dms    int
@@ -104,6 +105,27 @@ func (p *poster) CreateDMChannel(snowflake.ID, ...rest.RequestOpt) (*discord.DMC
 	var ch discord.DMChannel
 	_ = json.Unmarshal([]byte(`{"id":"777","type":1}`), &ch)
 	return &ch, nil
+}
+
+func (p *poster) UpdateMessage(ch, msg snowflake.ID, u discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.err != nil {
+		return nil, p.err
+	}
+	p.edits = append(p.edits, edit{ch, msg, u})
+	return &discord.Message{ID: msg, ChannelID: ch}, nil
+}
+
+type edit struct {
+	ch, msg snowflake.ID
+	u       discord.MessageUpdate
+}
+
+func (p *poster) edited() []edit {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]edit(nil), p.edits...)
 }
 
 func (p *poster) all() []sent {

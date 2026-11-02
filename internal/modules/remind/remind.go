@@ -327,6 +327,9 @@ func (m *Module) remind(ctx context.Context, e *events.ApplicationCommandInterac
 	if r, err = m.keep(ctx, r); err != nil {
 		return err
 	}
+	if r.target == "team" {
+		go m.refresh(int64(r.targetID))
+	}
 	return e.CreateMessage(set(r, m.now(), m.zoneOf(ctx, user) == ""))
 }
 
