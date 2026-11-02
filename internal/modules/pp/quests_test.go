@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -109,7 +108,7 @@ func TestQuestPays(t *testing.T) {
 	talk, greatTalk := Default.QuestKinds[0][1].Tasks[0].Goal, Default.QuestKinds[1][0].Tasks[1].Goal
 	purse, total, treasury := mem.purse, mem.total, s.treasury
 	for i := range talk {
-		st.chat(s, guild, a, "a thing worth saying "+strconv.Itoa(int(i)), t0.Add(time.Duration(i)*30*time.Second))
+		st.chat(s, guild, a, saysNew(int(i)), t0.Add(time.Duration(i)*30*time.Second))
 	}
 	if len(mem.quests) != 1 || mem.questsDone != 1 {
 		t.Fatalf("after %d messages: %d held, %d done", talk, len(mem.quests), mem.questsDone)

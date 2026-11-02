@@ -263,7 +263,7 @@ func (m *Module) OnEvent(ev bot.Event) {
 		if r != nil && !r.Author.Bot && r.Author.ID != msg.Author.ID && m.st.bal().old(r.Author.ID, now) {
 			to = r.Author.ID
 		}
-		m.st.talk(s, e.GuildID, msg.Author.ID, msg.Content, now, to)
+		m.st.talk(s, e.GuildID, msg.Author.ID, saying(msg), now, to)
 		m.st.selfie(s, mem, msg, now)
 	case *events.GuildMessageDelete:
 		s := m.st.server(e.GuildID)
