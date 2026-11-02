@@ -180,20 +180,40 @@ func TestBuffAndHearth(t *testing.T) {
 	if got := b.Buff(Wearing{}, 0); got != 0 {
 		t.Errorf("no buff: %d", got)
 	}
-	if got := b.HearthTier(b.HearthFloor, nil); got != 2 {
-		t.Errorf("a usual day with no history is tier %d; want 2", got)
+	if got := b.HearthTier(b.HearthFloor, nil); got != 1 {
+		t.Errorf("a usual day with no history is tier %d; want 1", got)
 	}
 	// Unearned days are skipped and one big day doesn't move the median:
-	// a usual day of 2000 lights at 1600, 2000 and 2400.
+	// a usual day of 2000 lights at 1800, 2200 and 2600.
 	history := []int64{0, 1000, 2000, 3000, 90000}
 	if got := b.Usual(history); got != 2500 {
 		t.Errorf("usual of four earned days is %d; want the middle two's mean, 2500", got)
 	}
 	history = history[:4]
-	for today, want := range map[int64]int{1599: 0, 1600: 1, 2000: 2, 2399: 2, 2400: 3} {
+	for today, want := range map[int64]int{1799: 0, 1800: 1, 2200: 2, 2599: 2, 2600: 3} {
 		if got := b.HearthTier(today, history); got != want {
 			t.Errorf("%d against a usual 2000: tier %d; want %d", today, got, want)
 		}
+	}
+}
+
+// A slow week after a busy one doesn't bring the bar down with it: the
+// fortnight's median holds it. The real fortnight before season 1 (prod,
+// 2026-10-18 to 10-31, in hundreds of pp), and then 11-01's 20,600, which
+// lit the third tier against the week alone.
+func TestHearthHoldsThroughASlump(t *testing.T) {
+	days := []int64{297, 368, 282, 332, 299, 283, 388, 216, 143, 142, 253, 242, 91, 89}
+	for i := range days {
+		days[i] *= 100 * unit
+	}
+	if got := b.Usual(days); got != b.median(days) || got <= b.median(days[7:]) {
+		t.Errorf("usual %d; the fortnight's median is %d and the week's %d", got, b.median(days), b.median(days[7:]))
+	}
+	if got := b.HearthTier(206*100*unit, days); got != 0 {
+		t.Errorf("an ordinary day after the slump lights tier %d", got)
+	}
+	if got := b.HearthTier(206*100*unit, days[7:]); got != 3 {
+		t.Errorf("against the week alone it lit tier %d; want 3, as it did", got)
 	}
 }
 

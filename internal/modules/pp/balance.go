@@ -129,7 +129,7 @@ type Balance struct {
 
 // Default is the live balance.
 var Default = Balance{
-	Version: "0.18.1",
+	Version: "0.18.2",
 
 	VoiceBase:    2 * unit,
 	Unmuted:      150,
@@ -168,7 +168,7 @@ var Default = Balance{
 	WarmSide:    10,
 	WarmDays:    14,
 	Hearth:      [3]int64{5, 10, 15},
-	HearthAt:    [3]int64{80, 100, 120},
+	HearthAt:    [3]int64{90, 110, 130},
 	HearthFloor: 3000 * unit,
 
 	CurveA: 25,

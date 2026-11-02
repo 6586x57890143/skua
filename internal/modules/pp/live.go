@@ -371,8 +371,8 @@ func (st *state) rollServer(s *server, today int64) {
 	s.levyFull = 0
 	if s.day > 0 && s.raw > 0 {
 		s.history = append(s.history, s.raw)
-		if len(s.history) > 7 {
-			s.history = s.history[len(s.history)-7:]
+		if len(s.history) > hearthDays {
+			s.history = s.history[len(s.history)-hearthDays:]
 		}
 	}
 	s.litBefore = 0
