@@ -730,7 +730,8 @@ Rumour:
   Things come up out of it that have no names. The kiln keepers burn its
   peat on its edge and blow pale glass from the ash.
 - **The last wood.** Old forest beyond the mire, kept by the goshawk
-  wardens, who have counted every tree in it since the first winter.
+  wardens, who have counted every tree in it since the first winter. Both
+  are reached by the north gate; see Beyond the north gate.
 - **The grey north.** The far sea to the north: ice, fog, whale roads and
   ships that don't come back. Albatrosses come in from it and go back to it.
 - **The tally mines.** Deep workings in the cliff under the sump, reached
@@ -738,6 +739,158 @@ Rumour:
   go down to work off what they owe, a **tally** at a time, and the tally
   board decides when a debt is paid. Debt grows faster than tallies, and
   most who go down come up owing more, if they come up.
+
+## Beyond the north gate
+
+The hedge has one gate a bird may use without a company warrant, and it is
+**the north gate** at the head of the cliff road, the same gate every
+newcomer comes in by. It is a squat gatehouse of black stone set into the
+thorn, with the wardens' desk under the arch and the gate book open on it.
+Outside it the road forks. The **cliff road** runs north along the coast
+toward the grey north and the whalers' landings. The **wardens' road** turns
+the other way, follows the outside of the hedge south and east for a
+morning's walk, drops off the headland into the mire and crosses it on the
+old causeway to the last wood. Every foray goes out by the wardens' road.
+
+### Going out
+
+A bird going out gives the warden at the desk three things: where they're
+going, how far, and which way they lean. The warden writes all three in the
+back pages of the gate book, the **out pages**, and hangs a small lamp in
+the arch for every bird who is out. On a busy evening the arch is full of
+them. When a bird comes back the warden writes down what they carried in,
+and takes their lamp down.
+
+How far is **the near reaches** or **the far reaches**. The near reaches are
+the country a bird can see from the hedge. The far reaches are past where
+the hedge company's patrols turn back.
+
+**The lean** is one of the five winds, and the wardens ask it the way the
+gate book asks a newcomer's name: as a fact to be written down. Out there
+the bird does what a bird of that wind would do at every fork in the path,
+and the wardens have found it saves time to know in advance. A writ bird
+keeps to the marked ways and hands what it finds in at the desk. A vaunt
+bird goes for whatever will be talked about at the pot. A lot bird takes
+the chance. A stray bird goes off the path. A fold bird looks for company
+out there, and finds it more often than the wardens can account for.
+
+### The quiet
+
+A bird can't be at the pot and beyond the hedge at once, and the out pages
+know it. While the pot is counting a bird's work, whether talk at the rim or
+a long evening with company, the warden's ink won't take beside their name.
+The bird stays at the gate with their lamp lit until the city stops seeing
+them, and only then does the road take them on. The wardens call it the
+quiet. Most birds go out while they sleep, or on a day their work keeps
+them away from the pot, and come back to find the warden waiting with the
+book open.
+
+Nobody has gone out and not come back. The wardens say that is because a
+bird only goes as far as the quiet lets them, and a bird who comes back
+into the city before the road is done finds themselves at the gate again,
+with the rest of the walk still owed.
+
+### The mire
+
+Below the hedge on its landward side the mire runs south and east as far as
+anyone has walked: black water, reed beds and floating mats of moss that
+take a bird's weight in some years and not in others. It rose once, in the
+rising, and the hedge has stood against it since.
+
+- **The cuttings.** Along the mire's edge below the hedge the peat cutters
+  work the old cuttings, dark steps cut down into the bog where it has been
+  dug for a hundred years. Peat is sold by the brick: to the sump for
+  winter, to the kiln keepers for their furnaces and to the hearthkeepers
+  for the city's hearth. The kiln consortium owns most of the cuttings now
+  and pays the cutters by the stack.
+- **The kilns.** The kiln keepers' kilns stand on the mire's edge east of the
+  cuttings, red at the mouth day and night, where pale glass is blown from
+  the ash of burned peat. The consortium's kilns stand on what was the
+  eastern hedge before the hedge company sold it. The thorn there is thin
+  and nobody patrols it.
+- **The hearthkeepers' house.** A low stone house on a hummock at the mire's
+  western edge, where heron novices learn to stand in the water. Its herons
+  buy the hearth's peat from the cutters by the cartload, and they also take
+  peat a bird has cut with their own hands, which they lay on the fire
+  themselves. The notch stick counts that as the day's work poured in,
+  which is why a lit day comes sooner when birds go out to the cuttings,
+  and why the herons say a fire should be fed by the city and not just
+  bought for it.
+- **The reed beds.** The near reaches are mostly reed, cut for the sump's
+  thatch and the playhouses' backcloths, and threaded with eel runs that the
+  eel men walk on stilts. The reed cutters work in pairs and sing to keep
+  the pace, and the choir has been stealing their songs for a hundred years.
+- **The far reaches.** Past where the patrols turn back the reed gives way
+  to open water and moss. The old causeway crosses it on piles to the last
+  wood, rebuilt so often that no two spans match. Drowned villages from
+  before the rising lie under it, and in a dry summer a bird can stand on a
+  chapel's ridge. The bog keeps things. A ledger lost in it comes back up
+  thirty years later still legible, a dropped knife comes up sharper, and
+  the cutters have dug up the same bird twice and put them back both times.
+
+### The last wood
+
+Across the causeway the ground rises out of the mire into the last wood:
+oak, ash and grey beech old enough that a trunk can be wider than a house.
+The goshawk wardens have counted every tree in it since the first winter,
+and every trunk carries its number in white paint at a bird's eye height.
+
+- **The wood's edge.** The near reaches are the wood's edge above the
+  causeway: the wardens' shelters of bark and hide between the roots, the
+  smoke of their fires and the counting trees, where the wardens meet each
+  season and read the count aloud. The count is always one or two more than
+  the season before, and the wardens have never planted a tree.
+- **The deep wood.** The far reaches are the old wood behind the edge, where
+  the paths are the wardens' own and marked for nobody else. The tree the
+  flock asked for in the first winter is in there somewhere. The wardens
+  know which one and won't say.
+- **Amber.** The oldest trunks weep resin where they split, and it hardens on
+  the bark and drops into the leaf litter as amber. Nothing may be cut in
+  the last wood, but what a tree has dropped may be picked up, and amber is
+  the wood's one honest trade. The north sea company buys it to varnish
+  pale glass, so the slack tide's purser takes amber at the gannet's door in
+  place of a candle: hand him three beads, a candle's worth, and the house
+  stakes a candle on its own marker in your name. The amber goes in the hold whatever the bones
+  say, and the company buys it from the hold.
+
+### Who a bird meets out there
+
+These recur, and a story set beyond the gate should meet them as they are:
+
+- **The consortium's tallyman.** A raven in a consortium coat on a stack of
+  drying bricks at the old cutting, paying by the stack on a board the
+  consortium owns. The cutters' own count, on sticks in the turf hut, runs a
+  little further from his every season.
+- **The coot and her brother.** The last pair on the cutting whose family cut
+  it before the counting house bought it. The consortium has offered twice
+  to buy their spades.
+- **The eldest cutter.** A lapwing who has put the bird the bog keeps back
+  in the cutting once and expects her grandchildren's gang to do it next.
+- **The guard on the barrel.** A shrike in a consortium coat at the gap in the
+  eastern hedge, with company clay still in the creases of his face, paid to
+  watch the gap and not to stop what goes through it.
+- **The abbot.** The old heron of the hearthkeepers' house, who doesn't come
+  to the city and signs every letter with a fire that's never been let out.
+  He cut the first notch stick, from the last wood's ash.
+- **The reader.** The goshawk warden who reads the count from the stump at
+  the counting trees each season.
+- **The company's clerks.** Two clerks of the north sea company at an amber
+  table under an awning where the path meets the causeway, polite, well
+  paid and very good at dice.
+- **The branded clerk.** A raven struck off the counting house a year before
+  anyone now asking, who keeps the consortium's second book of peat in a
+  shed by the kilns, and a third of his own.
+
+### How a day out reads
+
+What happens out there is written down, and it is the bird's own. The
+wardens hand it over at the gate with the out pages, and the choir has been
+known to buy the good ones. Everyone who goes to the mire on the same day
+meets the same mire. The cutters are at the same cutting and the same mat
+has sunk overnight. But no two birds come back with the same story,
+because no two birds lean the same way into the same chance, and the bones
+fall as they fall. A bird who comes back with nothing still comes back with
+the day, and the wardens write that down too.
 
 ## Factions
 
@@ -835,6 +988,13 @@ Rumour:
 | luck achievements | scraps of colour nailed to the deckhead |
 | a newcomer's free throw | the marker, staked by the house |
 | a duel | calling out at the rail |
+| a foray, once a day | going out by the north gate, written in the out pages |
+| the near and far reaches | the country in sight of the hedge, and past the patrols |
+| the lean that picks your path | the wind you give the warden, which your bird follows at every fork |
+| a foray only moving while you don't earn | the quiet: the out pages won't hold a bird the pot is counting |
+| peat raising the hearth's count | the hearthkeepers laying peat a bird cut on the fire, counted as work |
+| amber staking a candle on the marker | the purser taking amber in place of a candle |
+| every forager at a place meeting the same events that day | the same mire for everyone, and the bones each bird's own |
 
 ### The five winds
 
@@ -892,8 +1052,9 @@ would rather the sump's stakes went into the pot.
 
 These are places, so stories can be set in them when they arrive:
 
-- **Story exploration** into the mire, the last wood, the grey north and the
-  low town.
+- **More forays.** The mire and the last wood are open (see Beyond the north
+  gate). The grey north by the cliff road and the low town under the sea
+  are next.
 - **Grinding** in the tally mines.
 - **Books.** Lost books turn up in the low town's wreckage, the counting
   house's sales of debtors' goods, the mines and the wild beyond the hedge.
