@@ -110,6 +110,9 @@ func (st *state) load(ctx context.Context, db DB) error {
 	if err := st.loadLetters(ctx, db); err != nil {
 		return err
 	}
+	if err := st.loadForays(ctx, db); err != nil {
+		return err
+	}
 	return st.loadSeeds(ctx, db)
 }
 
@@ -201,6 +204,8 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 	var stats statRows
 	var guests guestRows
 	tookGuests := map[*server][]snowflake.ID{}
+	var fs forayRows
+	var tookForays []*forays
 	tookStats := map[*server]map[statKey]int64{}
 	var guilds, days, raws, lits, before []int64
 	var treasuries, open, full, funds, smint, sburn, slast []int64
@@ -236,6 +241,13 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 				rows.add(g, u, m)
 				m.dirty = false
 				marked = append(marked, mark{m: m})
+			}
+		}
+		for u, f := range s.forays {
+			if f.dirty {
+				fs.add(g, u, f)
+				f.dirty = false
+				tookForays = append(tookForays, f)
 			}
 		}
 		for _, u := range s.seenGuests {
@@ -285,6 +297,9 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			s.seenGuests = append(ids, s.seenGuests...)
 			s.mu.Unlock()
 		}
+		for _, f := range tookForays {
+			f.dirty = true
+		}
 		// Counters taken go back onto whatever's counted since.
 		for s, kept := range tookStats {
 			s.mu.Lock()
@@ -297,7 +312,7 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			s.mu.Unlock()
 		}
 	}
-	if len(rows.user) == 0 && len(ledger.seq) == 0 && len(guilds) == 0 && len(paid) == 0 && len(stats.n) == 0 && len(guests.user) == 0 {
+	if len(rows.user) == 0 && len(ledger.seq) == 0 && len(guilds) == 0 && len(paid) == 0 && len(stats.n) == 0 && len(guests.user) == 0 && len(fs.user) == 0 {
 		return 0, nil
 	}
 	if err := pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error {
@@ -307,6 +322,9 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			return err
 		}
 		if err := guests.write(ctx, tx); err != nil {
+			return err
+		}
+		if err := fs.write(ctx, tx); err != nil {
 			return err
 		}
 		return writeStats(ctx, tx, &stats)

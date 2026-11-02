@@ -116,6 +116,8 @@ type server struct {
 	leasing sync.Mutex
 	members map[snowflake.ID]*member
 	seats   map[snowflake.ID]*seat
+	// forays are each member's days out beyond the north gate (foray.go).
+	forays map[snowflake.ID]*forays
 	// banners are those wearing the server's invite in their custom
 	// status who aren't members yet, so the buff is on from their first
 	// earning; presences counts the presence updates seen and presenceAt
@@ -590,6 +592,7 @@ func (st *state) minute(s *server, guild, afk snowflake.ID, now time.Time) int {
 		}
 	}
 	earning := 0
+	voiced := map[snowflake.ID]bool{}
 	for _, users := range rooms {
 		if len(users) < 2 {
 			continue
@@ -629,10 +632,12 @@ func (st *state) minute(s *server, guild, afk snowflake.ID, now time.Time) int {
 				st.progress(s, m, u, taskCamera)
 			}
 			paid = append(paid, u)
+			voiced[u] = true
 			earning++
 		}
 		st.together(s, paid, now.Unix()/60)
 	}
+	st.forayTick(s, voiced, now)
 	return earning
 }
 
