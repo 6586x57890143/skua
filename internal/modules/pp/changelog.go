@@ -16,7 +16,7 @@ var Changelog = []Entry{{
 	Balance: "853b8b",
 	Lines: []string{
 		"the hearth asks more of the server: its tiers light at 90, 110 and 130% of a usual day, and a usual day is read over the last two weeks as well as the last one, so a quiet week doesn't make any ordinary day after it a fire",
-		"the menu's last button shows it as icons only, which a phone keeps in tidy rows, and Aa brings the names back. it remembers which you like",
+		"the menu's last button shows it as icons only, which a phone keeps in tidy rows, and its last button brings the names back. it remembers which you like",
 		"the board's pages turn again, and go as far as its top hundred",
 	},
 }, {
