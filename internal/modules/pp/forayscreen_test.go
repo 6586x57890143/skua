@@ -129,3 +129,21 @@ func TestForayArt(t *testing.T) {
 		}
 	}
 }
+
+// Choosing a lean shows every wind on the one screen, over either place:
+// none of the five is ever on a page the screen doesn't show.
+func TestLeanFits(t *testing.T) {
+	for _, p := range places {
+		lines := leanLines(p.Key)
+		if len(lines) > paneRows(p.Key) {
+			t.Errorf("%s: the winds take %d lines of %d", p.Key, len(lines), paneRows(p.Key))
+		}
+		all := strings.Join(lines, " ")
+		for _, w := range winds {
+			if !strings.Contains(all, w.Key+":") {
+				t.Errorf("%s: %s isn't on the screen", p.Key, w.Key)
+			}
+		}
+		checkLayout(t, p.Key+" lean", forayCanvas(ForayView{Scene: p.Key, Tab: p.Name, Lines: lines, Foot: reachName(true)}))
+	}
+}

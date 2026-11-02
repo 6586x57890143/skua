@@ -35,7 +35,7 @@ const (
 // winds are each wind's name and the line the gate shows for leaning into
 // it, in the ring's order: each is between the two it gets on with.
 var winds = [5]struct{ Key, Line string }{
-	{"writ", "keeps to the marked ways and hands what it finds in at the desk"},
+	{"writ", "keeps to the marked ways and hands its finds in at the desk"},
 	{"vaunt", "goes for whatever will be talked about at the pot"},
 	{"lot", "takes the chance"},
 	{"stray", "goes off the path"},

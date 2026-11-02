@@ -290,6 +290,18 @@ func (st *state) storyOf(s *server, user snowflake.ID, o *outing) string {
 	return strings.ReplaceAll(strings.Join(paras, "\n\n"), "{name}", o.partner)
 }
 
+// leanLines are the five winds a bird can lean into, as the screen for
+// choosing one sets them over scene: the question, then a wind a line or
+// two, all on the one screen (TestLeanFits).
+func leanLines(scene string) []string {
+	w := paneOf(scene).Dx() - 20
+	lines := append(pixel.Light.Wrap("which way does your bird lean?", w), "")
+	for _, wd := range winds {
+		lines = append(lines, pixel.Light.Wrap(wd.Key+": "+wd.Line, w)...)
+	}
+	return lines
+}
+
 // leaf is one screen's worth of the book: a scene and the lines on it.
 type leaf struct {
 	scene, tab string
@@ -352,11 +364,7 @@ func (m *Module) gateView(s *server, user snowflake.ID, view string, page, where
 		alt = "the out pages, at " + l.tab
 	case where >= 0:
 		p := places[where]
-		text := fmt.Sprintf("you're bound for %s, %s. which way does your bird lean? out there it does what a bird of that wind would do at every fork.", p.Name, reachName(far))
-		for _, w := range winds {
-			text += "\n\n" + w.Key + ": " + w.Line
-		}
-		v = ForayView{Scene: p.Key, Light: light, Tab: p.Name, Lines: setLines(text, p.Key)[0]}
+		v = ForayView{Scene: p.Key, Light: light, Tab: p.Name, Lines: leanLines(p.Key), Foot: reachName(far)}
 		var leans []discord.InteractiveComponent
 		for w := Writ; w <= Fold; w++ {
 			leans = append(leans, withIcon(discord.NewSecondaryButton(w.String(), fmt.Sprintf("pp:fout:%d:%s:%d", where, map[bool]string{false: "0", true: "1"}[far], w)), "wind_"+w.String()))
