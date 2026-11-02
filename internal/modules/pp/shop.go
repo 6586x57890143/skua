@@ -177,7 +177,7 @@ func (st *state) shopMessage(s *server, m *member, yard, ladder, front bool, lig
 			Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "shop", "",
 				discord.NewMediaGallery(screenItem(pic, alt)),
 				discord.NewActionRow(discord.NewStringSelectMenu("pp:look", "look closer at a rung", look...)),
-				stairRow(climbButton("climb to the "+next, purse >= price), other, front, yard))},
+				stairRow(climbButton("climb · "+grouped(price/unit)+" pp", purse >= price), other, front, yard))},
 			Files:           []*discord.File{screenAttachment(pic, alt)},
 			Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 			AllowedMentions: core.NoPings(),

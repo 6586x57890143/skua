@@ -156,7 +156,7 @@ func (st *state) yardMessage(s *server, user snowflake.ID, mem *member, page int
 	alt = clip(alt+". you hold "+grouped(mem.purse/unit)+" pp", altLimit)
 	back := discord.NewSecondaryButton("◂ the yard", "pp:yard")
 	if !front {
-		back = discord.NewSecondaryButton("◂ the stair", "pp:back")
+		back = discord.NewSecondaryButton("◂ shop", "pp:back")
 	}
 	other, otherID := "the factions ▸", "pp:yard:1"
 	if page == factionsPage {
@@ -326,7 +326,7 @@ func (st *state) yardFront(s *server, user snowflake.ID, mem *member, today int6
 			return discord.MessageCreate{}, err
 		}
 		alt := "the dyers' yard against the cliff, its vats boiling. you wear " + or(wear.Name, "your own feathers") + " and hold " + grouped(purse/unit) + " pp"
-		row := discord.NewActionRow(discord.NewSecondaryButton("◂ the stair", "pp:back"),
+		row := discord.NewActionRow(discord.NewSecondaryButton("◂ shop", "pp:back"),
 			discord.NewSecondaryButton("the sump's trades", "pp:yard:0"), discord.NewSecondaryButton("the factions", "pp:yard:1"))
 		if own {
 			row = row.AddComponents(withIcon(discord.NewPrimaryButton("a livery of your own", "pp:own"), "quill"))
