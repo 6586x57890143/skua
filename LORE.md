@@ -849,8 +849,8 @@ and every trunk carries its number in white paint at a bird's eye height.
   the last wood, but what a tree has dropped may be picked up, and amber is
   the wood's one honest trade. The north sea company buys it to varnish
   pale glass, so the slack tide's purser takes amber at the gannet's door in
-  place of a candle: hand him a piece and the house stakes a candle on its
-  own marker in your name. The amber goes in the hold whatever the bones
+  place of a candle: hand him three beads, a candle's worth, and the house
+  stakes a candle on its own marker in your name. The amber goes in the hold whatever the bones
   say, and the company buys it from the hold.
 
 ### Who a bird meets out there
