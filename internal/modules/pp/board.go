@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,10 +18,10 @@ import (
 
 // The boards: levels, everything ever earned, which runs before the first
 // season and alongside every one; and while a season runs, the season's
-// race. Each shows its top boardRows, the member's own line taking the
-// last when they're further down. Before the first season the levels board
-// runs across the screen over a line on when the first season starts, and
-// shows preseasonRows.
+// race, which leads. One board fills a screen, boardRows a page, and the
+// first page gives its last line to the member when they're further down.
+// Before the first season the levels board stands over a line on when the
+// first season starts, preseasonRows a page.
 
 const boardRows, preseasonRows = 10, 8
 
@@ -59,65 +60,116 @@ func boardTop(board []standing, user snowflake.ID, n int) []standing {
 	return out
 }
 
-// boardMessage is the boards for user in guild, as a screen.
-func (m *Module) boardMessage(guild, user snowflake.ID) (discord.MessageCreate, error) {
+// boardPage is page p of a board n rows a page, the first as boardTop has
+// it; p past the last is the last.
+func boardPage(board []standing, user snowflake.ID, n, p int) (rows []standing, page, pages int) {
+	pages = max((len(board)+n-1)/n, 1)
+	page = min(max(p, 0), pages-1)
+	if page == 0 {
+		return boardTop(board, user, n), 0, pages
+	}
+	return board[page*n : min((page+1)*n, len(board))], page, pages
+}
+
+// boardID is the press that shows page p of the levels board, or of the
+// season's.
+func boardID(levels bool, p int) string {
+	if levels {
+		return fmt.Sprintf("pp:board:levels:%d", p)
+	}
+	return fmt.Sprintf("pp:board:season:%d", p)
+}
+
+// parseBoard reads a press on the boards: plain pp:board is the first page
+// of the one that leads. The page comes from the client, so boardPage
+// clamps it.
+func parseBoard(id string) (levels, plain bool, page int) {
+	f := strings.Split(id, ":")
+	if len(f) != 4 {
+		return false, true, 0
+	}
+	page, _ = strconv.Atoi(f[3])
+	return f[2] == "levels", false, page
+}
+
+// boardMessage is one page of the boards for user in guild, as a screen,
+// with the turns between pages and boards under it.
+func (m *Module) boardMessage(guild, user snowflake.ID, id string) (discord.MessageCreate, error) {
 	today := DayOf(m.now())
 	season, _ := m.st.bal().Season(today)
+	levels, plain, p := parseBoard(id)
+	if season == 0 || plain {
+		levels = season == 0
+	}
 	s := m.st.server(guild)
 	s.mu.Lock()
 	var users []snowflake.ID
-	var totals, seasons []int64
+	var scores []int64
 	names, icons, classes := map[snowflake.ID]string{}, map[snowflake.ID]string{}, map[snowflake.ID]string{}
 	rungs := map[snowflake.ID]int64{}
 	for u, mem := range s.members {
 		users = append(users, u)
-		totals = append(totals, mem.total)
-		pp := int64(0)
-		if mem.season == season {
-			pp = mem.seasonPP
+		switch {
+		case levels:
+			scores = append(scores, mem.total)
+		case mem.season == season:
+			scores = append(scores, mem.seasonPP)
+		default:
+			scores = append(scores, 0)
 		}
-		seasons = append(seasons, pp)
 		names[u], icons[u], classes[u] = or(mem.name, "someone"), classIcons[ClassOf(mem.class).Key], ClassOf(mem.class).Name()
 		rungs[u] = mem.rung
 	}
 	s.mu.Unlock()
 
 	b := m.st.bal()
-	rows := func(board []standing, n int, value func(standing) string, gold bool) []BoardRow {
-		var out []BoardRow
-		for _, st := range boardTop(board, user, n) {
-			out = append(out, BoardRow{Place: st.place, Icon: icons[st.user], Name: names[st.user], Rung: rungs[st.user], Class: classes[st.user],
-				Value: value(st), You: st.user == user, ValueIsGold: gold})
-		}
-		return out
+	value := func(st standing) string { return grouped(st.score / unit) }
+	if levels {
+		value = func(st standing) string { l, _, _ := b.Level(st.score); return fmt.Sprintf("lv %d", l) }
 	}
-	level := func(st standing) string { l, _, _ := b.Level(st.score); return fmt.Sprintf("lv %d", l) }
-	levelBoard := rank(users, totals)
-
-	var levels, seasonRows []BoardRow
-	tab, starts := "", ""
-	if season > 0 {
-		tab = fmt.Sprintf("season %d", season)
-		levels = rows(levelBoard, boardRows, level, false)
-		seasonRows = rows(rank(users, seasons), boardRows, func(st standing) string { return grouped(st.score / unit) }, true)
-	} else {
-		starts = strings.ToLower(time.Unix(b.SeasonStart*86400, 0).UTC().Format("2 Jan"))
-		levels = rows(levelBoard, preseasonRows, level, false)
+	n, tab, starts := boardRows, fmt.Sprintf("season %d", season), ""
+	if levels {
+		tab = "levels"
 	}
-	pic, err := BoardScreen(levels, seasonRows, tab, starts)
+	if season == 0 {
+		n, starts = preseasonRows, strings.ToLower(time.Unix(b.SeasonStart*86400, 0).UTC().Format("2 Jan"))
+	}
+	page, at, pages := boardPage(rank(users, scores), user, n, p)
+	var rows []BoardRow
+	for _, st := range page {
+		rows = append(rows, BoardRow{Place: st.place, Icon: icons[st.user], Name: names[st.user], Rung: rungs[st.user], Class: classes[st.user],
+			Value: value(st), You: st.user == user, ValueIsGold: !levels})
+	}
+	pic, err := BoardScreen(rows, tab, starts)
 	if err != nil {
 		return discord.MessageCreate{}, err
 	}
-	alt := "the levels board"
-	if len(levels) > 0 {
-		alt += ", led by " + levels[0].Name
+	alt := "the " + tab + " board"
+	if len(rows) > 0 && at == 0 {
+		alt += ", led by " + rows[0].Name
 	}
-	if tab != "" {
-		alt += ", and the " + tab + " board"
+	if pages > 1 {
+		alt += fmt.Sprintf(", page %d of %d", at+1, pages)
+	}
+
+	var turns []discord.InteractiveComponent
+	if season > 0 {
+		turns = append(turns,
+			withIcon(discord.NewSecondaryButton(fmt.Sprintf("season %d", season), boardID(false, 0)), "laurel").WithDisabled(!levels),
+			discord.NewSecondaryButton("levels", boardID(true, 0)).WithDisabled(levels))
+	}
+	if pages > 1 {
+		turns = append(turns,
+			discord.NewSecondaryButton("◂", boardID(levels, at-1)).WithDisabled(at == 0),
+			discord.NewSecondaryButton(fmt.Sprintf("%d / %d", at+1, pages), "pp:board:page").AsDisabled(),
+			discord.NewSecondaryButton("▸", boardID(levels, at+1)).WithDisabled(at == pages-1))
+	}
+	extra := []discord.ContainerSubComponent{discord.NewMediaGallery(screenItem(pic, alt))}
+	if len(turns) > 0 {
+		extra = append(extra, discord.NewActionRow(turns...))
 	}
 	return discord.MessageCreate{
-		Components: []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "board", "",
-			discord.NewMediaGallery(screenItem(pic, alt)))},
+		Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "board", "", extra...)},
 		Files:           []*discord.File{screenAttachment(pic, alt)},
 		Flags:           discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
 		AllowedMentions: core.NoPings(),

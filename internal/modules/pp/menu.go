@@ -201,8 +201,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 			return err
 		}
 		return e.CreateMessage(msg)
-	case id == "pp:board":
-		msg, err = m.boardMessage(*guild, e.User().ID)
+	case id == "pp:board", strings.HasPrefix(id, "pp:board:"):
+		return m.answerSlow(*guild, e, "pp:board", func() (discord.MessageCreate, error) { return m.boardMessage(*guild, e.User().ID, id) })
 	case id == "pp:treasury", strings.HasPrefix(id, "pp:treasury:"):
 		if m.Admin == nil || !m.Admin(e) {
 			return errNotAdmin
