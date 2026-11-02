@@ -124,8 +124,8 @@ func TestQuietClock(t *testing.T) {
 		t.Fatalf("after the road: back %v, %d quiet", f.out.back, f.out.quiet)
 	}
 	d := walk(st.walker(s, a, f.out))
-	if f.peat != int64(d.Finds) || f.endings[0] != 1<<d.End || f.pages[0] == 0 {
-		t.Errorf("came back with %d peat for %d found, endings %b, pages %b", f.peat, d.Finds, f.endings[0], f.pages[0])
+	if f.peat != int64(d.Finds) || !f.endings["mire/"+d.Ending.Key] || len(f.pages) == 0 || len(f.out.path) != forayEvents[0] {
+		t.Errorf("came back with %d peat for %d found, endings %v, pages %v, path %v", f.peat, d.Finds, f.endings, f.pages, f.out.path)
 	}
 	if got, want := f.arcs["mire/monk"], map[bool]int{true: 1, false: 0}[d.ArcPassed]; got != want {
 		t.Errorf("the arc is at %d; passed %v", got, d.ArcPassed)
@@ -179,8 +179,8 @@ func TestFeedPeat(t *testing.T) {
 	if err := st.feedPeat(s, a, 3, today); err != nil {
 		t.Fatal(err)
 	}
-	if s.raw != 3*peatRaw || s.forays[a].peat != 0 || s.lit == 0 {
-		t.Errorf("raw %d, peat left %d, lit %d", s.raw, s.forays[a].peat, s.lit)
+	if s.peatRaw != 3*peatRaw || s.raw != 0 || s.forays[a].peat != 0 || s.lit == 0 {
+		t.Errorf("peat on the fire %d, raw %d, peat left %d, lit %d", s.peatRaw, s.raw, s.forays[a].peat, s.lit)
 	}
 }
 
@@ -246,7 +246,7 @@ func TestForaySaveLoad(t *testing.T) {
 	}
 	f := s.forays[a]
 	f.out.quiet, f.peat, f.amber, f.amberDay = 77, 3, 2, 9
-	f.pages, f.endings, f.arcs = [2]int64{5, 9}, [2]int64{1, 2}, map[string]int{"wood/wanderer": 2}
+	f.pages, f.endings, f.arcs = map[string]bool{"wood/count": true, "mire/raft": true}, map[string]bool{"wood/coin": true}, map[string]int{"wood/wanderer": 2}
 	if _, err := st.flush(ctx, db); err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,81 @@ func TestForaySaveLoad(t *testing.T) {
 	}
 	got := back.server(g).forays[a]
 	if got == nil || !reflect.DeepEqual(*got.out, *f.out) || got.peat != 3 || got.amber != 2 || got.amberDay != 9 ||
-		got.pages != f.pages || got.endings != f.endings || !reflect.DeepEqual(got.arcs, f.arcs) || got.lastOut != f.lastOut {
+		!reflect.DeepEqual(got.pages, f.pages) || !reflect.DeepEqual(got.endings, f.endings) || !reflect.DeepEqual(got.arcs, f.arcs) || got.lastOut != f.lastOut {
 		t.Errorf("came back %+v (out %+v); was %+v (out %+v)", got, got.out, f, f.out)
+	}
+}
+
+// A bird's day is the events it was dealt when it set out, by key: a deck
+// that grows or moves under it doesn't change it, and an event gone from
+// the deck is passed by rather than told blank.
+func TestPathByKey(t *testing.T) {
+	w := Walker{Seed: 9, Guild: 7, User: 1, Day: 20001, Lean: Stray, Class: "thief", Stage: 3}
+	dealt := walk(w)
+	w.Path = dayPath(9, 7, 20001, 0, false)
+	if !reflect.DeepEqual(walk(w), dealt) {
+		t.Error("the dealt path walks differently from the deck it came from")
+	}
+	w.Path = append([]string{"nowhere"}, w.Path...)
+	if d := walk(w); len(d.Steps) != len(dealt.Steps) || d.Steps[0].Event != dealt.Steps[0].Event {
+		t.Errorf("an event gone from the deck was told: %d steps", len(d.Steps))
+	}
+}
+
+// Meeting a fold bird only ever adds to a day already under way: a last
+// step that throws nothing and leaves no mark, so the ending and the dice
+// before it are as they were.
+func TestCompanyOnlyAdds(t *testing.T) {
+	for _, p := range places {
+		for _, o := range p.Company.Options {
+			if o.Need != 0 || o.Pass.Mark != "" || o.After != "" || o.Pass.Finds < 0 {
+				t.Errorf("%s: company could change the day: %+v", p.Key, o)
+			}
+		}
+	}
+	w := Walker{Seed: 3, Guild: 7, User: 1, Day: 20005, Place: 1, Lean: Fold, Class: "bard", Stage: 1}
+	alone := walk(w)
+	w.Company = "steve"
+	met := walk(w)
+	if met.Ending != alone.Ending || !reflect.DeepEqual(met.Steps[:len(alone.Steps)], alone.Steps) || met.Finds < alone.Finds {
+		t.Error("meeting company changed the day before it")
+	}
+}
+
+// Peat lights today's fire and never the history: tomorrow's usual day is
+// read from what was earned, so a day of peat doesn't raise the bar.
+func TestPeatStaysOutOfHistory(t *testing.T) {
+	st, s := testState()
+	today := DayOf(t0)
+	st.rollServer(s, today)
+	s.raw = 1000 * unit
+	s.forayOf(old(1)).peat = 40
+	if err := st.feedPeat(s, old(1), 40, today); err != nil {
+		t.Fatal(err)
+	}
+	st.rollServer(s, today+1)
+	if got := s.history[len(s.history)-1]; got != 1000*unit || s.peatRaw != 0 {
+		t.Errorf("history took %d, peat left %d", got, s.peatRaw)
+	}
+}
+
+// A table shut on the way down gives amber back, and the day's chance to
+// stake it.
+func TestShutGivesAmberBack(t *testing.T) {
+	m, _ := houseModule(t)
+	s := m.st.server(guild)
+	a := old(5)
+	s.mu.Lock()
+	mem := m.st.member(s, guild, a, DayOf(t0))
+	mem.total = 1000 * unit
+	tb, _ := m.st.open(s, 4, t0, false)
+	s.forayOf(a).amber = amberCandle
+	if err := m.st.sitOnAmber(s, tb, guild, a, "x", t0); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Unlock()
+	m.Shut(context.Background())
+	if f := s.forays[a]; f.amber != amberCandle || f.amberDay != 0 || mem.seat != 0 {
+		t.Errorf("amber %d, day %d, seat %d after the shut", f.amber, f.amberDay, mem.seat)
 	}
 }

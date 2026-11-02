@@ -116,8 +116,13 @@ type server struct {
 	leasing sync.Mutex
 	members map[snowflake.ID]*member
 	seats   map[snowflake.ID]*seat
-	// forays are each member's days out beyond the north gate (foray.go).
-	forays map[snowflake.ID]*forays
+	// forays are each member's days out beyond the north gate (foray.go),
+	// and peatRaw today's peat on the fire, counted toward the hearth and
+	// never into its history.
+	// ponytail: peatRaw is in memory; a restart drops today's peat from the
+	// tier still to come (a fire it lit stays lit). Persist if that bites.
+	forays  map[snowflake.ID]*forays
+	peatRaw int64
 	// banners are those wearing the server's invite in their custom
 	// status who aren't members yet, so the buff is on from their first
 	// earning; presences counts the presence updates seen and presenceAt
@@ -387,7 +392,7 @@ func (st *state) rollServer(s *server, today int64) {
 	s.pump(s.day)
 	st.lapse(s, today)
 	st.sureties(s, today)
-	s.day, s.raw, s.lit, s.dirty = today, 0, 0, true
+	s.day, s.raw, s.lit, s.peatRaw, s.dirty = today, 0, 0, 0, true
 }
 
 // levying is whether the treasury takes its levy: until it holds
@@ -399,6 +404,14 @@ func (s *server) levying() bool {
 		week += l
 	}
 	return week == 0 || s.treasury-s.fund < Rules.TreasuryWeeks*week
+}
+
+// stoke raises the hearth to whatever today's earning and peat reach
+// against the usual day. A fire is never let down. s.mu held.
+func (st *state) stoke(s *server) {
+	if tier := st.bal().HearthTier(s.raw+s.peatRaw, s.history); tier > s.lit {
+		s.lit = tier
+	}
 }
 
 // hearth is the tier s's members earn under now. s.mu held.
@@ -451,9 +464,7 @@ func (st *state) earn(s *server, m *member, guild, user snowflake.ID, chat bool,
 		st.progress(s, m, user, taskVoice)
 	}
 	s.raw += m.day.Voice + m.day.Chat - before
-	if tier := st.bal().HearthTier(s.raw, s.history); tier > s.lit {
-		s.lit = tier
-	}
+	st.stoke(s)
 	m.dirty, s.dirty = true, true
 	return got
 }
@@ -519,7 +530,6 @@ func bannerOf(acts []discord.Activity, vanity string) bool {
 	}
 	return false
 }
-
 
 // chat counts one message by user: as activity once per ActivityGap, as pay
 // once per cooldown, neither when it is too short or the last one again.

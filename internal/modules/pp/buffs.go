@@ -60,7 +60,7 @@ func (st *state) hearthHow(s *server) string {
 	if s.lit >= len(b.HearthAt) {
 		return "at its brightest, through tomorrow"
 	}
-	at := s.raw * 100 / max(b.Usual(s.history), 1)
+	at := (s.raw + s.peatRaw) * 100 / max(b.Usual(s.history), 1)
 	// Today's next tier lights at HearthAt[s.lit]. Under a fire still
 	// burning from yesterday, reaching it keeps a fire for tomorrow; over
 	// it, the hearth rises.

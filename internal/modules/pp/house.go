@@ -96,7 +96,8 @@ type seated struct {
 	won   int64 // once settled
 	// marker is a seat on the house's marker: the stake is the house's
 	// own, so nothing left the purse and only the winnings come back.
-	marker bool
+	// amber is a marker seat paid for in amber (sitOnAmber).
+	marker, amber bool
 }
 
 // table is one of the purser's tables: its slate (the seed, posted as its

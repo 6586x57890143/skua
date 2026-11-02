@@ -52,8 +52,8 @@ const peatRaw = 25 * unit
 const amberCandle = 3
 
 // What a foray counts, for tuning (see stats.go). foray_out: a the place,
-// b the lean. foray_back: a the place, b the ending's index. peat_fed: a
-// how many. amber_staked: once each. foray_company: a the place.
+// b the lean. foray_back:<place>/<ending>: a day out that ended there.
+// peat_fed: a how many. amber_staked: once each. foray_company: a the place.
 const (
 	statForayOut     = "foray_out"
 	statForayBack    = "foray_back"
@@ -67,8 +67,8 @@ var (
 	errForayToday = core.Tell("the warden has written you out once today already; come back after the turn")
 	errForayWhere = core.Tell("the warden doesn't know that road")
 	errNoPeat     = core.Tell("you have no peat to put on the fire")
-	errNoAmber    = core.Tell("the purser takes three beads of amber for a candle, and you have fewer")
-	errAmberDone  = core.Tell("the purser takes one piece of amber from a bird a day; come back after the turn")
+	errNoAmber    = core.Tell(fmt.Sprintf("the purser takes %d beads of amber for a candle, and you have fewer", amberCandle))
+	errAmberDone  = core.Tell("the purser takes amber from a bird once a day; come back after the turn")
 )
 
 // deck is place p's events in the order the day draws them on day in
@@ -130,21 +130,42 @@ type Walker struct {
 	Stage int
 	// Company is the name of a fold bird met out there today, "" for none.
 	Company string
+	// Path is the events met, by key, as the day's deck dealt them when the
+	// bird set out; nil deals them again (dayPath). Kept by key so a deck
+	// that changes under a bird out on the road doesn't change its day.
+	Path []string
+}
+
+// dayPath is the events a bird out to place on day meets, near or far, by
+// key: the deck's first that fit the reach.
+func dayPath(seed, guild uint64, day int64, place int, far bool) []string {
+	p := places[place]
+	reach := 0
+	if far {
+		reach = 1
+	}
+	var keys []string
+	for _, i := range deck(seed, guild, day, place) {
+		if len(keys) == forayEvents[reach] {
+			break
+		}
+		if !p.Events[i].Far || far {
+			keys = append(keys, p.Events[i].Key)
+		}
+	}
+	return keys
 }
 
 // walk is the day out w has. It is pure.
 func walk(w Walker) Outing {
 	p := places[w.Place]
-	far := 0
-	if w.Far {
-		far = 1
+	keys := w.Path
+	if keys == nil {
+		keys = dayPath(w.Seed, w.Guild, w.Day, w.Place, w.Far)
 	}
 	var picks []int
-	for _, i := range deck(w.Seed, w.Guild, w.Day, w.Place) {
-		if len(picks) == forayEvents[far] {
-			break
-		}
-		if !p.Events[i].Far || w.Far {
+	for _, k := range keys {
+		if i := slices.IndexFunc(p.Events, func(e Event) bool { return e.Key == k }); i >= 0 {
 			picks = append(picks, i)
 		}
 	}
@@ -169,7 +190,10 @@ func walk(w Walker) Outing {
 	throws, passes := 0, 0
 	home := slices.Contains(p.Home, w.Class)
 	for n, m := range path {
-		o, _ := taken(*m.e, w.Lean, w.Class, marks)
+		o, ok := taken(*m.e, w.Lean, w.Class, marks)
+		if !ok {
+			continue
+		}
 		st := Step{Event: m.e, Option: o, Arc: m.arc, Index: m.index, Passed: true}
 		if o.Need > 0 {
 			st.Roll = int(Roll(w.Seed, w.Guild, w.User, w.Day, slotForayDice+uint64(n))%100) + 1
@@ -263,6 +287,7 @@ type outing struct {
 	need      int
 	companion snowflake.ID
 	partner   string // the companion's name, as the story tells it
+	path      []string
 	back      bool
 }
 
@@ -270,15 +295,16 @@ type outing struct {
 // out, the pages and endings found at each place, how far each class arc
 // has been told there, and the finds not yet spent.
 type forays struct {
-	out      *outing
-	lastOut  int64 // the day they last set out
-	pages    [2]int64
-	endings  [2]int64
-	arcs     map[string]int // place/class: stages told
-	peat     int64
-	amber    int64
-	amberDay int64
-	dirty    bool
+	out     *outing
+	lastOut int64 // the day they last set out
+	// pages and endings found, as place/key, so the book survives a deck
+	// that grows or moves.
+	pages, endings map[string]bool
+	arcs           map[string]int // place/class: stages told
+	peat           int64
+	amber          int64
+	amberDay       int64
+	dirty          bool
 }
 
 // forayOf is user's forays in s, made if they have none. s.mu held.
@@ -288,7 +314,7 @@ func (s *server) forayOf(user snowflake.ID) *forays {
 	}
 	f, ok := s.forays[user]
 	if !ok {
-		f = &forays{arcs: map[string]int{}}
+		f = &forays{arcs: map[string]int{}, pages: map[string]bool{}, endings: map[string]bool{}}
 		s.forays[user] = f
 	}
 	return f
@@ -300,7 +326,7 @@ func arcKey(place int, class string) string { return places[place].Key + "/" + c
 func (st *state) walker(s *server, user snowflake.ID, o *outing) Walker {
 	return Walker{
 		Seed: st.seedOf(o.day), Guild: uint64(s.id), User: uint64(user), Day: o.day,
-		Place: o.place, Far: o.far, Lean: o.lean, Class: o.class, Stage: o.stage, Company: o.partner,
+		Place: o.place, Far: o.far, Lean: o.lean, Class: o.class, Stage: o.stage, Company: o.partner, Path: o.path,
 	}
 }
 
@@ -324,7 +350,8 @@ func (st *state) setOut(s *server, user snowflake.ID, place int, far bool, lean 
 	if far {
 		reach = 1
 	}
-	o := &outing{place: place, far: far, lean: lean, class: class, stage: f.arcs[arcKey(place, class)], day: today, need: forayQuiet[reach]}
+	o := &outing{place: place, far: far, lean: lean, class: class, stage: f.arcs[arcKey(place, class)], day: today, need: forayQuiet[reach],
+		path: dayPath(st.seedOf(today), uint64(s.id), today, place, far)}
 	if lean == Fold {
 		for u, g := range s.forays {
 			if p := g.out; u != user && p != nil && !p.back && p.day == today && p.place == place && p.lean == Fold && p.companion == 0 {
@@ -385,21 +412,25 @@ func (st *state) bringBack(s *server, user snowflake.ID, f *forays, today int64)
 	case "amber":
 		f.amber += int64(d.Finds)
 	}
+	key := places[o.place].Key + "/"
 	for _, step := range d.Steps {
 		if step.Index >= 0 {
-			f.pages[o.place] |= 1 << step.Index
+			f.pages[key+step.Event.Key] = true
 		}
 	}
-	f.endings[o.place] |= 1 << d.End
+	f.endings[key+d.Ending.Key] = true
 	if d.ArcPassed {
 		f.arcs[arcKey(o.place, o.class)] = o.stage + 1
 	}
 	f.dirty = true
-	s.count(today, statForayBack, o.place, d.End)
+	s.count(today, statForayBack+":"+key+d.Ending.Key, 0, 0)
 }
 
-// feedPeat puts n of user's peat on the hearth: each counts toward the
-// server's day as peatRaw, and may light the fire or raise it. s.mu held.
+// feedPeat puts n of user's peat on the hearth: each counts toward
+// today's fire as peatRaw, and may light it or raise it. It isn't the
+// day's earning, so it stays out of the history the usual day is read
+// from, and a day of peat doesn't raise the bar for the days after.
+// s.mu held.
 func (st *state) feedPeat(s *server, user snowflake.ID, n int64, today int64) error {
 	f := s.forayOf(user)
 	if n <= 0 || f.peat < n {
@@ -408,10 +439,8 @@ func (st *state) feedPeat(s *server, user snowflake.ID, n int64, today int64) er
 	st.rollServer(s, today)
 	f.peat -= n
 	f.dirty = true
-	s.raw += n * peatRaw
-	if tier := st.bal().HearthTier(s.raw, s.history); tier > s.lit {
-		s.lit = tier
-	}
+	s.peatRaw += n * peatRaw
+	st.stoke(s)
 	s.dirty = true
 	s.count(today, statPeatFed, int(n), 0)
 	return nil
@@ -420,9 +449,10 @@ func (st *state) feedPeat(s *server, user snowflake.ID, n int64, today int64) er
 // sitOnAmber seats user at t on the house's marker for a candle, paid
 // with a candle's worth of amber: the stake is the house's, nothing leaves
 // the purse, and they keep what the bones win past it. Once a day.
-// ponytail: a marker seat isn't refunded at a restart, so amber staked on
-// a table a deploy cuts off is lost; mark amber seats if that bites.
-// s.mu held.
+// A table shut on the way down gives the amber back (refundAmber); one a
+// crash takes doesn't.
+// ponytail: the seat's amber is only in memory; persist it if crashes
+// mid-table start costing birds amber. s.mu held.
 func (st *state) sitOnAmber(s *server, t *table, guild, user snowflake.ID, name string, now time.Time) error {
 	today := DayOf(now)
 	f := s.forayOf(user)
@@ -437,10 +467,23 @@ func (st *state) sitOnAmber(s *server, t *table, guild, user snowflake.ID, name 
 	if err := st.seat(s, t, guild, user, name, stakes[1].pp, now, true); err != nil {
 		return err
 	}
+	t.seats[len(t.seats)-1].amber = true
 	f.amber -= amberCandle
 	f.amberDay, f.dirty = today, true
 	s.count(today, statAmberStaked, 0, 0)
 	return nil
+}
+
+// refundAmber gives back the amber of every bird on t's marker for it, and
+// the day's chance to stake it, when t goes unthrown. s.mu held.
+func (s *server) refundAmber(t *table) {
+	for _, p := range t.seats {
+		if p.amber {
+			f := s.forayOf(p.user)
+			f.amber += amberCandle
+			f.amberDay, f.dirty = 0, true
+		}
+	}
 }
 
 // encodeArcs is a member's arcs as their row keeps them.
@@ -460,6 +503,26 @@ func encodeArcs(arcs map[string]int) string {
 	return b.String()
 }
 
+// encodeSet is a set of keys as a row keeps it, comma separated.
+func encodeSet(set map[string]bool) string {
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return strings.Join(keys, ",")
+}
+
+func decodeSet(s string) map[string]bool {
+	out := map[string]bool{}
+	for _, k := range strings.Split(s, ",") {
+		if k != "" {
+			out[k] = true
+		}
+	}
+	return out
+}
+
 func decodeArcs(s string) map[string]int {
 	out := map[string]int{}
 	for _, kv := range strings.Split(s, ",") {
@@ -477,7 +540,7 @@ type forayRows struct {
 	place, lean, stage, quiet, need             []int64
 	day, companion                              []int64
 	far, back, out                              []bool
-	class, partner, arcs                        []string
+	class, partner, arcs, path                  []string
 	pages, endings                              []string
 }
 
@@ -493,36 +556,32 @@ func (r *forayRows) add(guild, user snowflake.ID, f *forays) {
 	r.quiet, r.need, r.day = append(r.quiet, int64(o.quiet)), append(r.need, int64(o.need)), append(r.day, o.day)
 	r.companion, r.far, r.back = append(r.companion, int64(o.companion)), append(r.far, o.far), append(r.back, o.back)
 	r.class, r.partner, r.arcs = append(r.class, o.class), append(r.partner, o.partner), append(r.arcs, encodeArcs(f.arcs))
-	r.pages, r.endings = append(r.pages, masks(f.pages)), append(r.endings, masks(f.endings))
+	r.pages, r.endings = append(r.pages, encodeSet(f.pages)), append(r.endings, encodeSet(f.endings))
+	r.path = append(r.path, strings.Join(o.path, ","))
 }
-
-// masks is a per-place bitmask as its column keeps it, a bigint array.
-func masks(b [2]int64) string { return fmt.Sprintf("{%d,%d}", b[0], b[1]) }
 
 // write upserts the rows, inside the flush's transaction.
 func (r *forayRows) write(ctx context.Context, tx pgx.Tx) error {
 	if len(r.user) == 0 {
 		return nil
 	}
-	_, err := tx.Exec(ctx, `insert into pp_foray (guild_id, user_id, last_out, peat, amber, amber_day, out, place, lean, stage, quiet, need, day, companion, far, back, class, partner, arcs, pages, endings)
-		select g, u, lo, pe, am, ad, o, pl, le, st, q, n, d, c, f, b, cl, pa, ar, pg::bigint[], en::bigint[]
-		from unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[], $5::bigint[], $6::bigint[], $7::boolean[], $8::bigint[], $9::bigint[], $10::bigint[],
-			$11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[], $15::boolean[], $16::boolean[], $17::text[], $18::text[], $19::text[], $20::text[], $21::text[])
-			as t(g, u, lo, pe, am, ad, o, pl, le, st, q, n, d, c, f, b, cl, pa, ar, pg, en)
+	_, err := tx.Exec(ctx, `insert into pp_foray (guild_id, user_id, last_out, peat, amber, amber_day, out, place, lean, stage, quiet, need, day, companion, far, back, class, partner, arcs, pages, endings, path)
+		select * from unnest($1::bigint[], $2::bigint[], $3::bigint[], $4::bigint[], $5::bigint[], $6::bigint[], $7::boolean[], $8::bigint[], $9::bigint[], $10::bigint[],
+			$11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[], $15::boolean[], $16::boolean[], $17::text[], $18::text[], $19::text[], $20::text[], $21::text[], $22::text[])
 		on conflict (guild_id, user_id) do update set last_out = excluded.last_out, peat = excluded.peat, amber = excluded.amber,
 			amber_day = excluded.amber_day, out = excluded.out, place = excluded.place, lean = excluded.lean, stage = excluded.stage,
 			quiet = excluded.quiet, need = excluded.need, day = excluded.day, companion = excluded.companion, far = excluded.far,
 			back = excluded.back, class = excluded.class, partner = excluded.partner, arcs = excluded.arcs,
-			pages = excluded.pages, endings = excluded.endings`,
+			pages = excluded.pages, endings = excluded.endings, path = excluded.path`,
 		r.guild, r.user, r.lastOut, r.peat, r.amber, r.amberDay, r.out, r.place, r.lean, r.stage,
-		r.quiet, r.need, r.day, r.companion, r.far, r.back, r.class, r.partner, r.arcs, r.pages, r.endings)
+		r.quiet, r.need, r.day, r.companion, r.far, r.back, r.class, r.partner, r.arcs, r.pages, r.endings, r.path)
 	return err
 }
 
 // loadForays reads every member's forays.
 func (st *state) loadForays(ctx context.Context, db DB) error {
 	rows, err := db.Query(ctx, `select guild_id, user_id, last_out, peat, amber, amber_day, out, place, lean, stage, quiet, need, day,
-		companion, far, back, class, partner, arcs, pages, endings from pp_foray`)
+		companion, far, back, class, partner, arcs, pages, endings, path from pp_foray`)
 	if err != nil {
 		return err
 	}
@@ -530,21 +589,21 @@ func (st *state) loadForays(ctx context.Context, db DB) error {
 	for rows.Next() {
 		var guild, user, place, lean, stage, quiet, need, companion int64
 		var out bool
-		var arcs string
-		var pages, endings []int64
+		var arcs, pages, endings, path string
 		f := &forays{}
 		o := &outing{}
 		if err := rows.Scan(&guild, &user, &f.lastOut, &f.peat, &f.amber, &f.amberDay, &out, &place, &lean, &stage, &quiet, &need, &o.day,
-			&companion, &o.far, &o.back, &o.class, &o.partner, &arcs, &pages, &endings); err != nil {
+			&companion, &o.far, &o.back, &o.class, &o.partner, &arcs, &pages, &endings, &path); err != nil {
 			return err
 		}
 		o.place, o.lean, o.stage, o.quiet, o.need, o.companion = int(place), Wind(lean), int(stage), int(quiet), int(need), snowflake.ID(companion)
 		if out && o.place >= 0 && o.place < len(places) {
 			f.out = o
 		}
-		copy(f.pages[:], pages)
-		copy(f.endings[:], endings)
-		f.arcs = decodeArcs(arcs)
+		if path != "" {
+			o.path = strings.Split(path, ",")
+		}
+		f.pages, f.endings, f.arcs = decodeSet(pages), decodeSet(endings), decodeArcs(arcs)
 		s := st.server(snowflake.ID(guild))
 		s.mu.Lock()
 		if s.forays == nil {

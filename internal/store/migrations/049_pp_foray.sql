@@ -2,8 +2,9 @@
 -- or the last, and what going out has left them. The outing's columns are
 -- what the story is walked from again (place, reach, lean, class, the
 -- class arc's stage, the day and the fold bird met), never the story
--- itself. pages and endings are a bitmask per place, in the order the gate
--- offers them; arcs is place/class=stages told, comma separated.
+-- itself; path is the events the day dealt, by key. pages and endings are
+-- place/key, and arcs place/class=stages told, comma separated, so the book
+-- survives a deck that grows or moves.
 create table pp_foray (
 	guild_id  bigint  not null,
 	user_id   bigint  not null,
@@ -24,7 +25,8 @@ create table pp_foray (
 	class     text    not null default '',
 	partner   text    not null default '',
 	arcs      text    not null default '',
-	pages     bigint[] not null default '{0,0}',
-	endings   bigint[] not null default '{0,0}',
+	pages     text    not null default '',
+	endings   text    not null default '',
+	path      text    not null default '',
 	primary key (guild_id, user_id)
 );

@@ -205,7 +205,7 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 	var guests guestRows
 	tookGuests := map[*server][]snowflake.ID{}
 	var fs forayRows
-	var tookForays []*forays
+	tookForays := map[*server][]*forays{}
 	tookStats := map[*server]map[statKey]int64{}
 	var guilds, days, raws, lits, before []int64
 	var treasuries, open, full, funds, smint, sburn, slast []int64
@@ -247,7 +247,7 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			if f.dirty {
 				fs.add(g, u, f)
 				f.dirty = false
-				tookForays = append(tookForays, f)
+				tookForays[s] = append(tookForays[s], f)
 			}
 		}
 		for _, u := range s.seenGuests {
@@ -297,8 +297,12 @@ func (st *state) flush(ctx context.Context, db DB) (int, error) {
 			s.seenGuests = append(ids, s.seenGuests...)
 			s.mu.Unlock()
 		}
-		for _, f := range tookForays {
-			f.dirty = true
+		for s, fs := range tookForays {
+			s.mu.Lock()
+			for _, f := range fs {
+				f.dirty = true
+			}
+			s.mu.Unlock()
 		}
 		// Counters taken go back onto whatever's counted since.
 		for s, kept := range tookStats {
