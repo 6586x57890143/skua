@@ -208,16 +208,28 @@ func (b *Balance) VoiceRaw(me Seat, others []Seat, pace int64) int64 {
 // heard is whether anyone in others counts as company.
 func (b *Balance) heard(others []Seat) bool { return b.company(others) > 0 }
 
-// company is how many in others count as company: not a bot, not deaf
-// and an account at least CompanionAge old.
+// company is how many in others count as company: not a bot, not deaf,
+// an account at least CompanionAge old and not asleep.
 func (b *Balance) company(others []Seat) int {
 	n := 0
 	for _, o := range others {
-		if !o.Bot && !o.Deaf && o.Age >= b.CompanionAge {
+		if !o.Bot && !o.Deaf && o.Age >= b.CompanionAge && !b.asleep(o) {
 			n++
 		}
 	}
 	return n
+}
+
+// asleep is whether o has gone without a sign of life so long that their
+// own voice has faded all the way, so two idlers don't keep each other
+// company. The grace isn't jittered: o's pace is theirs to learn, not the
+// room's.
+func (b *Balance) asleep(o Seat) bool {
+	past := b.IdleGrace + b.IdleFade
+	if !o.SelfMute {
+		past += b.OpenGrace
+	}
+	return o.Idle >= past
 }
 
 // fade is the percent an idle stretch pays: all of it through grace, then
