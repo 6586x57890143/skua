@@ -54,7 +54,7 @@ func TestLadder(t *testing.T) {
 		t.Fatal(err)
 	}
 	opened = *sent
-	if len(opened) != 1 || !strings.Contains(js(opened[0].Components), "climb to the chitin perch") {
+	if len(opened) != 1 || !strings.Contains(js(opened[0].Components), `"climb · `) || !strings.Contains(js(opened[0].Components), "the chitin perch costs") {
 		t.Fatalf("the shop showed %v", js(opened))
 	}
 	// The first press asks; only the confirm climbs.
