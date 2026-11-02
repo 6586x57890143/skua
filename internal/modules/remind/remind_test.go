@@ -68,6 +68,7 @@ type poster struct {
 	c      *clk
 	trip   time.Duration
 	sent   []sent
+	edits  []edit
 	dmErr  error
 	err    error
 	dms    int
@@ -106,6 +107,27 @@ func (p *poster) CreateDMChannel(snowflake.ID, ...rest.RequestOpt) (*discord.DMC
 	return &ch, nil
 }
 
+func (p *poster) UpdateMessage(ch, msg snowflake.ID, u discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.err != nil {
+		return nil, p.err
+	}
+	p.edits = append(p.edits, edit{ch, msg, u})
+	return &discord.Message{ID: msg, ChannelID: ch}, nil
+}
+
+type edit struct {
+	ch, msg snowflake.ID
+	u       discord.MessageUpdate
+}
+
+func (p *poster) edited() []edit {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]edit(nil), p.edits...)
+}
+
 func (p *poster) all() []sent {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -119,7 +141,7 @@ func fresh(t *testing.T) (*Module, *clk, *poster, snowflake.ID, snowflake.ID) {
 	db := pool(t)
 	c := &clk{t: now}
 	p := &poster{c: c, trip: 80 * time.Millisecond}
-	m := New(quiet(), guard.New(), db)
+	m := New(quiet(), guard.New(), db, func(discord.Interaction) bool { return false })
 	m.now = c.now
 	m.after = func(time.Duration, func()) *time.Timer { return time.NewTimer(time.Hour) }
 	m.rest = p
@@ -838,7 +860,7 @@ func TestModuleFacts(t *testing.T) {
 	if m.Name() != "remind" || m.Perms() == 0 || m.Want().Required == 0 || m.Help().About == "" {
 		t.Fatal("facts")
 	}
-	if len(m.Commands()) != 2 || len(m.Components()) != 1 || len(m.Modals()) != 3 {
+	if len(m.Commands()) != 2 || len(m.Components()) != 1 || len(m.Modals()) != 4 {
 		t.Fatal("handlers")
 	}
 	if r := m.Report(g); len(r.Rows) != 0 {

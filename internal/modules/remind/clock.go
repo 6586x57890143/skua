@@ -261,8 +261,18 @@ func (m *Module) send(ctx context.Context, r reminder, late time.Duration) (time
 		return time.Time{}, err
 	}
 	to, inDM := r.channel, r.target == "dm"
-	if r.target == "channel" && r.targetID != 0 {
-		to = r.targetID
+	switch r.target {
+	case "channel":
+		if r.targetID != 0 {
+			to = r.targetID
+		}
+	case "team", "role":
+		msg, err := m.group(ctx, p, r, late)
+		m.guard.Done(r.guild, err)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return msg.ID.Time(), nil
 	}
 	who, err := m.person(ctx, r.owner)
 	if err != nil {
@@ -306,6 +316,25 @@ func refused(err error) bool {
 	}
 	c := re.Response.StatusCode
 	return c >= 400 && c < 500 && c != 429
+}
+
+// group posts a team's or a role's reminder: a team's in its channel as
+// it stands now, pinging who is on it then; a role's where it was set.
+func (m *Module) group(ctx context.Context, p Poster, r reminder, late time.Duration) (*discord.Message, error) {
+	to := r.channel
+	var who []snowflake.ID
+	if r.target == "team" {
+		t, ok, err := teamOf(ctx, m.db, int64(r.targetID))
+		switch {
+		case err != nil:
+			return nil, err
+		case !ok:
+			return nil, errors.New("remind: its team is gone")
+		}
+		to, who = t.channel, t.members
+		defer func() { go m.refresh(t.id) }()
+	}
+	return p.CreateMessage(to, called(r, late, who, 0), rest.WithCtx(ctx))
 }
 
 // closed is whether err is Discord refusing a dm: the member turned them
@@ -385,4 +414,5 @@ func (m *Module) poster() Poster {
 type Poster interface {
 	CreateMessage(channel snowflake.ID, m discord.MessageCreate, opts ...rest.RequestOpt) (*discord.Message, error)
 	CreateDMChannel(user snowflake.ID, opts ...rest.RequestOpt) (*discord.DMChannel, error)
+	UpdateMessage(channel, message snowflake.ID, m discord.MessageUpdate, opts ...rest.RequestOpt) (*discord.Message, error)
 }
