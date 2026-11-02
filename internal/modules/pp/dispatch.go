@@ -54,7 +54,7 @@ func (m *Module) morning(guild, user snowflake.ID) (Morning, bool) {
 		Date:   sheetDate(b, today),
 		News:   worldLine(b, today),
 		Rumour: rumours[r%uint64(len(rumours))],
-		Notes:  m.notes(s, mem, today),
+		Notes:  m.notes(s, user, mem, today),
 	}
 	for _, q := range mem.quests {
 		if q.aside() {
@@ -118,7 +118,7 @@ func worldLine(b *Balance, today int64) string {
 
 // notes are what's true of mem today worth a line on their sheet. s.mu
 // held.
-func (m *Module) notes(s *server, mem *member, today int64) []string {
+func (m *Module) notes(s *server, user snowflake.ID, mem *member, today int64) []string {
 	var out []string
 	// A standing order is paid at the turn, before anyone reads a sheet, so
 	// a renewing livery still ending today is one the dyer's boy couldn't
@@ -139,6 +139,9 @@ func (m *Module) notes(s *server, mem *member, today int64) []string {
 	}
 	if s.hearth() > 0 {
 		out = append(out, "the hearth is lit, and your work goes further today")
+	}
+	if n := forayNote(s, user); n != "" {
+		out = append(out, n)
 	}
 	return out
 }

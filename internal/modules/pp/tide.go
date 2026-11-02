@@ -347,9 +347,9 @@ func (m *Module) sitAt(guild snowflake.ID, e *events.ComponentInteractionCreate)
 		return errTableShut
 	}
 	id, err1 := strconv.ParseInt(parts[2], 10, 64)
-	marker := parts[3] == "marker"
+	marker, amber := parts[3] == "marker", parts[3] == "amber"
 	k, err2 := strconv.Atoi(parts[3])
-	if err1 != nil || !marker && (err2 != nil || k < 0 || k >= len(stakes)) {
+	if err1 != nil || !marker && !amber && (err2 != nil || k < 0 || k >= len(stakes)) {
 		return errTableShut
 	}
 	now := m.now()
@@ -366,6 +366,9 @@ func (m *Module) sitAt(guild snowflake.ID, e *events.ComponentInteractionCreate)
 	}
 	if marker {
 		sit = func() error { return m.st.sitOnMarker(s, t, guild, e.User().ID, e.Member().EffectiveName(), now) }
+	}
+	if amber {
+		sit = func() error { return m.st.sitOnAmber(s, t, guild, e.User().ID, e.Member().EffectiveName(), now) }
 	}
 	if err := sit(); err != nil {
 		s.mu.Unlock()
@@ -617,6 +620,15 @@ func (m *Module) tableView(s *server, t *table) func() (discord.MessageCreate, e
 			row = append(row, b)
 		}
 		extra = append(extra, discord.NewActionRow(row...))
+		// A candle on the marker for amber from the last wood, on a row
+		// of its own: the stakes fill theirs.
+		if t.rail == 0 && s.gateOpen {
+			b := withIcon(discord.NewSecondaryButton(fmt.Sprintf("a candle for %d amber", amberCandle), fmt.Sprintf("pp:sit:%d:amber", t.id)), "amber")
+			if stakes[1].pp > s.maxStake() {
+				b = b.AsDisabled()
+			}
+			extra = append(extra, discord.NewActionRow(b))
+		}
 	}
 	title := "a table at the slack tide"
 	switch {

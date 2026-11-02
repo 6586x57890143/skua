@@ -72,7 +72,7 @@ func TestNotes(t *testing.T) {
 	today := DayOf(t0)
 	s := m.st.server(3)
 	mem := m.st.member(s, 3, 5, today)
-	if got := m.notes(s, mem, today); len(got) != 0 {
+	if got := m.notes(s, 0, mem, today); len(got) != 0 {
 		t.Errorf("a new member's notes: %q", got)
 	}
 	mem.livery, mem.liveryUntil = "tanners", today
@@ -80,7 +80,7 @@ func TestNotes(t *testing.T) {
 	mem.total = need - unit
 	s.lit = 2
 	mem.firstRoll = 3
-	got := strings.Join(m.notes(s, mem, today), "|")
+	got := strings.Join(m.notes(s, 0, mem, today), "|")
 	for _, want := range []string{"livery fades tonight", "1 pp off level 1", "hearth is lit", "3rd on the first roll"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the notes lack %q: %s", want, got)

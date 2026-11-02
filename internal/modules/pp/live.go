@@ -189,6 +189,9 @@ type server struct {
 	// anchor is the role liveries sit directly under, and heralds the
 	// channel livery petitions are posted in for review; 0 none.
 	anchor, heralds snowflake.ID
+	// gateOpen is whether the north gate lets every bird out yet, not only
+	// admins (forayscreen.go).
+	gateOpen bool
 	// yardOpen is whether the dyers' yard sells to everyone yet, not only
 	// admins, and dyeRoles each livery's role here once it's made.
 	yardOpen bool

@@ -219,11 +219,11 @@ func TestLoadLettersGate(t *testing.T) {
 
 // The menu offers the letter to whoever holds one, lit until it's opened.
 func TestLetterMenu(t *testing.T) {
-	rows := js(menuRows("bard", false, "pp:status", true, true, true, false))
+	rows := js(menuRows("bard", false, "pp:status", true, true, true, false, false))
 	if !strings.Contains(rows, "pp:letter") || !strings.Contains(rows, `"style":1`) {
 		t.Errorf("sealed: %s", rows)
 	}
-	if rows := js(menuRows("bard", false, "pp:status", true, false, false, false)); strings.Contains(rows, "pp:letter") {
+	if rows := js(menuRows("bard", false, "pp:status", true, false, false, false, false)); strings.Contains(rows, "pp:letter") {
 		t.Errorf("none: %s", rows)
 	}
 }

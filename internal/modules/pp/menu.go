@@ -121,6 +121,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.liveryPanel(*guild, e)
 	case id == "pp:arm":
 		return m.armLaunch(ctx, *guild, e)
+	case id == "pp:opengate":
+		return m.openGate(ctx, *guild, e)
 	case id == "pp:openyard":
 		return m.openYard(ctx, *guild, e)
 	case id == "pp:keys":
@@ -162,6 +164,9 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.rally(*guild, e)
 	case id == "pp:withdraw":
 		return m.withdrawPact(*guild, e)
+	case id == "pp:gate", strings.HasPrefix(id, "pp:gate:"), id == "pp:fwhere", strings.HasPrefix(id, "pp:fout:"),
+		strings.HasPrefix(id, "pp:fread:"), strings.HasPrefix(id, "pp:book:"), id == "pp:peat":
+		return m.gate(*guild, e)
 	case id == "pp:table", id == "pp:rail":
 		return m.openTable(ctx, *guild, e)
 	case strings.HasPrefix(id, "pp:sit:"):
@@ -311,6 +316,7 @@ func (m *Module) withMenu(guild, user snowflake.ID, admin bool, msg discord.Mess
 	mem := m.st.member(s, guild, user, DayOf(m.now()))
 	class, picked := mem.class, mem.classSeason != -1
 	tide := admin || s.released(DayOf(m.now()))
+	gate := admin || s.gateOpen
 	l := s.letters[user]
 	held, sealed := l != nil, l != nil && !l.opened
 	compact := mem.compact
@@ -322,7 +328,7 @@ func (m *Module) withMenu(guild, user snowflake.ID, admin bool, msg discord.Mess
 	if !ok {
 		return msg
 	}
-	card.Components = append(card.Components, menuRows(class, admin, current, tide, held, sealed, compact)...)
+	card.Components = append(card.Components, menuRows(class, admin, current, tide, held, sealed, compact, gate)...)
 	msg.Components = append([]discord.LayoutComponent{card}, msg.Components[1:]...)
 	return msg
 }
@@ -459,7 +465,7 @@ func turnsOver(today int64) string {
 // Compact, the buttons are their icons alone, as narrow as each other, so
 // a phone keeps four to a row where names would wrap; the last button
 // turns names on and off.
-func menuRows(class string, admin bool, current string, tide, letter, sealed, compact bool) []discord.ContainerSubComponent {
+func menuRows(class string, admin bool, current string, tide, letter, sealed, compact, gate bool) []discord.ContainerSubComponent {
 	named := func(label, icon string) discord.ButtonComponent {
 		b := withIcon(discord.NewSecondaryButton(label, ""), icon)
 		if compact && b.Emoji != nil {
@@ -485,6 +491,9 @@ func menuRows(class string, admin bool, current string, tide, letter, sealed, co
 		discord.NewActionRow(home, btn("lore", "pp:class", classIcons[class]), btn("buffs", "pp:buffs", "hearth"), btn("journal", "pp:ledger", "quill")),
 	}
 	var last []discord.InteractiveComponent
+	if gate {
+		last = append(last, btn("the gate", "pp:gate", "gate"))
+	}
 	if tide {
 		last = append(last, btn("slack tide", "pp:tide", "bones"))
 	}
@@ -507,7 +516,13 @@ func menuRows(class string, admin bool, current string, tide, letter, sealed, co
 		view.Label = "Aa"
 	}
 	last = append(last, view)
-	return append(rows, discord.NewActionRow(last...))
+	// Four to a row, so the places and the switches never wrap.
+	for len(last) > 0 {
+		n := min(len(last), 4)
+		rows = append(rows, discord.NewActionRow(last[:n]...))
+		last = last[n:]
+	}
+	return rows
 }
 
 // viewID is the press that turns the menu's names on or off and shows

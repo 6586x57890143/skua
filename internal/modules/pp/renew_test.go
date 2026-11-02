@@ -139,18 +139,18 @@ func TestRenewOnTheSheet(t *testing.T) {
 	mem := s.members[5]
 	mem.livery, mem.liveryUntil, mem.renew = "tallow", today, true
 	m.renewLeases(today)
-	for _, n := range m.notes(s, mem, today) {
+	for _, n := range m.notes(s, 0, mem, today) {
 		if strings.Contains(n, "livery") {
 			t.Errorf("paid, and still told %q", n)
 		}
 	}
 	mem.liveryUntil, mem.purse = today, 0
 	m.renewLeases(today)
-	if n := m.notes(s, mem, today); len(n) == 0 || !strings.Contains(n[0], "purse short") {
+	if n := m.notes(s, 0, mem, today); len(n) == 0 || !strings.Contains(n[0], "purse short") {
 		t.Errorf("short, and told %q", n)
 	}
 	mem.renew = false
-	if n := m.notes(s, mem, today); len(n) == 0 || !strings.Contains(n[0], "unless the yard is paid") {
+	if n := m.notes(s, 0, mem, today); len(n) == 0 || !strings.Contains(n[0], "unless the yard is paid") {
 		t.Errorf("no order, and told %q", n)
 	}
 }
