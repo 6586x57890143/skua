@@ -174,6 +174,13 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return errStale
 	}
 	id = pressed(e)
+	if current, ok := strings.CutPrefix(id, "pp:view:"); ok {
+		m.toggleView(*guild, e.User().ID)
+		id = "pp:status"
+		if redrawn(current) {
+			id = current
+		}
+	}
 	var msg discord.MessageCreate
 	var err error
 	switch {
@@ -306,6 +313,7 @@ func (m *Module) withMenu(guild, user snowflake.ID, admin bool, msg discord.Mess
 	tide := admin || s.released(DayOf(m.now()))
 	l := s.letters[user]
 	held, sealed := l != nil, l != nil && !l.opened
+	compact := mem.compact
 	s.mu.Unlock()
 	if !picked || len(msg.Components) == 0 {
 		return msg
@@ -314,7 +322,7 @@ func (m *Module) withMenu(guild, user snowflake.ID, admin bool, msg discord.Mess
 	if !ok {
 		return msg
 	}
-	card.Components = append(card.Components, menuRows(class, admin, current, tide, held, sealed)...)
+	card.Components = append(card.Components, menuRows(class, admin, current, tide, held, sealed, compact)...)
 	msg.Components = append([]discord.LayoutComponent{card}, msg.Components[1:]...)
 	return msg
 }
@@ -448,9 +456,20 @@ func turnsOver(today int64) string {
 // the screens it opens, then what the member does from it, every one
 // wearing the icon of what it opens. The screen open now, current, is
 // greyed out; on the status screen share takes the place of status.
-func menuRows(class string, admin bool, current string, tide, letter, sealed bool) []discord.ContainerSubComponent {
+// Compact, the buttons are their icons alone, as narrow as each other, so
+// a phone keeps four to a row where names would wrap; the last button
+// turns names on and off.
+func menuRows(class string, admin bool, current string, tide, letter, sealed, compact bool) []discord.ContainerSubComponent {
+	named := func(label, icon string) discord.ButtonComponent {
+		b := withIcon(discord.NewSecondaryButton(label, ""), icon)
+		if compact && b.Emoji != nil {
+			b.Label = ""
+		}
+		return b
+	}
 	btn := func(label, id, icon string) discord.InteractiveComponent {
-		b := withIcon(discord.NewSecondaryButton(label, id), icon)
+		b := named(label, icon)
+		b.CustomID = id
 		if id == current {
 			b = b.AsDisabled()
 		}
@@ -470,7 +489,8 @@ func menuRows(class string, admin bool, current string, tide, letter, sealed boo
 		last = append(last, btn("slack tide", "pp:tide", "bones"))
 	}
 	if letter {
-		b := withIcon(discord.NewSecondaryButton("sealed letter", "pp:letter"), "envelope")
+		b := named("sealed letter", "envelope")
+		b.CustomID = "pp:letter"
 		if sealed {
 			b = b.WithStyle(discord.ButtonStylePrimary)
 		}
@@ -482,10 +502,27 @@ func menuRows(class string, admin bool, current string, tide, letter, sealed boo
 	if admin {
 		last = append(last, btn("treasury", "pp:treasury", "pot"))
 	}
-	if len(last) > 0 {
-		rows = append(rows, discord.NewActionRow(last...))
+	view := discord.NewSecondaryButton("icons only", viewID(current))
+	if compact {
+		view.Label = "Aa"
 	}
-	return rows
+	last = append(last, view)
+	return append(rows, discord.NewActionRow(last...))
+}
+
+// viewID is the press that turns the menu's names on or off and shows
+// current again in the new view.
+func viewID(current string) string { return "pp:view:" + current }
+
+// redrawn is whether a press on a menu's view switch can show current
+// again by its ID alone; the shop, the yard and the rest that need more
+// go back to the status screen.
+func redrawn(current string) bool {
+	switch current {
+	case "pp:status", "pp:class", "pp:board", "pp:treasury", "pp:quests", "pp:notices", "pp:buffs", "pp:ledger", "pp:tide", "pp:letter":
+		return true
+	}
+	return false
 }
 
 // withIcon is b wearing the pp_<icon> emoji, once the emoji have synced.
@@ -570,4 +607,13 @@ func (m *Module) sheet(s *server, mem *member, guild, user snowflake.ID, today i
 		}
 	}
 	return sh
+}
+
+// toggleView turns user's menu between icons with names and icons only.
+func (m *Module) toggleView(guild, user snowflake.ID) {
+	s := m.st.server(guild)
+	s.mu.Lock()
+	mem := m.st.member(s, guild, user, DayOf(m.now()))
+	mem.compact, mem.dirty = !mem.compact, true
+	s.mu.Unlock()
 }

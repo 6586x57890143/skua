@@ -427,3 +427,38 @@ func TestSelfieAside(t *testing.T) {
 		t.Errorf("a selfie taken down twice: %+v", mem.quests)
 	}
 }
+
+// The menu's last button turns its names off and on, and shows the screen
+// pressed from again in the new view; one that can't be drawn again from
+// its ID goes home. The quests screen no longer has its own way to the
+// notices: the menu has one.
+func TestMenuView(t *testing.T) {
+	m := testModule(&fakeDB{})
+	s := m.st.server(3)
+	user := snowflake.ID(5)
+	mem := m.st.member(s, 3, user, DayOf(t0))
+	mem.classSeason = 0
+	press := func(id string) string {
+		t.Helper()
+		e, sent := coretest.Button(t, id, nil)
+		if err := m.press(context.Background(), e); err != nil {
+			t.Fatal(err)
+		}
+		return js((*sent)[0].Components)
+	}
+	card := press("pp:quests")
+	if strings.Contains(card, "pp:company") || !strings.Contains(card, `"icons only"`) || !strings.Contains(card, viewID("pp:quests")) {
+		t.Errorf("the quests card: %s", card)
+	}
+	card = press(viewID("pp:quests"))
+	if !mem.compact || !mem.dirty || !strings.Contains(card, "your quests") || !strings.Contains(card, `"Aa"`) {
+		t.Errorf("compact %v: %s", mem.compact, card)
+	}
+	// Before the emoji sync there are no icons, so the names stay.
+	if !strings.Contains(card, `"notices"`) {
+		t.Errorf("an unsynced compact menu lost its names: %s", card)
+	}
+	if card = press(viewID("pp:shop")); mem.compact || !strings.Contains(card, viewID("pp:status")) {
+		t.Errorf("from the shop: compact %v: %s", mem.compact, card)
+	}
+}

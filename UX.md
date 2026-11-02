@@ -70,6 +70,10 @@ too fast; try again in a couple of minutes`).
     own emblem. Its label is one or two lowercase words.
   - A row holds at most four buttons, so it never wraps on a desktop. The screens the
     card opens come first, then what the member does from it.
+  - Four named buttons wrap on a phone wherever their names fall, so `/pp`'s menu
+    ends with a switch to icons only (`icons only`, back with `Aa`), kept per member:
+    icons alone are as narrow as each other and stay four to a row. A row of named
+    buttons that isn't the menu (the board's tabs and pages) holds three.
   - The one primary button is the thing the card is for (pick a class, climb a rung);
     the rest are secondary. A way back is `◂ <where>`, first in its row. A yes or no
     pair (approve, refuse) is coloured success and danger instead of wearing icons.
