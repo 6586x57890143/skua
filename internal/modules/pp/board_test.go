@@ -2,10 +2,13 @@ package pp
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/core/coretest"
@@ -68,5 +71,52 @@ func TestBoard(t *testing.T) {
 	}
 	if got, _, _ := boardPage(nil, me, boardRows, 3); len(got) != 0 {
 		t.Errorf("an empty board has %d rows", len(got))
+	}
+}
+
+// Every page of both boards, menu and all, is a message Discord takes:
+// no two buttons share an ID (a page's turn back once matched its board's
+// own button, and Discord refused every edit), no row of the board's own
+// holds more than three, and the pages stop at the top hundred.
+func TestBoardPages(t *testing.T) {
+	m := testModule(&fakeDB{})
+	s := m.st.server(3)
+	me := snowflake.ID(5)
+	for i := range 150 {
+		mem := m.st.member(s, 3, old(i+1), DayOf(t0))
+		mem.total = int64(1000-i) * 1000 * unit
+		mem.season, mem.seasonPP = 1, int64(i+1)*unit
+		mem.classSeason = 1
+	}
+	me = old(150)
+	m.now = func() time.Time { return t0 }
+	ids := regexp.MustCompile(`"custom_id":"([^"]+)"`)
+	for _, board := range []string{"season", "levels"} {
+		for p := range 12 {
+			msg, err := m.boardMessage(3, me, fmt.Sprintf("pp:board:%s:%d", board, p))
+			if err != nil {
+				t.Fatal(err)
+			}
+			msg = m.withMenu(3, me, false, msg, "pp:board")
+			card := js(msg.Components)
+			seen := map[string]bool{}
+			for _, id := range ids.FindAllStringSubmatch(card, -1) {
+				if seen[id[1]] {
+					t.Errorf("%s page %d: %s twice", board, p, id[1])
+				}
+				seen[id[1]] = true
+			}
+			if !strings.Contains(card, fmt.Sprintf("of %d", boardMost/boardRows)) {
+				t.Errorf("%s page %d: the pages don't stop at the top %d: %s", board, p, boardMost, card)
+			}
+			for _, row := range msg.Components[0].(discord.ContainerComponent).Components {
+				if r, ok := row.(discord.ActionRowComponent); ok && strings.Contains(js(r), "pp:board:") && len(r.Components) > 3 {
+					t.Errorf("%s page %d: a row of %d", board, p, len(r.Components))
+				}
+			}
+		}
+	}
+	if levels, plain, p := parseBoard(boardTab(true)); !levels || plain || p != 0 {
+		t.Error("the levels tab doesn't open levels at its first page")
 	}
 }
