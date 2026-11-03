@@ -26,13 +26,12 @@ const maxOptions = 25
 
 var (
 	errNotAdmin = core.Tell("only this server's admins can pick what she carries")
-	errFixed    = core.Tell("that pair was set when she was deployed, so it stays")
 	errTaken    = core.Tell("that armada channel is already carried into another server")
 	errGone     = core.Tell("that armada channel isn't readable anymore; open /help again")
 )
 
-// loadLinks reads the picked pairs, skipping any side a fixed pair has.
-func loadLinks(db DB, fixed []*link) ([]*link, error) {
+// loadLinks reads the picked pairs.
+func loadLinks(db DB) ([]*link, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	rows, _ := db.Query(ctx, "select discord_channel_id, guild_id, armada_channel from armada_links")
@@ -40,9 +39,6 @@ func loadLinks(db DB, fixed []*link) ([]*link, error) {
 	var ch, guild int64
 	var arm string
 	_, err := pgx.ForEachRow(rows, []any{&ch, &guild, &arm}, func() error {
-		if slices.ContainsFunc(fixed, func(f *link) bool { return f.discord == snowflake.ID(ch) || f.armada == arm }) {
-			return nil
-		}
 		l := newLink(snowflake.ID(ch), arm)
 		l.guild.Store(uint64(guild))
 		out = append(out, l)
@@ -143,10 +139,7 @@ func (m *Module) link(ctx context.Context, guild, channel snowflake.ID, arm stri
 		if l.discord == channel && l.armada == arm {
 			return nil
 		}
-		switch {
-		case l.fixed:
-			return errFixed
-		case l.armada == arm && snowflake.ID(l.guild.Load()) != guild:
+		if l.armada == arm && snowflake.ID(l.guild.Load()) != guild {
 			return errTaken
 		}
 		drop = append(drop, l)
@@ -188,9 +181,6 @@ func (m *Module) unlink(ctx context.Context, guild snowflake.ID, arm string) err
 		return nil
 	}
 	l := links[i]
-	if l.fixed {
-		return errFixed
-	}
 	if m.db != nil {
 		if _, err := m.db.Exec(ctx, "delete from armada_links where discord_channel_id = $1", int64(l.discord)); err != nil {
 			return fmt.Errorf("armada: saving the link: %w", err)

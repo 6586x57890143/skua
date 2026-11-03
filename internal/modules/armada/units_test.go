@@ -348,11 +348,12 @@ func TestReadyRunsTheBridge(t *testing.T) {
 	v := loadVectors(t)
 	pool := &fakeRelays{stored: append([]*nostr.Event{v.Invite.Event}, v.Community.A.Wraps...)}
 	m, err := New(slog.New(slog.DiscardHandler), guard.New(), &fakePoster{}, filter.Default(), nil, Config{
-		Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: strings.Repeat("0a", 32), Links: "100=" + general,
+		Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: strings.Repeat("0a", 32),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	seed(m, "100="+general)
 	m.dial = func([]string) relays { return pool }
 	r := &guildRest{}
 	client := &bot.Client{Rest: r, ApplicationID: 1}
@@ -526,11 +527,12 @@ func TestWakesAreCapped(t *testing.T) {
 	}{{time.Hour, 1}, {0, 2}} {
 		pool := &fakeRelays{stored: append([]*nostr.Event{v.Invite.Event}, v.Community.A.Wraps...)}
 		m, err := New(slog.New(slog.DiscardHandler), guard.New(), &fakePoster{}, filter.Default(), nil, Config{
-			Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: v.Direct.Recipient, Links: "100=" + general,
+			Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: v.Direct.Recipient,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
+		seed(m, "100="+general)
 		var reads atomic.Int32
 		m.dial = func(urls []string) relays {
 			if slices.Equal(urls, m.invite.Bootstrap) {
