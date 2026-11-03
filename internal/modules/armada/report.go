@@ -163,7 +163,7 @@ func (s snapshot) health(here []*link, now time.Time) verdict {
 func (m *Module) Report(guild snowflake.ID) core.Report {
 	here := m.linksIn(guild)
 	if len(here) == 0 {
-		return core.Report{Controls: m.controls(guild)}
+		return core.Report{Controls: m.controls(guild, "")}
 	}
 	s := m.snapshot()
 	now := time.Now()
@@ -205,7 +205,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		}
 		r.Notes = append(r.Notes, line+" · since skua started")
 	}
-	r.Controls = m.controls(guild)
+	r.Controls = m.controls(guild, "")
 	return r
 }
 

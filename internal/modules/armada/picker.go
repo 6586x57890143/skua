@@ -84,19 +84,19 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		if !ok || len(data.Values) != 1 {
 			return errNotAdmin
 		}
-		name, ok := m.readable(data.Values[0])
-		if !ok {
+		if _, ok := m.readable(data.Values[0]); !ok {
 			return errGone
 		}
-		to := discord.ChannelSelectMenuComponent{CustomID: "armada:to:" + data.Values[0], Placeholder: "pick the channel here, or none to stop",
-			ChannelTypes: carriable, MinValues: new(0), MaxValues: 1}
-		for _, l := range m.linkList() {
-			if l.armada == data.Values[0] && snowflake.ID(l.guild.Load()) == *guild {
-				to.DefaultValues = []discord.SelectMenuDefaultValue{discord.NewSelectMenuDefaultChannel(l.discord)}
-			}
+		// The page keeps both pickers; picking an armada channel points the
+		// one below it at that channel, in place.
+		fresh := m.controls(*guild, data.Values[0])
+		comps, swapped := swapControls(e.Message.Components, fresh)
+		if !swapped {
+			comps = []discord.LayoutComponent{discord.NewContainer(fresh...)}
+			return e.CreateMessage(discord.MessageCreate{Flags: discord.MessageFlagEphemeral | discord.MessageFlagIsComponentsV2,
+				Components: comps, AllowedMentions: core.NoPings()})
 		}
-		return e.CreateMessage(discord.MessageCreate{Content: "where does #" + name + " cross to?", Flags: discord.MessageFlagEphemeral,
-			Components: []discord.LayoutComponent{discord.NewActionRow(to)}, AllowedMentions: core.NoPings()})
+		return e.UpdateMessage(discord.MessageUpdate{Components: &comps})
 	}
 	arm, ok := strings.CutPrefix(id, "armada:to:")
 	data, isPick := e.Data.(discord.ChannelSelectMenuInteractionData)
@@ -218,8 +218,9 @@ func (m *Module) dropLocked(l *link) {
 }
 
 // controls is the picker: the armada channels skua can read, the ones
-// carried here marked.
-func (m *Module) controls(guild snowflake.ID) []discord.ContainerSubComponent {
+// carried here marked, and below it the channel here that selected crosses
+// to. An unset selected is the first carried here, else the first.
+func (m *Module) controls(guild snowflake.ID, selected string) []discord.ContainerSubComponent {
 	m.mu.RLock()
 	chans := make([]struct{ id, name string }, 0, len(m.chans))
 	for id, ch := range m.chans {
@@ -238,16 +239,66 @@ func (m *Module) controls(guild snowflake.ID) []discord.ContainerSubComponent {
 	slices.SortFunc(chans, func(a, b struct{ id, name string }) int {
 		return cmp.Or(cmp.Compare(a.name, b.name), cmp.Compare(a.id, b.id))
 	})
-	opts := make([]discord.StringSelectMenuOption, 0, min(len(chans), maxOptions))
-	for _, ch := range chans[:min(len(chans), maxOptions)] {
-		o := discord.StringSelectMenuOption{Label: "#" + ch.name, Value: ch.id}
+	chans = chans[:min(len(chans), maxOptions)]
+	if !slices.ContainsFunc(chans, func(c struct{ id, name string }) bool { return c.id == selected }) {
+		selected = chans[0].id
+		if i := slices.IndexFunc(chans, func(c struct{ id, name string }) bool { _, ok := here[c.id]; return ok }); i >= 0 {
+			selected = chans[i].id
+		}
+	}
+	opts := make([]discord.StringSelectMenuOption, 0, len(chans))
+	name := ""
+	for _, ch := range chans {
+		o := discord.StringSelectMenuOption{Label: "#" + ch.name, Value: ch.id, Default: ch.id == selected}
 		if _, ok := here[ch.id]; ok {
 			o.Description = "crosses into this server"
 		}
+		if o.Default {
+			name = ch.name
+		}
 		opts = append(opts, o)
+	}
+	to := discord.ChannelSelectMenuComponent{CustomID: "armada:to:" + selected, Placeholder: "pick the channel here, or none to stop",
+		ChannelTypes: carriable, MinValues: new(0), MaxValues: 1}
+	if ch, ok := here[selected]; ok {
+		to.DefaultValues = []discord.SelectMenuDefaultValue{discord.NewSelectMenuDefaultChannel(ch)}
 	}
 	return []discord.ContainerSubComponent{
 		discord.NewTextDisplay("### links\n-# pick an armada channel, then the channel here it crosses to"),
 		discord.NewActionRow(discord.NewStringSelectMenu("armada:pick", "pick an armada channel", opts...)),
+		discord.NewTextDisplay("-# #" + name + " crosses to"),
+		discord.NewActionRow(to),
 	}
+}
+
+// swapControls puts fresh in place of the picker already in comps: the run
+// from its "### links" heading through the channel select. It reports
+// whether there was one to replace.
+func swapControls(comps []discord.LayoutComponent, fresh []discord.ContainerSubComponent) ([]discord.LayoutComponent, bool) {
+	out := slices.Clone(comps)
+	for i, c := range out {
+		box, ok := c.(discord.ContainerComponent)
+		if !ok {
+			continue
+		}
+		start, end := -1, -1
+		for j, sub := range box.Components {
+			if t, ok := sub.(discord.TextDisplayComponent); ok && strings.HasPrefix(t.Content, "### links") {
+				start = j
+			}
+			if row, ok := sub.(discord.ActionRowComponent); ok && start >= 0 && len(row.Components) == 1 {
+				if sel, ok := row.Components[0].(discord.ChannelSelectMenuComponent); ok && strings.HasPrefix(sel.CustomID, "armada:to:") {
+					end = j
+					break
+				}
+			}
+		}
+		if start < 0 || end < 0 {
+			continue
+		}
+		box.Components = slices.Concat(box.Components[:start], fresh, box.Components[end+1:])
+		out[i] = box
+		return out, true
+	}
+	return comps, false
 }
