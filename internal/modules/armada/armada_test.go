@@ -261,11 +261,12 @@ func newHarness(t *testing.T, links string) *harness {
 	t.Helper()
 	v := loadVectors(t)
 	m, err := New(slog.New(slog.DiscardHandler), guard.New(), &fakePoster{}, filter.Default(), nil, Config{
-		Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: v.Direct.Recipient, Links: links,
+		Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: v.Direct.Recipient,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	seed(m, links)
 	t.Cleanup(m.Close)
 	h := &harness{m: m, l: m.links[0], pool: &fakeRelays{}, post: m.post.(*fakePoster), rest: &fakeRest{}, v: v}
 	h.pool.stored = append([]*nostr.Event{v.Invite.Event, v.Direct.Owner, v.Direct.Helper, v.Direct.Foreign}, v.Community.A.Wraps...)
@@ -560,16 +561,12 @@ func TestOnEvent(t *testing.T) {
 
 func TestConfig(t *testing.T) {
 	v := loadVectors(t)
-	good := Config{Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: strings.Repeat("0a", 32), Links: "1=" + general}
+	good := Config{Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: strings.Repeat("0a", 32)}
 	for name, edit := range map[string]func(*Config){
-		"invite":          func(c *Config) { c.Invite = "https://example.com" },
-		"master":          func(c *Config) { c.Master = strings.Repeat("AB", 32) },
-		"primary":         func(c *Config) { c.Primary = "nsec1nope" },
-		"primary hex":     func(c *Config) { c.Primary = "zz" },
-		"bad link":        func(c *Config) { c.Links = "general=" + general },
-		"discord twice":   func(c *Config) { c.Links = "1=" + general + ",1=" + strings.Repeat("22", 32) },
-		"armada twice":    func(c *Config) { c.Links = "1=" + general + ",2=" + general },
-		"short armada id": func(c *Config) { c.Links = "1=abc" },
+		"invite":      func(c *Config) { c.Invite = "https://example.com" },
+		"master":      func(c *Config) { c.Master = strings.Repeat("AB", 32) },
+		"primary":     func(c *Config) { c.Primary = "nsec1nope" },
+		"primary hex": func(c *Config) { c.Primary = "zz" },
 	} {
 		c := good
 		edit(&c)
@@ -912,11 +909,12 @@ func TestHealthIsLoggedOnChangeOnly(t *testing.T) {
 func TestReportBeforeAndWithoutTheInvite(t *testing.T) {
 	v := loadVectors(t)
 	m, err := New(slog.New(slog.DiscardHandler), guard.New(), &fakePoster{}, filter.Default(), nil, Config{
-		Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: v.Direct.Recipient, Links: "100=" + general,
+		Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: v.Direct.Recipient,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	seed(m, "100="+general)
 	m.links[0].guild.Store(7)
 	if r := m.Report(7); r.Rows[0][1] != healthDegraded || r.Notes[0] != "! degraded: still connecting" {
 		t.Errorf("before the first read: %+v", r)

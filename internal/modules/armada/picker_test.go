@@ -24,7 +24,17 @@ import (
 	"github.com/6586x57890143/skua/internal/store"
 )
 
-// other is a readable armada channel the harness's fixed link isn't on.
+// seed links pairs "<discord>=<armada>,..." as if an admin had picked them.
+func seed(m *Module, pairs string) {
+	for _, pair := range strings.Split(pairs, ",") {
+		d, a, _ := strings.Cut(pair, "=")
+		l := newLink(snowflake.MustParse(d), a)
+		m.links = append(m.links, l)
+		m.byDisc[l.discord] = l
+	}
+}
+
+// other is a readable armada channel the harness's first link isn't on.
 func (h *harness) other(t *testing.T) string {
 	t.Helper()
 	for id := range h.chans {
@@ -101,23 +111,13 @@ func TestPickerLinksMovesAndStops(t *testing.T) {
 		t.Error("the link outlived its unpicking")
 	}
 	if len(h.m.linkList()) != 1 {
-		t.Error("the fixed link went too")
+		t.Error("the other link went too")
 	}
 }
 
 func TestPickerRefuses(t *testing.T) {
 	h := newHarness(t, "100="+general)
 	arm := h.other(t)
-	if _, err := h.choose(t, "armada:to:"+arm, 8, "100"); !errors.Is(err, errFixed) {
-		t.Errorf("a fixed channel was repicked: %v", err)
-	}
-	if _, err := h.choose(t, "armada:to:"+general, 8, "50"); !errors.Is(err, errFixed) {
-		t.Errorf("a fixed armada channel was moved: %v", err)
-	}
-	h.m.links[0].guild.Store(3)
-	if _, err := h.choose(t, "armada:to:"+general, 8); !errors.Is(err, errFixed) {
-		t.Errorf("a fixed link was unpicked: %v", err)
-	}
 	if _, err := h.choose(t, "armada:to:"+strings.Repeat("ab", 32), 8, "50"); !errors.Is(err, errGone) {
 		t.Errorf("an unreadable channel was picked: %v", err)
 	}
@@ -182,18 +182,15 @@ func TestPickedLinksOutliveARestart(t *testing.T) {
 	v := loadVectors(t)
 	db := &linkDB{rows: [][3]any{{int64(50), int64(3), strings.Repeat("22", 32)}, {int64(100), int64(3), strings.Repeat("33", 32)}}}
 	m, err := New(slog.New(slog.DiscardHandler), guard.New(), &fakePoster{}, filter.Default(), db, Config{
-		Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: v.Direct.Recipient, Links: "100=" + general,
+		Invite: v.Invite.URL, Master: v.Puppet.Master, Primary: v.Direct.Recipient,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(m.Close)
 	l, ok := m.linkOn(50)
-	if !ok || snowflake.ID(l.guild.Load()) != 3 || l.fixed || len(m.linkList()) != 2 {
+	if !ok || snowflake.ID(l.guild.Load()) != 3 || len(m.linkList()) != 2 {
 		t.Fatalf("loaded %v", m.linkList())
-	}
-	if l, _ := m.linkOn(100); !l.fixed {
-		t.Error("a stored link displaced a fixed one")
 	}
 	db.err = errors.New("down")
 	m.chans = map[string]concord.ChatChannel{strings.Repeat("44", 32): {}}
@@ -229,7 +226,7 @@ func TestPostgresLinks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := loadLinks(pool, nil)
+	got, err := loadLinks(pool)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +236,7 @@ func TestPostgresLinks(t *testing.T) {
 	if err := m.unlink(ctx, 3, arm); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = loadLinks(pool, nil)
+	got, _ = loadLinks(pool)
 	if slices.ContainsFunc(got, func(l *link) bool { return l.armada == arm }) {
 		t.Error("the unlink wasn't stored")
 	}

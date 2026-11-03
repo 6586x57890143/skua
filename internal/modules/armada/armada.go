@@ -5,7 +5,7 @@
 // one Armada community, both ways: text, replies, deletes, attachments and
 // reactions.
 // The two servers keep their own layouts; only the pairs an admin picks on
-// armada's /help page, or names in SKUA_ARMADA_LINKS, cross.
+// armada's /help page cross.
 //
 // A Discord member speaks in Armada as a puppet, a key derived from the
 // master secret and their user id, so they keep one identity and an Armada
@@ -30,7 +30,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -112,7 +111,6 @@ type Config struct {
 	Invite  string // SKUA_ARMADA_INVITE
 	Master  string // SKUA_ARMADA_MASTER_SECRET, 64 hex
 	Primary string // SKUA_ARMADA_PRIMARY_KEY, hex or nsec
-	Links   string // SKUA_ARMADA_LINKS, optional and fixed: <discord channel>=<armada channel>,...
 	Blossom string // SKUA_ARMADA_BLOSSOM, comma-separated, in order
 	Klipy   string // SKUA_ARMADA_KLIPY_KEY, optional: GIF-picker sends cross as the GIF
 }
@@ -123,7 +121,6 @@ func FromEnv() Config {
 		Invite:  os.Getenv("SKUA_ARMADA_INVITE"),
 		Master:  os.Getenv("SKUA_ARMADA_MASTER_SECRET"),
 		Primary: os.Getenv("SKUA_ARMADA_PRIMARY_KEY"),
-		Links:   os.Getenv("SKUA_ARMADA_LINKS"),
 		Blossom: os.Getenv("SKUA_ARMADA_BLOSSOM"),
 		Klipy:   os.Getenv("SKUA_ARMADA_KLIPY_KEY"),
 	}
@@ -154,7 +151,6 @@ type reacted struct {
 type link struct {
 	discord snowflake.ID
 	armada  string
-	fixed   bool          // from SKUA_ARMADA_LINKS, so the picker leaves it be
 	done    chan struct{} // closed when the link is unpicked, ending its workers
 	guild   atomic.Uint64 // learned at boot, or from the first message
 	tally   tally
@@ -269,16 +265,11 @@ func New(log *slog.Logger, g *guard.Guard, p poster, s screen, db DB, cfg Config
 	if err != nil {
 		return nil, err
 	}
-	links, err := parseLinks(cfg.Links)
-	if err != nil {
-		return nil, err
-	}
+	var links []*link
 	if db != nil {
-		picked, err := loadLinks(db, links)
-		if err != nil {
+		if links, err = loadLinks(db); err != nil {
 			return nil, err
 		}
-		links = append(links, picked...)
 	}
 	m := &Module{
 		log: log, guard: g, post: p, screen: s, invite: inv, master: master, primary: primary, db: db,
@@ -329,35 +320,12 @@ func primaryKey(v string) (concord.Key, error) {
 	return k, nil
 }
 
-var hex64 = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
-
-// parseLinks reads the channel map. Each side may appear once: the proxy
-// tag drops bridged rumors, so one Armada channel feeding two Discord
-// channels would quietly never carry a post from one to the other.
+// newLink is one pair. Each side may be in one: the proxy tag drops
+// bridged rumors, so one Armada channel feeding two Discord channels would
+// quietly never carry a post from one to the other.
 //
 // ponytail: one-to-one only; fan-out needs the Discord side to relay to its
 // siblings directly instead of through Armada.
-func parseLinks(v string) ([]*link, error) {
-	var out []*link
-	seenD, seenA := map[snowflake.ID]bool{}, map[string]bool{}
-	for _, pair := range splitList(v) {
-		d, a, ok := strings.Cut(pair, "=")
-		id, err := snowflake.Parse(strings.TrimSpace(d))
-		a = strings.ToLower(strings.TrimSpace(a))
-		if !ok || err != nil || !hex64.MatchString(a) {
-			return nil, fmt.Errorf("armada: SKUA_ARMADA_LINKS entry %q is not <discord channel id>=<armada channel id>", pair)
-		}
-		if seenD[id] || seenA[a] {
-			return nil, fmt.Errorf("armada: SKUA_ARMADA_LINKS names a channel twice (%q); each side may be in one pair", pair)
-		}
-		seenD[id], seenA[a] = true, true
-		l := newLink(id, a)
-		l.fixed = true
-		out = append(out, l)
-	}
-	return out, nil
-}
-
 func newLink(discord snowflake.ID, armada string) *link {
 	return &link{discord: discord, armada: armada, done: make(chan struct{}),
 		toArm: make(chan fromDiscord, queueCap), toDisc: make(chan discordJob, queueCap)}
