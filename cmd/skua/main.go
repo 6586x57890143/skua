@@ -268,6 +268,7 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		bridge.Admin = func(i discord.Interaction) bool { return router.Admin(i) }
 		all = append(all, bridge)
 	}
 

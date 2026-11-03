@@ -566,7 +566,6 @@ func TestConfig(t *testing.T) {
 		"master":          func(c *Config) { c.Master = strings.Repeat("AB", 32) },
 		"primary":         func(c *Config) { c.Primary = "nsec1nope" },
 		"primary hex":     func(c *Config) { c.Primary = "zz" },
-		"no links":        func(c *Config) { c.Links = " , " },
 		"bad link":        func(c *Config) { c.Links = "general=" + general },
 		"discord twice":   func(c *Config) { c.Links = "1=" + general + ",1=" + strings.Repeat("22", 32) },
 		"armada twice":    func(c *Config) { c.Links = "1=" + general + ",2=" + general },

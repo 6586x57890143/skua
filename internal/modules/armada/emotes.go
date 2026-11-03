@@ -134,7 +134,7 @@ func crossStickers(items []discord.MessageSticker) (urls, lines []string, tags [
 // guilds is every linked Discord server skua knows, once each.
 func (m *Module) guilds() []snowflake.ID {
 	var out []snowflake.ID
-	for _, l := range m.links {
+	for _, l := range m.linkList() {
 		if g := snowflake.ID(l.guild.Load()); g != 0 && !slices.Contains(out, g) {
 			out = append(out, g)
 		}
