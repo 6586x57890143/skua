@@ -81,7 +81,7 @@ func (m *Module) snapshot() snapshot {
 // linksIn is the links that end in guild.
 func (m *Module) linksIn(guild snowflake.ID) []*link {
 	var here []*link
-	for _, l := range m.links {
+	for _, l := range m.linkList() {
 		if snowflake.ID(l.guild.Load()) == guild {
 			here = append(here, l)
 		}
@@ -163,7 +163,7 @@ func (s snapshot) health(here []*link, now time.Time) verdict {
 func (m *Module) Report(guild snowflake.ID) core.Report {
 	here := m.linksIn(guild)
 	if len(here) == 0 {
-		return core.Report{}
+		return core.Report{Controls: m.controls(guild)}
 	}
 	s := m.snapshot()
 	now := time.Now()
@@ -205,6 +205,7 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		}
 		r.Notes = append(r.Notes, line+" · since skua started")
 	}
+	r.Controls = m.controls(guild)
 	return r
 }
 
@@ -224,7 +225,7 @@ func (m *Module) watchHealth(every time.Duration) {
 		s := m.snapshot()
 		now := time.Now()
 		guilds := map[snowflake.ID]bool{}
-		for _, l := range m.links {
+		for _, l := range m.linkList() {
 			if g := snowflake.ID(l.guild.Load()); g != 0 {
 				guilds[g] = true
 			}

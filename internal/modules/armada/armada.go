@@ -4,8 +4,8 @@
 // Package armada bridges chosen Discord channels with chosen channels of
 // one Armada community, both ways: text, replies, deletes, attachments and
 // reactions.
-// The two servers keep their own layouts; only the pairs in
-// SKUA_ARMADA_LINKS cross.
+// The two servers keep their own layouts; only the pairs an admin picks on
+// armada's /help page, or names in SKUA_ARMADA_LINKS, cross.
 //
 // A Discord member speaks in Armada as a puppet, a key derived from the
 // master secret and their user id, so they keep one identity and an Armada
@@ -112,7 +112,7 @@ type Config struct {
 	Invite  string // SKUA_ARMADA_INVITE
 	Master  string // SKUA_ARMADA_MASTER_SECRET, 64 hex
 	Primary string // SKUA_ARMADA_PRIMARY_KEY, hex or nsec
-	Links   string // SKUA_ARMADA_LINKS, <discord channel>=<armada channel>,...
+	Links   string // SKUA_ARMADA_LINKS, optional and fixed: <discord channel>=<armada channel>,...
 	Blossom string // SKUA_ARMADA_BLOSSOM, comma-separated, in order
 	Klipy   string // SKUA_ARMADA_KLIPY_KEY, optional: GIF-picker sends cross as the GIF
 }
@@ -154,6 +154,8 @@ type reacted struct {
 type link struct {
 	discord snowflake.ID
 	armada  string
+	fixed   bool          // from SKUA_ARMADA_LINKS, so the picker leaves it be
+	done    chan struct{} // closed when the link is unpicked, ending its workers
 	guild   atomic.Uint64 // learned at boot, or from the first message
 	tally   tally
 	toArm   chan fromDiscord
@@ -190,8 +192,11 @@ type Module struct {
 	invite  concord.Invite
 	master  []byte
 	primary concord.Key
-	links   []*link
-	byDisc  map[snowflake.ID]*link
+	db      DB // nil keeps picked links in memory
+	// Admin is the router's check, for the picker on armada's /help page.
+	Admin func(discord.Interaction) bool
+	// picking is one picker change at a time, store then memory.
+	picking sync.Mutex
 	blob    *blossom
 	klipy   *klipy
 	// noRefresh is set by the first 401 or 403 from refresh-urls: the
@@ -213,6 +218,10 @@ type Module struct {
 	self    snowflake.ID // skua's user, whose reactions stand for Armada's
 
 	mu              sync.RWMutex
+	links           []*link
+	byDisc          map[snowflake.ID]*link
+	ready           bool            // Discord said ready: a new link starts its workers at once
+	sessCtx         context.Context // the live session, for subscribing a new link
 	comm            *concord.Community
 	folded          *concord.Folded
 	chans           map[string]concord.ChatChannel // by link's armada channel
@@ -264,8 +273,15 @@ func New(log *slog.Logger, g *guard.Guard, p poster, s screen, db DB, cfg Config
 	if err != nil {
 		return nil, err
 	}
+	if db != nil {
+		picked, err := loadLinks(db, links)
+		if err != nil {
+			return nil, err
+		}
+		links = append(links, picked...)
+	}
 	m := &Module{
-		log: log, guard: g, post: p, screen: s, invite: inv, master: master, primary: primary,
+		log: log, guard: g, post: p, screen: s, invite: inv, master: master, primary: primary, db: db,
 		links: links, byDisc: map[snowflake.ID]*link{}, fetcher: guarded,
 		dial: func(urls []string) relays { return concord.NewPool(urls) },
 		subs: map[string]context.CancelFunc{}, subKeys: map[string]string{}, missing: map[string]bool{},
@@ -335,12 +351,16 @@ func parseLinks(v string) ([]*link, error) {
 			return nil, fmt.Errorf("armada: SKUA_ARMADA_LINKS names a channel twice (%q); each side may be in one pair", pair)
 		}
 		seenD[id], seenA[a] = true, true
-		out = append(out, &link{discord: id, armada: a, toArm: make(chan fromDiscord, queueCap), toDisc: make(chan discordJob, queueCap)})
-	}
-	if len(out) == 0 {
-		return nil, errors.New("armada: SKUA_ARMADA_LINKS is empty; name at least one <discord channel id>=<armada channel id>")
+		l := newLink(id, a)
+		l.fixed = true
+		out = append(out, l)
 	}
 	return out, nil
+}
+
+func newLink(discord snowflake.ID, armada string) *link {
+	return &link{discord: discord, armada: armada, done: make(chan struct{}),
+		toArm: make(chan fromDiscord, queueCap), toDisc: make(chan discordJob, queueCap)}
 }
 
 func splitList(v string) []string {
@@ -380,7 +400,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorInfo,
 		Line:  "carries chosen channels to and from an armada community",
-		About: "she bridges chosen channels here with channels in an armada community, both ways. each message is posted on the other side under its writer's name. edits, reactions and files follow it, and files lose their metadata on the way. bans and deletes made in armada hold here too. this server's custom emoji and stickers are published on nostr as a pack so armada members can use them. anything that crosses into discord is no longer end-to-end encrypted. which channels pair up is set when she is deployed\n\nthis part of her is under the agpl and her source is at https://github.com/6586x57890143/skua",
+		About: "she bridges chosen channels here with channels in an armada community, both ways. each message is posted on the other side under its writer's name. edits, reactions and files follow it, and files lose their metadata on the way. bans and deletes made in armada hold here too. this server's custom emoji and stickers are published on nostr as a pack so armada members can use them. anything that crosses into discord is no longer end-to-end encrypted. an admin pairs the channels on this page\n\nthis part of her is under the agpl and her source is at https://github.com/6586x57890143/skua",
 	}
 }
 
@@ -407,11 +427,14 @@ func (m *Module) OnEvent(ev bot.Event) {
 	switch e := ev.(type) {
 	case *events.Ready:
 		m.start.Do(func() {
+			m.mu.Lock()
 			m.rest, m.app, m.self = e.Client().Rest, e.Client().ApplicationID, e.User.ID
+			m.ready = true
 			for _, l := range m.links {
 				go m.discordWorker(l)
 				go m.armadaWorker(l)
 			}
+			m.mu.Unlock()
 			go m.run()
 			go m.watchHealth(time.Minute)
 		})
@@ -420,7 +443,7 @@ func (m *Module) OnEvent(ev bot.Event) {
 	case *events.GuildMessageUpdate:
 		m.queue(e.GenericGuildMessage, true)
 	case *events.GuildMessageDelete:
-		if l, ok := m.byDisc[e.ChannelID]; ok {
+		if l, ok := m.linkOn(e.ChannelID); ok {
 			l.guild.Store(uint64(e.GuildID))
 			select {
 			case l.toArm <- fromDiscord{deleted: e.MessageID}:
@@ -452,7 +475,7 @@ func (m *Module) OnEvent(ev bot.Event) {
 // queueReaction puts a reaction in its link's queue behind the messages
 // before it, so it never arrives ahead of the message it is on.
 func (m *Module) queueReaction(channel, guild snowflake.ID, r reacted) {
-	l, ok := m.byDisc[channel]
+	l, ok := m.linkOn(channel)
 	if !ok || r.emoji.Name == nil {
 		return
 	}
@@ -467,7 +490,7 @@ func (m *Module) queueReaction(channel, guild snowflake.ID, r reacted) {
 // queue hands a member's message in a linked channel to its link's worker,
 // in order, so an edit never overtakes the message it changes.
 func (m *Module) queue(e *events.GenericGuildMessage, edit bool) {
-	l, ok := m.byDisc[e.ChannelID]
+	l, ok := m.linkOn(e.ChannelID)
 	msg := e.Message
 	if !ok || msg.Author.Bot || msg.WebhookID != nil || (msg.Type != discord.MessageTypeDefault && msg.Type != discord.MessageTypeReply) {
 		return
@@ -544,7 +567,10 @@ func (m *Module) run() {
 // learnGuilds finds each linked channel's server, so Armada posts can go
 // out before anyone in Discord has spoken.
 func (m *Module) learnGuilds() {
-	for _, l := range m.links {
+	for _, l := range m.linkList() {
+		if l.guild.Load() != 0 {
+			continue
+		}
 		ctx, cancel := context.WithTimeout(m.ctx, 10*time.Second)
 		ch, err := m.rest.GetChannel(l.discord, rest.WithCtx(ctx))
 		cancel()
@@ -691,7 +717,7 @@ func (m *Module) session(ctx context.Context, c *concord.Community) error {
 	if addrs := concord.RekeyAddresses(c); len(addrs) > 0 {
 		pool.Subscribe(ctx, nostr.Filter{Kinds: []int{concord.KindWrap}, Authors: addrs, Since: &since}, m.hint)
 	}
-	m.log.Info("armada: bridge is up", "links", len(m.links))
+	m.log.Info("armada: bridge is up", "links", len(m.linkList()))
 	return nil
 }
 
@@ -761,39 +787,49 @@ func (m *Module) apply(ctx context.Context, c *concord.Community, f *concord.Fol
 	}
 	m.folded, m.chans = f, chans
 	m.controlRevision++
-	epoch := m.controlEpoch
+	m.sessCtx = ctx
 	for _, l := range m.links {
-		ch, ok := chans[l.armada]
-		if !ok {
-			if !m.missing[l.armada] {
-				m.log.Warn("armada: a linked armada channel is missing, deleted or private without a key", "armada", l.armada[:8])
-				m.missing[l.armada] = true
-			}
-			continue
-		}
-		delete(m.missing, l.armada)
-		keys := strings.Join(ch.Authors(), ",")
-		if m.subKeys[l.armada] == keys {
-			continue
-		}
-		if cancel := m.subs[l.armada]; cancel != nil {
-			cancel()
-		}
-		sctx, cancel := context.WithCancel(ctx)
-		m.subs[l.armada] = cancel
-		m.subKeys[l.armada] = keys
-		for _, s := range ch.Streams {
-			m.pool.Register(s.Key.Stream())
-		}
-		// Live tail only: without a floor, relays replay the history into
-		// Discord on every subscribe. A minute of overlap absorbs skew.
-		since := nostr.Now() - 60
-		m.pool.Subscribe(sctx, nostr.Filter{Kinds: []int{concord.KindWrap}, Authors: ch.Authors(), Since: &since}, func(w *nostr.Event) {
-			if sctx.Err() == nil {
-				m.onWrapBound(l, w, epoch)
-			}
-		})
+		m.subscribeLocked(l)
 	}
+}
+
+// subscribeLocked opens l's stream on the live session, or again when its
+// channel's keys changed. m.mu is held.
+func (m *Module) subscribeLocked(l *link) {
+	if m.sessCtx == nil || m.sessCtx.Err() != nil || m.chans == nil {
+		return
+	}
+	epoch := m.controlEpoch
+	ch, ok := m.chans[l.armada]
+	if !ok {
+		if !m.missing[l.armada] {
+			m.log.Warn("armada: a linked armada channel is missing, deleted or private without a key", "armada", l.armada[:8])
+			m.missing[l.armada] = true
+		}
+		return
+	}
+	delete(m.missing, l.armada)
+	keys := strings.Join(ch.Authors(), ",")
+	if m.subKeys[l.armada] == keys {
+		return
+	}
+	if cancel := m.subs[l.armada]; cancel != nil {
+		cancel()
+	}
+	sctx, cancel := context.WithCancel(m.sessCtx)
+	m.subs[l.armada] = cancel
+	m.subKeys[l.armada] = keys
+	for _, s := range ch.Streams {
+		m.pool.Register(s.Key.Stream())
+	}
+	// Live tail only: without a floor, relays replay the history into
+	// Discord on every subscribe. A minute of overlap absorbs skew.
+	since := nostr.Now() - 60
+	m.pool.Subscribe(sctx, nostr.Filter{Kinds: []int{concord.KindWrap}, Authors: ch.Authors(), Since: &since}, func(w *nostr.Event) {
+		if sctx.Err() == nil {
+			m.onWrapBound(l, w, epoch)
+		}
+	})
 }
 
 // announce publishes skua's own profile, marked as a bot, and its join.
@@ -887,6 +923,8 @@ func (m *Module) discordWorker(l *link) {
 		select {
 		case <-m.ctx.Done():
 			return
+		case <-l.done:
+			return
 		case job := <-l.toArm:
 			switch {
 			case job.deleted != 0:
@@ -906,6 +944,8 @@ func (m *Module) armadaWorker(l *link) {
 	for {
 		select {
 		case <-m.ctx.Done():
+			return
+		case <-l.done:
 			return
 		case o := <-l.toDisc:
 			m.toDiscordBound(l, o.opened, o.binding)
