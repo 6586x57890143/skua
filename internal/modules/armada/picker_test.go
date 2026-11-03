@@ -244,3 +244,24 @@ func TestPostgresLinks(t *testing.T) {
 		t.Error("the unlink wasn't stored")
 	}
 }
+
+// The page shows both pickers, and picking an armada channel swaps them in
+// place, pointing the channel select at it.
+func TestPickerSwapsInPlace(t *testing.T) {
+	h := newHarness(t, "100="+general)
+	arm := h.other(t)
+	page := []discord.LayoutComponent{discord.NewContainer(append([]discord.ContainerSubComponent{discord.NewTextDisplay("top")},
+		append(h.m.Report(3).Controls, discord.NewTextDisplay("bottom"))...)...)}
+	if s := fmt.Sprint(page); !strings.Contains(s, "armada:pick") || !strings.Contains(s, "armada:to:") {
+		t.Fatalf("the page lacks a picker: %s", s)
+	}
+	got, ok := swapControls(page, h.m.controls(3, arm))
+	box := got[0].(discord.ContainerComponent)
+	if !ok || len(box.Components) != 6 || !strings.Contains(fmt.Sprint(box.Components[4]), "armada:to:"+arm) ||
+		fmt.Sprint(box.Components[0]) != fmt.Sprint(discord.NewTextDisplay("top")) || fmt.Sprint(box.Components[5]) != fmt.Sprint(discord.NewTextDisplay("bottom")) {
+		t.Fatalf("swapped %v (%v)", box.Components, ok)
+	}
+	if _, ok := swapControls([]discord.LayoutComponent{discord.NewContainer(discord.NewTextDisplay("other"))}, nil); ok {
+		t.Error("swapped a page with no picker")
+	}
+}
