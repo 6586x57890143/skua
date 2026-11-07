@@ -54,18 +54,22 @@ const amberCandle = 3
 // What a foray counts, for tuning (see stats.go). foray_out: a the place,
 // b the lean. foray_back:<place>/<ending>: a day out that ended there.
 // peat_fed: a how many. amber_staked: once each. foray_company: a the place.
+// foray_shared: a the place.
 const (
 	statForayOut     = "foray_out"
 	statForayBack    = "foray_back"
 	statPeatFed      = "peat_fed"
 	statAmberStaked  = "amber_staked"
 	statForayCompany = "foray_company"
+	statForayShared  = "foray_shared"
 )
 
 var (
 	errForayOut   = core.Tell("your bird is still out; it comes back when the road is done")
 	errForayToday = core.Tell("the warden has written you out once today already; come back after the turn")
 	errForayWhere = core.Tell("the warden doesn't know that road")
+	errNotBack    = core.Tell("your bird has no day to tell yet; it comes back when the road is done")
+	errShared     = core.Tell("you've told that day already")
 	errNoPeat     = core.Tell("you have no peat to put on the fire")
 	errNoAmber    = core.Tell(fmt.Sprintf("the purser takes %d beads of amber for a candle, and you have fewer", amberCandle))
 	errAmberDone  = core.Tell("the purser takes amber from a bird once a day; come back after the turn")
@@ -289,6 +293,9 @@ type outing struct {
 	partner   string // the companion's name, as the story tells it
 	path      []string
 	back      bool
+	// shared is whether its day has been told to the channel.
+	// ponytail: memory only, so a restart lets a bird share a day twice.
+	shared bool
 }
 
 // forays are what a member has from going out: today's or the last day

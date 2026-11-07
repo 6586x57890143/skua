@@ -396,6 +396,9 @@ func (m *Module) gateView(s *server, user snowflake.ID, view string, page, where
 			}
 			act = append(act, discord.NewPrimaryButton(label, "pp:fread:0"))
 		}
+		if f.out != nil && f.out.back && !f.out.shared {
+			act = append(act, withIcon(discord.NewSecondaryButton("share the day", "pp:fshare"), "bell"))
+		}
 		if f.peat > 0 {
 			act = append(act, withIcon(discord.NewSecondaryButton(fmt.Sprintf("put %d peat on the fire", f.peat), "pp:peat"), "peat"))
 		}
@@ -425,6 +428,77 @@ func (m *Module) gateView(s *server, user snowflake.ID, view string, page, where
 			AllowedMentions: core.NoPings(),
 		}, nil
 	}
+}
+
+// shareForay tells the channel how user's last day out ended, once: where
+// it went, what it brought back, the ending, and how many of that place's
+// endings they've found. It's the one thing about a foray anybody else sees.
+func (m *Module) shareForay(guild snowflake.ID, e *events.ComponentInteractionCreate) error {
+	user := e.User().ID
+	today := DayOf(m.now())
+	s := m.st.server(guild)
+	s.mu.Lock()
+	if !m.gateSees(s, e) {
+		s.mu.Unlock()
+		return errGateShut
+	}
+	f := s.forayOf(user)
+	o := f.out
+	switch {
+	case o == nil || !o.back:
+		s.mu.Unlock()
+		return errNotBack
+	case o.shared:
+		s.mu.Unlock()
+		return errShared
+	}
+	o.shared = true
+	d := walk(m.st.walker(s, user, o))
+	found := 0
+	for k := range f.endings {
+		if strings.HasPrefix(k, d.Place.Key+"/") {
+			found++
+		}
+	}
+	s.count(today, statForayShared, o.place, 0)
+	far := o.far
+	s.mu.Unlock()
+
+	find := d.Place.Finds
+	if d.Finds == 1 {
+		find = d.Place.Find
+	}
+	body := fmt.Sprintf("**%s** came back from %s with %d %s\n-# %s, %d of %d endings found there",
+		e.Member().EffectiveName(), d.Place.Name, d.Finds, find, d.Ending.Title, found, len(d.Place.Endings))
+	alt := "how a day out at " + d.Place.Name + " ended"
+	v := ForayView{Scene: d.Place.Key, Light: lightAt(m.now()), Tab: d.Place.Name, Lines: setLines(d.Ending.Text, d.Place.Key)[0], Foot: reachName(far)}
+	build := func() (discord.MessageCreate, error) {
+		pic, err := ForayScreen(v)
+		if err != nil {
+			return discord.MessageCreate{}, err
+		}
+		return discord.MessageCreate{
+			Components:      []discord.LayoutComponent{brand.Card(brand.ColorNotice, "pp", "the north gate", body, discord.NewMediaGallery(screenItem(pic, alt)))},
+			Files:           []*discord.File{screenAttachment(pic, alt)},
+			Flags:           discord.MessageFlagIsComponentsV2,
+			AllowedMentions: core.NoPings(),
+		}, nil
+	}
+	if e.Client().Rest == nil {
+		msg, err := build()
+		if err != nil {
+			return err
+		}
+		return e.CreateMessage(msg)
+	}
+	if err := e.DeferCreateMessage(false); err != nil {
+		return err
+	}
+	m.later(context.Background(), func(ctx context.Context) {
+		msg, err := build()
+		m.answerLater(ctx, guild, e, e.Client(), msg, err, "a shared day", "that day couldn't be drawn just now; try again")
+	})
+	return nil
 }
 
 // gateWords is what the warden tells user at the gate: where their bird

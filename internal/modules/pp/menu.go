@@ -178,6 +178,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 	case id == "pp:gate", strings.HasPrefix(id, "pp:gate:"), id == "pp:fwhere", strings.HasPrefix(id, "pp:fout:"),
 		strings.HasPrefix(id, "pp:fread:"), strings.HasPrefix(id, "pp:book:"), id == "pp:peat":
 		return m.gate(*guild, e)
+	case id == "pp:fshare":
+		return m.shareForay(*guild, e)
 	case id == "pp:table", id == "pp:rail":
 		return m.openTable(ctx, *guild, e)
 	case strings.HasPrefix(id, "pp:sit:"):
