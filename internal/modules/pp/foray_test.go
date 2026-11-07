@@ -142,7 +142,8 @@ func TestQuietClock(t *testing.T) {
 }
 
 // Two fold birds out to the same place the same day meet: each is named in
-// the other's story, and a third finds them already paired.
+// the other's story, and a third meets one of them without taking them from
+// each other.
 func TestFoldCompany(t *testing.T) {
 	st, s := testState()
 	today := DayOf(t0)
@@ -154,13 +155,69 @@ func TestFoldCompany(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if s.forays[a].out.companion != b || s.forays[b].out.partner != "heavywinds" || s.forays[c].out.companion != 0 {
-		t.Errorf("paired %v and %v; third %v", s.forays[a].out.companion, s.forays[b].out.partner, s.forays[c].out.companion)
+	if s.forays[a].out.companion != b || s.forays[b].out.companion != a || s.forays[b].out.partner != "heavywinds" {
+		t.Errorf("paired %v and %v", s.forays[a].out.companion, s.forays[b].out.companion)
+	}
+	if third := s.forays[c].out.companion; third != a && third != b {
+		t.Errorf("the third met %v", third)
 	}
 	d := walk(st.walker(s, a, s.forays[a].out))
 	last := d.Steps[len(d.Steps)-1]
 	if last.Event != &wood.Company || !strings.Contains(last.Event.Text, "{name}") {
 		t.Error("the company isn't met")
+	}
+}
+
+// A fold bird meets any lean, at its own place and day only: a bird still
+// out is named back, and one already home keeps the day it was paid for.
+func TestFoldMeetsAnyLean(t *testing.T) {
+	st, s := testState()
+	today := DayOf(t0)
+	lone, out, home, fold := old(1), old(2), old(3), old(4)
+	st.member(s, guild, out, today).name = "steve"
+	for _, u := range []snowflake.ID{lone, home} {
+		if err := st.setOut(s, u, 0, false, Vaunt, today); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.forays[lone].out.back = true
+	s.forays[home].out.back = true
+	if err := st.setOut(s, fold, 1, false, Fold, today); err != nil {
+		t.Fatal(err)
+	}
+	if s.forays[fold].out.companion != 0 {
+		t.Error("a bird met at another place")
+	}
+	s.stats = nil
+
+	other := old(5)
+	if err := st.setOut(s, other, 0, false, Fold, today); err != nil {
+		t.Fatal(err)
+	}
+	if o := s.forays[other].out; o.companion == 0 || o.partner == "" {
+		t.Errorf("nobody met among birds home: %+v", o)
+	}
+	if s.forays[lone].out.companion != 0 || s.forays[home].out.companion != 0 {
+		t.Error("a day already paid for changed")
+	}
+	if got := s.stats[statKey{today, statForayCompany, 0, 0}]; got != 1 {
+		t.Errorf("company counted %d", got)
+	}
+
+	s.forays[fold].out.back = true
+	if err := st.setOut(s, out, 1, false, Writ, today); err != nil {
+		t.Fatal(err)
+	}
+	s.forays[fold].out.companion = 1
+	late := old(6)
+	if err := st.setOut(s, late, 1, false, Fold, today); err != nil {
+		t.Fatal(err)
+	}
+	if o := s.forays[out].out; o.companion != late || o.partner == "" {
+		t.Errorf("the writ bird still out wasn't named back: %+v", o)
+	}
+	if s.forays[late].out.partner != "steve" {
+		t.Errorf("met %q", s.forays[late].out.partner)
 	}
 }
 

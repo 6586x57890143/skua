@@ -70,7 +70,7 @@ type Place struct {
 	// throw passes, so a failed one is met again next time. Once the third
 	// is told the bird has the arc's epilogue (foray_pages.go).
 	Arcs map[string][3]Event
-	// Company is the event two fold birds out at the same place on the same
+	// Company is the event a fold bird and another out at the same place on the same
 	// day meet each other in; {name} is the other bird.
 	Company Event
 	// Endings close a day: a good and a hard one for each wind, and the

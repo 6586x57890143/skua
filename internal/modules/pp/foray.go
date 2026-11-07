@@ -331,8 +331,10 @@ func (st *state) walker(s *server, user snowflake.ID, o *outing) Walker {
 }
 
 // setOut sends user out today to place, near or far, leaning lean. A fold
-// bird going where another fold bird has gone today, who hasn't met anyone,
-// meets them out there. s.mu held.
+// bird meets a bird that's gone to the same place today, whatever it leans:
+// one still out and unmet if there is one, and both are named in each
+// other's day. A bird already home has been paid for its day, so it's named
+// in the fold bird's and its own stays as it was. s.mu held.
 func (st *state) setOut(s *server, user snowflake.ID, place int, far bool, lean Wind, today int64) error {
 	if place < 0 || place >= len(places) || lean < Writ || lean > Fold {
 		return errForayWhere
@@ -354,13 +356,19 @@ func (st *state) setOut(s *server, user snowflake.ID, place int, far bool, lean 
 		path: dayPath(st.seedOf(today), uint64(s.id), today, place, far)}
 	if lean == Fold {
 		for u, g := range s.forays {
-			if p := g.out; u != user && p != nil && !p.back && p.day == today && p.place == place && p.lean == Fold && p.companion == 0 {
-				o.companion, o.partner = u, nameOf(s, u)
+			p := g.out
+			if u == user || p == nil || p.day != today || p.place != place {
+				continue
+			}
+			o.companion, o.partner = u, nameOf(s, u)
+			if !p.back && p.companion == 0 {
 				p.companion, p.partner = user, nameOf(s, user)
 				g.dirty = true
-				s.count(today, statForayCompany, place, 0)
 				break
 			}
+		}
+		if o.companion != 0 {
+			s.count(today, statForayCompany, place, 0)
 		}
 	}
 	f.out, f.lastOut, f.dirty = o, today, true
