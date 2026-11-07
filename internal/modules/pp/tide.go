@@ -380,14 +380,7 @@ func (m *Module) sitAt(guild snowflake.ID, e *events.ComponentInteractionCreate)
 		build = m.tableView(s, t)
 	}
 	s.mu.Unlock()
-	switch {
-	case full:
-		m.later(context.Background(), func(ctx context.Context) { m.settleTable(ctx, guild, t) })
-	case first && !m.inline:
-		time.AfterFunc(tableGlass, func() {
-			m.later(context.Background(), func(ctx context.Context) { m.settleTable(ctx, guild, t) })
-		})
-	}
+	m.glass(guild, t, first, full)
 	if build != nil {
 		// No REST to answer through later: draw it now.
 		msg, err := build()
@@ -413,6 +406,112 @@ func (m *Module) sitAt(guild snowflake.ID, e *events.ComponentInteractionCreate)
 			}
 		})
 	}
+	return nil
+}
+
+// glass starts what a seat at t starts: the throw, once its benches are
+// full, or the glass, at its first seat.
+func (m *Module) glass(guild snowflake.ID, t *table, first, full bool) {
+	switch {
+	case full:
+		m.later(context.Background(), func(ctx context.Context) { m.settleTable(ctx, guild, t) })
+	case first && !m.inline:
+		time.AfterFunc(tableGlass, func() {
+			m.later(context.Background(), func(ctx context.Context) { m.settleTable(ctx, guild, t) })
+		})
+	}
+}
+
+// gateCandle stakes a candle's worth of amber from the gate: on the table
+// standing at the slack tide, or on one set for it, so a bird with amber
+// needn't wait for somebody else to open a table.
+func (m *Module) gateCandle(ctx context.Context, guild snowflake.ID, e *events.ComponentInteractionCreate) error {
+	now := m.now()
+	at, bell := m.st.ringing(now)
+	user, name := e.User().ID, e.Member().EffectiveName()
+	s := m.st.server(guild)
+	s.mu.Lock()
+	if !m.gateSees(s, e) {
+		s.mu.Unlock()
+		return errGateShut
+	}
+	// Told now, before a table goes up for a bird who can't sit at it.
+	f := s.forayOf(user)
+	switch {
+	case f.amberDay == DayOf(now):
+		s.mu.Unlock()
+		return errAmberDone
+	case f.amber < amberCandle:
+		s.mu.Unlock()
+		return errNoAmber
+	}
+	t := s.table
+	var set func() (discord.MessageCreate, error)
+	if t == nil || t.settled {
+		var err error
+		if t, err = m.st.open(s, s.houseCh, now, bell); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+		t.bellAt = at
+		set = m.tableView(s, t)
+	}
+	said := fmt.Sprintf("your candle's on the marker in <#%s>: the bones go when the glass runs out", t.channel)
+	s.mu.Unlock()
+
+	sit := func(ctx context.Context) error {
+		if set != nil && m.rest != nil {
+			if err := m.postTable(ctx, guild, t, set, 0, false); err != nil {
+				return err
+			}
+		}
+		s.mu.Lock()
+		first := t.first.IsZero()
+		err := m.st.sitOnAmber(s, t, guild, user, name, m.now())
+		full := len(t.seats) >= t.benches()
+		posted := t.msg != 0
+		s.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		m.glass(guild, t, first, full)
+		if m.rest == nil || full || !posted {
+			return nil
+		}
+		if err := m.redraw(guild, t, func(msg discord.MessageCreate) error {
+			return m.write(guild, guard.MessageSend, func() error {
+				_, err := m.rest.UpdateMessage(t.channel, t.msg, core.Edit(discord.NewMessageUpdateV2(msg.Components...), msg.Files...), rest.WithCtx(ctx))
+				return err
+			})
+		}); err != nil {
+			m.log.Warn("pp: redrawing a table", "guild", guild, "err", err)
+		}
+		return nil
+	}
+	if e.Client().Rest == nil {
+		if err := sit(ctx); err != nil {
+			return err
+		}
+		return e.CreateMessage(discord.NewMessageCreate().WithContent(said).WithEphemeral(true).WithAllowedMentions(core.NoPings()))
+	}
+	if err := e.DeferCreateMessage(true); err != nil {
+		s.mu.Lock()
+		if s.table == t && len(t.seats) == 0 {
+			s.table = nil
+		}
+		s.mu.Unlock()
+		return err
+	}
+	m.later(ctx, func(ctx context.Context) {
+		if err := sit(ctx); err != nil {
+			m.answerLater(ctx, guild, e, e.Client(), discord.MessageCreate{}, err, "a candle", "the purser couldn't set the table just now; try again")
+			return
+		}
+		if _, err := e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(),
+			discord.MessageUpdate{Content: &said, AllowedMentions: core.NoPings()}, rest.WithCtx(ctx)); err != nil {
+			m.log.Warn("pp: saying where a candle is", "guild", guild, "err", err)
+		}
+	})
 	return nil
 }
 

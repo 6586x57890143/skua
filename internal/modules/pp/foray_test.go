@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/disgoorg/snowflake/v2"
+
+	"github.com/6586x57890143/skua/internal/core/coretest"
 )
 
 // Every walk ends, and the same bird on the same day walks it the same
@@ -274,6 +276,65 @@ func TestAmberCandle(t *testing.T) {
 	tb2, _ := m.st.open(s, 4, t0, false)
 	if err := m.st.sitOnAmber(s, tb2, guild, a, "x", t0); err != errAmberDone {
 		t.Errorf("a second amber the same day: %v", err)
+	}
+}
+
+// A candle from the gate sets a table when none stands, joins one that does,
+// and tells a bird who can't stake before a table goes up.
+func TestGateCandle(t *testing.T) {
+	m, r := houseModule(t)
+	m.inline = true
+	s := m.st.server(guild)
+	s.gateOpen = true
+	press := func() error {
+		t.Helper()
+		e, _ := coretest.Button(t, "pp:famber", nil)
+		return m.press(context.Background(), e)
+	}
+	if err := press(); err != errNoAmber {
+		t.Fatalf("no amber: %v", err)
+	}
+	if s.table != nil || len(r.posts) != 0 {
+		t.Fatal("a table went up for a bird with no amber")
+	}
+	s.forayOf(5).amber = amberCandle + 1
+	gate, sent := coretest.Button(t, "pp:gate", nil)
+	if err := m.press(context.Background(), gate); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(js((*sent)[0].Components), "pp:famber") {
+		t.Error("the gate doesn't offer the candle")
+	}
+	if err := press(); err != nil {
+		t.Fatal(err)
+	}
+	if s.table == nil || len(s.table.seats) != 1 || !s.table.seats[0].amber || s.forays[5].amber != 1 {
+		t.Fatalf("table %+v, amber %d", s.table, s.forays[5].amber)
+	}
+	if len(r.posts) != 1 || len(r.edits) != 1 {
+		t.Errorf("%d posts and %d edits", len(r.posts), len(r.edits))
+	}
+	if err := press(); err != errAmberDone {
+		t.Errorf("twice in a day: %v", err)
+	}
+
+	// A table already standing takes the candle without a second post.
+	tb := s.table
+	tb.settled, s.table = true, nil
+	s.mu.Lock()
+	standing, err := m.st.open(s, 4, t0, false)
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	standing.msg = 9
+	s.forays[5].amberDay, s.forays[5].amber = 0, amberCandle
+	s.members[5].seat = 0
+	if err := press(); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.posts) != 1 || len(standing.seats) != 1 {
+		t.Errorf("%d posts, %d seats", len(r.posts), len(standing.seats))
 	}
 }
 

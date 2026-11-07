@@ -402,6 +402,9 @@ func (m *Module) gateView(s *server, user snowflake.ID, view string, page, where
 		if f.peat > 0 {
 			act = append(act, withIcon(discord.NewSecondaryButton(fmt.Sprintf("put %d peat on the fire", f.peat), "pp:peat"), "peat"))
 		}
+		if f.amber >= amberCandle && f.amberDay != today && s.released(today) {
+			act = append(act, withIcon(discord.NewSecondaryButton(fmt.Sprintf("a candle for %d amber", amberCandle), "pp:famber"), "amber"))
+		}
 		if len(f.pages) > 0 {
 			act = append(act, discord.NewSecondaryButton("the out pages", "pp:book:0"))
 		}

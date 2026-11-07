@@ -180,6 +180,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.gate(*guild, e)
 	case id == "pp:fshare":
 		return m.shareForay(*guild, e)
+	case id == "pp:famber":
+		return m.gateCandle(ctx, *guild, e)
 	case id == "pp:table", id == "pp:rail":
 		return m.openTable(ctx, *guild, e)
 	case strings.HasPrefix(id, "pp:sit:"):
