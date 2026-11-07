@@ -439,9 +439,10 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	seen(mem, &who.Member, who.User, guild)
 	sh := m.sheet(s, mem, guild, who.User.ID, today)
 	picked, quests := mem.classSeason != -1, held(mem.quests) > 0 && s.released(today)
+	gate, tide := s.gateOpen, s.released(today)
 	s.mu.Unlock()
 	if !picked {
-		return titleMessage(buttons, quests, strings.TrimPrefix(m.bellLine(guild), "\n"))
+		return titleMessage(buttons, quests, gate, tide, strings.TrimPrefix(m.bellLine(guild), "\n"))
 	}
 
 	sh.Name = who.EffectiveName()
@@ -565,8 +566,9 @@ func withIcon(b discord.ButtonComponent, icon string) discord.ButtonComponent {
 // titleMessage is the title screen as a message, for a member who hasn't
 // picked a class: their own copy carries the button to pick one and, when
 // they hold quests, the one to their quests, so a newcomer's first is a
-// press away.
-func titleMessage(buttons, quests bool, note string) (discord.MessageCreate, error) {
+// press away. The gate and the slack tide are open to a bird with no class
+// (it walks as the wanderer it starts as), so they're a press away too.
+func titleMessage(buttons, quests, gate, tide bool, note string) (discord.MessageCreate, error) {
 	pic, err := TitleScreen()
 	if err != nil {
 		return discord.MessageCreate{}, err
@@ -579,6 +581,12 @@ func titleMessage(buttons, quests bool, note string) (discord.MessageCreate, err
 		row := []discord.InteractiveComponent{withIcon(discord.NewPrimaryButton("pick a class", "pp:class"), "lantern")}
 		if quests {
 			row = append(row, withIcon(discord.NewSecondaryButton("your quests", "pp:quests"), "compass"))
+		}
+		if gate {
+			row = append(row, withIcon(discord.NewSecondaryButton("the gate", "pp:gate"), "gate"))
+		}
+		if tide {
+			row = append(row, withIcon(discord.NewSecondaryButton("slack tide", "pp:tide"), "bones"))
 		}
 		extra = append(extra, discord.NewActionRow(row...))
 	}
