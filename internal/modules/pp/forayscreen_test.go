@@ -72,6 +72,27 @@ func TestGateFlow(t *testing.T) {
 	if strings.Contains(card, "pp:fread:99") {
 		t.Errorf("a page past the last: %s", card)
 	}
+	if card = press("pp:gate", nil); !strings.Contains(card, "pp:fshare") {
+		t.Errorf("no share once home: %s", card)
+	}
+	e, sent := coretest.Button(t, "pp:fshare", nil)
+	if err := m.press(context.Background(), e); err != nil {
+		t.Fatal(err)
+	}
+	told := js((*sent)[0])
+	if !strings.Contains(told, "came back from the mire") || !strings.Contains(told, "endings found there") {
+		t.Errorf("the share: %s", told)
+	}
+	if (*sent)[0].Flags.Has(discord.MessageFlagEphemeral) {
+		t.Error("a share only its owner can see")
+	}
+	if card = press("pp:gate", nil); strings.Contains(card, "pp:fshare") {
+		t.Errorf("share offered twice: %s", card)
+	}
+	e, _ = coretest.Button(t, "pp:fshare", nil)
+	if err := m.press(context.Background(), e); err != errShared {
+		t.Errorf("a second share: %v", err)
+	}
 	if f.peat > 0 {
 		before := f.peat
 		press("pp:peat", nil)
