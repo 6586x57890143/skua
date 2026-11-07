@@ -88,12 +88,13 @@ func js(v any) string { b, _ := json.Marshal(v); return string(b) }
 func TestTitleUntilAPick(t *testing.T) {
 	realScreens(t)
 	m := launched(testModule(&fakeDB{}))
+	m.st.server(3).gateOpen = true
 	e, sent := coretest.Event(t, "pp", nil)
 	if err := m.Commands()[0].Run(context.Background(), e); err != nil {
 		t.Fatal(err)
 	}
 	got := js((*sent)[0])
-	for _, want := range []string{"melting pot", "pick a class", "pp:class", "pp:quests", "attachment://pp.webp"} {
+	for _, want := range []string{"melting pot", "pick a class", "pp:class", "pp:quests", "pp:gate", "pp:tide", "attachment://pp.webp"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the title lacks %q: %s", want, got)
 		}

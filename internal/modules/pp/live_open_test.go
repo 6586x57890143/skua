@@ -70,7 +70,7 @@ func TestLiveOpen(t *testing.T) {
 	s.open = true
 	post("the beta panel, open", panel(m), "open to everyone here")
 
-	title, err := titleMessage(true, true, "")
+	title, err := titleMessage(true, true, true, true, "")
 	if err != nil {
 		t.Fatal(err)
 	}
