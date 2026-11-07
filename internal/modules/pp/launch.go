@@ -26,7 +26,7 @@ import (
 var (
 	errNotYet    = core.Tell("that opens with the season, at the turn")
 	errLaunched  = core.Tell("/pp is open here already, with everything in it")
-	launchFronts = []string{"pp:tide", "pp:table", "pp:rail", "pp:letter", "pp:seal", "pp:yardrenew"}
+	launchFronts = []string{"pp:tide", "pp:table", "pp:rail", "pp:letter", "pp:seal", "pp:yardrenew", "pp:famber"}
 )
 
 // released is whether s's launch has come: armed for today or before, or
