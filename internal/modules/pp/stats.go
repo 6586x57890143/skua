@@ -23,6 +23,9 @@ const (
 	statLeft     = "notice_withdrawn" // b is 1 once its work had started
 	statEnded    = "notice_ended"     // a withdrawal ended it for everyone; b as statLeft
 	statLetter   = "letter_sent"      // a is the winner's full rings
+	statOpen     = "pp_open"          // a member's first /pp of the day; a is 1 once they've picked a class
+	statPick     = "class_pick"       // a class taken; a is 1 for a paid change, b is 1 for their first ever
+	statGateView = "gate_view"        // a press at the gate; a is the view (see gateView) and b the page
 )
 
 // statKey is one counter: a day, what it counts and its two particulars.
@@ -38,6 +41,20 @@ func (s *server) count(day int64, what string, a, b int) {
 		s.stats = map[statKey]int64{}
 	}
 	s.stats[statKey{day, what, a, b}]++
+}
+
+// opened counts user's first /pp of today, whatever they press first.
+// ponytail: opens is memory, so a restart counts a member's day twice;
+// keep it on the member if a day's numbers ever need to be exact. s.mu held.
+func (s *server) opened(user snowflake.ID, picked bool, today int64) {
+	if s.opens == nil {
+		s.opens = map[snowflake.ID]int64{}
+	}
+	if s.opens[user] == today {
+		return
+	}
+	s.opens[user] = today
+	s.count(today, statOpen, bit(picked), 0)
 }
 
 // statRows are counters taken for a flush, as columns for one unnest.

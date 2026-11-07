@@ -62,6 +62,7 @@ func (m *Module) Commands() []core.Command {
 				return e.CreateMessage(msg)
 			}
 			m.enlist(*guild, e.Member())
+			m.opened(*guild, e.User().ID)
 			if sheet, due := m.morning(*guild, e.User().ID); due {
 				// The sheet moves, so it's answered at once and drawn after,
 				// unless there's no REST to edit it in through.
@@ -92,6 +93,15 @@ func (m *Module) Commands() []core.Command {
 
 func (m *Module) Components() []core.Component {
 	return []core.Component{{ID: "pp", Run: m.press}}
+}
+
+// opened counts user's first /pp of the day.
+func (m *Module) opened(guild, user snowflake.ID) {
+	today := DayOf(m.now())
+	s := m.st.server(guild)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.opened(user, m.st.member(s, guild, user, today).classSeason != -1, today)
 }
 
 // press is a button or select on a /pp reply: class opens the picker, pick
@@ -149,6 +159,7 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 	if !m.plays(e) {
 		return errBeta
 	}
+	m.opened(*guild, e.User().ID)
 	id := e.Data.CustomID()
 	if launchOnly(id) && !m.seesNew(e, *guild) {
 		return errNotYet
@@ -370,6 +381,7 @@ func (m *Module) pick(guild, user snowflake.ID, key string) error {
 		return nil
 	}
 	cost, from := m.cost(mem, season, today)
+	first := mem.classSeason == -1
 	if from > today {
 		return core.Tell(fmt.Sprintf("you changed class lately; you can change again <t:%d:R>, or free when a new season starts", dayStart(from).Unix()))
 	}
@@ -380,11 +392,13 @@ func (m *Module) pick(guild, user snowflake.ID, key string) error {
 	switch {
 	case mem.classSeason != season:
 		mem.classSeason, mem.classChanges, mem.classDay = season, 0, today
+		s.count(today, statPick, 0, bit(first))
 	case cost > 0:
 		mem.purse -= cost
 		mem.classChanges++
 		mem.classDay = today
 		m.st.burn(s, user, today, reasonClass, cost, nil)
+		s.count(today, statPick, 1, 0)
 	}
 	mem.class, mem.dirty = key, true
 	return nil
