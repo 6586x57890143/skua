@@ -1,10 +1,13 @@
 package pp
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/disgoorg/snowflake/v2"
+
+	"github.com/6586x57890143/skua/internal/core/coretest"
 )
 
 // Quests dealt and rerolled and notices posted and lapsed are counted by
@@ -73,5 +76,50 @@ func TestStats(t *testing.T) {
 	db.fail = nil
 	if _, err := st.flush(t.Context(), db); err != nil || len(s.stats) != 0 {
 		t.Errorf("a save kept counts: %v", err)
+	}
+}
+
+// A member's first /pp of the day counts once, whichever they press first;
+// a pick, a change and the gate's screens each count.
+func TestPlayCounters(t *testing.T) {
+	m := launched(testModule(&fakeDB{}))
+	s := m.st.server(guild)
+	s.gateOpen = true
+	today := DayOf(t0)
+	run := func() {
+		t.Helper()
+		e, _ := coretest.Event(t, "pp", nil)
+		if err := m.Commands()[0].Run(context.Background(), e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	press := func(id string) {
+		t.Helper()
+		e, _ := coretest.Button(t, id, nil)
+		if err := m.press(context.Background(), e); err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+	}
+	run()
+	run()
+	press("pp:quests")
+	if got := s.stats[statKey{today, statOpen, 0, 0}]; got != 1 {
+		t.Errorf("a day's opens before a pick: %d", got)
+	}
+	if err := m.pick(guild, 5, "thief"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.stats[statKey{today, statPick, 0, 1}]; got != 1 {
+		t.Errorf("first picks: %d", got)
+	}
+	s.mu.Lock()
+	s.opened(5, true, today+1)
+	s.mu.Unlock()
+	if got := s.stats[statKey{today + 1, statOpen, 1, 0}]; got != 1 {
+		t.Errorf("the next day's open: %d", got)
+	}
+	press("pp:gate")
+	if got := s.stats[statKey{today, statGateView, 0, 0}]; got != 1 {
+		t.Errorf("gate views: %d", got)
 	}
 }

@@ -179,6 +179,8 @@ type server struct {
 	// confirm ticket handed out.
 	stats   map[statKey]int64
 	tickets int64
+	// opens is the last day each member opened /pp.
+	opens map[snowflake.ID]int64
 	// The season so far, for the backstop: what it minted and burned, the
 	// last season's burn in percent (-1 before one), and whether the heavy
 	// purse line is on.

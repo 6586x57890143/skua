@@ -62,6 +62,7 @@ func (m *Module) Commands() []core.Command {
 				return e.CreateMessage(msg)
 			}
 			m.enlist(*guild, e.Member())
+			m.opened(*guild, e.User().ID)
 			if sheet, due := m.morning(*guild, e.User().ID); due {
 				// The sheet moves, so it's answered at once and drawn after,
 				// unless there's no REST to edit it in through.
@@ -92,6 +93,15 @@ func (m *Module) Commands() []core.Command {
 
 func (m *Module) Components() []core.Component {
 	return []core.Component{{ID: "pp", Run: m.press}}
+}
+
+// opened counts user's first /pp of the day.
+func (m *Module) opened(guild, user snowflake.ID) {
+	today := DayOf(m.now())
+	s := m.st.server(guild)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.opened(user, m.st.member(s, guild, user, today).classSeason != -1, today)
 }
 
 // press is a button or select on a /pp reply: class opens the picker, pick
@@ -149,6 +159,7 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 	if !m.plays(e) {
 		return errBeta
 	}
+	m.opened(*guild, e.User().ID)
 	id := e.Data.CustomID()
 	if launchOnly(id) && !m.seesNew(e, *guild) {
 		return errNotYet
@@ -370,6 +381,7 @@ func (m *Module) pick(guild, user snowflake.ID, key string) error {
 		return nil
 	}
 	cost, from := m.cost(mem, season, today)
+	first := mem.classSeason == -1
 	if from > today {
 		return core.Tell(fmt.Sprintf("you changed class lately; you can change again <t:%d:R>, or free when a new season starts", dayStart(from).Unix()))
 	}
@@ -380,11 +392,13 @@ func (m *Module) pick(guild, user snowflake.ID, key string) error {
 	switch {
 	case mem.classSeason != season:
 		mem.classSeason, mem.classChanges, mem.classDay = season, 0, today
+		s.count(today, statPick, 0, bit(first))
 	case cost > 0:
 		mem.purse -= cost
 		mem.classChanges++
 		mem.classDay = today
 		m.st.burn(s, user, today, reasonClass, cost, nil)
+		s.count(today, statPick, 1, 0)
 	}
 	mem.class, mem.dirty = key, true
 	return nil
@@ -425,9 +439,10 @@ func (m *Module) status(guild snowflake.ID, who *discord.ResolvedMember, buttons
 	seen(mem, &who.Member, who.User, guild)
 	sh := m.sheet(s, mem, guild, who.User.ID, today)
 	picked, quests := mem.classSeason != -1, held(mem.quests) > 0 && s.released(today)
+	gate, tide := s.gateOpen, s.released(today)
 	s.mu.Unlock()
 	if !picked {
-		return titleMessage(buttons, quests, strings.TrimPrefix(m.bellLine(guild), "\n"))
+		return titleMessage(buttons, quests, gate, tide, strings.TrimPrefix(m.bellLine(guild), "\n"))
 	}
 
 	sh.Name = who.EffectiveName()
@@ -551,8 +566,9 @@ func withIcon(b discord.ButtonComponent, icon string) discord.ButtonComponent {
 // titleMessage is the title screen as a message, for a member who hasn't
 // picked a class: their own copy carries the button to pick one and, when
 // they hold quests, the one to their quests, so a newcomer's first is a
-// press away.
-func titleMessage(buttons, quests bool, note string) (discord.MessageCreate, error) {
+// press away. The gate and the slack tide are open to a bird with no class
+// (it walks as the wanderer it starts as), so they're a press away too.
+func titleMessage(buttons, quests, gate, tide bool, note string) (discord.MessageCreate, error) {
 	pic, err := TitleScreen()
 	if err != nil {
 		return discord.MessageCreate{}, err
@@ -565,6 +581,12 @@ func titleMessage(buttons, quests bool, note string) (discord.MessageCreate, err
 		row := []discord.InteractiveComponent{withIcon(discord.NewPrimaryButton("pick a class", "pp:class"), "lantern")}
 		if quests {
 			row = append(row, withIcon(discord.NewSecondaryButton("your quests", "pp:quests"), "compass"))
+		}
+		if gate {
+			row = append(row, withIcon(discord.NewSecondaryButton("the gate", "pp:gate"), "gate"))
+		}
+		if tide {
+			row = append(row, withIcon(discord.NewSecondaryButton("slack tide", "pp:tide"), "bones"))
 		}
 		extra = append(extra, discord.NewActionRow(row...))
 	}

@@ -327,7 +327,8 @@ func bookOf(f *forays) []leaf {
 
 // gateView is what a press at the gate shows: the gate with where the bird
 // stands, a place to lean into on the way out, the day read a screen at a
-// time, or the out pages. Gathered under s.mu and drawn after. s.mu held.
+// time, or the out pages, counted as gate_view's a of 0, 1, 2 and 3 in the
+// order they're told here. Gathered under s.mu and drawn after. s.mu held.
 func (m *Module) gateView(s *server, user snowflake.ID, view string, page, where int, far bool, today int64) func() (discord.MessageCreate, error) {
 	f := s.forayOf(user)
 	light := lightAt(m.now())
@@ -344,8 +345,10 @@ func (m *Module) gateView(s *server, user snowflake.ID, view string, page, where
 	}
 	back := discord.NewActionRow(discord.NewSecondaryButton("◂ the gate", "pp:gate:back"))
 	alt := "the north gate"
+	seen := 0
 	switch {
 	case view == "read" && f.out != nil:
+		seen = 2
 		o := f.out
 		p := places[o.place]
 		leaves := setLines(m.st.storyOf(s, user, o), p.Key)
@@ -355,6 +358,7 @@ func (m *Module) gateView(s *server, user snowflake.ID, view string, page, where
 		rows = append(rows, back)
 		alt = "your bird's day out at " + p.Name
 	case view == "book" && len(f.pages) > 0:
+		seen = 3
 		leaves := bookOf(f)
 		page = min(max(page, 0), len(leaves)-1)
 		l := leaves[page]
@@ -363,6 +367,7 @@ func (m *Module) gateView(s *server, user snowflake.ID, view string, page, where
 		rows = append(rows, back)
 		alt = "the out pages, at " + l.tab
 	case where >= 0:
+		seen = 1
 		p := places[where]
 		v = ForayView{Scene: p.Key, Light: light, Tab: p.Name, Lines: leanLines(p.Key), Foot: reachName(far)}
 		var leans []discord.InteractiveComponent
@@ -406,6 +411,7 @@ func (m *Module) gateView(s *server, user snowflake.ID, view string, page, where
 			rows = append(rows, discord.NewActionRow(withIcon(discord.NewPrimaryButton("open the gate to everyone", "pp:opengate"), "gate")))
 		}
 	}
+	s.count(today, statGateView, seen, page)
 	return func() (discord.MessageCreate, error) {
 		pic, err := ForayScreen(v)
 		if err != nil {
