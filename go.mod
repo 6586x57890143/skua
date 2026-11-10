@@ -7,7 +7,7 @@ require (
 	github.com/HugoSmits86/nativewebp v1.3.0
 	github.com/bluenviron/mediacommon/v2 v2.9.7
 	github.com/btcsuite/btcd/btcec/v2 v2.5.1
-	github.com/disgoorg/disgo v0.19.6
+	github.com/disgoorg/disgo v0.20.0
 	github.com/disgoorg/omit v1.0.0
 	github.com/disgoorg/snowflake/v2 v2.0.3
 	github.com/gorilla/websocket v1.5.3
@@ -32,7 +32,7 @@ require (
 	github.com/coder/websocket v1.8.15 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
-	github.com/disgoorg/godave v0.1.0 // indirect
+	github.com/disgoorg/godave v0.3.0 // indirect
 	github.com/disgoorg/json/v2 v2.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect

@@ -91,7 +91,7 @@ func TestSuretyLifecycle(t *testing.T) {
 	m.st.member(s, guild, host, DayOf(t0))
 	m.st.member(s, guild, known, DayOf(t0))
 	s.mu.Unlock()
-	m.ready(guild, discord.GatewayGuild{})
+	m.ready(guild, snapshot{})
 
 	for i, u := range []snowflake.ID{fresh, young, known} {
 		r.invs[0].Uses = i + 1
@@ -214,7 +214,7 @@ func TestLeaveFirstAndRejoin(t *testing.T) {
 	host := old(1)
 	r := &inviteRest{invs: []discord.ExtendedInvite{inv("aa", host, 0, 0)}}
 	m.rest = r
-	m.ready(guild, discord.GatewayGuild{})
+	m.ready(guild, snapshot{})
 	s := m.st.server(guild)
 	m.OnEvent(&events.GuildMemberLeave{GuildID: guild, User: discord.User{ID: old(2)}})
 	r.invs[0].Uses = 1
