@@ -32,11 +32,11 @@ func TestLeavingOrUnavailableGuildStopsVoiceEarning(t *testing.T) {
 		// A returning guild supplies a fresh snapshot, not the stale seats.
 		vs := in(room)
 		vs.GuildID, vs.UserID = guild, a
-		snapshot := discord.GatewayGuild{VoiceStates: []discord.VoiceState{vs}, Members: []discord.Member{{User: discord.User{ID: a}}}}
+		guildCreate(t, m, guild, snapshot{VoiceStates: []discord.VoiceState{vs}, Members: []discord.Member{{User: discord.User{ID: a}}}})
 		if unavailable {
-			m.OnEvent(&events.GuildAvailable{GenericGuild: ge, Guild: snapshot})
+			m.OnEvent(&events.GuildAvailable{GenericGuild: ge})
 		} else {
-			m.OnEvent(&events.GuildJoin{GenericGuild: ge, Guild: snapshot})
+			m.OnEvent(&events.GuildJoin{GenericGuild: ge})
 		}
 		if len(s.seats) != 1 || s.seats[a] == nil || s.seats[b] != nil {
 			t.Fatal("returning guild did not restore fresh voice snapshot")

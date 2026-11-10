@@ -116,7 +116,7 @@ func (p *Poster) token(r rest.Rest, opt rest.RequestOpt, ch, app, webhookID snow
 		return "", fmt.Errorf("listing webhooks: %w", err)
 	}
 	for _, w := range existing {
-		if in, ok := w.(discord.IncomingWebhook); ok && in.ID() == webhookID && in.ApplicationID != nil && *in.ApplicationID == app && in.Token != "" {
+		if in, ok := w.(discord.IncomingWebhook); ok && in.ID() == webhookID && in.ApplicationID == app && in.Token != "" {
 			p.hooks.LoadOrStore(ch, hook{in.ID(), in.Token})
 			return in.Token, nil
 		}
@@ -139,7 +139,7 @@ func (p *Poster) hook(r rest.Rest, opt rest.RequestOpt, guild, ch, app snowflake
 		return hook{}, fmt.Errorf("listing webhooks: %w", err)
 	}
 	for _, w := range existing {
-		if in, ok := w.(discord.IncomingWebhook); ok && in.ApplicationID != nil && *in.ApplicationID == app && in.Token != "" {
+		if in, ok := w.(discord.IncomingWebhook); ok && in.ApplicationID == app && in.Token != "" {
 			h := hook{in.ID(), in.Token}
 			p.hooks.Store(ch, h)
 			return h, nil

@@ -1,6 +1,7 @@
 package pp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -350,10 +351,11 @@ func TestEvents(t *testing.T) {
 	}
 
 	// A reconnect seats who's there now, and reads their statuses.
-	m.OnEvent(&events.GuildReady{GenericGuild: &events.GenericGuild{GenericEvent: generic(), GuildID: guild}, Guild: discord.GatewayGuild{
+	guildCreate(t, m, guild, snapshot{
 		VoiceStates: []discord.VoiceState{{UserID: b, ChannelID: &room}},
 		Presences:   []discord.Presence{{PresenceUser: discord.PresenceUser{ID: a}}},
-	}})
+	})
+	m.OnEvent(&events.GuildReady{GenericGuild: &events.GenericGuild{GenericEvent: generic(), GuildID: guild}})
 	if len(s.seats) != 1 || s.members[a].wear.Banner {
 		t.Errorf("after ready: %d seated, banner %v", len(s.seats), s.members[a].wear.Banner)
 	}
@@ -403,4 +405,15 @@ func TestModuleContract(t *testing.T) {
 	if m.Components()[0].ID != "pp" {
 		t.Error("components")
 	}
+}
+
+// guildCreate feeds m the raw GUILD_CREATE disgo emits ahead of the typed
+// guild event, as JSON so the decode is exercised too.
+func guildCreate(t *testing.T, m *Module, guild snowflake.ID, s snapshot) {
+	t.Helper()
+	b, err := json.Marshal(rawGuild{ID: guild, snapshot: s})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.OnEvent(&events.Raw{GenericEvent: generic(), EventRaw: gateway.EventRaw{EventType: gateway.EventTypeGuildCreate, Payload: bytes.NewReader(b)}})
 }

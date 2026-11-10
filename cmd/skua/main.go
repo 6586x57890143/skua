@@ -453,6 +453,8 @@ func run(log *slog.Logger) error {
 		),
 		bot.WithGatewayConfigOpts(
 			gateway.WithIntents(identify),
+			// pp reads GUILD_CREATE's members, voice states and presences raw.
+			gateway.WithEnableRawEvents(true),
 			gateway.WithPresenceOpts(gateway.WithCustomActivity(brand.StatusAt(0))),
 		),
 		// Only the guild cache is read (owner lookup); everything else off.

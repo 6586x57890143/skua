@@ -2,6 +2,7 @@ package pp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -44,6 +45,11 @@ type Module struct {
 	saved atomic.Int64 // unix nanos of the last flush that wrote
 	// earning is how many earned in voice in each guild the last minute.
 	earning sync.Map
+	// snapshots holds each GUILD_CREATE's members, voice states and
+	// presences, read from the raw event, until the typed guild event
+	// that follows it hands them to ready. disgo 0.20 caches these lists
+	// and no longer puts them on the event, and skua caches guilds only.
+	snapshots sync.Map
 	// Admin reports whether an interaction comes from one of its server's
 	// admins or skua's break-glass admin. Unset, nobody is.
 	Admin func(discord.Interaction) bool
@@ -235,12 +241,21 @@ func (m *Module) OnEvent(ev bot.Event) {
 			m.self = e.User.ID
 			go m.loop(context.Background())
 		})
+	case *events.Raw:
+		if e.EventType == gateway.EventTypeGuildCreate {
+			var g rawGuild
+			if err := json.NewDecoder(e.Payload).Decode(&g); err != nil {
+				m.log.Warn("pp: reading guild snapshot", "err", err)
+				return
+			}
+			m.snapshots.Store(g.ID, g.snapshot)
+		}
 	case *events.GuildReady:
-		m.ready(e.GuildID, e.Guild)
+		m.ready(e.GuildID, m.snapshot(e.GuildID))
 	case *events.GuildJoin:
-		m.ready(e.GuildID, e.Guild)
+		m.ready(e.GuildID, m.snapshot(e.GuildID))
 	case *events.GuildAvailable:
-		m.ready(e.GuildID, e.Guild)
+		m.ready(e.GuildID, m.snapshot(e.GuildID))
 	case *events.GuildLeave:
 		m.clearVoice(e.GuildID)
 	case *events.GuildUnavailable:
@@ -317,7 +332,27 @@ func (m *Module) clearVoice(guild snowflake.ID) {
 // ready seats everyone already in voice when skua (re)connects, and reads
 // the custom statuses Discord sends with the server, and takes a first look
 // at its invites for the gate book.
-func (m *Module) ready(guild snowflake.ID, g discord.GatewayGuild) {
+// snapshot is the part of a GUILD_CREATE that ready reads.
+type snapshot struct {
+	Members     []discord.Member     `json:"members"`
+	VoiceStates []discord.VoiceState `json:"voice_states"`
+	Presences   []discord.Presence   `json:"presences"`
+}
+
+type rawGuild struct {
+	ID snowflake.ID `json:"id"`
+	snapshot
+}
+
+// snapshot takes the guild's stashed GUILD_CREATE lists, or none.
+func (m *Module) snapshot(guild snowflake.ID) snapshot {
+	if v, ok := m.snapshots.LoadAndDelete(guild); ok {
+		return v.(snapshot)
+	}
+	return snapshot{}
+}
+
+func (m *Module) ready(guild snowflake.ID, g snapshot) {
 	m.later(context.Background(), func(ctx context.Context) { m.primeInvites(ctx, guild) })
 	bots := map[snowflake.ID]bool{}
 	for _, mem := range g.Members {
