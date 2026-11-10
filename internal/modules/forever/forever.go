@@ -71,8 +71,11 @@ type Module struct {
 	db    DB
 	api   *bnet
 	admin func(discord.Interaction) bool
-	now   func() time.Time
-	boot  sync.Once
+	// on is whether a server has forever switched on: the rounds skip the
+	// characters and feeds of one that doesn't.
+	on   func(guild snowflake.ID) bool
+	now  func() time.Time
+	boot sync.Once
 	// roleMu keeps two first adds from making two roles.
 	roleMu sync.Mutex
 
@@ -97,12 +100,17 @@ func New(ctx context.Context, log *slog.Logger, g *guard.Guard, db DB, cfg Confi
 	}
 	return &Module{
 		log: log, guard: g, db: db, admin: admin, now: time.Now,
+		on:    func(snowflake.ID) bool { return true },
 		api:   newBnet(&http.Client{Timeout: 15 * time.Second}, cfg.ID, cfg.Secret),
 		chars: st.chars, claims: st.claims, guilds: st.guilds, health: map[string]health{},
 	}, nil
 }
 
 func (*Module) Name() string { return "forever" }
+
+// Gate is core.Gated: the rounds ask on before reading a server's
+// characters or posting its feed.
+func (m *Module) Gate(on func(guild snowflake.ID) bool) { m.on = on }
 
 // Want is guilds, for leaving one.
 func (*Module) Want() intents.Want { return intents.Want{Required: gateway.IntentGuilds} }
@@ -124,11 +132,14 @@ func (*Module) Help() core.Help {
 func (m *Module) Report(guild snowflake.ID) core.Report {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	n, used := 0, map[string]bool{}
+	n, used, gone := 0, map[string]bool{}, map[string]int{}
 	for _, c := range m.claims {
 		if c.guild == guild {
 			n++
 			used[c.k.region] = true
+			if ch := m.chars[c.k]; ch != nil && ch.missing > 0 {
+				gone[c.k.region]++
+			}
 		}
 	}
 	r := core.Report{Controls: m.controls(guild)}
@@ -148,8 +159,8 @@ func (m *Module) Report(guild snowflake.ID) core.Report {
 		switch {
 		case h.err != nil:
 			state = "failing"
-		case h.gone > 0:
-			state = strconv.Itoa(h.gone) + " not answering"
+		case gone[reg] > 0:
+			state = strconv.Itoa(gone[reg]) + " not answering"
 		case !h.ok.IsZero():
 			state = "ok"
 		}

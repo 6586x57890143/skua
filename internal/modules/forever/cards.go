@@ -99,7 +99,18 @@ func (m *Module) mine(guild, user snowflake.ID) []*char {
 // byLevel is the ladder's order: higher first, and a tie to whoever got
 // there first.
 func byLevel(a, b *char) int {
-	return cmp.Or(cmp.Compare(b.level, a.level), a.reached.Compare(b.reached), cmp.Compare(a.name, b.name))
+	// A reach time skua didn't see sorts after every one she did.
+	return cmp.Or(cmp.Compare(b.level, a.level), boolCmp(a.reached.IsZero(), b.reached.IsZero()), a.reached.Compare(b.reached), cmp.Compare(a.name, b.name))
+}
+
+func boolCmp(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	}
+	return -1
 }
 
 // hub is a member's own card: their characters, and what they can do.
@@ -266,7 +277,7 @@ func (m *Module) ladder(guild snowflake.ID, v view) discord.ContainerComponent {
 			line += "lv " + itoa(c.level)
 		}
 		line += " · " + where(*c)
-		if c.level >= Cap && v.sort == "level" {
+		if c.level >= Cap && v.sort == "level" && !c.reached.IsZero() {
 			line += " · " + core.Duration(c.reached.Sub(Launch))
 		}
 		lines = append(lines, line+" · <@"+owner[c.key].String()+">")
@@ -447,13 +458,10 @@ func (m *Module) add(ctx context.Context, e *events.ModalSubmitInteractionCreate
 	}
 	user := e.User().ID
 	m.mu.Lock()
-	n, all := len(m.mine(*guild, user)), len(m.keysIn(*guild))
+	err := m.claimable(*guild, user, char{})
 	m.mu.Unlock()
-	if n >= perMember {
-		return core.Tell("you have " + itoa(perMember) + " characters here already; take one off first")
-	}
-	if all >= perGuild {
-		return core.Tell("this server lists " + itoa(perGuild) + " characters, as many as skua keeps")
+	if err != nil {
+		return err
 	}
 	if err := e.DeferCreateMessage(true); err != nil {
 		return err
@@ -475,18 +483,10 @@ func (m *Module) add(ctx context.Context, e *events.ModalSubmitInteractionCreate
 	return err
 }
 
-// keysIn is every character a server lists. m.mu held.
-func (m *Module) keysIn(guild snowflake.ID) map[key]bool {
-	out := map[key]bool{}
-	for _, c := range m.claims {
-		if c.guild == guild {
-			out[c.k] = true
-		}
-	}
-	return out
-}
-
 // list reads a character from Blizzard and lists it in guild as user's.
+// A character another server lists already keeps the record skua has, so
+// the next round still sees its climb for everyone. A new one's reach time
+// is unknown: skua didn't see it get there.
 func (m *Module) list(ctx context.Context, guild, user snowflake.ID, region, name, surname string) (string, error) {
 	var p profile
 	mod, _, err := m.api.get(ctx, region, "profile", charPath(slug(name, surname)), "", &p)
@@ -496,39 +496,74 @@ func (m *Module) list(ctx context.Context, guild, user snowflake.ID, region, nam
 	if err != nil {
 		return "", err
 	}
-	c := char{key: key{region: region}, modified: mod, reached: m.now()}
+	c := char{key: key{region: region}, modified: mod}
 	apply(&c, p)
 	if c.id == 0 {
 		return "", errors.New("forever: a profile without an id")
 	}
-	c.avatar, c.render = m.renders(ctx, c)
 	m.mu.Lock()
-	for _, cl := range m.claims {
-		if cl.guild == guild && cl.k == c.key {
-			m.mu.Unlock()
-			if cl.user == user {
-				return "", core.Tell("you've added " + c.name + " " + c.surname + " already")
-			}
-			return "", core.Tell(c.name + " " + c.surname + " is listed here by someone else already")
-		}
+	old, known := m.chars[c.key]
+	if known {
+		c = *old
 	}
-	if old, ok := m.chars[c.key]; ok {
-		c.reached = old.reached // its level's time is the poll's, not this add's
-		if old.level == c.level {
-			c.reached = old.reached
-		}
-	}
-	m.chars[c.key] = &c
-	cl := claim{guild: guild, user: user, k: c.key, at: m.now()}
-	m.claims = append(m.claims, cl)
+	err = m.claimable(guild, user, c)
 	m.mu.Unlock()
-	if err := saveChar(ctx, m.db, c); err != nil {
+	if err != nil {
 		return "", err
 	}
+	if !known {
+		c.avatar, c.render = m.renders(ctx, c)
+		if err := saveChar(ctx, m.db, c); err != nil {
+			return "", err
+		}
+	}
+	cl := claim{guild: guild, user: user, k: c.key, at: m.now()}
+	m.mu.Lock()
+	// Asked again: another add may have taken the place while Blizzard
+	// answered.
+	if err := m.claimable(guild, user, c); err != nil {
+		m.mu.Unlock()
+		return "", err
+	}
+	if _, ok := m.chars[c.key]; !ok {
+		m.chars[c.key] = &c
+	}
+	m.claims = append(m.claims, cl)
+	m.mu.Unlock()
 	if err := saveClaim(ctx, m.db, cl); err != nil {
+		m.mu.Lock()
+		m.claims = slices.DeleteFunc(m.claims, func(x claim) bool { return x == cl })
+		m.mu.Unlock()
 		return "", err
 	}
 	return "✓ added " + classMark(c.class) + "**" + c.name + " " + c.surname + "**, lv " + itoa(c.level), nil
+}
+
+// claimable is why user can't list c in guild, or nil. m.mu held.
+func (m *Module) claimable(guild, user snowflake.ID, c char) error {
+	n, all := 0, map[key]bool{}
+	for _, cl := range m.claims {
+		if cl.guild != guild {
+			continue
+		}
+		all[cl.k] = true
+		if cl.user == user {
+			n++
+		}
+		if c.id != 0 && cl.k == c.key {
+			if cl.user == user {
+				return core.Tell("you've added " + c.name + " " + c.surname + " already")
+			}
+			return core.Tell(c.name + " " + c.surname + " is listed here by someone else already")
+		}
+	}
+	if n >= perMember {
+		return core.Tell("you have " + itoa(perMember) + " characters here already; take one off first")
+	}
+	if len(all) >= perGuild {
+		return core.Tell("this server lists " + itoa(perGuild) + " characters, as many as skua keeps")
+	}
+	return nil
 }
 
 // drop takes the picked characters off the member's list.
@@ -586,7 +621,11 @@ func (m *Module) ensureRole(ctx context.Context, r rest.Rest, guild snowflake.ID
 	s := m.guilds[guild]
 	m.mu.Unlock()
 	if s.role != 0 {
-		return s.role
+		rs, err := r.GetRoles(guild, rest.WithCtx(ctx))
+		if err != nil || slices.ContainsFunc(rs, func(x discord.Role) bool { return x.ID == s.role }) {
+			return s.role
+		}
+		// Deleted since: make a new one.
 	}
 	if m.guard.Allow(guild, guard.RoleWrite) != nil {
 		return 0

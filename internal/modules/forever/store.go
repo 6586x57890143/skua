@@ -34,7 +34,7 @@ type char struct {
 	avatar, render       string    // Blizzard's renders, for the cards
 	modified             string    // the profile's Last-Modified
 	missing              int       // polls in a row Blizzard didn't answer
-	reached              time.Time // when it reached its level
+	reached              time.Time // when it reached its level; zero when skua didn't see it
 }
 
 func (c *char) slug() string { return slug(c.name, c.surname) }

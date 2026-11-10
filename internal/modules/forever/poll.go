@@ -48,6 +48,9 @@ func (m *Module) poll(ctx context.Context) {
 	var todo []char
 	seen := map[key]bool{}
 	for _, c := range m.claims {
+		if !m.on(c.guild) {
+			continue
+		}
 		if ch, ok := m.chars[c.k]; ok && !seen[c.k] {
 			seen[c.k] = true
 			todo = append(todo, *ch)
@@ -102,6 +105,7 @@ func (m *Module) poll(ctx context.Context) {
 			continue
 		}
 		*ch = f.now
+		ch.missing = 0
 		changed = append(changed, f.now)
 		for g, lines := range m.dings(f.was, f.now) {
 			feed[g] = append(feed[g], lines...)
@@ -219,15 +223,18 @@ func (m *Module) dings(was, now char) map[snowflake.ID][]string {
 	}
 	out := map[snowflake.ID][]string{}
 	for _, c := range m.claims {
-		if c.k != now.key || m.guilds[c.guild].feed == 0 {
+		if c.k != now.key || m.guilds[c.guild].feed == 0 || !m.on(c.guild) {
 			continue
 		}
 		line := classMark(now.class) + "**" + now.name + " " + now.surname + "** reached " + itoa(top) + " · " + where(now)
-		if top == Cap {
+		if top == Cap && !now.reached.IsZero() {
 			line += " · " + core.Duration(now.reached.Sub(Launch)) + " after launch"
 		}
-		if legacy(top) && m.firstOfClass(c, now, top) {
-			line += " · ✦ legacy point"
+		for l := was.level + 1; l <= now.level; l++ {
+			if legacy(l) && m.firstOfClass(c, now, l) {
+				line += " · ✦ legacy point"
+				break
+			}
 		}
 		if m.first(c.guild, now.key, top) {
 			line += " · first in the server"
