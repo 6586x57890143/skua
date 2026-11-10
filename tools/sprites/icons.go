@@ -326,6 +326,20 @@ var moduleGlyphs = map[string][]string{
 		"........................",
 		"........................",
 	},
+	"forever": doubleSocialGlyph([]string{ // drawn on the grid: two chevrons, a level up
+		"............",
+		".....ww.....",
+		"....wwww....",
+		"...ww..ww...",
+		"..ww....ww..",
+		".....ww.....",
+		"....wwww....",
+		"...ww..ww...",
+		"..ww....ww..",
+		".ww......ww.",
+		"............",
+		"............",
+	}),
 	"remind": doubleSocialGlyph([]string{ // drawn on the grid: an alarm clock
 		"............",
 		".ww......ww.",
@@ -966,6 +980,7 @@ func writeEmoji(b *image.NRGBA) {
 	bare(out, "stat_poll", socialGlyphs["poll"])
 	bare(out, "stat_link", moduleGlyphs["fix"])
 	bare(out, "stat_coins", moduleGlyphs["pp"])
+	foreverIcons(out)
 	writeFixLoading(out, bird)
 	gameIcons(out)
 }

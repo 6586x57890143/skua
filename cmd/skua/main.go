@@ -40,6 +40,7 @@ import (
 	"github.com/6586x57890143/skua/internal/modules/armada"
 	"github.com/6586x57890143/skua/internal/modules/bird"
 	"github.com/6586x57890143/skua/internal/modules/fix"
+	"github.com/6586x57890143/skua/internal/modules/forever"
 	"github.com/6586x57890143/skua/internal/modules/help"
 	"github.com/6586x57890143/skua/internal/modules/notify"
 	"github.com/6586x57890143/skua/internal/modules/pace"
@@ -150,6 +151,7 @@ func run(log *slog.Logger) error {
 	// and a server opts in to it.
 	toggles.OptIn(pace.Name)
 	toggles.OptIn(fix.Name)
+	toggles.OptIn(forever.Name)
 	pacer := pace.New(func(guild snowflake.ID) bool { return toggles.On(guild, pace.Name) })
 
 	// The link to cygnet, the fleet's hub, only where it is configured. It
@@ -292,6 +294,15 @@ func run(log *slog.Logger) error {
 		log.Error("notify is off: it couldn't start", "err", err)
 	} else {
 		all = append(all, notifier)
+	}
+	// forever reads Blizzard's armory with skua's battle.net app, so it runs
+	// only with one; its ladder lives in the purge pool, or in memory.
+	if cfg := forever.FromEnv(); cfg.Configured() {
+		if fv, err := forever.New(ctx, log, g, purgeDB, cfg, func(i discord.Interaction) bool { return router.Admin(i) }); err != nil {
+			log.Error("forever is off: it couldn't start", "err", err)
+		} else {
+			all = append(all, fv)
+		}
 	}
 	// remind keeps every reminder in the database, so it runs only with one.
 	if purgeDB != nil {
