@@ -359,6 +359,27 @@ func roleIcon() *discord.Icon {
 	return nil
 }
 
+// left takes a member who left a server off its ladder: their characters
+// there, and any of them no server lists any more.
+func (m *Module) left(ctx context.Context, guild, user snowflake.ID) {
+	m.mu.Lock()
+	var gone []key
+	m.claims = slices.DeleteFunc(m.claims, func(c claim) bool {
+		if c.guild == guild && c.user == user {
+			gone = append(gone, c.k)
+			return true
+		}
+		return false
+	})
+	m.mu.Unlock()
+	for _, k := range gone {
+		if err := dropClaim(ctx, m.db, guild, k); err != nil {
+			m.log.Warn("forever: a member left", "guild", guild, "err", err)
+		}
+	}
+	m.prune(ctx, gone...)
+}
+
 // prune forgets the characters of ks no server lists any more.
 func (m *Module) prune(ctx context.Context, ks ...key) {
 	m.mu.Lock()

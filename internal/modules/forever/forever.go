@@ -133,8 +133,11 @@ func (*Module) Name() string { return "forever" }
 // characters or posting its feed.
 func (m *Module) Gate(on func(guild snowflake.ID) bool) { m.on = on }
 
-// Want is guilds, for leaving one.
-func (*Module) Want() intents.Want { return intents.Want{Required: gateway.IntentGuilds} }
+// Want is guilds, for leaving one, and members where granted, so a member
+// who leaves a server leaves its ladder too.
+func (*Module) Want() intents.Want {
+	return intents.Want{Required: gateway.IntentGuilds, Optional: gateway.IntentGuildMembers}
+}
 
 // Perms is posting the feed and shared armories, and handing out the
 // forever role.
@@ -206,6 +209,12 @@ func (m *Module) OnEvent(ev bot.Event) {
 			m.mu.Unlock()
 			go m.loop(context.Background())
 		})
+	case *events.GuildMemberLeave:
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			m.left(ctx, e.GuildID, e.User.ID)
+		}()
 	case *events.GuildLeave:
 		m.mu.Lock()
 		m.claims = slices.DeleteFunc(m.claims, func(c claim) bool { return c.guild == e.GuildID })
