@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"image"
 	"image/png"
 	"slices"
 	"strconv"
@@ -29,11 +30,11 @@ type screens struct {
 	have map[key]drawn
 }
 
-// drawn is a screen at 1x, as a PNG at best compression: a few KB a
-// character, scaled up only when it's sent.
+// drawn is a screen's pane at 1x and its figure, each a PNG at best
+// compression, put together only when it's sent.
 type drawn struct {
-	modified string
-	png      []byte
+	modified    string
+	screen, fig []byte
 }
 
 // screenOf is c's armory screen as Discord shows it, drawn again only when
@@ -43,23 +44,45 @@ func (m *Module) screenOf(ctx context.Context, c char) ([]byte, error) {
 	d, ok := m.screens.have[c.key]
 	m.screens.mu.Unlock()
 	if ok && c.modified != "" && d.modified == c.modified {
-		if img, err := png.Decode(bytes.NewReader(d.png)); err == nil {
-			return encode(img)
+		screen, err1 := png.Decode(bytes.NewReader(d.screen))
+		var fig image.Image
+		var err2 error
+		if d.fig != nil {
+			fig, err2 = png.Decode(bytes.NewReader(d.fig))
+		}
+		if err1 == nil && err2 == nil {
+			return encode(screen, fig)
 		}
 	}
-	img, whole, err := m.armory(ctx, c)
+	p, whole, err := m.armory(ctx, c)
 	if err != nil {
 		return nil, err
 	}
+	var fig image.Image
+	if p.fig != nil {
+		fig = p.fig
+	}
 	if whole {
-		var b bytes.Buffer
-		if err := (&png.Encoder{CompressionLevel: png.BestCompression}).Encode(&b, img); err == nil {
+		d := drawn{modified: c.modified, screen: compact(p.screen)}
+		if p.fig != nil {
+			d.fig = compact(p.fig)
+		}
+		if d.screen != nil && (p.fig == nil || d.fig != nil) {
 			m.screens.mu.Lock()
-			m.screens.have[c.key] = drawn{modified: c.modified, png: b.Bytes()}
+			m.screens.have[c.key] = d
 			m.screens.mu.Unlock()
 		}
 	}
-	return encode(img)
+	return encode(p.screen, fig)
+}
+
+// compact is img as a PNG at best compression, or nil.
+func compact(img image.Image) []byte {
+	var b bytes.Buffer
+	if err := (&png.Encoder{CompressionLevel: png.BestCompression}).Encode(&b, img); err != nil {
+		return nil
+	}
+	return b.Bytes()
 }
 
 // parseValue reads a select's "eu.7177273" back, from the member's client.

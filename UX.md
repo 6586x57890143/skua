@@ -99,8 +99,10 @@ too fast; try again in a couple of minutes`).
   the server's ladder as the day began in utc. A level 60, or a server's first to a
   tens level from 20, posts as its own card with the character's portrait; the rest of
   a round shares one card. A character's armory is a picture like the game's character
-  pane, 384 by 216 at 3x: Blizzard's render of them as they stand (transmog and all)
-  rebuilt to a 64 by 96 figure, each piece's own icon rebuilt to 14 cells in a well
+  pane, 384 by 216 at 3x: Blizzard's render of them as they stand (transmog and all),
+  the one thing on it not in pixels, scaled smoothly to fill the stage at the size
+  Discord shows it (owner's call: the character reads better as the game draws
+  them), each piece's own icon rebuilt to 14 cells in a well
   framed in its quality's colour, and the names in that colour in the light face. Facts
   on a screen part with a wide space: the faces are ASCII, so there's no `·`.
 - A message skua posts as someone else (a bridge or a webhook) is their text. What
