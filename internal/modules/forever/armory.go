@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/6586x57890143/skua/internal/pixel"
+	xdraw "golang.org/x/image/draw"
 )
 
 // The armory screen: a character the way the game's character pane shows
@@ -55,11 +56,12 @@ func art(name string) image.Image {
 const (
 	screenW, screenH = 384, 216
 	slotSize         = 18
+	stageW, stageH   = 64, 96
 	scale            = 3 // what Discord shows: 1152 by 648
 )
 
 var (
-	figureAt = image.Pt(160, 62)
+	figureAt = image.Pt(160, 62)              // the stage, stageW by stageH at 1x
 	barRect  = image.Rect(152, 168, 232, 170) // under the stage: the level to 60
 	left     = []string{"HEAD", "NECK", "SHOULDER", "BACK", "CHEST", "SHIRT", "TABARD", "WRIST"}
 	right    = []string{"HANDS", "WAIST", "LEGS", "FEET", "FINGER_1", "FINGER_2", "TRINKET_1", "TRINKET_2"}
@@ -190,9 +192,12 @@ func (m *Module) icon(ctx context.Context, region string, media int) image.Image
 	return nil
 }
 
-// figure is c's render rebuilt to 64 by 96 cells, nil when Blizzard has
-// none yet.
-func (m *Module) figure(ctx context.Context, c char) image.Image {
+// figure is c's render as Blizzard draws it, cut to the figure and scaled
+// smoothly to fill the stage at the size Discord shows it, nil when
+// Blizzard has none yet. The character is the one thing on the pane not
+// in pixels: it's who the screen is about, and the game's own render of
+// them reads better whole.
+func (m *Module) figure(ctx context.Context, c char) *image.NRGBA {
 	if c.render == "" {
 		return nil
 	}
@@ -200,40 +205,49 @@ func (m *Module) figure(ctx context.Context, c char) image.Image {
 	if err != nil {
 		return nil
 	}
-	return pixel.Rebuild(src, pixel.Fitted(pixel.Solid(src), 64, 96), 64, 96, 16)
+	out := image.NewNRGBA(image.Rect(0, 0, stageW*scale, stageH*scale))
+	xdraw.CatmullRom.Scale(out, out.Rect, src, pixel.Fitted(pixel.Solid(src), stageW, stageH), xdraw.Src, nil)
+	return out
+}
+
+// pane is an armory screen in its two parts: the pixel pane at 1x and the
+// figure at the size it's shown, laid on the stage only when it's sent.
+type pane struct {
+	screen *image.NRGBA
+	fig    *image.NRGBA
 }
 
 // errNoGear is a character Blizzard has no equipment for yet.
 var errNoGear = errors.New("forever: no equipment")
 
-// armory is c's armory screen at 1x, and whether every picture on it came:
-// one drawn short of an icon or the figure isn't worth keeping.
-func (m *Module) armory(ctx context.Context, c char) (*image.NRGBA, bool, error) {
+// armory is c's armory screen, and whether every picture on it came: one
+// drawn short of an icon or the figure isn't worth keeping.
+func (m *Module) armory(ctx context.Context, c char) (pane, bool, error) {
 	var eq equipment
 	if _, _, err := m.api.get(ctx, c.region, "profile", charPath(c.slug())+"/equipment", "", &eq); err != nil {
 		if errors.Is(err, errGone) {
-			return nil, false, errNoGear
+			return pane{}, false, errNoGear
 		}
-		return nil, false, err
+		return pane{}, false, err
 	}
 	pics := make([]image.Image, len(eq.Items))
 	var wg sync.WaitGroup
 	for i, p := range eq.Items {
 		wg.Go(func() { pics[i] = m.icon(ctx, c.region, p.Media.ID) })
 	}
-	var fig image.Image
+	var fig *image.NRGBA
 	wg.Go(func() { fig = m.figure(ctx, c) })
 	wg.Wait()
 	whole := fig != nil || c.render == ""
 	for _, p := range pics {
 		whole = whole && p != nil
 	}
-	return screen(c, eq.Items, pics, fig), whole, nil
+	return pane{screen: screen(c, eq.Items, pics), fig: fig}, whole, nil
 }
 
-// screen draws the pane: the frame, the title, the figure, every slot
-// filled or empty, the names beside them.
-func screen(c char, items []piece, pics []image.Image, fig image.Image) *image.NRGBA {
+// screen draws the pixel pane: the frame, the title, every slot filled or
+// empty, the names beside them. The stage is left for the figure.
+func screen(c char, items []piece, pics []image.Image) *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, screenW, screenH))
 	// The stage is clear in the frame: the figure stands on the pane's
 	// darkest slate.
@@ -256,9 +270,6 @@ func screen(c char, items []piece, pics []image.Image, fig image.Image) *image.N
 	}
 	pixel.Light.Draw(img, x+8, 9, pixel.Light.Cut(about, 364-x-8), dim, nil)
 
-	if fig != nil {
-		draw.Draw(img, image.Rectangle{figureAt, figureAt.Add(fig.Bounds().Size())}, fig, image.Point{}, draw.Over)
-	}
 	gold := color.NRGBA{0xE0, 0xA6, 0x4B, 0xFF}
 	fill := barRect
 	fill.Max.X = fill.Min.X + fill.Dx()*min(c.level, Cap)/Cap
@@ -323,13 +334,19 @@ func (p piece) label() string {
 	return p.Name
 }
 
-// encode is img scale times larger, cell for cell, as a PNG.
-func encode(img image.Image) ([]byte, error) {
-	big := image.NewNRGBA(image.Rect(0, 0, img.Bounds().Dx()*scale, img.Bounds().Dy()*scale))
+// encode is the pane as Discord shows it: the pixels scale times larger,
+// cell for cell, and the figure laid on the stage at its own size, as a
+// PNG.
+func encode(screen, fig image.Image) ([]byte, error) {
+	big := image.NewNRGBA(image.Rect(0, 0, screen.Bounds().Dx()*scale, screen.Bounds().Dy()*scale))
 	for y := range big.Rect.Dy() {
 		for x := range big.Rect.Dx() {
-			big.Set(x, y, img.At(x/scale, y/scale))
+			big.Set(x, y, screen.At(x/scale, y/scale))
 		}
+	}
+	if fig != nil {
+		at := figureAt.Mul(scale)
+		draw.Draw(big, image.Rectangle{at, at.Add(fig.Bounds().Size())}, fig, image.Point{}, draw.Over)
 	}
 	var b bytes.Buffer
 	if err := (&png.Encoder{CompressionLevel: png.BestSpeed}).Encode(&b, big); err != nil {
