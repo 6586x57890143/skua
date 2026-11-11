@@ -276,7 +276,7 @@ func (m *Module) claimable(guild, user snowflake.ID, c char, verified bool) erro
 	if n >= perMember {
 		return core.Tell("you have " + itoa(perMember) + " characters here already; take one off first")
 	}
-	if len(all) >= perGuild {
+	if len(all) >= perGuild && (!verified || !all[c.key]) {
 		return core.Tell("this server lists " + itoa(perGuild) + " characters, as many as skua keeps")
 	}
 	return nil

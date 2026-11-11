@@ -197,12 +197,22 @@ func (m *Module) confirmed(w http.ResponseWriter, r *http.Request) {
 		page(w, http.StatusBadRequest, "", "this page has expired or was already used. press link battle.net in /forever me for a new one")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	if !m.on(a.guild) {
+		page(w, http.StatusOK, "", "forever is switched off in that server now, so nothing was linked")
+		return
+	}
+	// The page has been pressed: the links go through even if the tab is
+	// closed or the tunnel drops before they're done.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 60*time.Second)
 	defer cancel()
 	added := 0
 	why := map[string]int{}
 	var displaced []snowflake.ID
 	for _, c := range a.chars {
+		if m.full(a.guild, a.user, c) {
+			why["full"]++
+			continue
+		}
 		res, err := m.list(ctx, a.guild, a.user, c.region, c.name, c.surname, true)
 		if err != nil {
 			why[reason(err)]++
@@ -231,6 +241,24 @@ func (m *Module) confirmed(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	page(w, http.StatusOK, "", lines...)
+}
+
+// full is whether the member already lists as many characters here as
+// skua keeps, and c isn't one of them: so its profile needn't be fetched.
+func (m *Module) full(guild, user snowflake.ID, c found) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, cl := range m.claims {
+		if cl.guild != guild || cl.user != user {
+			continue
+		}
+		if ch := m.chars[cl.k]; ch != nil && ch.region == c.region && ch.slug() == slug(c.name, c.surname) {
+			return false
+		}
+		n++
+	}
+	return n >= perMember
 }
 
 // reason is which line of the page a failed add belongs on.
@@ -265,8 +293,11 @@ func (m *Module) exchange(ctx context.Context, code string) (string, error) {
 	var t struct {
 		Token string `json:"access_token"`
 	}
-	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<16)).Decode(&t); err != nil || t.Token == "" {
+	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<16)).Decode(&t); err != nil {
 		return "", fmt.Errorf("forever: code exchange: %w", err)
+	}
+	if t.Token == "" {
+		return "", errors.New("forever: code exchange: no access_token")
 	}
 	return t.Token, nil
 }
@@ -283,7 +314,7 @@ type account struct {
 
 // account is every Forever character on the member's account, and how many
 // regions Blizzard failed to answer for: a region with no Forever account
-// answers 404 or 403, which is no failure.
+// answers 404, which is no failure.
 func (m *Module) account(ctx context.Context, tok string) (chars []found, failed, regions int) {
 	for _, region := range Regions {
 		regions++

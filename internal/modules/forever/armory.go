@@ -206,14 +206,15 @@ func (m *Module) figure(ctx context.Context, c char) image.Image {
 // errNoGear is a character Blizzard has no equipment for yet.
 var errNoGear = errors.New("forever: no equipment")
 
-// armory is c's armory screen as a PNG.
-func (m *Module) armory(ctx context.Context, c char) ([]byte, error) {
+// armory is c's armory screen at 1x, and whether every picture on it came:
+// one drawn short of an icon or the figure isn't worth keeping.
+func (m *Module) armory(ctx context.Context, c char) (*image.NRGBA, bool, error) {
 	var eq equipment
 	if _, _, err := m.api.get(ctx, c.region, "profile", charPath(c.slug())+"/equipment", "", &eq); err != nil {
 		if errors.Is(err, errGone) {
-			return nil, errNoGear
+			return nil, false, errNoGear
 		}
-		return nil, err
+		return nil, false, err
 	}
 	pics := make([]image.Image, len(eq.Items))
 	var wg sync.WaitGroup
@@ -223,12 +224,16 @@ func (m *Module) armory(ctx context.Context, c char) ([]byte, error) {
 	var fig image.Image
 	wg.Go(func() { fig = m.figure(ctx, c) })
 	wg.Wait()
-	return screen(c, eq.Items, pics, fig)
+	whole := fig != nil || c.render == ""
+	for _, p := range pics {
+		whole = whole && p != nil
+	}
+	return screen(c, eq.Items, pics, fig), whole, nil
 }
 
 // screen draws the pane: the frame, the title, the figure, every slot
 // filled or empty, the names beside them.
-func screen(c char, items []piece, pics []image.Image, fig image.Image) ([]byte, error) {
+func screen(c char, items []piece, pics []image.Image, fig image.Image) *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, screenW, screenH))
 	// The stage is clear in the frame: the figure stands on the pane's
 	// darkest slate.
@@ -306,7 +311,7 @@ func screen(c char, items []piece, pics []image.Image, fig image.Image) ([]byte,
 			pixel.Light.Draw(img, nx, 199, pixel.Light.Cut(label, room), col, shadow)
 		}
 	}
-	return encode(img)
+	return img
 }
 
 // label is the name a piece shows: its transmog's, marked, when it wears
@@ -319,11 +324,11 @@ func (p piece) label() string {
 }
 
 // encode is img scale times larger, cell for cell, as a PNG.
-func encode(img *image.NRGBA) ([]byte, error) {
-	big := image.NewNRGBA(image.Rect(0, 0, img.Rect.Dx()*scale, img.Rect.Dy()*scale))
+func encode(img image.Image) ([]byte, error) {
+	big := image.NewNRGBA(image.Rect(0, 0, img.Bounds().Dx()*scale, img.Bounds().Dy()*scale))
 	for y := range big.Rect.Dy() {
 		for x := range big.Rect.Dx() {
-			big.SetNRGBA(x, y, img.NRGBAAt(x/scale, y/scale))
+			big.Set(x, y, img.At(x/scale, y/scale))
 		}
 	}
 	var b bytes.Buffer

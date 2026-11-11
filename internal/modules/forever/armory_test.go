@@ -97,8 +97,21 @@ func TestArmoryScreen(t *testing.T) {
 	if got := at(figureAt.X+32, figureAt.Y+48); got != (color.NRGBA{0x80, 0x30, 0x20, 0xFF}) {
 		t.Fatalf("figure is %v", got)
 	}
-	// Drawn once per profile: a second look is the cache.
-	if _, err := m.screenOf(context.Background(), c); err != nil || reads.Load() != 1 {
+	// The ranged piece's icon 404s, so that screen wasn't whole and isn't
+	// kept: the next look draws it again.
+	if _, err := m.screenOf(context.Background(), c); err != nil || reads.Load() != 2 {
+		t.Fatalf("a screen short of an icon was kept: %v, %d reads", err, reads.Load())
+	}
+	// With every picture there, it's drawn once per profile.
+	delete(a.routes, "/data/wow/media/item/")
+	a.routes["/data/wow/media/item/"] = func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"assets":[{"key":"icon","value":"%s/img/x.png"}]}`, base)
+	}
+	m.icons.have = map[int]image.Image{}
+	if _, err := m.screenOf(context.Background(), c); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := m.screenOf(context.Background(), c); err != nil || reads.Load() != 3 || !bytes.Equal(again, b) && len(again) == 0 {
 		t.Fatalf("drawn again: %v, %d reads", err, reads.Load())
 	}
 	// A picture anywhere but Blizzard's render host is refused.
@@ -118,7 +131,7 @@ func TestArmoryNoGear(t *testing.T) {
 	}
 	c := *m.chars[key{"eu", 1}]
 	c.surname = "gone" // the equipment path 404s
-	if _, err := m.armory(context.Background(), c); err != errNoGear {
+	if _, _, err := m.armory(context.Background(), c); err != errNoGear {
 		t.Fatalf("want errNoGear, got %v", err)
 	}
 }
@@ -169,8 +182,11 @@ func TestArmoryButtons(t *testing.T) {
 	if len(r.posted) != 1 || len(r.posted[0].Files) != 1 || r.posted[0].Flags.Has(discord.MessageFlagEphemeral) {
 		t.Fatalf("share: %+v", r.posted)
 	}
-	if !strings.Contains(text((*r.updates[1].Components)[0].(discord.ContainerComponent)), "✓ shared") {
-		t.Fatal("share not confirmed")
+	// The card the member pressed share on is now the shared one: no
+	// button left to post it twice.
+	shared := (*r.updates[1].Components)[0].(discord.ContainerComponent)
+	if hasButton(shared, "forever:share:eu.1") || len(r.updates[1].Files) != 1 {
+		t.Fatal("the shared card can be shared again")
 	}
 	for _, id := range []string{"forever:share", "forever:share:eu.7"} {
 		b, _ := coretest.Button(t, id, nil)
@@ -206,7 +222,7 @@ func TestShareUndrawn(t *testing.T) {
 	if err := m.click(context.Background(), b); err != nil {
 		t.Fatal(err)
 	}
-	card := (*r.updates[0].Components)[0].(discord.ContainerComponent)
+	card := r.followups[0].Components[0].(discord.ContainerComponent)
 	if len(r.posted) != 0 || !strings.Contains(text(card), "doesn't show A B's gear yet") || card.AccentColor == 0x6E9A6A {
 		t.Fatalf("undrawn share: %d posted, %q", len(r.posted), text(card))
 	}

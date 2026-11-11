@@ -6,6 +6,7 @@ import (
 	"image/draw"
 	"math"
 	"slices"
+	"strings"
 )
 
 // Rebuild is the part r of src as w by h cells, the way skua redraws
@@ -155,26 +156,18 @@ func Fitted(r image.Rectangle, w, h int) image.Rectangle {
 // ends: Canvas.Print for a picture with more colours than a palette holds.
 func (f *Face) Draw(dst draw.Image, x, y int, s string, col, shadow color.Color) int {
 	b := dst.Bounds()
-	pen := x
-	for _, r := range Plain(s) {
-		left, adv := f.span(r)
-		at := pen - left
-		pen += adv
-		for gy := range f.Height {
-			for gx := range f.Advance {
-				if !f.ink(r, gx, gy) {
-					continue
-				}
-				if p := image.Pt(at+gx+1, y+gy+1); shadow != nil && p.In(b) && !f.ink(r, gx+1, gy+1) {
-					dst.Set(p.X, p.Y, shadow)
-				}
-				if p := image.Pt(at+gx, y+gy); p.In(b) {
-					dst.Set(p.X, p.Y, col)
-				}
+	set := func(c color.Color) func(image.Point) {
+		return func(p image.Point) {
+			if p.In(b) {
+				dst.Set(p.X, p.Y, c)
 			}
 		}
 	}
-	return pen
+	var shade func(image.Point)
+	if shadow != nil {
+		shade = set(shadow)
+	}
+	return f.walk(x, y, Plain(s), 0, set(col), shade)
 }
 
 // Cut is s cut with "..." to fit width set in f, or s whole when it fits.
@@ -184,7 +177,7 @@ func (f *Face) Cut(s string, width int) string {
 		return s
 	}
 	for k := len(s) - 1; k > 0; k-- {
-		if cut := s[:k] + "..."; f.Width(cut) <= width {
+		if cut := strings.TrimSpace(s[:k]) + "..."; f.Width(cut) <= width {
 			return cut
 		}
 	}

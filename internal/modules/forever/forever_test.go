@@ -102,20 +102,28 @@ func prof(id int64, name, surname, class string, level int) map[string]any {
 // fake is the REST forever calls, recorded.
 type fake struct {
 	rest.Rest
-	mu       sync.Mutex
-	posts    []discord.MessageCreate
-	updates  []discord.MessageUpdate
-	added    []snowflake.ID
-	removed  []snowflake.ID
-	created  []discord.RoleCreate
-	features []discord.GuildFeature
-	perms    discord.Permissions
+	mu        sync.Mutex
+	posts     []discord.MessageCreate
+	updates   []discord.MessageUpdate
+	followups []discord.MessageCreate
+	added     []snowflake.ID
+	removed   []snowflake.ID
+	created   []discord.RoleCreate
+	features  []discord.GuildFeature
+	perms     discord.Permissions
 }
 
 func (f *fake) CreateMessage(_ snowflake.ID, m discord.MessageCreate, _ ...rest.RequestOpt) (*discord.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.posts = append(f.posts, m)
+	return &discord.Message{}, nil
+}
+
+func (f *fake) CreateFollowupMessage(_ snowflake.ID, _ string, m discord.MessageCreate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.followups = append(f.followups, m)
 	return &discord.Message{}, nil
 }
 

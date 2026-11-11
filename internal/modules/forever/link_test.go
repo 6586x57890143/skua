@@ -212,3 +212,48 @@ func TestLinkBlizzardDown(t *testing.T) {
 		t.Fatal("reasons")
 	}
 }
+
+// TestLinkEdges is the confirm page against a server that switched forever
+// off, a member already full, a token Blizzard refuses and a server at its
+// cap whose owner takes a character back.
+func TestLinkEdges(t *testing.T) {
+	m, a, _ := linked(t)
+	a.set("a-b", prof(1, "A", "B", "Mage", 30), "x")
+	confirmPage := func(user snowflake.ID) string {
+		w := get(m, url.Values{"state": {signIn(m, user)}, "code": {"good"}})
+		return confirmID.FindStringSubmatch(w.Body.String())[1]
+	}
+	id := confirmPage(5)
+	m.Gate(func(snowflake.ID) bool { return false })
+	if w := post(m, id); !strings.Contains(w.Body.String(), "switched off") || len(m.claims) != 0 {
+		t.Fatalf("linked in a switched-off server: %s", w.Body)
+	}
+	m.Gate(func(snowflake.ID) bool { return true })
+
+	// Full: the member lists as many as skua keeps, so nothing is fetched.
+	for i := range perMember {
+		m.claims = append(m.claims, claim{guild: 3, user: 5, k: key{"us", int64(100 + i)}})
+	}
+	if w := post(m, confirmPage(5)); !strings.Contains(w.Body.String(), "linked 0") || !strings.Contains(w.Body.String(), "2 didn't fit") {
+		t.Fatalf("full: %s", w.Body)
+	}
+
+	// A server at its cap: the owner still takes back what someone listed
+	// by name, since that adds nothing to the count.
+	m.claims = nil
+	for i := range perGuild - 1 {
+		m.claims = append(m.claims, claim{guild: 3, user: snowflake.ID(1000 + i), k: key{"us", int64(1000 + i)}})
+	}
+	if _, err := m.list(context.Background(), 3, 9, "eu", "a", "b", false); err != nil {
+		t.Fatal(err)
+	}
+	if w := post(m, confirmPage(5)); !strings.Contains(w.Body.String(), "linked 1") {
+		t.Fatalf("at the cap: %s", w.Body)
+	}
+
+	// A refused token is Blizzard failing, not an empty account.
+	a.routes["/profile/user/wow"] = func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }
+	if w := get(m, url.Values{"state": {signIn(m, 5)}, "code": {"good"}}); w.Code != http.StatusBadGateway {
+		t.Fatalf("a refused token: %d %s", w.Code, w.Body)
+	}
+}

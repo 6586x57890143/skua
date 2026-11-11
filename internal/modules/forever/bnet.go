@@ -151,7 +151,7 @@ func (b *bnet) getAs(ctx context.Context, tok, region, path string, v any) error
 	defer func() { _ = res.Body.Close() }()
 	switch res.StatusCode {
 	case http.StatusOK:
-	case http.StatusNotFound, http.StatusForbidden:
+	case http.StatusNotFound:
 		return errGone // no Forever account in this region
 	default:
 		return fmt.Errorf("forever: %s %s", region, res.Status)
