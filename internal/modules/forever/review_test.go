@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/6586x57890143/skua/internal/core/coretest"
@@ -37,7 +38,7 @@ func TestSharedCharacter(t *testing.T) {
 	if len(f.posts) != 2 {
 		t.Fatalf("want a feed card in both servers, got %d", len(f.posts))
 	}
-	if !strings.Contains(coretest.Text("", f.posts[0].Components), "after launch") {
+	if !strings.Contains(text(f.posts[0].Components[0].(discord.ContainerComponent)), "after launch") {
 		t.Fatal("a climb skua saw has no time from launch")
 	}
 }
@@ -72,9 +73,9 @@ func TestLegacyMidClimb(t *testing.T) {
 	}
 	a.set("a-b", prof(1, "A", "B", "Mage", 50), "b")
 	m.poll(ctx)
-	text := coretest.Text("", f.posts[0].Components)
-	if !strings.Contains(text, "reached 50") || !strings.Contains(text, "✦ legacy point") {
-		t.Fatalf("feed:\n%s", text)
+	got := text(f.posts[0].Components[0].(discord.ContainerComponent))
+	if !strings.Contains(got, "reached 50") || !strings.Contains(got, "✦ legacy point") {
+		t.Fatalf("feed:\n%s", got)
 	}
 }
 
@@ -159,7 +160,52 @@ func TestLiveShape(t *testing.T) {
 	}
 	var c char
 	apply(&c, p)
-	if c.xp != 5824 || c.ruleset != "roleplay pvp" || rulesetKey(c.ruleset) != "roleplay-pvp" || c.class != "warrior" || c.faction != "alliance" {
+	if c.xp != 5824 || c.ruleset != "roleplay pvp" || c.class != "warrior" || c.faction != "alliance" {
 		t.Fatalf("live profile read as %+v", c)
+	}
+}
+
+// TestCraftCheckpoints is a crafting profession crossing a Legacy
+// checkpoint: the feed tells it with its ✦, the card shows the track, and
+// gathering professions are left out.
+func TestCraftCheckpoints(t *testing.T) {
+	m, a, f := newTest(t)
+	ctx := context.Background()
+	m.guilds[3] = setup{feed: 40}
+	a.set("a-b", prof(1, "A", "B", "Mage", 31), "a")
+	a.skill["a-b"] = 150
+	if _, err := m.list(ctx, 3, 5, "eu", "a", "b"); err != nil {
+		t.Fatal(err)
+	}
+	// list keeps a new character's professions only once a round reads them.
+	a.set("a-b", prof(1, "A", "B", "Mage", 32), "b")
+	m.poll(ctx)
+	a.set("a-b", prof(1, "A", "B", "Mage", 33), "c")
+	a.skill["a-b"] = 226
+	f.posts = nil
+	m.poll(ctx)
+	if len(f.posts) != 1 {
+		t.Fatalf("posts: %d", len(f.posts))
+	}
+	got := text(f.posts[0].Components[0].(discord.ContainerComponent))
+	if !strings.Contains(got, "reached enchanting 225 · ✦ legacy point") {
+		t.Fatalf("feed:\n%s", got)
+	}
+	card := text(m.hub(3, 5, ""))
+	if !strings.Contains(card, "enchanting 225 ✦ 226/300") || strings.Contains(card, "herbalism") {
+		t.Fatalf("card:\n%s", card)
+	}
+	c := m.chars[key{"eu", 1}]
+	if got := parseCrafts(formatCrafts(c.crafts)); got["enchanting"] != 226 || len(got) != 1 {
+		t.Fatalf("crafts round trip: %v", got)
+	}
+	if parseCrafts("")["x"] != 0 || len(parseCrafts("bad,=,a=b")) != 0 {
+		t.Fatal("bad crafts parsed")
+	}
+	if legacyLine(char{level: 60, crafts: map[string]int{"tailoring": 300, "alchemy": 40}}) != "-# legacy · 25 ✦ · 45 ✦ · 60 ✦ · alchemy 40/150 · tailoring 300 ✦" {
+		t.Fatal(legacyLine(char{level: 60, crafts: map[string]int{"tailoring": 300, "alchemy": 40}}))
+	}
+	if legacyPoints([]*char{c, {class: "mage", level: 30, crafts: map[string]int{"enchanting": 230}}}) != 3 {
+		t.Fatal("legacy points count a checkpoint twice")
 	}
 }

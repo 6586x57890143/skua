@@ -41,7 +41,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
-	c := char{key: key{"eu", 77001}, name: "Thrall", surname: "Earthcaller", class: "shaman", classID: 7, level: 30, ruleset: "normal", faction: "horde", reached: at, avatar: "https://a", modified: "m"}
+	c := char{crafts: map[string]int{"tailoring": 141}, key: key{"eu", 77001}, name: "Thrall", surname: "Earthcaller", class: "shaman", classID: 7, level: 30, ruleset: "normal", faction: "horde", reached: at, avatar: "https://a", modified: "m"}
 	if err := saveChar(ctx, db, c); err != nil {
 		t.Fatal(err)
 	}
@@ -54,12 +54,18 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err := saveSetup(ctx, db, guild, setup{feed: 40, role: 70}); err != nil {
 		t.Fatal(err)
 	}
+	if err := saveDay(ctx, db, guild, map[key]int{c.key: 2}); err != nil {
+		t.Fatal(err)
+	}
 	st, err := load(ctx, db)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if st.days[guild][c.key] != 2 || st.dayOf[guild] == "" {
+		t.Fatalf("day's chart: %v %q", st.days[guild], st.dayOf[guild])
+	}
 	got := st.chars[c.key]
-	if got == nil || got.level != 30 || got.surname != "Earthcaller" || !got.reached.Equal(at) || st.guilds[guild] != (setup{feed: 40, role: 70}) {
+	if got == nil || got.level != 30 || got.crafts["tailoring"] != 141 || got.surname != "Earthcaller" || !got.reached.Equal(at) || st.guilds[guild] != (setup{feed: 40, role: 70}) {
 		t.Fatalf("loaded %+v, %+v", got, st.guilds[guild])
 	}
 	if err := dropClaim(ctx, db, guild, c.key); err != nil {
@@ -98,7 +104,7 @@ func TestLifecycle(t *testing.T) {
 	if FromEnv().Configured() != (os.Getenv("SKUA_BNET_ID") != "" && os.Getenv("SKUA_BNET_SECRET") != "") {
 		t.Fatal("Configured")
 	}
-	if where(char{key: key{region: "kr"}}) != "kr" || rulesetKey("") != "unknown" {
+	if where(char{key: key{region: "kr"}}) != "🇰🇷" || where(char{key: key{region: "xx"}}) != "xx" {
 		t.Fatal("blank ruleset")
 	}
 }

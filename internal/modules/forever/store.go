@@ -2,6 +2,8 @@ package forever
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/disgoorg/snowflake/v2"
@@ -31,10 +33,11 @@ type char struct {
 	classID                 int
 	faction                 string
 	level, xp, points, ilvl int
-	avatar, render          string    // Blizzard's renders, for the cards
-	modified                string    // the profile's Last-Modified
-	missing                 int       // polls in a row Blizzard didn't answer
-	reached                 time.Time // when it reached its level; zero when skua didn't see it
+	avatar, render          string         // Blizzard's renders, for the cards
+	modified                string         // the profile's Last-Modified
+	missing                 int            // polls in a row Blizzard didn't answer
+	crafts                  map[string]int // crafting profession -> skill
+	reached                 time.Time      // when it reached its level; zero when skua didn't see it
 }
 
 func (c *char) slug() string { return slug(c.name, c.surname) }
@@ -54,23 +57,27 @@ type state struct {
 	chars  map[key]*char
 	claims []claim
 	guilds map[snowflake.ID]setup
+	days   map[snowflake.ID]map[key]int
+	dayOf  map[snowflake.ID]string
 }
 
 func load(ctx context.Context, db DB) (state, error) {
-	st := state{chars: map[key]*char{}, guilds: map[snowflake.ID]setup{}}
+	st := state{chars: map[key]*char{}, guilds: map[snowflake.ID]setup{}, days: map[snowflake.ID]map[key]int{}, dayOf: map[snowflake.ID]string{}}
 	if db == nil {
 		return st, nil
 	}
-	rows, err := db.Query(ctx, `select region, id, name, surname, class, class_id, race, ruleset, faction, level, xp, points, ilvl, avatar, render, modified, reached from forever_char`)
+	rows, err := db.Query(ctx, `select region, id, name, surname, class, class_id, race, ruleset, faction, level, xp, points, ilvl, avatar, render, modified, reached, crafts from forever_char`)
 	if err != nil {
 		return st, err
 	}
 	for rows.Next() {
 		c := &char{}
-		if err := rows.Scan(&c.region, &c.id, &c.name, &c.surname, &c.class, &c.classID, &c.race, &c.ruleset, &c.faction, &c.level, &c.xp, &c.points, &c.ilvl, &c.avatar, &c.render, &c.modified, &c.reached); err != nil {
+		var crafts string
+		if err := rows.Scan(&c.region, &c.id, &c.name, &c.surname, &c.class, &c.classID, &c.race, &c.ruleset, &c.faction, &c.level, &c.xp, &c.points, &c.ilvl, &c.avatar, &c.render, &c.modified, &c.reached, &crafts); err != nil {
 			rows.Close()
 			return st, err
 		}
+		c.crafts = parseCrafts(crafts)
 		st.chars[c.key] = c
 	}
 	if err := rows.Err(); err != nil {
@@ -87,6 +94,27 @@ func load(ctx context.Context, db DB) (state, error) {
 			return st, err
 		}
 		st.claims = append(st.claims, c)
+	}
+	if err := rows.Err(); err != nil {
+		return st, err
+	}
+	rows, err = db.Query(ctx, `select guild_id, region, char_id, place, day from forever_place`)
+	if err != nil {
+		return st, err
+	}
+	for rows.Next() {
+		var g snowflake.ID
+		var k key
+		var place int
+		var day time.Time
+		if err := rows.Scan(&g, &k.region, &k.id, &place, &day); err != nil {
+			rows.Close()
+			return st, err
+		}
+		if st.days[g] == nil {
+			st.days[g] = map[key]int{}
+		}
+		st.days[g][k], st.dayOf[g] = place, day.Format(time.DateOnly)
 	}
 	if err := rows.Err(); err != nil {
 		return st, err
@@ -111,10 +139,10 @@ func saveChar(ctx context.Context, db DB, c char) error {
 	if db == nil {
 		return nil
 	}
-	_, err := db.Exec(ctx, `insert into forever_char (region, id, name, surname, class, class_id, race, ruleset, faction, level, xp, points, ilvl, avatar, render, modified, reached)
-		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-		on conflict (region, id) do update set name=$3, surname=$4, class=$5, class_id=$6, race=$7, ruleset=$8, faction=$9, level=$10, xp=$11, points=$12, ilvl=$13, avatar=$14, render=$15, modified=$16, reached=$17`,
-		c.region, c.id, c.name, c.surname, c.class, c.classID, c.race, c.ruleset, c.faction, c.level, c.xp, c.points, c.ilvl, c.avatar, c.render, c.modified, c.reached)
+	_, err := db.Exec(ctx, `insert into forever_char (region, id, name, surname, class, class_id, race, ruleset, faction, level, xp, points, ilvl, avatar, render, modified, reached, crafts)
+		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+		on conflict (region, id) do update set name=$3, surname=$4, class=$5, class_id=$6, race=$7, ruleset=$8, faction=$9, level=$10, xp=$11, points=$12, ilvl=$13, avatar=$14, render=$15, modified=$16, reached=$17, crafts=$18`,
+		c.region, c.id, c.name, c.surname, c.class, c.classID, c.race, c.ruleset, c.faction, c.level, c.xp, c.points, c.ilvl, c.avatar, c.render, c.modified, c.reached, formatCrafts(c.crafts))
 	return err
 }
 
@@ -144,11 +172,52 @@ func dropClaim(ctx context.Context, db DB, guild snowflake.ID, k key) error {
 	return err
 }
 
+// formatCrafts is crafts as stored: "enchanting=150,tailoring=141".
+func formatCrafts(crafts map[string]int) string {
+	var parts []string
+	for _, p := range crafting {
+		if v, ok := crafts[p]; ok {
+			parts = append(parts, p+"="+strconv.Itoa(v))
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+func parseCrafts(s string) map[string]int {
+	out := map[string]int{}
+	for _, part := range strings.Split(s, ",") {
+		name, v, ok := strings.Cut(part, "=")
+		if n, err := strconv.Atoi(v); ok && err == nil {
+			out[name] = n
+		}
+	}
+	return out
+}
+
+// saveDay keeps a server's chart for the day, replacing the last one.
+func saveDay(ctx context.Context, db DB, guild snowflake.ID, places map[key]int) error {
+	if db == nil {
+		return nil
+	}
+	if _, err := db.Exec(ctx, `delete from forever_place where guild_id=$1`, guild); err != nil {
+		return err
+	}
+	for k, place := range places {
+		if _, err := db.Exec(ctx, `insert into forever_place (guild_id, region, char_id, place, day) values ($1,$2,$3,$4,current_date)`, guild, k.region, k.id, place); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func dropGuild(ctx context.Context, db DB, guild snowflake.ID) error {
 	if db == nil {
 		return nil
 	}
 	if _, err := db.Exec(ctx, `delete from forever_claim where guild_id=$1`, guild); err != nil {
+		return err
+	}
+	if _, err := db.Exec(ctx, `delete from forever_place where guild_id=$1`, guild); err != nil {
 		return err
 	}
 	_, err := db.Exec(ctx, `delete from forever_guild where guild_id=$1`, guild)

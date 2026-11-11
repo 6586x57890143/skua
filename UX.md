@@ -91,6 +91,14 @@ too fast; try again in a couple of minutes`).
   platform's frame under a slate band holding the bird (128 px, one px a cell),
   the title in the 7 by 13 pixel face at 3 px a cell and who, how long and the
   audience at 2 px, on slate with the bird at 2 px a cell until there is a frame.
+- A forever card about a character is accented in its class's colour, Blizzard's own
+  (`classColor`), the way the game colours a name, and its region is its flag (`🇪🇺`):
+  the one place skua puts emoji in text, because a ladder of four regions reads by
+  flag faster than by code. A character's name keeps the case the game gives it. The
+  ladder's move is a code span beside the place (`▲2`, `▼1`, `=`, `new`), read against
+  the server's ladder as the day began in utc. A level 60, or a server's first to a
+  tens level from 20, posts as its own card with the character's portrait; the rest of
+  a round shares one card.
 - A message skua posts as someone else (a bridge or a webhook) is their text. What
   skua adds to it, such as who it replies to, is a `-#` subtext line below it, never an
   embed: a webhook can't make a real Discord reply, and a box outweighs the message it

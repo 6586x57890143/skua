@@ -157,6 +157,16 @@ type profile struct {
 	} `json:"faction"`
 }
 
+// professions is a character's professions and their skill.
+type professions struct {
+	Primaries []struct {
+		Profession named `json:"profession"`
+		Tiers      []struct {
+			Skill int `json:"skill_points"`
+		} `json:"tiers"`
+	} `json:"primaries"`
+}
+
 // media is a character's renders.
 type media struct {
 	Assets []struct {

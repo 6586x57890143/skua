@@ -332,12 +332,12 @@ var moduleGlyphs = map[string][]string{
 		"....wwww....",
 		"...ww..ww...",
 		"..ww....ww..",
+		".ww......ww.",
 		".....ww.....",
 		"....wwww....",
 		"...ww..ww...",
 		"..ww....ww..",
 		".ww......ww.",
-		"............",
 		"............",
 	}),
 	"remind": doubleSocialGlyph([]string{ // drawn on the grid: an alarm clock

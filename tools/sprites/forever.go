@@ -1,149 +1,35 @@
 package main
 
-import "image/color"
+import (
+	"image"
+	"image/color"
+	"log"
+	"path/filepath"
+)
 
-// classInk is each class's colour, Blizzard's own, so a class reads as
-// itself in skua's art too.
-var classInk = map[string]color.NRGBA{
-	"warrior": {0xC6, 0x9B, 0x6D, 0xFF},
-	"paladin": {0xF4, 0x8C, 0xBA, 0xFF},
-	"hunter":  {0xAA, 0xD3, 0x72, 0xFF},
-	"rogue":   {0xFF, 0xF4, 0x68, 0xFF},
-	"priest":  {0xFF, 0xFF, 0xFF, 0xFF},
-	"shaman":  {0x00, 0x70, 0xDD, 0xFF},
-	"mage":    {0x3F, 0xC7, 0xEB, 0xFF},
-	"warlock": {0x87, 0x88, 0xEE, 0xFF},
-	"druid":   {0xFF, 0x7C, 0x0A, 0xFF},
-	"role":    {0xE0, 0xA6, 0x4B, 0xFF}, // forever's gold, the role's colour
+// inkGrid is a multi-ink icon: each cell an index into ink, '.' empty.
+type inkGrid struct {
+	ink  []color.NRGBA
+	grid []string
 }
 
-// classGlyphs are drawn on the grid, each class by its classic emblem.
-// ponytail: drawn stand-ins; swap for icons rebuilt from Blizzard's class
-// media once skua's battle.net app exists.
-var classGlyphs = map[string][]string{
-	"warrior": doubleSocialGlyph([]string{ // a sword
+// foreverGold is forever's colour: its role and its crest.
+var foreverGold = color.NRGBA{0xE0, 0xA6, 0x4B, 0xFF}
+
+// foreverGlyphs are forever's buttons and its role, drawn on the grid, every
+// one centred on it to the nearest cell (centred refuses one that isn't).
+var foreverGlyphs = map[string][]string{
+	"ladder": doubleSocialGlyph([]string{ // a podium
 		"............",
-		".........ww.",
-		"........www.",
-		".......www..",
-		"......www...",
-		"..w..www....",
-		"...wwww.....",
-		"....ww......",
-		"...wwww.....",
-		"..ww..w.....",
-		".ww.........",
-		"............",
-	}),
-	"paladin": doubleSocialGlyph([]string{ // a hammer
-		"............",
-		"..wwwwwwww..",
-		"..wwwwwwww..",
-		"..wwwwwwww..",
-		".....ww.....",
-		".....ww.....",
-		".....ww.....",
-		".....ww.....",
-		".....ww.....",
-		"....wwww....",
-		"............",
-		"............",
-	}),
-	"hunter": doubleSocialGlyph([]string{ // an arrow
-		"............",
-		".......wwww.",
-		".........ww.",
-		"........w.w.",
-		".......w..w.",
-		"......w.....",
-		".....w......",
-		"....w.......",
-		".w.w........",
-		"..w.........",
-		".w.w........",
-		"............",
-	}),
-	"rogue": doubleSocialGlyph([]string{ // a dagger
-		"............",
-		".....ww.....",
-		"....wwww....",
-		"....wwww....",
-		"....wwww....",
-		"....wwww....",
-		"..wwwwwwww..",
-		".....ww.....",
-		".....ww.....",
-		"....wwww....",
-		"............",
-		"............",
-	}),
-	"priest": doubleSocialGlyph([]string{ // a cross
 		"............",
 		".....ww.....",
 		".....ww.....",
-		"..wwwwwwww..",
-		"..wwwwwwww..",
-		".....ww.....",
-		".....ww.....",
-		".....ww.....",
-		".....ww.....",
-		".....ww.....",
-		"............",
-		"............",
-	}),
-	"shaman": doubleSocialGlyph([]string{ // a bolt
-		"............",
-		"......www...",
-		".....www....",
-		"....www.....",
-		"...wwwwww...",
-		".....www....",
-		"....www.....",
-		"...ww.......",
-		"..w.........",
-		"............",
-		"............",
-		"............",
-	}),
-	"mage": doubleSocialGlyph([]string{ // a star
-		"............",
-		".....ww.....",
-		".....ww.....",
-		"....wwww....",
-		".wwwwwwwwww.",
-		"...wwwwww...",
-		"....wwww....",
-		"...ww..ww...",
-		"..w......w..",
-		"............",
-		"............",
-		"............",
-	}),
-	"warlock": doubleSocialGlyph([]string{ // a skull
-		"............",
-		"...wwwwww...",
-		"..wwwwwwww..",
-		"..w..ww..w..",
-		"..w..ww..w..",
-		"..wwwwwwww..",
-		"...wwwwww...",
-		"...w.ww.w...",
-		"...wwwwww...",
-		"............",
-		"............",
-		"............",
-	}),
-	"druid": doubleSocialGlyph([]string{ // a paw
-		"............",
-		"..w..ww..w..",
-		"..w..ww..w..",
-		".ww......ww.",
-		"............",
-		"...wwwwww...",
-		"..wwwwwwww..",
-		"..wwwwwwww..",
-		"...wwwwww...",
-		"............",
+		".ww..ww.....",
+		".ww..ww.....",
+		".ww..ww..ww.",
+		".ww..ww..ww.",
+		".ww..ww..ww.",
+		".ww..ww..ww.",
 		"............",
 		"............",
 	}),
@@ -153,37 +39,89 @@ var classGlyphs = map[string][]string{
 		"..w......w..",
 		"..w..ww..w..",
 		"..w.wwww.w..",
-		"..ww....ww..",
+		"..www..www..",
+		"..w......w..",
 		"..w......w..",
 		"...w....w...",
 		"....w..w....",
 		".....ww.....",
 		"............",
+	}),
+	"next": doubleSocialGlyph([]string{
+		"............",
+		"............",
+		"....w.......",
+		"....ww......",
+		"....www.....",
+		"....wwww....",
+		"....wwww....",
+		"....www.....",
+		"....ww......",
+		"....w.......",
+		"............",
+		"............",
+	}),
+	"prev": doubleSocialGlyph([]string{
+		"............",
+		"............",
+		".......w....",
+		"......ww....",
+		".....www....",
+		"....wwww....",
+		"....wwww....",
+		".....www....",
+		"......ww....",
+		".......w....",
+		"............",
 		"............",
 	}),
 }
 
-// ladderGlyph is the ladder button's podium.
-var ladderGlyph = doubleSocialGlyph([]string{
-	"............",
-	".....ww.....",
-	".....ww.....",
-	".....ww.....",
-	".ww..ww.....",
-	".ww..ww..ww.",
-	".ww..ww..ww.",
-	".ww..ww..ww.",
-	".ww..ww..ww.",
-	"wwwwwwwwwwww",
-	"............",
-	"............",
-})
-
-// foreverIcons writes forever's emoji: a tile per class in its colour,
-// the role's crest in gold and the hub's buttons.
+// foreverIcons writes forever's emoji: each class's own icon, rebuilt from
+// Blizzard's (forever_icons.go), the role's crest in foreverGold, the module's
+// buttons, and the add and who buttons borrowed from remind's set.
 func foreverIcons(out string) {
-	tiles(out, "fv_", classGlyphs, classInk)
-	bare(out, "fv_add", moduleGlyphs["new"])
-	bare(out, "fv_who", moduleGlyphs["team"])
-	bare(out, "fv_ladder", ladderGlyph)
+	for name, ig := range foreverClassIcons {
+		img := image.NewNRGBA(image.Rect(0, 0, emojiSize, emojiSize))
+		off := (emojiSize - glyphCells*emojiCell) / 2
+		inks := map[byte]color.NRGBA{}
+		for i, c := range ig.ink {
+			inks[byte('0'+i)] = c
+		}
+		drawScaled(img, ig.grid, off, off, inks, emojiCell)
+		mustWrite(filepath.Join(out, "fv_"+name+".png"), img)
+	}
+	for name, g := range foreverGlyphs {
+		glyphCentred("fv_"+name, g)
+	}
+	tiles(out, "fv_", map[string][]string{"role": foreverGlyphs["role"]}, map[string]color.NRGBA{"role": foreverGold})
+	for _, name := range []string{"ladder", "next", "prev"} {
+		bare(out, "fv_"+name, foreverGlyphs[name])
+	}
+	for name, from := range map[string]string{"add": "new", "who": "team"} {
+		glyphCentred("fv_"+name, buttonGlyphs[from])
+		bare(out, "fv_"+name, buttonGlyphs[from])
+	}
+}
+
+// glyphCentred refuses a glyph whose marks sit more than one cell of its 12 off
+// the middle, either way: a button reads as broken when its icon leans.
+func glyphCentred(name string, g []string) {
+	top, bottom, left, right := len(g), -1, len(g[0]), -1
+	for y, row := range g {
+		for x := range row {
+			if row[x] != '.' {
+				top, bottom = min(top, y), max(bottom, y)
+				left, right = min(left, x), max(right, x)
+			}
+		}
+	}
+	if bottom < 0 {
+		log.Fatalf("glyph %s is empty", name)
+	}
+	dx := left - (len(g[0]) - 1 - right)
+	dy := top - (len(g) - 1 - bottom)
+	if dx < -2 || dx > 2 || dy < -2 || dy > 2 {
+		log.Fatalf("glyph %s is off centre by %d across and %d down (24 cell grid); move it", name, dx, dy)
+	}
 }

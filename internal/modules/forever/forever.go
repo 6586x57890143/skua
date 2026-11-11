@@ -84,9 +84,13 @@ type Module struct {
 	claims []claim
 	guilds map[snowflake.ID]setup
 	health map[string]health
-	round  time.Time // the last round's end
-	rest   Poster
-	self   snowflake.ID
+	// days is each server's ladder as its day began, the chart a place's
+	// move is read against, and dayOf which day that was.
+	days  map[snowflake.ID]map[key]int
+	dayOf map[snowflake.ID]string
+	round time.Time // the last round's end
+	rest  Poster
+	self  snowflake.ID
 }
 
 // New is forever on db (nil keeps it in memory), with what it holds read
@@ -103,6 +107,7 @@ func New(ctx context.Context, log *slog.Logger, g *guard.Guard, db DB, cfg Confi
 		on:    func(snowflake.ID) bool { return true },
 		api:   newBnet(&http.Client{Timeout: 15 * time.Second}, cfg.ID, cfg.Secret),
 		chars: st.chars, claims: st.claims, guilds: st.guilds, health: map[string]health{},
+		days: st.days, dayOf: st.dayOf,
 	}, nil
 }
 
@@ -124,7 +129,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorNotice,
 		Line:  "this server's wow forever ladder, every region on one board",
-		About: "run /forever and add the characters you play with their name and surname and region. blizzard's armory only shows a character from level 10, once it has logged out, so she finds yours after your first logout past 10. /forever ladder is who in the server is highest right now, a tie going to whoever got there first, and a 60 shows how long it took from launch. us, eu, kr and tw all climb the same board, so you can race friends you'll never share a realm with. she checks every character every five minutes and says so in the server's forever channel when someone hits a tens level or one of forever's legacy checkpoints at 25, 45 and 60, with a ✦ when it earns them a legacy point and a note when they're the first here to get there. the first character to add makes the server's forever role, and everyone who lists a character gets it. /forever who shows who plays where, to find people on your side. the role button gives it to you or takes it back",
+		About: "run /forever me and add the characters you play with their name, surname and region. blizzard's armory only shows a character from level 10, once it has logged out, so she finds yours after your first logout past 10. your card shows each one's level, place here and legacy track: forever's account checkpoints she can read, a class at 25, 45 and 60 and a crafting profession at 150, 225 and 300. /forever ladder is who in the server is highest right now, every region on one board, a tie going to whoever got there first, with each place's move since the day began. she checks every character every five minutes and tells the server's forever channel about tens levels and legacy checkpoints, a ✦ when it earns someone a legacy point. a 60 or a first in the server gets a card of its own. /forever who shows who plays where, to find people on your side. the first character added makes the server's forever role, and everyone who lists a character gets it",
 	}
 }
 

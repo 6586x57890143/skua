@@ -1,10 +1,8 @@
 package forever
 
 import (
-	"cmp"
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -22,48 +20,6 @@ import (
 	"github.com/6586x57890143/skua/internal/roles"
 )
 
-func itoa(n int) string { return strconv.Itoa(n) }
-
-// classMark is a class's emoji and a space, or nothing before the sync.
-func classMark(class string) string {
-	if e := brand.Mention("fv_" + strings.ReplaceAll(class, " ", "")); e != "" {
-		return e + " "
-	}
-	return ""
-}
-
-// where is a character's region and ruleset: "eu hardcore".
-func where(c char) string {
-	if c.ruleset == "" {
-		return c.region
-	}
-	return c.region + " " + c.ruleset
-}
-
-// bar is a level as ten cells to the cap.
-func bar(level int) string {
-	n := min(max(level*10/Cap, 0), 10)
-	return strings.Repeat("▰", n) + strings.Repeat("▱", 10-n)
-}
-
-func v2(c discord.ContainerComponent, ephemeral bool) discord.MessageCreate {
-	flags := discord.MessageFlagIsComponentsV2
-	if ephemeral {
-		flags |= discord.MessageFlagEphemeral
-	}
-	return discord.MessageCreate{Components: []discord.LayoutComponent{c}, Flags: flags, AllowedMentions: core.NoPings()}
-}
-
-func update(c discord.ContainerComponent) discord.MessageUpdate {
-	return discord.MessageUpdate{Components: &[]discord.LayoutComponent{c}, Flags: new(discord.MessageFlagIsComponentsV2), AllowedMentions: core.NoPings()}
-}
-
-func button(style discord.ButtonStyle, label, customID, icon string) discord.ButtonComponent {
-	b := discord.ButtonComponent{Style: style, Label: label, CustomID: customID}
-	b.Emoji = brand.ComponentEmoji(icon)
-	return b
-}
-
 func (m *Module) command(_ context.Context, e *events.ApplicationCommandInteractionCreate) error {
 	guild := e.GuildID()
 	if guild == nil {
@@ -75,7 +31,7 @@ func (m *Module) command(_ context.Context, e *events.ApplicationCommandInteract
 	}
 	switch sub {
 	case "ladder":
-		return e.CreateMessage(v2(m.ladder(*guild, view{region: "all", ruleset: "all", sort: "level"}), false))
+		return e.CreateMessage(v2(m.ladder(*guild, 0), false))
 	case "who":
 		return e.CreateMessage(v2(m.who(*guild), true))
 	}
@@ -96,287 +52,6 @@ func (m *Module) mine(guild, user snowflake.ID) []*char {
 	return out
 }
 
-// byLevel is the ladder's order: higher first, then further into the
-// level, and a tie to whoever got there first.
-func byLevel(a, b *char) int {
-	// A reach time skua didn't see sorts after every one she did.
-	return cmp.Or(cmp.Compare(b.level, a.level), cmp.Compare(b.xp, a.xp), boolCmp(a.reached.IsZero(), b.reached.IsZero()), a.reached.Compare(b.reached), cmp.Compare(a.name, b.name))
-}
-
-func boolCmp(a, b bool) int {
-	switch {
-	case a == b:
-		return 0
-	case a:
-		return 1
-	}
-	return -1
-}
-
-// hub is a member's own card: their characters, and what they can do.
-func (m *Module) hub(guild, user snowflake.ID, note string) discord.ContainerComponent {
-	m.mu.Lock()
-	chars := m.mine(guild, user)
-	board := m.board(guild, view{region: "all", ruleset: "all", sort: "level"})
-	role := m.guilds[guild].role
-	var lines []string
-	for _, c := range chars {
-		place := slices.IndexFunc(board, func(b *char) bool { return b.key == c.key }) + 1
-		line := classMark(c.class) + "**" + c.name + " " + c.surname + "** · lv " + itoa(c.level) + " " + bar(c.level) + " · " + where(*c) + " · #" + itoa(place) + " here"
-		if c.missing > 0 {
-			line += "\n-# ! blizzard hasn't answered for it lately; it shows again after its next logout"
-		}
-		lines = append(lines, line)
-	}
-	var portrait string
-	if len(chars) > 0 {
-		portrait = chars[0].avatar
-	}
-	m.mu.Unlock()
-
-	body := strings.Join(lines, "\n")
-	if body == "" {
-		body = "you haven't added a character yet\n-# blizzard shows one from level 10, once it has logged out"
-	}
-	if note != "" {
-		body = note + "\n" + body
-	}
-	head := discord.NewTextDisplay(headLine("you") + "\n-# " + itoa(len(chars)) + " of " + itoa(perMember) + " characters")
-	parts := []discord.ContainerSubComponent{section(head, portrait), discord.NewTextDisplay(body)}
-	row := []discord.InteractiveComponent{
-		button(discord.ButtonStylePrimary, "add", id+":add", "fv_add"),
-		button(discord.ButtonStyleSecondary, "ladder", id+":ladder", "fv_ladder"),
-		button(discord.ButtonStyleSecondary, "who", id+":who", "fv_who"),
-	}
-	if role != 0 {
-		row = append(row, button(discord.ButtonStyleSecondary, "role", id+":role", "fv_role"))
-	}
-	parts = append(parts, discord.NewActionRow(row...))
-	if len(chars) > 0 {
-		var opts []discord.StringSelectMenuOption
-		for _, c := range chars {
-			opts = append(opts, discord.StringSelectMenuOption{Label: c.name + " " + c.surname, Value: c.region + "." + strconv.FormatInt(c.id, 10), Description: "lv " + itoa(c.level) + " · " + where(*c), Emoji: brand.ComponentEmoji("fv_" + c.class)})
-		}
-		parts = append(parts, discord.NewActionRow(discord.NewStringSelectMenu(id+":drop", "take a character off...", opts...)))
-	}
-	return discord.NewContainer(parts...).WithAccentColor(brand.ColorNotice)
-}
-
-// headLine is the card's first line, UX.md's: the emoji, forever and what
-// the card is.
-func headLine(what string) string {
-	head := "**" + Name + "** · " + what
-	if e := brand.Mention("mod_" + Name); e != "" {
-		head = e + " " + head
-	}
-	return head
-}
-
-// section puts text beside a Blizzard render when there is one.
-func section(t discord.TextDisplayComponent, img string) discord.ContainerSubComponent {
-	if img == "" {
-		return t
-	}
-	return discord.NewSection(t).WithAccessory(discord.NewThumbnail(img))
-}
-
-// view is a ladder's page and filters, kept in its buttons' custom IDs.
-type view struct {
-	page            int
-	region, ruleset string
-	sort            string // level or ilvl
-}
-
-func (v view) id(verb string) string {
-	return fmt.Sprintf("%s:%s:%d:%s:%s:%s", id, verb, v.page, v.region, v.ruleset, v.sort)
-}
-
-// parseView reads a view back from a custom ID's fields. They come from
-// the member's client, so anything off is the first page of everything.
-func parseView(f []string) view {
-	v := view{region: "all", ruleset: "all", sort: "level"}
-	if len(f) != 4 {
-		return v
-	}
-	if p, err := strconv.Atoi(f[0]); err == nil && p >= 0 && p < perGuild {
-		v.page = p
-	}
-	if f[1] == "all" || validRegion(f[1]) {
-		v.region = f[1]
-	}
-	if len(f[2]) <= 20 && f[2] != "" {
-		v.ruleset = f[2]
-	}
-	if f[3] == "ilvl" {
-		v.sort = f[3]
-	}
-	return v
-}
-
-// board is a server's characters in the view's order. m.mu held.
-func (m *Module) board(guild snowflake.ID, v view) []*char {
-	var out []*char
-	seen := map[key]bool{}
-	for _, c := range m.claims {
-		ch := m.chars[c.k]
-		if c.guild != guild || ch == nil || seen[c.k] {
-			continue
-		}
-		if (v.region != "all" && ch.region != v.region) || (v.ruleset != "all" && rulesetKey(ch.ruleset) != v.ruleset) {
-			continue
-		}
-		seen[c.k] = true
-		out = append(out, ch)
-	}
-	switch v.sort {
-	case "ilvl":
-		slices.SortFunc(out, func(a, b *char) int { return cmp.Or(cmp.Compare(b.ilvl, a.ilvl), byLevel(a, b)) })
-	default:
-		slices.SortFunc(out, byLevel)
-	}
-	return out
-}
-
-func rulesetKey(r string) string {
-	if r == "" {
-		return "unknown"
-	}
-	return strings.ReplaceAll(r, " ", "-")
-}
-
-const pageRows = 10
-
-// ladder is the server's board, a page of it in view.
-func (m *Module) ladder(guild snowflake.ID, v view) discord.ContainerComponent {
-	m.mu.Lock()
-	board := m.board(guild, v)
-	owner := map[key]snowflake.ID{}
-	rulesets := map[string]bool{}
-	for _, c := range m.claims {
-		if c.guild == guild {
-			owner[c.k] = c.user
-			if ch := m.chars[c.k]; ch != nil {
-				rulesets[rulesetKey(ch.ruleset)] = true
-			}
-		}
-	}
-	pages := max((len(board)+pageRows-1)/pageRows, 1)
-	v.page = min(v.page, pages-1)
-	var lines []string
-	for i, c := range board[v.page*pageRows : min(len(board), (v.page+1)*pageRows)] {
-		n := v.page*pageRows + i + 1
-		line := "**" + itoa(n) + "** " + classMark(c.class) + "**" + c.name + " " + c.surname + "** · "
-		switch v.sort {
-		case "ilvl":
-			line += "ilvl " + itoa(c.ilvl)
-		default:
-			line += "lv " + itoa(c.level)
-		}
-		line += " · " + where(*c)
-		if c.level >= Cap && v.sort == "level" && !c.reached.IsZero() {
-			line += " · " + core.Duration(c.reached.Sub(Launch))
-		}
-		lines = append(lines, line+" · <@"+owner[c.key].String()+">")
-	}
-	var top string
-	if len(board) > 0 {
-		top = board[0].avatar
-	}
-	m.mu.Unlock()
-
-	body := strings.Join(lines, "\n")
-	if body == "" {
-		body = "nobody here yet\n-# /forever me adds your characters"
-	}
-	sub := "-# " + pick(v.region, "every region") + " · " + pick(v.ruleset, "every ruleset") + " · by " + map[string]string{"level": "level", "ilvl": "item level"}[v.sort]
-	parts := []discord.ContainerSubComponent{section(discord.NewTextDisplay(headLine("ladder")+"\n"+sub), top), discord.NewTextDisplay(body)}
-
-	prev, next := v, v
-	prev.page, next.page = v.page-1, v.page+1
-	pb := button(discord.ButtonStyleSecondary, "◂", prev.id("page"), "")
-	pb.Disabled = v.page == 0
-	nb := button(discord.ButtonStyleSecondary, "▸", next.id("page"), "")
-	nb.Disabled = v.page >= pages-1
-	parts = append(parts, discord.NewTextDisplay("-# page "+itoa(v.page+1)+" of "+itoa(pages)), discord.NewActionRow(pb, nb))
-
-	regions := []discord.StringSelectMenuOption{{Label: "every region", Value: "all", Default: v.region == "all"}}
-	for _, r := range Regions {
-		regions = append(regions, discord.StringSelectMenuOption{Label: r, Value: r, Default: v.region == r})
-	}
-	sets := []discord.StringSelectMenuOption{{Label: "every ruleset", Value: "all", Default: v.ruleset == "all"}}
-	for _, r := range sortedKeys(rulesets) {
-		sets = append(sets, discord.StringSelectMenuOption{Label: r, Value: r, Default: v.ruleset == r, Emoji: brand.ComponentEmoji("fv_rs_" + r)})
-	}
-	sorts := []discord.StringSelectMenuOption{
-		{Label: "by level", Value: "level", Default: v.sort == "level"},
-		{Label: "by item level", Value: "ilvl", Default: v.sort == "ilvl"},
-	}
-	parts = append(parts,
-		discord.NewActionRow(discord.NewStringSelectMenu(v.id("region"), "region", regions...)),
-		discord.NewActionRow(discord.NewStringSelectMenu(v.id("ruleset"), "ruleset", sets...)),
-		discord.NewActionRow(discord.NewStringSelectMenu(v.id("sort"), "sort", sorts...)),
-	)
-	return discord.NewContainer(parts...).WithAccentColor(brand.ColorNotice)
-}
-
-func pick(v, all string) string {
-	if v == "all" {
-		return all
-	}
-	return v
-}
-
-func sortedKeys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	slices.Sort(out)
-	if len(out) > 20 {
-		out = out[:20]
-	}
-	return out
-}
-
-// who is the server's characters by region and ruleset, so members find
-// someone on their side.
-func (m *Module) who(guild snowflake.ID) discord.ContainerComponent {
-	m.mu.Lock()
-	groups := map[string][]string{}
-	for _, c := range m.claims {
-		ch := m.chars[c.k]
-		if c.guild != guild || ch == nil {
-			continue
-		}
-		g := where(*ch)
-		groups[g] = append(groups[g], classMark(ch.class)+ch.name+" "+ch.surname+" · "+itoa(ch.level)+" · <@"+c.user.String()+">")
-	}
-	m.mu.Unlock()
-	var parts []string
-	names := make([]string, 0, len(groups))
-	for g := range groups {
-		names = append(names, g)
-	}
-	slices.Sort(names)
-	for _, g := range names {
-		rows := groups[g]
-		more := ""
-		if len(rows) > 12 {
-			more = fmt.Sprintf("\n-# and %d more", len(rows)-12)
-			rows = rows[:12]
-		}
-		parts = append(parts, "**"+g+"** · "+itoa(len(groups[g]))+"\n"+strings.Join(rows, "\n")+more)
-	}
-	body := strings.Join(parts, "\n\n")
-	if body == "" {
-		body = "nobody here yet\n-# /forever me adds your characters"
-	}
-	if len(body) > 3800 {
-		body = body[:strings.LastIndex(body[:3800], "\n")] + "\n-# and more"
-	}
-	return brand.Card(brand.ColorInfo, Name, "who plays where", body)
-}
-
 // click is every forever button and select. Custom IDs and values come
 // from the member's client, so all of it is checked again.
 func (m *Module) click(ctx context.Context, e *events.ComponentInteractionCreate) error {
@@ -392,7 +67,7 @@ func (m *Module) click(ctx context.Context, e *events.ComponentInteractionCreate
 	case "add":
 		return e.Modal(addForm())
 	case "ladder":
-		return e.CreateMessage(v2(m.ladder(*guild, view{region: "all", ruleset: "all", sort: "level"}), false))
+		return e.CreateMessage(v2(m.ladder(*guild, 0), false))
 	case "who":
 		return e.CreateMessage(v2(m.who(*guild), true))
 	case "role":
@@ -400,16 +75,11 @@ func (m *Module) click(ctx context.Context, e *events.ComponentInteractionCreate
 	case "drop":
 		return m.drop(ctx, e, *guild)
 	case "page":
-		return e.UpdateMessage(update(m.ladder(*guild, parseView(f[2:]))))
-	case "region", "ruleset", "sort":
-		v := parseView(f[2:])
-		vals := e.StringSelectMenuInteractionData().Values
-		if len(vals) != 1 {
-			return core.Tell("pick one")
+		page := 0
+		if len(f) == 3 {
+			page, _ = strconv.Atoi(f[2])
 		}
-		fs := []string{"0", v.region, v.ruleset, v.sort}
-		fs[map[string]int{"region": 1, "ruleset": 2, "sort": 3}[f[1]]] = vals[0]
-		return e.UpdateMessage(update(m.ladder(*guild, parseView(fs))))
+		return e.UpdateMessage(update(m.ladder(*guild, page)))
 	case "feed", "setrole":
 		return m.configure(ctx, e, *guild, f[1])
 	}

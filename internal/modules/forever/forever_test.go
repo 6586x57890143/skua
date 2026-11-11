@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
@@ -25,6 +26,7 @@ type armory struct {
 	mu      sync.Mutex
 	chars   map[string]map[string]any
 	stamp   map[string]string
+	skill   map[string]int // each character's enchanting
 	tokens  int
 	denied  bool // every call 401s
 	failing bool // every call 503s
@@ -60,6 +62,13 @@ func (a *armory) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p, ok := a.chars[s]
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if sub == "professions" {
+		_ = json.NewEncoder(w).Encode(map[string]any{"primaries": []any{
+			map[string]any{"profession": map[string]any{"name": "Enchanting"}, "tiers": []any{map[string]any{"skill_points": a.skill[s]}}},
+			map[string]any{"profession": map[string]any{"name": "Herbalism"}, "tiers": []any{map[string]any{"skill_points": 300}}},
+		}})
 		return
 	}
 	if sub == "character-media" {
@@ -142,7 +151,7 @@ func (f *fake) RemoveMemberRole(_, _, role snowflake.ID, _ ...rest.RequestOpt) e
 
 func newTest(t *testing.T) (*Module, *armory, *fake) {
 	t.Helper()
-	a := &armory{chars: map[string]map[string]any{}, stamp: map[string]string{}}
+	a := &armory{chars: map[string]map[string]any{}, stamp: map[string]string{}, skill: map[string]int{}}
 	srv := httptest.NewServer(a)
 	t.Cleanup(srv.Close)
 	m, err := New(context.Background(), slog.New(slog.DiscardHandler), guard.New(), nil, Config{ID: "id", Secret: "s"}, func(i discord.Interaction) bool {
@@ -172,19 +181,25 @@ func TestParseName(t *testing.T) {
 	}
 }
 
-func TestBarAndView(t *testing.T) {
-	if bar(0) != "▱▱▱▱▱▱▱▱▱▱" || bar(60) != "▰▰▰▰▰▰▰▰▰▰" || bar(33) != "▰▰▰▰▰▱▱▱▱▱" || bar(99) != bar(60) {
+func TestBarMovesNumbers(t *testing.T) {
+	if bar(0) != "▱▱▱▱▱▱▱▱▱▱ 0%" || bar(60) != "▰▰▰▰▰▰▰▰▰▰ 100%" || bar(33) != "▰▰▰▰▰▱▱▱▱▱ 55%" || bar(99) != bar(60) {
 		t.Fatal(bar(33))
 	}
-	v := view{page: 2, region: "eu", ruleset: "hardcore", sort: "ilvl"}
-	if got := parseView(strings.Split(v.id("page"), ":")[2:]); got != v {
-		t.Fatalf("round trip: %+v", got)
+	for _, c := range []struct {
+		was, now int
+		want     string
+	}{{0, 3, "new"}, {5, 2, "▲3"}, {2, 4, "▼2"}, {3, 3, "="}} {
+		if got := move(c.was, c.now); got != c.want {
+			t.Errorf("move(%d, %d) = %q, want %q", c.was, c.now, got, c.want)
+		}
 	}
-	if got := parseView([]string{"-1", "mars", "", "nope"}); got != (view{region: "all", ruleset: "all", sort: "level"}) {
-		t.Fatalf("bad input: %+v", got)
+	for n, want := range map[int]string{0: "0", 999: "999", 20590: "20,590", 1234567: "1,234,567", -4200: "-4,200"} {
+		if got := num(n); got != want {
+			t.Errorf("num(%d) = %q", n, got)
+		}
 	}
-	if got := parseView(nil); got.region != "all" {
-		t.Fatal(got)
+	if where(char{key: key{region: "eu"}, ruleset: "hardcore"}) != "🇪🇺 hardcore" || accent("nope") != accent("") || accent("mage") != 0x3FC7EB {
+		t.Fatal("where or accent")
 	}
 }
 
@@ -208,33 +223,33 @@ func TestListLadderAndDrop(t *testing.T) {
 	if _, err := m.list(ctx, 3, 5, "eu", "nobody", "here"); err == nil || !strings.Contains(err.Error(), "level 10") {
 		t.Fatalf("unknown: %v", err)
 	}
-	board := coretest.Text("", []discord.LayoutComponent{m.ladder(3, view{region: "all", ruleset: "all", sort: "level"})})
-	if !strings.Contains(board, "**1** **Jaina Proud** · lv 44") || !strings.Contains(board, "**2** **Thrall Earthcaller** · lv 30 · eu normal") {
+	board := text(m.ladder(3, 0))
+	if !strings.Contains(board, "**1** `new` **Jaina Proud** · lv 44 · 🇺🇸 normal") || !strings.Contains(board, "**2** `new` **Thrall Earthcaller** · lv 30 · 🇪🇺 normal") {
 		t.Fatalf("ladder:\n%s", board)
 	}
-	eu := coretest.Text("", []discord.LayoutComponent{m.ladder(3, view{region: "eu", ruleset: "normal", sort: "level"})})
-	if strings.Contains(eu, "Jaina") || !strings.Contains(eu, "Thrall") {
-		t.Fatalf("eu ladder:\n%s", eu)
+	m.turnDay(time.Date(2026, 11, 12, 0, 1, 0, 0, time.UTC))
+	m.chars[key{"eu", 1}].level = 50
+	if moved := text(m.ladder(3, 0)); !strings.Contains(moved, "**1** `▲1` **Thrall") || !strings.Contains(moved, "**2** `▼1` **Jaina") {
+		t.Fatalf("moves:\n%s", moved)
 	}
-	ilvl := coretest.Text("", []discord.LayoutComponent{m.ladder(3, view{region: "all", ruleset: "all", sort: "ilvl", page: 9})})
-	if !strings.Contains(ilvl, "ilvl 22") || !strings.Contains(ilvl, "page 1 of 1") {
-		t.Fatalf("ilvl ladder:\n%s", ilvl)
+	if paged := text(m.ladder(3, 9)); !strings.Contains(paged, "page 1 of 1") {
+		t.Fatalf("a page past the end:\n%s", paged)
 	}
-	if empty := coretest.Text("", []discord.LayoutComponent{m.ladder(9, view{region: "all", ruleset: "all", sort: "level"})}); !strings.Contains(empty, "nobody here yet") {
+	if empty := text(m.ladder(9, 0)); !strings.Contains(empty, "nobody here yet") {
 		t.Fatal(empty)
 	}
 	who := coretest.Text("", []discord.LayoutComponent{m.who(3)})
-	if !strings.Contains(who, "**eu normal** · 1") || !strings.Contains(who, "**us normal** · 1") {
+	if !strings.Contains(who, "**🇪🇺 normal** · 1") || !strings.Contains(who, "**🇺🇸 normal** · 1") {
 		t.Fatalf("who:\n%s", who)
 	}
 	if !strings.Contains(coretest.Text("", []discord.LayoutComponent{m.who(9)}), "nobody here yet") {
 		t.Fatal("empty who")
 	}
-	hub := coretest.Text("", []discord.LayoutComponent{m.hub(3, 5, "note")})
-	if !strings.Contains(hub, "note") || !strings.Contains(hub, "#2 here") {
+	hub := text(m.hub(3, 5, "note"))
+	if !strings.Contains(hub, "note") || !strings.Contains(hub, "#1 here") || !strings.Contains(hub, "-# legacy · 25 ✦ · 45 ✦ · 60") {
 		t.Fatalf("hub:\n%s", hub)
 	}
-	if !strings.Contains(coretest.Text("", []discord.LayoutComponent{m.hub(3, 99, "")}), "haven't added") {
+	if !strings.Contains(text(m.hub(3, 99, "")), "haven't added") {
 		t.Fatal("empty hub")
 	}
 	if r := m.Report(3); len(r.Rows) == 0 || len(r.Notes) == 0 || len(r.Controls) != 2 {
@@ -268,18 +283,19 @@ func TestPollDingsLegacyAndFeed(t *testing.T) {
 	a.set("thrall-earthcaller", prof(1, "Thrall", "Earthcaller", "Shaman", 25), "b")
 	a.set("rexxar-beast", prof(3, "Rexxar", "Beast", "Shaman", 60), "b")
 	m.poll(ctx)
-	if len(f.posts) != 1 {
-		t.Fatalf("want one feed card, got %d", len(f.posts))
+	if len(f.posts) != 2 {
+		t.Fatalf("want rexxar's 60 alone and a card for the rest, got %d", len(f.posts))
 	}
-	text := coretest.Text("", f.posts[0].Components)
+	rexCard, rest := text(f.posts[0].Components[0].(discord.ContainerComponent)), text(f.posts[1].Components[0].(discord.ContainerComponent))
+	all := rest + "\n" + rexCard
 	// Thrall's 25 isn't his player's first shaman at 25 (rexxar was past
 	// it), and garrosh got there first; rexxar's 60 is a first on both.
-	if !strings.Contains(text, "**Thrall Earthcaller** reached 25") || strings.Contains(strings.Split(text, "\n")[1], "✦") {
-		t.Fatalf("thrall's line:\n%s", text)
+	if !strings.Contains(all, "**Thrall Earthcaller** reached 25") || strings.Contains(strings.Split(all, "\n")[1], "✦") {
+		t.Fatalf("thrall's line:\n%s", all)
 	}
-	rex := text[strings.Index(text, "**Rexxar"):]
+	rex := all[strings.Index(all, "**Rexxar"):]
 	if !strings.Contains(rex, "reached 60") || !strings.Contains(rex, "✦ legacy point") || !strings.Contains(rex, "first in the server") || !strings.Contains(rex, "after launch") {
-		t.Fatalf("rexxar's line:\n%s", text)
+		t.Fatalf("rexxar's line:\n%s", all)
 	}
 	// Renamed away: the name answers with another character's id.
 	a.set("garrosh-hellscream", prof(99, "Garrosh", "Hellscream", "Warrior", 40), "c")
@@ -288,7 +304,7 @@ func TestPollDingsLegacyAndFeed(t *testing.T) {
 	if m.chars[key{"eu", 2}].level != 27 || m.chars[key{"eu", 1}].missing != 1 || m.health["eu"].gone != 2 {
 		t.Fatalf("gone: %+v %+v %+v", m.chars[key{"eu", 2}], m.chars[key{"eu", 1}], m.health["eu"])
 	}
-	if !strings.Contains(coretest.Text("", []discord.LayoutComponent{m.hub(3, 5, "")}), "hasn't answered") {
+	if !strings.Contains(text(m.hub(3, 5, "")), "hasn't answered") {
 		t.Fatal("hub doesn't say it's missing")
 	}
 	a.failing = true
@@ -307,8 +323,13 @@ func TestFeedCaps(t *testing.T) {
 	for i := range lines {
 		lines[i] = "x"
 	}
-	m.post(context.Background(), f, map[snowflake.ID]setup{3: {feed: 40}, 4: {}}, map[snowflake.ID][]string{3: lines, 4: {"y"}})
-	if len(f.posts) != 1 || !strings.Contains(coretest.Text("", f.posts[0].Components), "and 5 more") {
+	ms := make([]moment, len(lines))
+	for i, l := range lines {
+		ms[i] = moment{line: l}
+	}
+	ms = append(ms, moment{line: "big", big: true, c: char{class: "mage", avatar: "https://a"}}, moment{line: "big", big: true}, moment{line: "big", big: true}, moment{line: "big", big: true})
+	m.post(context.Background(), f, map[snowflake.ID]setup{3: {feed: 40}, 4: {}}, map[snowflake.ID][]moment{3: ms, 4: {{line: "y"}}})
+	if len(f.posts) != bigCards+1 || !strings.Contains(text(f.posts[bigCards].Components[0].(discord.ContainerComponent)), "and 6 more") {
 		t.Fatalf("posts: %d", len(f.posts))
 	}
 }
@@ -469,14 +490,26 @@ func TestSettings(t *testing.T) {
 	if err := m.click(context.Background(), b); err == nil {
 		t.Fatal("handed out a role above skua's")
 	}
-	b, _ = coretest.Button(t, "forever:page:1:eu:all:level", nil)
+	b, _ = coretest.Button(t, "forever:page:1", nil)
 	if err := m.click(context.Background(), b); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = coretest.Button(t, "forever:region:0:all:all:level", func(p map[string]any) {
-		p["data"] = map[string]any{"custom_id": "forever:region:0:all:all:level", "component_type": 3, "values": []any{"kr"}}
-	})
-	if err := m.click(context.Background(), b); err != nil {
-		t.Fatal(err)
+}
+
+// text is everything a card says, its sections' text included.
+func text(c discord.ContainerComponent) string {
+	var out []string
+	for _, s := range c.Components {
+		switch x := s.(type) {
+		case discord.TextDisplayComponent:
+			out = append(out, x.Content)
+		case discord.SectionComponent:
+			for _, t := range x.Components {
+				if td, ok := t.(discord.TextDisplayComponent); ok {
+					out = append(out, td.Content)
+				}
+			}
+		}
 	}
+	return strings.Join(out, "\n")
 }

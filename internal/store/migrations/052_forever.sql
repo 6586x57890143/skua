@@ -19,6 +19,7 @@ create table if not exists forever_char (
 	render   text not null default '',
 	modified text not null default '',
 	reached  timestamptz not null default now(),
+	crafts   text not null default '',
 	primary key (region, id)
 );
 
@@ -43,6 +44,17 @@ create table if not exists forever_ding (
 	level   int not null,
 	at      timestamptz not null,
 	primary key (region, char_id, level)
+);
+
+-- Each server's ladder as its day began (utc), the chart that the ladder's
+-- moves (up 2, down 1, new) are read against. Replaced once a day.
+create table if not exists forever_place (
+	guild_id bigint not null,
+	region   text not null,
+	char_id  bigint not null,
+	place    int not null,
+	day      date not null,
+	primary key (guild_id, region, char_id)
 );
 
 -- Where a server's feed goes and the role its members pick.
