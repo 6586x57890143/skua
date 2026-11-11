@@ -2,8 +2,10 @@ package forever
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/disgoorg/snowflake/v2"
 
@@ -129,5 +131,35 @@ func TestDeletedRole(t *testing.T) {
 	}
 	if got := m.ensureRole(context.Background(), f, 3); got != 70 || len(f.created) != 1 {
 		t.Fatal("made the role twice")
+	}
+}
+
+// TestLiveShape is what the live probe of 2026-11-11 showed: a ding is
+// dated by the logout that saved it, and two on one level are ordered by
+// how far into it they are.
+func TestLiveShape(t *testing.T) {
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	out := now.Add(-3 * time.Minute)
+	if got := reachedAt(profile{Logout: out.UnixMilli()}, now); !got.Equal(out) {
+		t.Fatalf("dated %v, want the logout %v", got, out)
+	}
+	if got := reachedAt(profile{Logout: now.Add(time.Hour).UnixMilli()}, now); !got.Equal(now) {
+		t.Fatal("a logout ahead of skua's clock was believed")
+	}
+	if got := reachedAt(profile{}, now); !got.Equal(now) {
+		t.Fatal("no logout")
+	}
+	a, b := &char{level: 42, xp: 900}, &char{level: 42, xp: 100, reached: now}
+	if byLevel(a, b) >= 0 {
+		t.Fatal("less of the level ranked first")
+	}
+	var p profile
+	if err := json.Unmarshal([]byte(`{"id":5,"name":"Rok","surname":"Androl","level":25,"experience":5824,"last_login_timestamp":1794351772000,"equipped_item_level":17,"character_class":{"name":"Warrior","id":1},"ruleset":{"name":"Roleplay PvP","id":15},"faction":{"type":"ALLIANCE"}}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	var c char
+	apply(&c, p)
+	if c.xp != 5824 || c.ruleset != "roleplay pvp" || rulesetKey(c.ruleset) != "roleplay-pvp" || c.class != "warrior" || c.faction != "alliance" {
+		t.Fatalf("live profile read as %+v", c)
 	}
 }

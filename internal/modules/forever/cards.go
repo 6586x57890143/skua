@@ -96,11 +96,11 @@ func (m *Module) mine(guild, user snowflake.ID) []*char {
 	return out
 }
 
-// byLevel is the ladder's order: higher first, and a tie to whoever got
-// there first.
+// byLevel is the ladder's order: higher first, then further into the
+// level, and a tie to whoever got there first.
 func byLevel(a, b *char) int {
 	// A reach time skua didn't see sorts after every one she did.
-	return cmp.Or(cmp.Compare(b.level, a.level), boolCmp(a.reached.IsZero(), b.reached.IsZero()), a.reached.Compare(b.reached), cmp.Compare(a.name, b.name))
+	return cmp.Or(cmp.Compare(b.level, a.level), cmp.Compare(b.xp, a.xp), boolCmp(a.reached.IsZero(), b.reached.IsZero()), a.reached.Compare(b.reached), cmp.Compare(a.name, b.name))
 }
 
 func boolCmp(a, b bool) int {
@@ -184,7 +184,7 @@ func section(t discord.TextDisplayComponent, img string) discord.ContainerSubCom
 type view struct {
 	page            int
 	region, ruleset string
-	sort            string // level, points or ilvl
+	sort            string // level or ilvl
 }
 
 func (v view) id(verb string) string {
@@ -207,7 +207,7 @@ func parseView(f []string) view {
 	if len(f[2]) <= 20 && f[2] != "" {
 		v.ruleset = f[2]
 	}
-	if f[3] == "points" || f[3] == "ilvl" {
+	if f[3] == "ilvl" {
 		v.sort = f[3]
 	}
 	return v
@@ -229,8 +229,6 @@ func (m *Module) board(guild snowflake.ID, v view) []*char {
 		out = append(out, ch)
 	}
 	switch v.sort {
-	case "points":
-		slices.SortFunc(out, func(a, b *char) int { return cmp.Or(cmp.Compare(b.points, a.points), byLevel(a, b)) })
 	case "ilvl":
 		slices.SortFunc(out, func(a, b *char) int { return cmp.Or(cmp.Compare(b.ilvl, a.ilvl), byLevel(a, b)) })
 	default:
@@ -269,8 +267,6 @@ func (m *Module) ladder(guild snowflake.ID, v view) discord.ContainerComponent {
 		n := v.page*pageRows + i + 1
 		line := "**" + itoa(n) + "** " + classMark(c.class) + "**" + c.name + " " + c.surname + "** · "
 		switch v.sort {
-		case "points":
-			line += itoa(c.points) + " points"
 		case "ilvl":
 			line += "ilvl " + itoa(c.ilvl)
 		default:
@@ -292,7 +288,7 @@ func (m *Module) ladder(guild snowflake.ID, v view) discord.ContainerComponent {
 	if body == "" {
 		body = "nobody here yet\n-# /forever me adds your characters"
 	}
-	sub := "-# " + pick(v.region, "every region") + " · " + pick(v.ruleset, "every ruleset") + " · by " + map[string]string{"level": "level", "points": "achievement points", "ilvl": "item level"}[v.sort]
+	sub := "-# " + pick(v.region, "every region") + " · " + pick(v.ruleset, "every ruleset") + " · by " + map[string]string{"level": "level", "ilvl": "item level"}[v.sort]
 	parts := []discord.ContainerSubComponent{section(discord.NewTextDisplay(headLine("ladder")+"\n"+sub), top), discord.NewTextDisplay(body)}
 
 	prev, next := v, v
@@ -313,7 +309,6 @@ func (m *Module) ladder(guild snowflake.ID, v view) discord.ContainerComponent {
 	}
 	sorts := []discord.StringSelectMenuOption{
 		{Label: "by level", Value: "level", Default: v.sort == "level"},
-		{Label: "by achievement points", Value: "points", Default: v.sort == "points"},
 		{Label: "by item level", Value: "ilvl", Default: v.sort == "ilvl"},
 	}
 	parts = append(parts,

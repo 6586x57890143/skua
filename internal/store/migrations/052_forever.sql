@@ -12,6 +12,7 @@ create table if not exists forever_char (
 	ruleset  text not null default '',
 	faction  text not null default '',
 	level    int not null default 0,
+	xp       int not null default 0,
 	points   int not null default 0,
 	ilvl     int not null default 0,
 	avatar   text not null default '',

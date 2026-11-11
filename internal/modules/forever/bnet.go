@@ -145,7 +145,9 @@ type profile struct {
 	Name    string `json:"name"`
 	Surname string `json:"surname"`
 	Level   int    `json:"level"`
+	XP      int    `json:"experience"`
 	Points  int    `json:"achievement_points"`
+	Logout  int64  `json:"last_login_timestamp"` // ms; when its profile was last saved
 	ILvl    int    `json:"equipped_item_level"`
 	Class   named  `json:"character_class"`
 	Race    named  `json:"race"`

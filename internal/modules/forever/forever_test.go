@@ -176,7 +176,7 @@ func TestBarAndView(t *testing.T) {
 	if bar(0) != "▱▱▱▱▱▱▱▱▱▱" || bar(60) != "▰▰▰▰▰▰▰▰▰▰" || bar(33) != "▰▰▰▰▰▱▱▱▱▱" || bar(99) != bar(60) {
 		t.Fatal(bar(33))
 	}
-	v := view{page: 2, region: "eu", ruleset: "hardcore", sort: "points"}
+	v := view{page: 2, region: "eu", ruleset: "hardcore", sort: "ilvl"}
 	if got := parseView(strings.Split(v.id("page"), ":")[2:]); got != v {
 		t.Fatalf("round trip: %+v", got)
 	}
@@ -212,8 +212,8 @@ func TestListLadderAndDrop(t *testing.T) {
 	if !strings.Contains(board, "**1** **Jaina Proud** · lv 44") || !strings.Contains(board, "**2** **Thrall Earthcaller** · lv 30 · eu normal") {
 		t.Fatalf("ladder:\n%s", board)
 	}
-	eu := coretest.Text("", []discord.LayoutComponent{m.ladder(3, view{region: "eu", ruleset: "normal", sort: "points"})})
-	if strings.Contains(eu, "Jaina") || !strings.Contains(eu, "300 points") {
+	eu := coretest.Text("", []discord.LayoutComponent{m.ladder(3, view{region: "eu", ruleset: "normal", sort: "level"})})
+	if strings.Contains(eu, "Jaina") || !strings.Contains(eu, "Thrall") {
 		t.Fatalf("eu ladder:\n%s", eu)
 	}
 	ilvl := coretest.Text("", []discord.LayoutComponent{m.ladder(3, view{region: "all", ruleset: "all", sort: "ilvl", page: 9})})

@@ -26,15 +26,15 @@ type key struct {
 // lists it.
 type char struct {
 	key
-	name, surname        string
-	class, race, ruleset string
-	classID              int
-	faction              string
-	level, points, ilvl  int
-	avatar, render       string    // Blizzard's renders, for the cards
-	modified             string    // the profile's Last-Modified
-	missing              int       // polls in a row Blizzard didn't answer
-	reached              time.Time // when it reached its level; zero when skua didn't see it
+	name, surname           string
+	class, race, ruleset    string
+	classID                 int
+	faction                 string
+	level, xp, points, ilvl int
+	avatar, render          string    // Blizzard's renders, for the cards
+	modified                string    // the profile's Last-Modified
+	missing                 int       // polls in a row Blizzard didn't answer
+	reached                 time.Time // when it reached its level; zero when skua didn't see it
 }
 
 func (c *char) slug() string { return slug(c.name, c.surname) }
@@ -61,13 +61,13 @@ func load(ctx context.Context, db DB) (state, error) {
 	if db == nil {
 		return st, nil
 	}
-	rows, err := db.Query(ctx, `select region, id, name, surname, class, class_id, race, ruleset, faction, level, points, ilvl, avatar, render, modified, reached from forever_char`)
+	rows, err := db.Query(ctx, `select region, id, name, surname, class, class_id, race, ruleset, faction, level, xp, points, ilvl, avatar, render, modified, reached from forever_char`)
 	if err != nil {
 		return st, err
 	}
 	for rows.Next() {
 		c := &char{}
-		if err := rows.Scan(&c.region, &c.id, &c.name, &c.surname, &c.class, &c.classID, &c.race, &c.ruleset, &c.faction, &c.level, &c.points, &c.ilvl, &c.avatar, &c.render, &c.modified, &c.reached); err != nil {
+		if err := rows.Scan(&c.region, &c.id, &c.name, &c.surname, &c.class, &c.classID, &c.race, &c.ruleset, &c.faction, &c.level, &c.xp, &c.points, &c.ilvl, &c.avatar, &c.render, &c.modified, &c.reached); err != nil {
 			rows.Close()
 			return st, err
 		}
@@ -111,10 +111,10 @@ func saveChar(ctx context.Context, db DB, c char) error {
 	if db == nil {
 		return nil
 	}
-	_, err := db.Exec(ctx, `insert into forever_char (region, id, name, surname, class, class_id, race, ruleset, faction, level, points, ilvl, avatar, render, modified, reached)
-		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-		on conflict (region, id) do update set name=$3, surname=$4, class=$5, class_id=$6, race=$7, ruleset=$8, faction=$9, level=$10, points=$11, ilvl=$12, avatar=$13, render=$14, modified=$15, reached=$16`,
-		c.region, c.id, c.name, c.surname, c.class, c.classID, c.race, c.ruleset, c.faction, c.level, c.points, c.ilvl, c.avatar, c.render, c.modified, c.reached)
+	_, err := db.Exec(ctx, `insert into forever_char (region, id, name, surname, class, class_id, race, ruleset, faction, level, xp, points, ilvl, avatar, render, modified, reached)
+		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+		on conflict (region, id) do update set name=$3, surname=$4, class=$5, class_id=$6, race=$7, ruleset=$8, faction=$9, level=$10, xp=$11, points=$12, ilvl=$13, avatar=$14, render=$15, modified=$16, reached=$17`,
+		c.region, c.id, c.name, c.surname, c.class, c.classID, c.race, c.ruleset, c.faction, c.level, c.xp, c.points, c.ilvl, c.avatar, c.render, c.modified, c.reached)
 	return err
 }
 

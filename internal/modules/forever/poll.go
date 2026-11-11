@@ -158,10 +158,20 @@ func (m *Module) refresh(ctx context.Context, c char) fetched {
 	apply(&f.now, p)
 	f.now.modified = mod
 	if f.now.level > c.level {
-		f.now.reached = m.now()
+		f.now.reached = reachedAt(p, m.now())
 	}
 	f.now.avatar, f.now.render = m.renders(ctx, f.now)
 	return f
+}
+
+// reachedAt is when a character that climbed got there: its logout, which
+// is when Blizzard saved the level, or now when that's missing or ahead of
+// skua's clock.
+func reachedAt(p profile, now time.Time) time.Time {
+	if t := time.UnixMilli(p.Logout); p.Logout > 0 && !t.After(now) {
+		return t
+	}
+	return now
 }
 
 // renders is Blizzard's art of c: its portrait and its full render, or
@@ -190,7 +200,7 @@ func (m *Module) renders(ctx context.Context, c char) (avatar, render string) {
 func apply(c *char, p profile) {
 	c.id = p.ID
 	c.name, c.surname = p.Name, p.Surname
-	c.level, c.points, c.ilvl = p.Level, p.Points, p.ILvl
+	c.level, c.xp, c.points, c.ilvl = p.Level, p.XP, p.Points, p.ILvl
 	c.class, c.classID, c.race = strings.ToLower(p.Class.Name), p.Class.ID, strings.ToLower(p.Race.Name)
 	c.ruleset = strings.ToLower(p.Ruleset.Name)
 	c.faction = strings.ToLower(p.Faction.Type)
