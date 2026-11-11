@@ -248,6 +248,28 @@ func (c *Canvas) text(f *Face, x, y int, s string, i, shadow uint8, max, tight i
 		s = strings.TrimSpace(s[:max-3]) + "..."
 	}
 	var box image.Rectangle
+	set := func(idx uint8) func(image.Point) {
+		return func(p image.Point) {
+			if p.In(c.Rect) {
+				c.SetColorIndex(p.X, p.Y, idx)
+				box = box.Union(image.Rect(p.X, p.Y, p.X+1, p.Y+1))
+			}
+		}
+	}
+	var shade func(image.Point)
+	if shadow != i {
+		shade = set(shadow)
+	}
+	pen := f.walk(x, y, s, tight, set(i), shade)
+	c.mark("text "+s, box)
+	return pen
+}
+
+// walk sets s in f from x, y, each character tight columns closer than f
+// sets it: ink gets every inked pixel and shade, when there is one, the
+// pixel under and right of it that the glyph leaves clear. It returns where
+// the pen ends. Canvas.text and Face.Draw both set type with it.
+func (f *Face) walk(x, y int, s string, tight int, ink, shade func(image.Point)) int {
 	pen := x
 	for _, r := range s {
 		left, adv := f.span(r)
@@ -258,18 +280,13 @@ func (c *Canvas) text(f *Face, x, y int, s string, i, shadow uint8, max, tight i
 				if !f.ink(r, gx, gy) {
 					continue
 				}
-				if p := image.Pt(at+gx+1, y+gy+1); shadow != i && p.In(c.Rect) && !f.ink(r, gx+1, gy+1) {
-					c.SetColorIndex(p.X, p.Y, shadow)
-					box = box.Union(image.Rect(p.X, p.Y, p.X+1, p.Y+1))
+				if shade != nil && !f.ink(r, gx+1, gy+1) {
+					shade(image.Pt(at+gx+1, y+gy+1))
 				}
-				if p := image.Pt(at+gx, y+gy); p.In(c.Rect) {
-					c.SetColorIndex(p.X, p.Y, i)
-					box = box.Union(image.Rect(p.X, p.Y, p.X+1, p.Y+1))
-				}
+				ink(image.Pt(at+gx, y+gy))
 			}
 		}
 	}
-	c.mark("text "+s, box)
 	return pen
 }
 

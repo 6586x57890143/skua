@@ -297,10 +297,12 @@ func run(log *slog.Logger) error {
 	}
 	// forever reads Blizzard's armory with skua's battle.net app, so it runs
 	// only with one; its ladder lives in the purge pool, or in memory.
+	var ladder *forever.Module
 	if cfg := forever.FromEnv(); cfg.Configured() {
 		if fv, err := forever.New(ctx, log, g, purgeDB, cfg, func(i discord.Interaction) bool { return router.Admin(i) }); err != nil {
 			log.Error("forever is off: it couldn't start", "err", err)
 		} else {
+			ladder = fv
 			all = append(all, fv)
 		}
 	}
@@ -346,8 +348,11 @@ func run(log *slog.Logger) error {
 	}
 	// Pushes from twitch, kick and youtube, which reach skua through the
 	// tunnel, plus signed fix media on the same configured listener.
-	if (notifier != nil && notifier.Pushing()) || (fixAPI != nil && fixAPI.ServesMedia()) {
+	if (notifier != nil && notifier.Pushing()) || (fixAPI != nil && fixAPI.ServesMedia()) || (ladder != nil && ladder.Linking()) {
 		mux := http.NewServeMux()
+		if ladder != nil && ladder.Linking() {
+			mux.Handle("/forever/", ladder.Hooks())
+		}
 		if fixAPI != nil && fixAPI.ServesMedia() {
 			mux.Handle("/fix/media/", fixAPI.MediaHandler())
 		}

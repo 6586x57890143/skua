@@ -17,12 +17,13 @@ import (
 	"image/color"
 	_ "image/jpeg"
 	"log"
-	"math"
 	"net/http"
 	"os"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/6586x57890143/skua/internal/pixel"
 )
 
 // classIcons is each class's icon on render.worldofwarcraft.com.
@@ -107,19 +108,12 @@ func fetch(c *http.Client, url string) image.Image {
 	return img
 }
 
-// rebuild quantises the icon's inside to inks colours, then gives each
-// cell the ink most of its pixels have (UX.md: majority, never one sample).
-// Index 0 is the outline.
+// rebuild is the icon on the grid (pixel.Rebuild: quantised, by
+// majority) with pp's dark outline as its ring, as an ink table and cells
+// that index it. Index 0 is the outline.
 func rebuild(img image.Image) ([]color.NRGBA, []string) {
-	r := img.Bounds().Inset(border)
-	var px []color.NRGBA
-	for y := r.Min.Y; y < r.Max.Y; y++ {
-		for x := r.Min.X; x < r.Max.X; x++ {
-			px = append(px, color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA))
-		}
-	}
-	pal := kmeans(px, inks-1)
-	ink := append([]color.NRGBA{outline}, pal...)
+	cellsImg := pixel.Rebuild(img, img.Bounds().Inset(border), cells, cells, inks-1)
+	ink := []color.NRGBA{outline}
 	grid := make([]string, cells)
 	for cy := range cells {
 		row := make([]byte, cells)
@@ -128,68 +122,15 @@ func rebuild(img image.Image) ([]color.NRGBA, []string) {
 				row[cx] = '0'
 				continue
 			}
-			votes := make([]int, len(pal))
-			x0, x1 := r.Min.X+cx*r.Dx()/cells, r.Min.X+(cx+1)*r.Dx()/cells
-			y0, y1 := r.Min.Y+cy*r.Dy()/cells, r.Min.Y+(cy+1)*r.Dy()/cells
-			for y := y0; y < y1; y++ {
-				for x := x0; x < x1; x++ {
-					votes[nearest(pal, color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA))]++
-				}
+			c := cellsImg.NRGBAAt(cx, cy)
+			i := slices.Index(ink, c)
+			if i < 0 {
+				ink = append(ink, c)
+				i = len(ink) - 1
 			}
-			best := 0
-			for i, v := range votes {
-				if v > votes[best] {
-					best = i
-				}
-			}
-			row[cx] = byte('1' + best)
+			row[cx] = byte('0' + i)
 		}
 		grid[cy] = string(row)
 	}
 	return ink, grid
-}
-
-func d2(a, b color.NRGBA) float64 {
-	dr, dg, db := float64(a.R)-float64(b.R), float64(a.G)-float64(b.G), float64(a.B)-float64(b.B)
-	return dr*dr + dg*dg + db*db
-}
-
-func nearest(pal []color.NRGBA, c color.NRGBA) int {
-	best, bd := 0, math.MaxFloat64
-	for i, p := range pal {
-		if d := d2(p, c); d < bd {
-			best, bd = i, d
-		}
-	}
-	return best
-}
-
-// kmeans is k colours for px, seeded evenly along brightness so a run is
-// the same every time.
-func kmeans(px []color.NRGBA, k int) []color.NRGBA {
-	sorted := slices.Clone(px)
-	slices.SortFunc(sorted, func(a, b color.NRGBA) int {
-		return (int(a.R) + int(a.G) + int(a.B)) - (int(b.R) + int(b.G) + int(b.B))
-	})
-	cent := make([]color.NRGBA, k)
-	for i := range k {
-		cent[i] = sorted[(2*i+1)*len(sorted)/(2*k)]
-	}
-	for range 20 {
-		sum := make([][3]float64, k)
-		n := make([]float64, k)
-		for _, p := range px {
-			i := nearest(cent, p)
-			sum[i][0] += float64(p.R)
-			sum[i][1] += float64(p.G)
-			sum[i][2] += float64(p.B)
-			n[i]++
-		}
-		for i := range cent {
-			if n[i] > 0 {
-				cent[i] = color.NRGBA{uint8(sum[i][0] / n[i]), uint8(sum[i][1] / n[i]), uint8(sum[i][2] / n[i]), 0xFF}
-			}
-		}
-	}
-	return cent
 }
