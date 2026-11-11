@@ -30,6 +30,8 @@ type armory struct {
 	tokens  int
 	denied  bool // every call 401s
 	failing bool // every call 503s
+	// routes answer their paths before anything else: a test's own.
+	routes map[string]http.HandlerFunc
 }
 
 func (a *armory) set(slug string, p map[string]any, stamp string) {
@@ -41,6 +43,12 @@ func (a *armory) set(slug string, p map[string]any, stamp string) {
 func (a *armory) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	for prefix, h := range a.routes {
+		if strings.HasPrefix(r.URL.Path, prefix) {
+			h(w, r)
+			return
+		}
+	}
 	if r.URL.Path == "/token" {
 		a.tokens++
 		_, _ = io.WriteString(w, `{"access_token":"tok","expires_in":86400}`)
@@ -94,20 +102,28 @@ func prof(id int64, name, surname, class string, level int) map[string]any {
 // fake is the REST forever calls, recorded.
 type fake struct {
 	rest.Rest
-	mu       sync.Mutex
-	posts    []discord.MessageCreate
-	updates  []discord.MessageUpdate
-	added    []snowflake.ID
-	removed  []snowflake.ID
-	created  []discord.RoleCreate
-	features []discord.GuildFeature
-	perms    discord.Permissions
+	mu        sync.Mutex
+	posts     []discord.MessageCreate
+	updates   []discord.MessageUpdate
+	followups []discord.MessageCreate
+	added     []snowflake.ID
+	removed   []snowflake.ID
+	created   []discord.RoleCreate
+	features  []discord.GuildFeature
+	perms     discord.Permissions
 }
 
 func (f *fake) CreateMessage(_ snowflake.ID, m discord.MessageCreate, _ ...rest.RequestOpt) (*discord.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.posts = append(f.posts, m)
+	return &discord.Message{}, nil
+}
+
+func (f *fake) CreateFollowupMessage(_ snowflake.ID, _ string, m discord.MessageCreate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.followups = append(f.followups, m)
 	return &discord.Message{}, nil
 }
 
@@ -149,9 +165,12 @@ func (f *fake) RemoveMemberRole(_, _, role snowflake.ID, _ ...rest.RequestOpt) e
 	return nil
 }
 
+// base is the fake armory's address, for routes that link to it.
+var base string
+
 func newTest(t *testing.T) (*Module, *armory, *fake) {
 	t.Helper()
-	a := &armory{chars: map[string]map[string]any{}, stamp: map[string]string{}, skill: map[string]int{}}
+	a := &armory{chars: map[string]map[string]any{}, stamp: map[string]string{}, skill: map[string]int{}, routes: map[string]http.HandlerFunc{}}
 	srv := httptest.NewServer(a)
 	t.Cleanup(srv.Close)
 	m, err := New(context.Background(), slog.New(slog.DiscardHandler), guard.New(), nil, Config{ID: "id", Secret: "s"}, func(i discord.Interaction) bool {
@@ -162,6 +181,9 @@ func newTest(t *testing.T) (*Module, *armory, *fake) {
 	}
 	m.api.oauth = srv.URL + "/token"
 	m.api.api = func(string) string { return srv.URL }
+	m.api.render = srv.URL + "/img/"
+	m.link.authorize, m.link.token = srv.URL+"/authorize", srv.URL+"/oauth/token"
+	base = srv.URL
 	f := &fake{perms: discord.PermissionManageRoles}
 	m.rest, m.self = f, 1
 	return m, a, f
@@ -208,19 +230,19 @@ func TestListLadderAndDrop(t *testing.T) {
 	ctx := context.Background()
 	a.set("thrall-earthcaller", prof(1, "Thrall", "Earthcaller", "Shaman", 30), "a")
 	a.set("jaina-proud", prof(2, "Jaina", "Proud", "Mage", 44), "a")
-	if _, err := m.list(ctx, 3, 5, "eu", "thrall", "earthcaller"); err != nil {
+	if _, err := m.list(ctx, 3, 5, "eu", "thrall", "earthcaller", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.list(ctx, 3, 6, "us", "jaina", "proud"); err != nil {
+	if _, err := m.list(ctx, 3, 6, "us", "jaina", "proud", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.list(ctx, 3, 5, "eu", "thrall", "earthcaller"); err == nil || !strings.Contains(err.Error(), "already") {
+	if _, err := m.list(ctx, 3, 5, "eu", "thrall", "earthcaller", false); err == nil || !strings.Contains(err.Error(), "already") {
 		t.Fatalf("listed twice: %v", err)
 	}
-	if _, err := m.list(ctx, 3, 6, "eu", "thrall", "earthcaller"); err == nil || !strings.Contains(err.Error(), "someone else") {
+	if _, err := m.list(ctx, 3, 6, "eu", "thrall", "earthcaller", false); err == nil || !strings.Contains(err.Error(), "someone else") {
 		t.Fatalf("taken: %v", err)
 	}
-	if _, err := m.list(ctx, 3, 5, "eu", "nobody", "here"); err == nil || !strings.Contains(err.Error(), "level 10") {
+	if _, err := m.list(ctx, 3, 5, "eu", "nobody", "here", false); err == nil || !strings.Contains(err.Error(), "level 10") {
 		t.Fatalf("unknown: %v", err)
 	}
 	board := text(m.ladder(3, 0))
@@ -271,7 +293,7 @@ func TestPollDingsLegacyAndFeed(t *testing.T) {
 		user snowflake.ID
 		s    [2]string
 	}{{5, [2]string{"thrall", "earthcaller"}}, {6, [2]string{"garrosh", "hellscream"}}, {5, [2]string{"rexxar", "beast"}}} {
-		if _, err := m.list(ctx, 3, c.user, "eu", c.s[0], c.s[1]); err != nil {
+		if _, err := m.list(ctx, 3, c.user, "eu", c.s[0], c.s[1], false); err != nil {
 			t.Fatal(err)
 		}
 	}

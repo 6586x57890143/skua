@@ -182,12 +182,21 @@ func (m *Module) hub(guild, user snowflake.ID, note string) discord.ContainerCom
 	m.mu.Lock()
 	chars := m.mine(guild, user)
 	board := m.board(guild)
+	verified := map[key]bool{}
+	for _, cl := range m.claims {
+		if cl.guild == guild && cl.user == user && cl.verified {
+			verified[cl.k] = true
+		}
+	}
 	role := m.guilds[guild].role
 	var blocks []string
 	for _, c := range chars {
 		place := slices.IndexFunc(board, func(b *char) bool { return b.key == c.key }) + 1
 		b := classMark(c.class) + "**" + fullName(*c) + "** · lv " + itoa(c.level) + " · " + where(*c) + " · #" + itoa(place) + " here"
 		b += "\n" + bar(c.level) + " · " + c.race + " " + c.class
+		if verified[c.key] {
+			b += " · ✓ linked"
+		}
 		if c.level < Cap {
 			b += " · " + num(c.xp) + " xp into " + itoa(c.level)
 		}
@@ -230,12 +239,11 @@ func (m *Module) hub(guild, user snowflake.ID, note string) discord.ContainerCom
 		row = append(row, button(discord.ButtonStyleSecondary, "role", id+":role", "fv_role"))
 	}
 	parts = append(parts, discord.NewActionRow(row...))
+	if m.link.on() {
+		parts = append(parts, discord.NewActionRow(button(discord.ButtonStyleSecondary, "link battle.net", id+":link", "fv_link")))
+	}
 	if len(chars) > 0 {
-		var opts []discord.StringSelectMenuOption
-		for _, c := range chars {
-			opts = append(opts, discord.StringSelectMenuOption{Label: fullName(*c), Value: c.region + "." + strconv.FormatInt(c.id, 10), Description: "lv " + itoa(c.level) + " · " + c.region + " " + c.ruleset, Emoji: brand.ComponentEmoji("fv_" + c.class)})
-		}
-		parts = append(parts, discord.NewActionRow(discord.NewStringSelectMenu(id+":drop", "take a character off...", opts...)))
+		parts = append(parts, armoryPick(chars), discord.NewActionRow(discord.NewStringSelectMenu(id+":drop", "take a character off...", options(chars)...)))
 	}
 	return discord.NewContainer(parts...).WithAccentColor(accent(class))
 }
@@ -305,7 +313,8 @@ func (m *Module) ladder(guild snowflake.ID, page int) discord.ContainerComponent
 	pages := max((len(board)+pageRows-1)/pageRows, 1)
 	page = min(max(page, 0), pages-1)
 	var lines []string
-	for i, c := range board[page*pageRows : min(len(board), (page+1)*pageRows)] {
+	shown := board[page*pageRows : min(len(board), (page+1)*pageRows)]
+	for i, c := range shown {
 		n := page*pageRows + i + 1
 		line := "**" + itoa(n) + "** `" + move(day[c.key], n) + "` " + classMark(c.class) + "**" + fullName(*c) + "** · lv " + itoa(c.level) + " · " + where(*c)
 		if c.level >= Cap && !c.reached.IsZero() {
@@ -330,6 +339,9 @@ func (m *Module) ladder(guild snowflake.ID, page int) discord.ContainerComponent
 	pb.Disabled = page == 0
 	nb := button(discord.ButtonStyleSecondary, "", fmt.Sprintf("%s:page:%d", id, page+1), "fv_next")
 	nb.Disabled = page >= pages-1
+	if len(shown) > 0 {
+		parts = append(parts, armoryPick(shown))
+	}
 	parts = append(parts,
 		discord.NewActionRow(pb, nb, button(discord.ButtonStyleSecondary, "who", id+":who", "fv_who")),
 		discord.NewTextDisplay("-# page "+itoa(page+1)+" of "+itoa(pages)+" · a tie goes to whoever got there first"),

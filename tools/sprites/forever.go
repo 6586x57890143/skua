@@ -47,6 +47,34 @@ var foreverGlyphs = map[string][]string{
 		".....ww.....",
 		"............",
 	}),
+	"armory": doubleSocialGlyph([]string{ // a helm
+		"............",
+		"....wwww....",
+		"...wwwwww...",
+		"..wwwwwwww..",
+		"..ww....ww..",
+		"..ww.ww.ww..",
+		"..wwwwwwww..",
+		"..ww.ww.ww..",
+		"..wwwwwwww..",
+		"...ww..ww...",
+		"...ww..ww...",
+		"............",
+	}),
+	"share": doubleSocialGlyph([]string{ // an arrow out of a tray
+		"............",
+		".....ww.....",
+		"....wwww....",
+		"...w.ww.w...",
+		".....ww.....",
+		".....ww.....",
+		".ww..ww..ww.",
+		".ww......ww.",
+		".ww......ww.",
+		".wwwwwwwwww.",
+		".wwwwwwwwww.",
+		"............",
+	}),
 	"next": doubleSocialGlyph([]string{
 		"............",
 		"............",
@@ -95,9 +123,11 @@ func foreverIcons(out string) {
 		glyphCentred("fv_"+name, g)
 	}
 	tiles(out, "fv_", map[string][]string{"role": foreverGlyphs["role"]}, map[string]color.NRGBA{"role": foreverGold})
-	for _, name := range []string{"ladder", "next", "prev"} {
+	for _, name := range []string{"ladder", "next", "prev", "armory", "share"} {
 		bare(out, "fv_"+name, foreverGlyphs[name])
 	}
+	glyphCentred("fv_link", moduleGlyphs["fix"])
+	bare(out, "fv_link", moduleGlyphs["fix"])
 	for name, from := range map[string]string{"add": "new", "who": "team"} {
 		glyphCentred("fv_"+name, buttonGlyphs[from])
 		bare(out, "fv_"+name, buttonGlyphs[from])
