@@ -374,7 +374,7 @@ const (
 // post sends each server its round: a card of its own for each big moment,
 // with the character's portrait and its class's colour, and one card for
 // the rest.
-func (m *Module) post(ctx context.Context, p Poster, setups map[snowflake.ID]setup, feed map[snowflake.ID][]moment) {
+func (m *Module) post(ctx context.Context, p rest.Rest, setups map[snowflake.ID]setup, feed map[snowflake.ID][]moment) {
 	for g, ms := range feed {
 		to := setups[g].feed
 		if to == 0 || len(ms) == 0 {

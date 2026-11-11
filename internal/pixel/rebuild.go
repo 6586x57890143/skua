@@ -25,6 +25,15 @@ func Rebuild(src image.Image, r image.Rectangle, w, h, inks int) *image.NRGBA {
 	if len(px) == 0 || r.Dx() < w || r.Dy() < h {
 		return out
 	}
+	// The inks come from a sample: a few thousand pixels find the same ones
+	// as every pixel of a full size render, at a sliver of the cost.
+	if step := len(px) / 4096; step > 1 {
+		sample := make([]color.NRGBA, 0, len(px)/step+1)
+		for i := 0; i < len(px); i += step {
+			sample = append(sample, px[i])
+		}
+		px = sample
+	}
 	pal := Quantise(px, inks)
 	votes := make([]int, len(pal)+1) // the last is clear
 	for cy := range h {

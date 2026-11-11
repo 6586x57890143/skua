@@ -52,14 +52,36 @@ func (m *Module) screenOf(ctx context.Context, c char) ([]byte, error) {
 	return b, nil
 }
 
-// listed is the character value names ("eu.7177273"), if guild lists it.
-func (m *Module) listed(guild snowflake.ID, value string) (char, bool) {
-	region, idStr, ok := strings.Cut(value, ".")
+// parseValue reads a select's "eu.7177273" back, from the member's client.
+func parseValue(v string) (key, bool) {
+	region, idStr, ok := strings.Cut(v, ".")
 	n, err := strconv.ParseInt(idStr, 10, 64)
 	if !ok || err != nil || !validRegion(region) {
+		return key{}, false
+	}
+	return key{region, n}, true
+}
+
+// option is c in a select.
+func option(c char) discord.StringSelectMenuOption {
+	return discord.StringSelectMenuOption{Label: fullName(c), Value: value(c), Description: "lv " + itoa(c.level) + " · " + c.region + " " + c.ruleset, Emoji: brand.ComponentEmoji("fv_" + c.class)}
+}
+
+// options is chars in a select.
+func options(chars []*char) []discord.StringSelectMenuOption {
+	out := make([]discord.StringSelectMenuOption, 0, len(chars))
+	for _, c := range chars {
+		out = append(out, option(*c))
+	}
+	return out
+}
+
+// listed is the character v names ("eu.7177273"), if guild lists it.
+func (m *Module) listed(guild snowflake.ID, v string) (char, bool) {
+	k, ok := parseValue(v)
+	if !ok {
 		return char{}, false
 	}
-	k := key{region, n}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ch := m.chars[k]
@@ -74,11 +96,7 @@ func value(c char) string { return c.region + "." + strconv.FormatInt(c.id, 10) 
 
 // armoryPick is an "armory for..." select over chars.
 func armoryPick(chars []*char) discord.ActionRowComponent {
-	var opts []discord.StringSelectMenuOption
-	for _, c := range chars {
-		opts = append(opts, discord.StringSelectMenuOption{Label: fullName(*c), Value: value(*c), Description: "lv " + itoa(c.level) + " · " + c.region + " " + c.ruleset, Emoji: brand.ComponentEmoji("fv_" + c.class)})
-	}
-	return discord.NewActionRow(discord.NewStringSelectMenu(id+":armory", "armory for...", opts...))
+	return discord.NewActionRow(discord.NewStringSelectMenu(id+":armory", "armory for...", options(chars)...))
 }
 
 // armoryCard is the screen in a card: forever's head, who it is, the
@@ -112,13 +130,7 @@ func (m *Module) showArmory(ctx context.Context, e *events.ComponentInteractionC
 	r := e.Client().Rest
 	png, err := m.screenOf(ctx, c)
 	if err != nil {
-		text := "✗ blizzard's armory didn't answer; try again in a moment"
-		if errors.Is(err, errNoGear) {
-			text = "✗ blizzard doesn't show " + fullName(c) + "'s gear yet; it does after their next logout"
-		} else {
-			m.log.Warn("forever: drawing an armory", "err", err)
-		}
-		_, err = r.UpdateInteractionResponse(e.ApplicationID(), e.Token(), update(brand.Card(brand.ColorError, Name, "armory", text)), rest.WithCtx(ctx))
+		_, err = r.UpdateInteractionResponse(e.ApplicationID(), e.Token(), update(m.undrawn(c, err)), rest.WithCtx(ctx))
 		return err
 	}
 	card, file := armoryCard(c, png, false)
@@ -133,29 +145,43 @@ func (m *Module) share(ctx context.Context, e *events.ComponentInteractionCreate
 	if !ok {
 		return core.Tell("that character isn't listed here any more")
 	}
-	if err := m.guard.Allow(guild, guard.MessageSend); err != nil {
-		return core.Tell("skua has posted a lot here this hour; try again in a bit")
-	}
 	if err := e.DeferCreateMessage(true); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 	defer cancel()
 	r := e.Client().Rest
-	png, err := m.screenOf(ctx, c)
-	if err == nil {
-		card, file := armoryCard(c, png, true)
-		_, err = r.CreateMessage(e.Channel().ID(), discord.MessageCreate{
-			Components: []discord.LayoutComponent{card}, Files: []*discord.File{file},
-			Flags: discord.MessageFlagIsComponentsV2, AllowedMentions: core.NoPings(),
-		}, rest.WithCtx(ctx))
-		m.guard.Done(guild, err)
+	say := func(c discord.ContainerComponent) error {
+		_, err := r.UpdateInteractionResponse(e.ApplicationID(), e.Token(), update(c), rest.WithCtx(ctx))
+		return err
 	}
-	note := "✓ shared in this channel"
+	png, err := m.screenOf(ctx, c)
+	if err != nil {
+		return say(m.undrawn(c, err))
+	}
+	if err := m.guard.Allow(guild, guard.MessageSend); err != nil {
+		return say(brand.Card(brand.ColorError, Name, "armory", "✗ skua has posted a lot here this hour; try again in a bit"))
+	}
+	card, file := armoryCard(c, png, true)
+	_, err = r.CreateMessage(e.Channel().ID(), discord.MessageCreate{
+		Components: []discord.LayoutComponent{card}, Files: []*discord.File{file},
+		Flags: discord.MessageFlagIsComponentsV2, AllowedMentions: core.NoPings(),
+	}, rest.WithCtx(ctx))
+	m.guard.Done(guild, err)
 	if err != nil {
 		m.log.Warn("forever: sharing an armory", "err", err)
-		note = "✗ skua couldn't post here; she needs to send messages and attach files in this channel"
+		return say(brand.Card(brand.ColorError, Name, "armory", "✗ skua couldn't post here; she needs to send messages and attach files in this channel"))
 	}
-	_, err = r.UpdateInteractionResponse(e.ApplicationID(), e.Token(), update(brand.Card(brand.ColorOK, Name, "armory", note)), rest.WithCtx(ctx))
-	return err
+	return say(brand.Card(brand.ColorOK, Name, "armory", "✓ shared in this channel"))
+}
+
+// undrawn is why c's armory couldn't be drawn, as a card.
+func (m *Module) undrawn(c char, err error) discord.ContainerComponent {
+	text := "✗ blizzard's armory didn't answer; try again in a moment"
+	if errors.Is(err, errNoGear) {
+		text = "✗ blizzard doesn't show " + fullName(c) + "'s gear yet; it does after their next logout"
+	} else {
+		m.log.Warn("forever: drawing an armory", "err", err)
+	}
+	return brand.Card(brand.ColorError, Name, "armory", text)
 }

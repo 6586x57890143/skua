@@ -149,7 +149,11 @@ func (b *bnet) getAs(ctx context.Context, tok, region, path string, v any) error
 		return err
 	}
 	defer func() { _ = res.Body.Close() }()
-	if res.StatusCode != http.StatusOK {
+	switch res.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound, http.StatusForbidden:
+		return errGone // no Forever account in this region
+	default:
 		return fmt.Errorf("forever: %s %s", region, res.Status)
 	}
 	return json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(v)

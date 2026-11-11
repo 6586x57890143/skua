@@ -143,7 +143,8 @@ func (m *Module) add(ctx context.Context, e *events.ModalSubmitInteractionCreate
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 	defer cancel()
-	note, err := m.list(ctx, *guild, user, region, name, surname, false)
+	res, err := m.list(ctx, *guild, user, region, name, surname, false)
+	note := res.note
 	if err != nil {
 		var t core.Tell
 		if !errors.As(err, &t) {
@@ -162,19 +163,19 @@ func (m *Module) add(ctx context.Context, e *events.ModalSubmitInteractionCreate
 // A character another server lists already keeps the record skua has, so
 // the next round still sees its climb for everyone. A new one's reach time
 // is unknown: skua didn't see it get there.
-func (m *Module) list(ctx context.Context, guild, user snowflake.ID, region, name, surname string, verified bool) (string, error) {
+func (m *Module) list(ctx context.Context, guild, user snowflake.ID, region, name, surname string, verified bool) (listed, error) {
 	var p profile
 	mod, _, err := m.api.get(ctx, region, "profile", charPath(slug(name, surname)), "", &p)
 	if errors.Is(err, errGone) {
-		return "", core.Tell("blizzard doesn't know " + strings.ToLower(name+" "+surname) + " in " + region + " yet; a character shows from level 10, once it has logged out")
+		return listed{}, core.Tell("blizzard doesn't know " + strings.ToLower(name+" "+surname) + " in " + region + " yet; a character shows from level 10, once it has logged out")
 	}
 	if err != nil {
-		return "", err
+		return listed{}, err
 	}
 	c := char{key: key{region: region}, modified: mod}
 	apply(&c, p)
 	if c.id == 0 {
-		return "", errors.New("forever: a profile without an id")
+		return listed{}, errors.New("forever: a profile without an id")
 	}
 	m.mu.Lock()
 	old, known := m.chars[c.key]
@@ -193,14 +194,14 @@ func (m *Module) list(ctx context.Context, guild, user snowflake.ID, region, nam
 	err = m.claimable(guild, user, c, verified)
 	m.mu.Unlock()
 	if err != nil {
-		return "", err
+		return listed{}, err
 	}
 	if !known {
 		c.avatar, c.render = m.renders(ctx, c)
 		c.crafts = m.crafts(ctx, c)
 	}
 	if err := saveChar(ctx, m.db, c); err != nil {
-		return "", err
+		return listed{}, err
 	}
 	cl := claim{guild: guild, user: user, k: c.key, at: m.now(), verified: verified}
 	m.mu.Lock()
@@ -208,28 +209,47 @@ func (m *Module) list(ctx context.Context, guild, user snowflake.ID, region, nam
 	// answered.
 	if err := m.claimable(guild, user, c, verified); err != nil {
 		m.mu.Unlock()
-		return "", err
+		return listed{}, err
 	}
 	if _, ok := m.chars[c.key]; !ok {
 		m.chars[c.key] = &c
 	}
-	// A verified claim replaces any other on the character here: theirs
-	// unverified, or the member's own.
-	m.claims = slices.DeleteFunc(m.claims, func(x claim) bool { return x.guild == guild && x.k == c.key })
+	// A verified claim replaces whatever claim the character had here.
+	var was []claim
+	m.claims = slices.DeleteFunc(m.claims, func(x claim) bool {
+		if x.guild == guild && x.k == c.key {
+			was = append(was, x)
+			return true
+		}
+		return false
+	})
 	m.claims = append(m.claims, cl)
 	m.mu.Unlock()
 	if err := saveClaim(ctx, m.db, cl); err != nil {
 		m.mu.Lock()
-		m.claims = slices.DeleteFunc(m.claims, func(x claim) bool { return x == cl })
+		m.claims = append(slices.DeleteFunc(m.claims, func(x claim) bool { return x == cl }), was...)
 		m.mu.Unlock()
-		return "", err
+		return listed{}, err
 	}
-	return "✓ added " + classMark(c.class) + "**" + c.name + " " + c.surname + "**, lv " + itoa(c.level), nil
+	res := listed{note: "✓ added " + classMark(c.class) + "**" + c.name + " " + c.surname + "**, lv " + itoa(c.level)}
+	for _, x := range was {
+		if x.user != user {
+			res.displaced = append(res.displaced, x.user)
+		}
+	}
+	return res, nil
+}
+
+// listed is what an add did: what to tell the member, and anyone whose
+// claim on the character it replaced.
+type listed struct {
+	note      string
+	displaced []snowflake.ID
 }
 
 // claimable is why user can't list c in guild, or nil. A verified claim
-// may take a character someone listed by name, or verify the member's
-// own. m.mu held.
+// replaces any claim on the character: the latest battle.net sign-in with
+// an account is its owner. A name claim takes nothing. m.mu held.
 func (m *Module) claimable(guild, user snowflake.ID, c char, verified bool) error {
 	n, all := 0, map[key]bool{}
 	for _, cl := range m.claims {
@@ -241,8 +261,10 @@ func (m *Module) claimable(guild, user snowflake.ID, c char, verified bool) erro
 			n++
 		}
 		if c.id != 0 && cl.k == c.key {
-			if verified && !cl.verified || verified && cl.user == user {
-				n -= btoi(cl.user == user)
+			if verified {
+				if cl.user == user {
+					n--
+				}
 				continue
 			}
 			if cl.user == user {
@@ -260,22 +282,13 @@ func (m *Module) claimable(guild, user snowflake.ID, c char, verified bool) erro
 	return nil
 }
 
-func btoi(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
 // drop takes the picked characters off the member's list.
 func (m *Module) drop(ctx context.Context, e *events.ComponentInteractionCreate, guild snowflake.ID) error {
 	user := e.User().ID
 	var gone []key
 	for _, v := range e.StringSelectMenuInteractionData().Values {
-		region, idStr, ok := strings.Cut(v, ".")
-		n, err := strconv.ParseInt(idStr, 10, 64)
-		if ok && err == nil && validRegion(region) {
-			gone = append(gone, key{region, n})
+		if k, ok := parseValue(v); ok {
+			gone = append(gone, k)
 		}
 	}
 	m.mu.Lock()
@@ -391,6 +404,11 @@ func (m *Module) prune(ctx context.Context, ks ...key) {
 		}
 	}
 	m.mu.Unlock()
+	m.screens.mu.Lock()
+	for _, k := range gone {
+		delete(m.screens.have, k)
+	}
+	m.screens.mu.Unlock()
 	for _, k := range gone {
 		if err := dropChar(ctx, m.db, k); err != nil {
 			m.log.Warn("forever: forgetting a character", "err", err)

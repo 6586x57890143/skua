@@ -190,3 +190,34 @@ func TestArmoryButtons(t *testing.T) {
 		t.Fatal("no gear not said")
 	}
 }
+
+// TestShareUndrawn is a share whose screen can't be drawn: it says why, in
+// the error colour, and posts nothing.
+func TestShareUndrawn(t *testing.T) {
+	m, a, _ := newTest(t)
+	a.set("a-b", prof(1, "A", "B", "Mage", 12), "x")
+	a.routes["/profile/wow/character/a-b/equipment"] = func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) }
+	if _, err := m.list(context.Background(), 3, 5, "eu", "a", "b", false); err != nil {
+		t.Fatal(err)
+	}
+	r := &sent{}
+	b, _ := coretest.Button(t, "forever:share:eu.1", nil)
+	b.Client().Rest = r
+	if err := m.click(context.Background(), b); err != nil {
+		t.Fatal(err)
+	}
+	card := (*r.updates[0].Components)[0].(discord.ContainerComponent)
+	if len(r.posted) != 0 || !strings.Contains(text(card), "doesn't show A B's gear yet") || card.AccentColor == 0x6E9A6A {
+		t.Fatalf("undrawn share: %d posted, %q", len(r.posted), text(card))
+	}
+	worn := piece{Name: "Tome"}
+	if worn.label() != "Tome" {
+		t.Fatal("label")
+	}
+	worn.Transmog = &struct {
+		Item named `json:"item"`
+	}{Item: named{Name: "Mightstone Hammer"}}
+	if worn.label() != "Mightstone Hammer *" {
+		t.Fatal("transmog label")
+	}
+}

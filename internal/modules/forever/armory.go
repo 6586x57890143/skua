@@ -283,10 +283,7 @@ func screen(c char, items []piece, pics []image.Image, fig image.Image) ([]byte,
 		if !ok {
 			col = quality["COMMON"]
 		}
-		label := p.Name
-		if p.Transmog != nil && p.Transmog.Item.Name != "" {
-			label = p.Transmog.Item.Name + " *"
-		}
+		label := p.label()
 		switch {
 		case slices.Contains(left, slot):
 			pixel.Light.Draw(img, at.X+slotSize+4, at.Y+3, pixel.Light.Cut(label, 100), col, shadow)
@@ -303,13 +300,22 @@ func screen(c char, items []piece, pics []image.Image, fig image.Image) ([]byte,
 			if offHand && ranged {
 				room = 52
 				if slot == "RANGED" {
-					nx = 232 + pixel.Light.Width(pixel.Light.Cut(items[worn["OFF_HAND"]].Name, room)) + 6
+					nx = 232 + pixel.Light.Width(pixel.Light.Cut(items[worn["OFF_HAND"]].label(), room)) + 6
 				}
 			}
 			pixel.Light.Draw(img, nx, 199, pixel.Light.Cut(label, room), col, shadow)
 		}
 	}
 	return encode(img)
+}
+
+// label is the name a piece shows: its transmog's, marked, when it wears
+// one.
+func (p piece) label() string {
+	if p.Transmog != nil && p.Transmog.Item.Name != "" {
+		return p.Transmog.Item.Name + " *"
+	}
+	return p.Name
 }
 
 // encode is img scale times larger, cell for cell, as a PNG.

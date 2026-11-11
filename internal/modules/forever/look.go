@@ -243,11 +243,7 @@ func (m *Module) hub(guild, user snowflake.ID, note string) discord.ContainerCom
 		parts = append(parts, discord.NewActionRow(button(discord.ButtonStyleSecondary, "link battle.net", id+":link", "fv_link")))
 	}
 	if len(chars) > 0 {
-		var opts []discord.StringSelectMenuOption
-		for _, c := range chars {
-			opts = append(opts, discord.StringSelectMenuOption{Label: fullName(*c), Value: c.region + "." + strconv.FormatInt(c.id, 10), Description: "lv " + itoa(c.level) + " · " + c.region + " " + c.ruleset, Emoji: brand.ComponentEmoji("fv_" + c.class)})
-		}
-		parts = append(parts, armoryPick(chars), discord.NewActionRow(discord.NewStringSelectMenu(id+":drop", "take a character off...", opts...)))
+		parts = append(parts, armoryPick(chars), discord.NewActionRow(discord.NewStringSelectMenu(id+":drop", "take a character off...", options(chars)...)))
 	}
 	return discord.NewContainer(parts...).WithAccentColor(accent(class))
 }

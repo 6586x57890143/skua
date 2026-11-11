@@ -51,21 +51,16 @@ const (
 // Config is skua's Battle.net app, and the hooks address Blizzard sends a
 // member back to after they sign in. Without the app forever is off;
 // without the hooks, characters are only added by name.
-type Config struct{ ID, Secret, HooksURL, HooksSecret string }
+type Config struct{ ID, Secret, HooksURL string }
 
 func FromEnv() Config {
 	return Config{
 		ID: os.Getenv("SKUA_BNET_ID"), Secret: os.Getenv("SKUA_BNET_SECRET"),
-		HooksURL: strings.TrimRight(os.Getenv("SKUA_HOOKS_URL"), "/"), HooksSecret: os.Getenv("SKUA_HOOKS_SECRET"),
+		HooksURL: strings.TrimRight(os.Getenv("SKUA_HOOKS_URL"), "/"),
 	}
 }
 
 func (c Config) Configured() bool { return c.ID != "" && c.Secret != "" }
-
-// Poster is the REST forever uses on its own: the feed and roles.
-type Poster interface {
-	CreateMessage(channel snowflake.ID, m discord.MessageCreate, opts ...rest.RequestOpt) (*discord.Message, error)
-}
 
 // health is how a region's last round went.
 type health struct {
@@ -101,7 +96,7 @@ type Module struct {
 	days  map[snowflake.ID]map[key]int
 	dayOf map[snowflake.ID]string
 	round time.Time // the last round's end
-	rest  Poster
+	rest  rest.Rest
 	self  snowflake.ID
 }
 
@@ -119,7 +114,7 @@ func New(ctx context.Context, log *slog.Logger, g *guard.Guard, db DB, cfg Confi
 		on:  func(snowflake.ID) bool { return true },
 		api: newBnet(&http.Client{Timeout: 15 * time.Second}, cfg.ID, cfg.Secret),
 		link: &link{
-			hooks: cfg.HooksURL, secret: cfg.HooksSecret, used: map[string]time.Time{},
+			hooks: cfg.HooksURL, asks: map[string]ask{}, confirm: map[string]ask{},
 			authorize: "https://oauth.battle.net/authorize", token: "https://oauth.battle.net/token",
 		},
 		chars: st.chars, claims: st.claims, guilds: st.guilds, health: map[string]health{},
@@ -149,7 +144,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorNotice,
 		Line:  "this server's wow forever ladder, every region on one board",
-		About: "run /forever me and add the characters you play with their name, surname and region. blizzard's armory only shows a character from level 10, once it has logged out, so she finds yours after your first logout past 10. your card shows each one's level, place here and legacy track: forever's account checkpoints she can read, a class at 25, 45 and 60 and a crafting profession at 150, 225 and 300. /forever ladder is who in the server is highest right now, every region on one board, a tie going to whoever got there first, with each place's move since the day began. she checks every character every five minutes and tells the server's forever channel about tens levels and legacy checkpoints, a ✦ when it earns someone a legacy point. a 60 or a first in the server gets a card of its own. pick a character under armory for and she draws their armory, the game's character pane in her pixels with what they wear, and share posts it here. link battle.net signs you in once so she adds every forever character on your account, in every region, marked as yours, and nobody else can list them. /forever who shows who plays where, to find people on your side. the first character added makes the server's forever role, and everyone who lists a character gets it",
+		About: "run /forever me and add the characters you play with their name, surname and region. blizzard's armory only shows a character from level 10, once it has logged out, so she finds yours after your first logout past 10. your card shows each one's level, place here and legacy track: forever's account checkpoints she can read, a class at 25, 45 and 60 and a crafting profession at 150, 225 and 300. /forever ladder is who in the server is highest right now, every region on one board, a tie going to whoever got there first, with each place's move since the day began. she checks every character every five minutes and tells the server's forever channel about tens levels and legacy checkpoints, a ✦ when it earns someone a legacy point. a 60 or a first in the server gets a card of its own. pick a character under armory for and she draws their armory, the game's character pane in her pixels with what they wear, and share posts it here. link battle.net signs you in and shows the forever characters on your account, in every region; once you confirm they're linked to you, and nobody can list them by name. /forever who shows who plays where, to find people on your side. the first character added makes the server's forever role, and everyone who lists a character gets it",
 	}
 }
 

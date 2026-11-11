@@ -2,18 +2,15 @@ package forever
 
 import (
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,79 +23,73 @@ import (
 	"github.com/6586x57890143/skua/internal/core"
 )
 
-// Linking battle.net: a member signs in on Blizzard's page, Blizzard sends
-// them back to skua's hooks address with a code, and skua reads their
-// Forever characters in every region with it, listing each as theirs and
-// verified. The code and the token it buys are used once and dropped.
+// Linking battle.net: a member presses link, signs in on Blizzard's page,
+// and Blizzard sends them back to skua's hooks address with a code. skua
+// reads the account's Forever characters with it and shows them on a page
+// that names who and where they'll be linked to; nothing is linked until
+// whoever signed in confirms there. So a sign-in link sent to someone else
+// can't take their characters without them seeing it, and the latest
+// sign-in with an account always wins, so an owner can take theirs back.
+// The code and the token it buys are used once and dropped.
 
-// linkTTL is how long a sign-in link stays good.
+// linkTTL is how long a sign-in link, and the page it ends on, stay good.
 const linkTTL = 10 * time.Minute
 
-// link is the battle.net sign-in's settings: where Blizzard sends members
-// back and the secret that signs who asked.
-type link struct {
-	hooks, secret string
-	authorize     string // Blizzard's sign-in page
-	token         string // where a code becomes a token
-
-	mu   sync.Mutex
-	used map[string]time.Time // states spent, until they'd expire anyway
+// ask is who pressed link, and where, by what the page names them.
+type ask struct {
+	guild, user     snowflake.ID
+	who, where      string
+	until           time.Time
+	chars           []found // read from the account, on the confirm page
+	failed, regions int     // regions Blizzard didn't answer, of those read
 }
 
-func (l *link) on() bool { return l != nil && l.hooks != "" && len(l.secret) >= 16 }
+// found is a character on the member's account.
+type found struct{ region, name, surname string }
+
+// link is the battle.net sign-in: where Blizzard sends members back, and
+// the sign-ins under way, by the one-use nonce each carries.
+type link struct {
+	hooks     string
+	authorize string // Blizzard's sign-in page
+	token     string // where a code becomes a token
+
+	mu      sync.Mutex
+	asks    map[string]ask // state -> who asked, until Blizzard sends them back
+	confirm map[string]ask // confirm page -> what it offers, until pressed
+}
+
+func (l *link) on() bool { return l != nil && l.hooks != "" }
 
 func (l *link) redirect() string { return l.hooks + "/forever/callback" }
 
-// state is who asked, signed: guild, user, when it stops being good and a
-// nonce, so every link is its own and spending one leaves the next good.
-func (l *link) state(guild, user snowflake.ID, until time.Time) string {
-	nonce := make([]byte, 8)
-	_, _ = rand.Read(nonce)
-	body := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%d:%d:%d:%x", guild, user, until.Unix(), nonce)))
-	return body + "." + l.sign(body)
+func nonce() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
-func (l *link) sign(body string) string {
-	h := hmac.New(sha256.New, []byte(l.secret))
-	h.Write([]byte("forever-link:" + body))
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-// errState is a state skua didn't sign, has seen before or that expired.
-var errState = errors.New("forever: bad link state")
-
-// check reads a state back, once.
-func (l *link) check(state string, now time.Time) (guild, user snowflake.ID, err error) {
-	body, sig, ok := strings.Cut(state, ".")
-	if !ok || !hmac.Equal([]byte(sig), []byte(l.sign(body))) {
-		return 0, 0, errState
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(body)
-	if err != nil {
-		return 0, 0, errState
-	}
-	f := strings.Split(string(raw), ":")
-	if len(f) != 4 {
-		return 0, 0, errState
-	}
-	g, e1 := snowflake.Parse(f[0])
-	u, e2 := snowflake.Parse(f[1])
-	until, e3 := strconv.ParseInt(f[2], 10, 64)
-	if e1 != nil || e2 != nil || e3 != nil || now.Unix() > until {
-		return 0, 0, errState
-	}
+// put keeps a under a fresh nonce in into, dropping what has expired.
+func (l *link) put(into map[string]ask, a ask, now time.Time) string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for s, t := range l.used {
-		if now.After(t) {
-			delete(l.used, s)
+	for k, v := range into {
+		if now.After(v.until) {
+			delete(into, k)
 		}
 	}
-	if _, seen := l.used[state]; seen {
-		return 0, 0, errState
-	}
-	l.used[state] = time.Unix(until, 0)
-	return g, u, nil
+	n := nonce()
+	into[n] = a
+	return n
+}
+
+// take spends n from from, once, if it hasn't expired.
+func (l *link) take(from map[string]ask, n string, now time.Time) (ask, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	a, ok := from[n]
+	delete(from, n)
+	return a, ok && !now.After(a.until)
 }
 
 // linkCard answers the link button: the sign-in, for the member's eyes.
@@ -106,46 +97,61 @@ func (m *Module) linkCard(e *events.ComponentInteractionCreate, guild snowflake.
 	if !m.link.on() {
 		return core.Tell("battle.net sign-in isn't set up on this skua")
 	}
+	where := "this server"
+	if c := e.Client(); c != nil && c.Caches != nil {
+		if g, ok := c.Caches.Guild(guild); ok && g.Name != "" {
+			where = g.Name
+		}
+	}
+	state := m.link.put(m.link.asks, ask{guild: guild, user: e.User().ID, who: e.User().EffectiveName(), where: where, until: m.now().Add(linkTTL)}, m.now())
 	q := url.Values{
 		"client_id": {m.api.id}, "redirect_uri": {m.link.redirect()}, "response_type": {"code"},
-		"scope": {"wow.profile"}, "state": {m.link.state(guild, e.User().ID, m.now().Add(linkTTL))},
+		"scope": {"wow.profile"}, "state": {state},
 	}
 	signIn := discord.NewLinkButton("sign in to battle.net", m.link.authorize+"?"+q.Encode())
 	signIn.Emoji = brand.ComponentEmoji("fv_link")
-	body := "sign in and skua adds every forever character on your battle.net account, in every region, marked as yours\n-# the link works once, for 10 minutes. skua reads your characters with it and keeps nothing else"
+	body := "sign in and skua shows the forever characters on your battle.net account, in every region, and links them to you here once you confirm\n-# the link is yours alone and works once, for 10 minutes. skua reads your characters with it and keeps nothing else"
 	return e.CreateMessage(v2(brand.Card(brand.ColorNotice, Name, "battle.net", body, discord.NewActionRow(signIn)), true))
 }
 
-// Hooks is the handler for forever's path on SKUA_HOOKS_ADDR.
+// Hooks is the handler for forever's paths on SKUA_HOOKS_ADDR.
 func (m *Module) Hooks() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /forever/callback", m.callback)
+	mux.HandleFunc("POST /forever/confirm", m.confirmed)
 	return mux
 }
 
 // Linking is whether battle.net sign-in is set up, so main serves Hooks.
 func (m *Module) Linking() bool { return m.link.on() }
 
-// page is the one line a member reads in their browser after signing in.
-func page(w http.ResponseWriter, status int, text string) {
+// page is what a member reads in their browser: lines of text, and a form
+// when there's something to confirm. Whatever comes from outside is
+// escaped before it gets here.
+func page(w http.ResponseWriter, status int, form string, lines ...string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Frame-Options", "DENY")
 	w.WriteHeader(status)
-	_, _ = fmt.Fprintf(w, `<!doctype html><meta name="viewport" content="width=device-width"><title>skua</title><body style="background:#1e2228;color:#dbdee1;font:16px system-ui;display:grid;place-items:center;min-height:90vh;margin:0"><p style="max-width:32em;padding:0 16px">%s</p>`, text)
+	var b strings.Builder
+	for _, l := range lines {
+		b.WriteString("<p>" + l + "</p>")
+	}
+	_, _ = fmt.Fprintf(w, `<!doctype html><meta name="viewport" content="width=device-width"><title>skua</title><body style="background:#1e2228;color:#dbdee1;font:16px/1.5 system-ui;display:grid;place-items:center;min-height:90vh;margin:0"><main style="max-width:34em;padding:0 16px">%s%s</main>`, b.String(), form)
 }
 
 // callback is where Blizzard sends a member back: the code becomes a token,
-// the token their characters, and the characters theirs in the server
-// that asked.
+// the token their characters, and the characters a page to confirm.
 func (m *Module) callback(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	guild, user, err := m.link.check(q.Get("state"), m.now())
-	if err != nil {
-		page(w, http.StatusBadRequest, "this sign-in link has expired or was already used. press link in /forever me for a new one")
+	a, ok := m.link.take(m.link.asks, q.Get("state"), m.now())
+	if !ok {
+		page(w, http.StatusBadRequest, "", "this sign-in link has expired or was already used. press link battle.net in /forever me for a new one")
 		return
 	}
 	if q.Get("error") != "" || q.Get("code") == "" {
-		page(w, http.StatusOK, "battle.net sign-in was cancelled, so nothing changed. you can close this tab")
+		page(w, http.StatusOK, "", "battle.net sign-in was cancelled, so nothing changed. you can close this tab")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
@@ -153,15 +159,90 @@ func (m *Module) callback(w http.ResponseWriter, r *http.Request) {
 	tok, err := m.exchange(ctx, q.Get("code"))
 	if err != nil {
 		m.log.Warn("forever: battle.net sign-in", "err", err)
-		page(w, http.StatusBadGateway, "battle.net didn't let skua read your characters. try the link button again in a moment")
+		page(w, http.StatusBadGateway, "", "battle.net didn't let skua read your characters. press link battle.net again in a moment")
 		return
 	}
-	added, skipped := m.importAll(ctx, guild, user, tok)
-	text := fmt.Sprintf("skua added %d of your forever characters, marked as yours. you can close this tab and run /forever me", added)
-	if skipped > 0 {
-		text += fmt.Sprintf(". %d more aren't in blizzard's armory yet: a character shows from level 10, once it has logged out", skipped)
+	a.chars, a.failed, a.regions = m.account(ctx, tok)
+	if a.failed == a.regions {
+		page(w, http.StatusBadGateway, "", "blizzard's armory didn't answer for any region. press link battle.net again in a moment")
+		return
 	}
-	page(w, http.StatusOK, text)
+	if len(a.chars) == 0 {
+		page(w, http.StatusOK, "", "this battle.net account has no forever characters skua can see yet. you can close this tab")
+		return
+	}
+	a.until = m.now().Add(linkTTL)
+	id := m.link.put(m.link.confirm, a, m.now())
+	var names []string
+	for _, c := range a.chars {
+		names = append(names, html.EscapeString(c.name+" "+c.surname)+" <small>"+c.region+"</small>")
+	}
+	lines := []string{
+		fmt.Sprintf("link these %d forever characters to <b>%s</b> in <b>%s</b>?", len(a.chars), html.EscapeString(a.who), html.EscapeString(a.where)),
+		strings.Join(names, "<br>"),
+		"only confirm if that's you. if someone sent you this link, close this tab and nothing changes",
+	}
+	if a.failed > 0 {
+		lines = append(lines, fmt.Sprintf("blizzard didn't answer for %d of the regions, so some characters may be missing; link again later to add them", a.failed))
+	}
+	form := `<form method="post" action="/forever/confirm"><input type="hidden" name="id" value="` + id + `"><button style="font:inherit;padding:8px 20px;background:#5865f2;color:#fff;border:0;border-radius:4px">link them to me</button></form>`
+	page(w, http.StatusOK, form, lines...)
+}
+
+// confirmed links the characters a confirm page offered, as the member's
+// and verified, gives them the forever role and says how it went.
+func (m *Module) confirmed(w http.ResponseWriter, r *http.Request) {
+	a, ok := m.link.take(m.link.confirm, r.PostFormValue("id"), m.now())
+	if !ok {
+		page(w, http.StatusBadRequest, "", "this page has expired or was already used. press link battle.net in /forever me for a new one")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	added := 0
+	why := map[string]int{}
+	var displaced []snowflake.ID
+	for _, c := range a.chars {
+		res, err := m.list(ctx, a.guild, a.user, c.region, c.name, c.surname, true)
+		if err != nil {
+			why[reason(err)]++
+			continue
+		}
+		added++
+		displaced = append(displaced, res.displaced...)
+	}
+	m.mu.Lock()
+	p := m.rest
+	m.mu.Unlock()
+	if p != nil && added > 0 {
+		m.grant(ctx, p, a.guild, a.user)
+		for _, u := range displaced {
+			m.ungrant(ctx, p, a.guild, u)
+		}
+	}
+	lines := []string{fmt.Sprintf("skua linked %d of your forever characters to you in %s. you can close this tab and run /forever me", added, html.EscapeString(a.where))}
+	for _, k := range []string{"armory", "full", "other"} {
+		if n := why[k]; n > 0 {
+			lines = append(lines, fmt.Sprintf("%d %s", n, map[string]string{
+				"armory": "aren't in blizzard's armory yet: a character shows from level 10, once it has logged out",
+				"full":   "didn't fit: you or this server already list as many characters as skua keeps",
+				"other":  "couldn't be read from blizzard just now; link again later to add them",
+			}[k]))
+		}
+	}
+	page(w, http.StatusOK, "", lines...)
+}
+
+// reason is which line of the page a failed add belongs on.
+func reason(err error) string {
+	var t core.Tell
+	switch {
+	case errors.As(err, &t) && strings.Contains(string(t), "level 10"):
+		return "armory"
+	case errors.As(err, &t):
+		return "full"
+	}
+	return "other"
 }
 
 // exchange trades the sign-in's code for the member's token.
@@ -196,31 +277,33 @@ type account struct {
 		Characters []struct {
 			Name    string `json:"name"`
 			Surname string `json:"surname"`
-			Level   int    `json:"level"`
 		} `json:"characters"`
 	} `json:"wow_accounts"`
 }
 
-// importAll lists every Forever character on the member's account, in
-// every region, as theirs and verified.
-func (m *Module) importAll(ctx context.Context, guild, user snowflake.ID, tok string) (added, skipped int) {
+// account is every Forever character on the member's account, and how many
+// regions Blizzard failed to answer for: a region with no Forever account
+// answers 404 or 403, which is no failure.
+func (m *Module) account(ctx context.Context, tok string) (chars []found, failed, regions int) {
 	for _, region := range Regions {
+		regions++
 		var acc account
-		if err := m.api.getAs(ctx, tok, region, "/profile/user/wow", &acc); err != nil {
-			continue // no Forever account there
+		err := m.api.getAs(ctx, tok, region, "/profile/user/wow", &acc)
+		if errors.Is(err, errGone) {
+			continue
+		}
+		if err != nil {
+			m.log.Warn("forever: reading a battle.net account", "region", region, "err", err)
+			failed++
+			continue
 		}
 		for _, a := range acc.Accounts {
 			for _, c := range a.Characters {
-				if c.Name == "" || c.Surname == "" {
-					continue
+				if c.Name != "" && c.Surname != "" {
+					chars = append(chars, found{region, c.Name, c.Surname})
 				}
-				if _, err := m.list(ctx, guild, user, region, c.Name, c.Surname, true); err != nil {
-					skipped++
-					continue
-				}
-				added++
 			}
 		}
 	}
-	return added, skipped
+	return chars, failed, regions
 }
