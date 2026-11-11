@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,14 +17,7 @@ import (
 // Regions is every region Forever runs in, in the order skua shows them.
 var Regions = []string{"us", "eu", "kr", "tw"}
 
-func validRegion(r string) bool {
-	for _, x := range Regions {
-		if x == r {
-			return true
-		}
-	}
-	return false
-}
+func validRegion(r string) bool { return slices.Contains(Regions, r) }
 
 // errGone is a character Blizzard doesn't answer for: under level 10, never
 // logged out, renamed, or a region whose armory is down.
@@ -146,15 +140,11 @@ type profile struct {
 	Surname string `json:"surname"`
 	Level   int    `json:"level"`
 	XP      int    `json:"experience"`
-	Points  int    `json:"achievement_points"`
 	Logout  int64  `json:"last_login_timestamp"` // ms; when its profile was last saved
 	ILvl    int    `json:"equipped_item_level"`
 	Class   named  `json:"character_class"`
 	Race    named  `json:"race"`
 	Ruleset named  `json:"ruleset"`
-	Faction struct {
-		Type string `json:"type"`
-	} `json:"faction"`
 }
 
 // professions is a character's professions and their skill.

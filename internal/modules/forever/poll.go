@@ -103,11 +103,18 @@ func (m *Module) poll(ctx context.Context) {
 		}
 		ch.missing = 0
 		if !f.news {
+			ch.polled = now
 			continue
 		}
+		stale := !ch.polled.IsZero() && now.Sub(ch.polled) > staleAfter
 		*ch = f.now
-		ch.missing = 0
+		ch.missing, ch.polled = 0, now
 		changed = append(changed, f.now)
+		if stale {
+			// Unread for a while (its server was switched off): what it did
+			// meanwhile is old news, so this round is a quiet baseline.
+			continue
+		}
 		for g, ms := range m.dings(f.was, f.now) {
 			feed[g] = append(feed[g], ms...)
 		}
@@ -125,7 +132,7 @@ func (m *Module) poll(ctx context.Context) {
 	m.mu.Unlock()
 
 	for g, places := range charts {
-		if err := saveDay(ctx, m.db, g, places); err != nil {
+		if err := saveDay(ctx, m.db, g, now.UTC().Format(time.DateOnly), places); err != nil {
 			m.log.Warn("forever: keeping the day's chart", "err", err)
 		}
 	}
@@ -156,7 +163,7 @@ func (m *Module) refresh(ctx context.Context, c char) fetched {
 		f.err = err
 		return f
 	}
-	if p.ID != 0 && p.ID != c.id {
+	if p.ID != c.id {
 		// The name now belongs to another character: this one was renamed
 		// or deleted, and that one isn't who was listed.
 		f.err = errGone
@@ -229,10 +236,9 @@ func (m *Module) renders(ctx context.Context, c char) (avatar, render string) {
 func apply(c *char, p profile) {
 	c.id = p.ID
 	c.name, c.surname = p.Name, p.Surname
-	c.level, c.xp, c.points, c.ilvl = p.Level, p.XP, p.Points, p.ILvl
-	c.class, c.classID, c.race = strings.ToLower(p.Class.Name), p.Class.ID, strings.ToLower(p.Race.Name)
+	c.level, c.xp, c.ilvl = p.Level, p.XP, p.ILvl
+	c.class, c.race = strings.ToLower(p.Class.Name), strings.ToLower(p.Race.Name)
 	c.ruleset = strings.ToLower(p.Ruleset.Name)
-	c.faction = strings.ToLower(p.Faction.Type)
 }
 
 // milestone is a level the feed tells: every ten, and Forever's Legacy
@@ -280,7 +286,7 @@ func (m *Module) dings(was, now char) map[snowflake.ID][]moment {
 			if first {
 				line += " · first in the server"
 			}
-			out[c.guild] = append(out[c.guild], moment{line: line + tail, big: top == Cap || first && top >= 20, c: now})
+			out[c.guild] = append(out[c.guild], moment{line: line + tail, big: top == Cap || first && top%10 == 0 && top >= 20, c: now})
 		}
 		for _, p := range crafting {
 			for _, l := range craftPoints {

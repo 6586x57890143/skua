@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -169,7 +170,16 @@ func (m *Module) list(ctx context.Context, guild, user snowflake.ID, region, nam
 	m.mu.Lock()
 	old, known := m.chars[c.key]
 	if known {
+		// skua's record keeps its climb for the next round; the name is
+		// Blizzard's now, so a renamed character comes back by adding it.
+		name, surname := c.name, c.surname
+		renamed := old.name != name || old.surname != surname
 		c = *old
+		c.name, c.surname = name, surname
+		if renamed {
+			old.name, old.surname, old.modified = c.name, c.surname, ""
+			c.modified = ""
+		}
 	}
 	err = m.claimable(guild, user, c)
 	m.mu.Unlock()
@@ -178,9 +188,10 @@ func (m *Module) list(ctx context.Context, guild, user snowflake.ID, region, nam
 	}
 	if !known {
 		c.avatar, c.render = m.renders(ctx, c)
-		if err := saveChar(ctx, m.db, c); err != nil {
-			return "", err
-		}
+		c.crafts = m.crafts(ctx, c)
+	}
+	if err := saveChar(ctx, m.db, c); err != nil {
+		return "", err
 	}
 	cl := claim{guild: guild, user: user, k: c.key, at: m.now()}
 	m.mu.Lock()
@@ -257,6 +268,7 @@ func (m *Module) drop(ctx context.Context, e *events.ComponentInteractionCreate,
 			return err
 		}
 	}
+	m.prune(ctx, dropped...)
 	note := "✓ taken off"
 	if len(dropped) == 0 {
 		note = "! that character isn't on your list any more"
@@ -280,8 +292,9 @@ const roleColor = 0xE0A64B
 // and wearing skua's icon where the server's boosts allow role icons.
 // 0 when skua can't make one.
 func (m *Module) ensureRole(ctx context.Context, r rest.Rest, guild snowflake.ID) snowflake.ID {
-	m.roleMu.Lock()
-	defer m.roleMu.Unlock()
+	mu, _ := m.roleMu.LoadOrStore(guild, &sync.Mutex{})
+	mu.(*sync.Mutex).Lock()
+	defer mu.(*sync.Mutex).Unlock()
 	m.mu.Lock()
 	s := m.guilds[guild]
 	m.mu.Unlock()
@@ -305,13 +318,9 @@ func (m *Module) ensureRole(ctx context.Context, r rest.Rest, guild snowflake.ID
 		m.log.Info("forever: making the role", "guild", guild, "err", err)
 		return 0
 	}
-	s.role = role.ID
-	if err := saveSetup(ctx, m.db, guild, s); err != nil {
+	if err := m.setGuild(ctx, guild, func(s *setup) { s.role = role.ID }); err != nil {
 		m.log.Warn("forever: keeping the role", "err", err)
 	}
-	m.mu.Lock()
-	m.guilds[guild] = s
-	m.mu.Unlock()
 	return role.ID
 }
 
@@ -323,6 +332,35 @@ func roleIcon() *discord.Icon {
 		}
 	}
 	return nil
+}
+
+// prune forgets the characters of ks no server lists any more.
+func (m *Module) prune(ctx context.Context, ks ...key) {
+	m.mu.Lock()
+	var gone []key
+	for _, k := range ks {
+		if !slices.ContainsFunc(m.claims, func(c claim) bool { return c.k == k }) {
+			delete(m.chars, k)
+			gone = append(gone, k)
+		}
+	}
+	m.mu.Unlock()
+	for _, k := range gone {
+		if err := dropChar(ctx, m.db, k); err != nil {
+			m.log.Warn("forever: forgetting a character", "err", err)
+		}
+	}
+}
+
+// setGuild changes one server's settings under the lock and keeps them,
+// so two changes at once never undo each other.
+func (m *Module) setGuild(ctx context.Context, guild snowflake.ID, change func(*setup)) error {
+	m.mu.Lock()
+	s := m.guilds[guild]
+	change(&s)
+	m.guilds[guild] = s
+	m.mu.Unlock()
+	return saveSetup(ctx, m.db, guild, s)
 }
 
 // grant gives a member the server's forever role when they add a
@@ -376,10 +414,25 @@ func (m *Module) toggleRole(ctx context.Context, e *events.ComponentInteractionC
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	defer cancel()
 	r := e.Client().Rest
+	text, err := m.flipRole(ctx, r, guild, member, role, self)
+	if err != nil {
+		var t core.Tell
+		if !errors.As(err, &t) {
+			m.log.Warn("forever: the role button", "err", err)
+			t = "something went wrong on skua's side; try again in a moment"
+		}
+		text = "✗ " + string(t)
+	}
+	_, err = r.UpdateInteractionResponse(e.ApplicationID(), e.Token(), update(brand.Card(brand.ColorOK, Name, "", text)), rest.WithCtx(ctx))
+	return err
+}
+
+// flipRole gives member the role or takes it back, and what to tell them.
+func (m *Module) flipRole(ctx context.Context, r rest.Rest, guild snowflake.ID, member *discord.ResolvedMember, role, self snowflake.ID) (string, error) {
 	rr := roles.WithCtx{R: r, Ctx: ctx}
 	has := slices.Contains(member.RoleIDs, role)
 	if has && !roles.CanDrop(rr, guild, role) || !has && !roles.CanGrant(rr, guild, self, role) {
-		return core.Tell("skua can't hand out that role; an admin can pick one with no permissions or channel overrides of its own, below skua's")
+		return "", core.Tell("skua can't hand out that role; an admin can pick one with no permissions or channel overrides of its own, below skua's")
 	}
 	opts := []rest.RequestOpt{rest.WithCtx(ctx), rest.WithReason("forever: the member pressed role")}
 	var err error
@@ -391,13 +444,9 @@ func (m *Module) toggleRole(ctx context.Context, e *events.ComponentInteractionC
 	}
 	m.guard.Done(guild, err)
 	if re, ok := errors.AsType[*rest.Error](err); ok && re.Response != nil && re.Response.StatusCode == http.StatusForbidden {
-		return core.Tell("skua can't hand out that role right now; an admin needs to give her manage roles above it")
+		return "", core.Tell("skua can't hand out that role right now; an admin needs to give her manage roles above it")
 	}
-	if err != nil {
-		return err
-	}
-	_, err = r.UpdateInteractionResponse(e.ApplicationID(), e.Token(), update(brand.Card(brand.ColorOK, Name, "", text)), rest.WithCtx(ctx))
-	return err
+	return text, err
 }
 
 // controls is the admin page's settings: where the feed goes and the role
@@ -420,29 +469,24 @@ func (m *Module) configure(ctx context.Context, e *events.ComponentInteractionCr
 	if !m.admin(e) {
 		return core.Tell("only this server's admins can change forever's settings")
 	}
-	m.mu.Lock()
-	s := m.guilds[guild]
-	m.mu.Unlock()
 	var note string
+	var change func(*setup)
 	switch what {
 	case "feed":
 		ch := e.ChannelSelectMenuInteractionData().Values
 		if len(ch) != 1 {
 			return core.Tell("pick one channel")
 		}
-		s.feed, note = ch[0], "✓ the level feed goes to <#"+ch[0].String()+">"
+		change, note = func(s *setup) { s.feed = ch[0] }, "✓ the level feed goes to <#"+ch[0].String()+">"
 	case "setrole":
 		rs := e.RoleSelectMenuInteractionData().Values
 		if len(rs) != 1 {
 			return core.Tell("pick one role")
 		}
-		s.role, note = rs[0], "✓ members can pick <@&"+rs[0].String()+"> from /forever me"
+		change, note = func(s *setup) { s.role = rs[0] }, "✓ members can pick <@&"+rs[0].String()+"> from /forever me"
 	}
-	if err := saveSetup(ctx, m.db, guild, s); err != nil {
+	if err := m.setGuild(ctx, guild, change); err != nil {
 		return err
 	}
-	m.mu.Lock()
-	m.guilds[guild] = s
-	m.mu.Unlock()
 	return e.CreateMessage(v2(brand.Card(brand.ColorOK, Name, "settings", note), true))
 }

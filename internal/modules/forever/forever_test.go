@@ -486,9 +486,10 @@ func TestSettings(t *testing.T) {
 	}
 	// A role skua can't hand out (above hers) is refused at the press.
 	b, _ = coretest.Button(t, "forever:role", nil)
-	b.Client().Rest = &fake{perms: discord.PermissionManageRoles}
-	if err := m.click(context.Background(), b); err == nil {
-		t.Fatal("handed out a role above skua's")
+	refused := &fake{perms: discord.PermissionManageRoles}
+	b.Client().Rest = refused
+	if err := m.click(context.Background(), b); err != nil || len(refused.added) != 0 || len(refused.updates) != 1 {
+		t.Fatalf("handed out a role above skua's: %v %v", err, refused.added)
 	}
 	b, _ = coretest.Button(t, "forever:page:1", nil)
 	if err := m.click(context.Background(), b); err != nil {

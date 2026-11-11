@@ -160,7 +160,7 @@ func TestLiveShape(t *testing.T) {
 	}
 	var c char
 	apply(&c, p)
-	if c.xp != 5824 || c.ruleset != "roleplay pvp" || c.class != "warrior" || c.faction != "alliance" {
+	if c.xp != 5824 || c.ruleset != "roleplay pvp" || c.class != "warrior" {
 		t.Fatalf("live profile read as %+v", c)
 	}
 }
@@ -207,5 +207,89 @@ func TestCraftCheckpoints(t *testing.T) {
 	}
 	if legacyPoints([]*char{c, {class: "mage", level: 30, crafts: map[string]int{"enchanting": 230}}}) != 3 {
 		t.Fatal("legacy points count a checkpoint twice")
+	}
+}
+
+// TestRenamedReAdd is a renamed character added again: skua's record takes
+// the new name, so its polls find it.
+func TestRenamedReAdd(t *testing.T) {
+	m, a, _ := newTest(t)
+	ctx := context.Background()
+	a.set("thrall-earthcaller", prof(1, "Thrall", "Earthcaller", "Shaman", 30), "a")
+	if _, err := m.list(ctx, 3, 5, "eu", "thrall", "earthcaller"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := coretest.Button(t, "forever:drop", func(p map[string]any) {
+		p["data"] = map[string]any{"custom_id": "forever:drop", "component_type": 3, "values": []any{"eu.1"}}
+	})
+	b.Client().Rest = &fake{}
+	if err := m.click(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.chars) != 0 {
+		t.Fatal("a character nobody lists was kept")
+	}
+	if _, err := m.list(ctx, 4, 6, "eu", "thrall", "earthcaller"); err != nil {
+		t.Fatal(err)
+	}
+	delete(a.chars, "thrall-earthcaller")
+	a.set("thrall-stormborn", prof(1, "Thrall", "Stormborn", "Shaman", 31), "b")
+	if _, err := m.list(ctx, 3, 5, "eu", "thrall", "stormborn"); err != nil {
+		t.Fatal(err)
+	}
+	if c := m.chars[key{"eu", 1}]; c.surname != "Stormborn" || c.slug() != "thrall-stormborn" {
+		t.Fatalf("renamed record: %+v", c)
+	}
+}
+
+// TestStaleIsBaseline is a character unread for a while (its server was
+// switched off): its next change is a quiet baseline, not a feed post.
+func TestStaleIsBaseline(t *testing.T) {
+	m, a, f := newTest(t)
+	ctx := context.Background()
+	m.guilds[3] = setup{feed: 40}
+	a.set("a-b", prof(1, "A", "B", "Mage", 30), "a")
+	if _, err := m.list(ctx, 3, 5, "us", "a", "b"); err != nil {
+		t.Fatal(err)
+	}
+	m.poll(ctx)
+	clock := time.Now()
+	m.now = func() time.Time { return clock.Add(2 * time.Hour) }
+	a.set("a-b", prof(1, "A", "B", "Mage", 60), "b")
+	m.poll(ctx)
+	if len(f.posts) != 0 || m.chars[key{"us", 1}].level != 60 {
+		t.Fatalf("a stale climb posted %d cards", len(f.posts))
+	}
+}
+
+// TestRoleRefusalInPlace is the role button refused after it was deferred:
+// the refusal edits the deferred reply instead of leaving it thinking.
+func TestRoleRefusalInPlace(t *testing.T) {
+	m, _, _ := newTest(t)
+	m.guilds[3] = setup{role: 80}
+	f := &fake{perms: discord.PermissionManageRoles}
+	b, _ := coretest.Button(t, "forever:role", nil)
+	b.Client().Rest = f
+	if err := m.click(context.Background(), b); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.updates) != 1 || !strings.Contains(text((*f.updates[0].Components)[0].(discord.ContainerComponent)), "✗ skua can't hand out that role") {
+		t.Fatalf("updates: %+v", f.updates)
+	}
+}
+
+// TestSettingsDontClobber is the role made while an admin picks the feed:
+// both changes stay.
+func TestSettingsDontClobber(t *testing.T) {
+	m, _, _ := newTest(t)
+	ctx := context.Background()
+	if err := m.setGuild(ctx, 3, func(s *setup) { s.feed = 40 }); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.setGuild(ctx, 3, func(s *setup) { s.role = 70 }); err != nil {
+		t.Fatal(err)
+	}
+	if m.guilds[3] != (setup{feed: 40, role: 70}) {
+		t.Fatalf("settings: %+v", m.guilds[3])
 	}
 }

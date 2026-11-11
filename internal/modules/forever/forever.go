@@ -41,7 +41,9 @@ const (
 	perMember = 10  // characters one member lists in a server
 	perGuild  = 500 // characters one server lists
 	every     = 5 * time.Minute
-	inFlight  = 8
+	// staleAfter is how long unread a character's next change is old news.
+	staleAfter = 30 * time.Minute
+	inFlight   = 8
 )
 
 // Config is skua's Battle.net app. Empty leaves forever off.
@@ -76,8 +78,8 @@ type Module struct {
 	on   func(guild snowflake.ID) bool
 	now  func() time.Time
 	boot sync.Once
-	// roleMu keeps two first adds from making two roles.
-	roleMu sync.Mutex
+	// roleMu keeps two first adds in one server from making two roles.
+	roleMu sync.Map // guild -> *sync.Mutex
 
 	mu     sync.Mutex
 	chars  map[key]*char
@@ -200,6 +202,13 @@ func (m *Module) OnEvent(ev bot.Event) {
 			if err := dropGuild(ctx, m.db, e.GuildID); err != nil {
 				m.log.Warn("forever: forgetting a server", "guild", e.GuildID, "err", err)
 			}
+			m.mu.Lock()
+			var ks []key
+			for k := range m.chars {
+				ks = append(ks, k)
+			}
+			m.mu.Unlock()
+			m.prune(ctx, ks...)
 		}()
 	}
 }

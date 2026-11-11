@@ -28,16 +28,15 @@ type key struct {
 // lists it.
 type char struct {
 	key
-	name, surname           string
-	class, race, ruleset    string
-	classID                 int
-	faction                 string
-	level, xp, points, ilvl int
-	avatar, render          string         // Blizzard's renders, for the cards
-	modified                string         // the profile's Last-Modified
-	missing                 int            // polls in a row Blizzard didn't answer
-	crafts                  map[string]int // crafting profession -> skill
-	reached                 time.Time      // when it reached its level; zero when skua didn't see it
+	name, surname        string
+	class, race, ruleset string
+	level, xp, ilvl      int
+	avatar, render       string         // Blizzard's renders, for the cards
+	modified             string         // the profile's Last-Modified
+	missing              int            // polls in a row Blizzard didn't answer
+	polled               time.Time      // the last round that read it; not stored
+	crafts               map[string]int // crafting profession -> skill
+	reached              time.Time      // when it reached its level; zero when skua didn't see it
 }
 
 func (c *char) slug() string { return slug(c.name, c.surname) }
@@ -66,14 +65,14 @@ func load(ctx context.Context, db DB) (state, error) {
 	if db == nil {
 		return st, nil
 	}
-	rows, err := db.Query(ctx, `select region, id, name, surname, class, class_id, race, ruleset, faction, level, xp, points, ilvl, avatar, render, modified, reached, crafts from forever_char`)
+	rows, err := db.Query(ctx, `select region, id, name, surname, class, race, ruleset, level, xp, ilvl, avatar, render, modified, reached, crafts from forever_char`)
 	if err != nil {
 		return st, err
 	}
 	for rows.Next() {
 		c := &char{}
 		var crafts string
-		if err := rows.Scan(&c.region, &c.id, &c.name, &c.surname, &c.class, &c.classID, &c.race, &c.ruleset, &c.faction, &c.level, &c.xp, &c.points, &c.ilvl, &c.avatar, &c.render, &c.modified, &c.reached, &crafts); err != nil {
+		if err := rows.Scan(&c.region, &c.id, &c.name, &c.surname, &c.class, &c.race, &c.ruleset, &c.level, &c.xp, &c.ilvl, &c.avatar, &c.render, &c.modified, &c.reached, &crafts); err != nil {
 			rows.Close()
 			return st, err
 		}
@@ -139,10 +138,10 @@ func saveChar(ctx context.Context, db DB, c char) error {
 	if db == nil {
 		return nil
 	}
-	_, err := db.Exec(ctx, `insert into forever_char (region, id, name, surname, class, class_id, race, ruleset, faction, level, xp, points, ilvl, avatar, render, modified, reached, crafts)
-		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-		on conflict (region, id) do update set name=$3, surname=$4, class=$5, class_id=$6, race=$7, ruleset=$8, faction=$9, level=$10, xp=$11, points=$12, ilvl=$13, avatar=$14, render=$15, modified=$16, reached=$17, crafts=$18`,
-		c.region, c.id, c.name, c.surname, c.class, c.classID, c.race, c.ruleset, c.faction, c.level, c.xp, c.points, c.ilvl, c.avatar, c.render, c.modified, c.reached, formatCrafts(c.crafts))
+	_, err := db.Exec(ctx, `insert into forever_char (region, id, name, surname, class, race, ruleset, level, xp, ilvl, avatar, render, modified, reached, crafts)
+		values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+		on conflict (region, id) do update set name=$3, surname=$4, class=$5, race=$6, ruleset=$7, level=$8, xp=$9, ilvl=$10, avatar=$11, render=$12, modified=$13, reached=$14, crafts=$15`,
+		c.region, c.id, c.name, c.surname, c.class, c.race, c.ruleset, c.level, c.xp, c.ilvl, c.avatar, c.render, c.modified, c.reached, formatCrafts(c.crafts))
 	return err
 }
 
@@ -194,20 +193,33 @@ func parseCrafts(s string) map[string]int {
 	return out
 }
 
-// saveDay keeps a server's chart for the day, replacing the last one.
-func saveDay(ctx context.Context, db DB, guild snowflake.ID, places map[key]int) error {
+// saveDay keeps a server's chart for day (utc), replacing the last one in
+// one statement, so a failure leaves the old chart whole.
+func saveDay(ctx context.Context, db DB, guild snowflake.ID, day string, places map[key]int) error {
 	if db == nil {
 		return nil
 	}
-	if _, err := db.Exec(ctx, `delete from forever_place where guild_id=$1`, guild); err != nil {
-		return err
-	}
+	var regions []string
+	var ids []int64
+	var at []int32
 	for k, place := range places {
-		if _, err := db.Exec(ctx, `insert into forever_place (guild_id, region, char_id, place, day) values ($1,$2,$3,$4,current_date)`, guild, k.region, k.id, place); err != nil {
-			return err
-		}
+		regions, ids, at = append(regions, k.region), append(ids, k.id), append(at, int32(place))
 	}
-	return nil
+	_, err := db.Exec(ctx, `with gone as (delete from forever_place where guild_id=$1)
+		insert into forever_place (guild_id, region, char_id, place, day)
+		select $1, r, i, p, $5::date from unnest($2::text[], $3::bigint[], $4::int[]) as t(r, i, p)`,
+		guild, regions, ids, at, day)
+	return err
+}
+
+// dropChar forgets a character no server lists any more, so adding it
+// again starts from what Blizzard says then.
+func dropChar(ctx context.Context, db DB, k key) error {
+	if db == nil {
+		return nil
+	}
+	_, err := db.Exec(ctx, `delete from forever_char where region=$1 and id=$2 and not exists (select 1 from forever_claim where region=$1 and char_id=$2)`, k.region, k.id)
+	return err
 }
 
 func dropGuild(ctx context.Context, db DB, guild snowflake.ID) error {

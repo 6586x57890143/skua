@@ -41,7 +41,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	at := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
-	c := char{crafts: map[string]int{"tailoring": 141}, key: key{"eu", 77001}, name: "Thrall", surname: "Earthcaller", class: "shaman", classID: 7, level: 30, ruleset: "normal", faction: "horde", reached: at, avatar: "https://a", modified: "m"}
+	c := char{crafts: map[string]int{"tailoring": 141}, key: key{"eu", 77001}, name: "Thrall", surname: "Earthcaller", class: "shaman", level: 30, ruleset: "normal", reached: at, avatar: "https://a", modified: "m"}
 	if err := saveChar(ctx, db, c); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err := saveSetup(ctx, db, guild, setup{feed: 40, role: 70}); err != nil {
 		t.Fatal(err)
 	}
-	if err := saveDay(ctx, db, guild, map[key]int{c.key: 2}); err != nil {
+	if err := saveDay(ctx, db, guild, "2026-11-11", map[key]int{c.key: 2}); err != nil {
 		t.Fatal(err)
 	}
 	st, err := load(ctx, db)

@@ -37,13 +37,7 @@ func accent(class string) int {
 func itoa(n int) string { return strconv.Itoa(n) }
 
 // num is a count with thousands marked: 20,590.
-func num(n int) string {
-	s := strconv.Itoa(n)
-	for i := len(s) - 3; i > 0 && s[i-1] != '-'; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	return s
-}
+func num(n int) string { return core.Grouped(int64(n)) }
 
 // classMark is a class's emoji and a space, or nothing before the sync.
 func classMark(class string) string {
