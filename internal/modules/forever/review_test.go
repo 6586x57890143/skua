@@ -21,14 +21,14 @@ func TestSharedCharacter(t *testing.T) {
 	ctx := context.Background()
 	m.guilds[3], m.guilds[4] = setup{feed: 40}, setup{feed: 41}
 	a.set("thrall-earthcaller", prof(1, "Thrall", "Earthcaller", "Shaman", 59), "a")
-	if _, err := m.list(ctx, 3, 5, "eu", "thrall", "earthcaller"); err != nil {
+	if _, err := m.list(ctx, 3, 5, "eu", "thrall", "earthcaller", false); err != nil {
 		t.Fatal(err)
 	}
 	if !m.chars[key{"eu", 1}].reached.IsZero() {
 		t.Fatal("a new character's reach time was made up")
 	}
 	a.set("thrall-earthcaller", prof(1, "Thrall", "Earthcaller", "Shaman", 60), "b")
-	if _, err := m.list(ctx, 4, 6, "eu", "thrall", "earthcaller"); err != nil {
+	if _, err := m.list(ctx, 4, 6, "eu", "thrall", "earthcaller", false); err != nil {
 		t.Fatal(err)
 	}
 	if m.chars[key{"eu", 1}].level != 59 {
@@ -50,7 +50,7 @@ func TestGatedOff(t *testing.T) {
 	ctx := context.Background()
 	m.guilds[3] = setup{feed: 40}
 	a.set("a-b", prof(1, "A", "B", "Mage", 19), "a")
-	if _, err := m.list(ctx, 3, 5, "us", "a", "b"); err != nil {
+	if _, err := m.list(ctx, 3, 5, "us", "a", "b", false); err != nil {
 		t.Fatal(err)
 	}
 	m.Gate(func(snowflake.ID) bool { return false })
@@ -68,7 +68,7 @@ func TestLegacyMidClimb(t *testing.T) {
 	ctx := context.Background()
 	m.guilds[3] = setup{feed: 40}
 	a.set("a-b", prof(1, "A", "B", "Mage", 44), "a")
-	if _, err := m.list(ctx, 3, 5, "us", "a", "b"); err != nil {
+	if _, err := m.list(ctx, 3, 5, "us", "a", "b", false); err != nil {
 		t.Fatal(err)
 	}
 	a.set("a-b", prof(1, "A", "B", "Mage", 50), "b")
@@ -86,10 +86,10 @@ func TestReportIsThisServers(t *testing.T) {
 	ctx := context.Background()
 	a.set("a-b", prof(1, "A", "B", "Mage", 20), "a")
 	a.set("c-d", prof(2, "C", "D", "Mage", 20), "a")
-	if _, err := m.list(ctx, 3, 5, "eu", "a", "b"); err != nil {
+	if _, err := m.list(ctx, 3, 5, "eu", "a", "b", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.list(ctx, 4, 5, "eu", "c", "d"); err != nil {
+	if _, err := m.list(ctx, 4, 5, "eu", "c", "d", false); err != nil {
 		t.Fatal(err)
 	}
 	delete(a.chars, "c-d")
@@ -110,7 +110,7 @@ func TestLimits(t *testing.T) {
 	for i := range perMember {
 		m.claims = append(m.claims, claim{guild: 3, user: 5, k: key{"us", int64(100 + i)}})
 	}
-	if _, err := m.list(ctx, 3, 5, "us", "a", "b"); err == nil || !strings.Contains(err.Error(), "take one off") {
+	if _, err := m.list(ctx, 3, 5, "us", "a", "b", false); err == nil || !strings.Contains(err.Error(), "take one off") {
 		t.Fatalf("over the cap: %v", err)
 	}
 	e, _ := coretest.Modal(t, addID, map[string]string{"name": "a b"}, func(p map[string]any) {
@@ -174,7 +174,7 @@ func TestCraftCheckpoints(t *testing.T) {
 	m.guilds[3] = setup{feed: 40}
 	a.set("a-b", prof(1, "A", "B", "Mage", 31), "a")
 	a.skill["a-b"] = 150
-	if _, err := m.list(ctx, 3, 5, "eu", "a", "b"); err != nil {
+	if _, err := m.list(ctx, 3, 5, "eu", "a", "b", false); err != nil {
 		t.Fatal(err)
 	}
 	// list keeps a new character's professions only once a round reads them.
@@ -216,7 +216,7 @@ func TestRenamedReAdd(t *testing.T) {
 	m, a, _ := newTest(t)
 	ctx := context.Background()
 	a.set("thrall-earthcaller", prof(1, "Thrall", "Earthcaller", "Shaman", 30), "a")
-	if _, err := m.list(ctx, 3, 5, "eu", "thrall", "earthcaller"); err != nil {
+	if _, err := m.list(ctx, 3, 5, "eu", "thrall", "earthcaller", false); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := coretest.Button(t, "forever:drop", func(p map[string]any) {
@@ -229,12 +229,12 @@ func TestRenamedReAdd(t *testing.T) {
 	if len(m.chars) != 0 {
 		t.Fatal("a character nobody lists was kept")
 	}
-	if _, err := m.list(ctx, 4, 6, "eu", "thrall", "earthcaller"); err != nil {
+	if _, err := m.list(ctx, 4, 6, "eu", "thrall", "earthcaller", false); err != nil {
 		t.Fatal(err)
 	}
 	delete(a.chars, "thrall-earthcaller")
 	a.set("thrall-stormborn", prof(1, "Thrall", "Stormborn", "Shaman", 31), "b")
-	if _, err := m.list(ctx, 3, 5, "eu", "thrall", "stormborn"); err != nil {
+	if _, err := m.list(ctx, 3, 5, "eu", "thrall", "stormborn", false); err != nil {
 		t.Fatal(err)
 	}
 	if c := m.chars[key{"eu", 1}]; c.surname != "Stormborn" || c.slug() != "thrall-stormborn" {
@@ -249,7 +249,7 @@ func TestStaleIsBaseline(t *testing.T) {
 	ctx := context.Background()
 	m.guilds[3] = setup{feed: 40}
 	a.set("a-b", prof(1, "A", "B", "Mage", 30), "a")
-	if _, err := m.list(ctx, 3, 5, "us", "a", "b"); err != nil {
+	if _, err := m.list(ctx, 3, 5, "us", "a", "b", false); err != nil {
 		t.Fatal(err)
 	}
 	m.poll(ctx)

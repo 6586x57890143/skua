@@ -84,7 +84,7 @@ func TestStoreRoundTrip(t *testing.T) {
 func TestLifecycle(t *testing.T) {
 	m, a, _ := newTest(t)
 	a.set("a-b", prof(1, "A", "B", "Mage", 12), "x")
-	if _, err := m.list(context.Background(), 3, 5, "us", "a", "b"); err != nil {
+	if _, err := m.list(context.Background(), 3, 5, "us", "a", "b", false); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := coretest.Button(t, "forever:add", nil)

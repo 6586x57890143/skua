@@ -124,13 +124,9 @@ type piece struct {
 	} `json:"transmog"`
 }
 
-// renderHost is the only host skua fetches pictures from: what Blizzard's
-// API links to.
-const renderHost = "https://render.worldofwarcraft.com/"
-
 // picture fetches one of Blizzard's renders.
 func (m *Module) picture(ctx context.Context, url string) (image.Image, error) {
-	if !strings.HasPrefix(url, renderHost) {
+	if !strings.HasPrefix(url, m.api.render) {
 		return nil, fmt.Errorf("forever: not a render: %q", url)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

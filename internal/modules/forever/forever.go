@@ -13,6 +13,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,11 +48,16 @@ const (
 	inFlight   = 8
 )
 
-// Config is skua's Battle.net app. Empty leaves forever off.
-type Config struct{ ID, Secret string }
+// Config is skua's Battle.net app, and the hooks address Blizzard sends a
+// member back to after they sign in. Without the app forever is off;
+// without the hooks, characters are only added by name.
+type Config struct{ ID, Secret, HooksURL, HooksSecret string }
 
 func FromEnv() Config {
-	return Config{ID: os.Getenv("SKUA_BNET_ID"), Secret: os.Getenv("SKUA_BNET_SECRET")}
+	return Config{
+		ID: os.Getenv("SKUA_BNET_ID"), Secret: os.Getenv("SKUA_BNET_SECRET"),
+		HooksURL: strings.TrimRight(os.Getenv("SKUA_HOOKS_URL"), "/"), HooksSecret: os.Getenv("SKUA_HOOKS_SECRET"),
+	}
 }
 
 func (c Config) Configured() bool { return c.ID != "" && c.Secret != "" }
@@ -69,12 +75,14 @@ type health struct {
 }
 
 type Module struct {
-	log   *slog.Logger
-	guard *guard.Guard
-	db    DB
-	api   *bnet
-	icons icons // every item icon rebuilt, by media id
-	admin func(discord.Interaction) bool
+	log     *slog.Logger
+	guard   *guard.Guard
+	db      DB
+	api     *bnet
+	link    *link
+	icons   icons   // every item icon rebuilt, by media id
+	screens screens // each character's last armory screen
+	admin   func(discord.Interaction) bool
 	// on is whether a server has forever switched on: the rounds skip the
 	// characters and feeds of one that doesn't.
 	on   func(guild snowflake.ID) bool
@@ -108,10 +116,14 @@ func New(ctx context.Context, log *slog.Logger, g *guard.Guard, db DB, cfg Confi
 	}
 	return &Module{
 		log: log, guard: g, db: db, admin: admin, now: time.Now,
-		on:    func(snowflake.ID) bool { return true },
-		api:   newBnet(&http.Client{Timeout: 15 * time.Second}, cfg.ID, cfg.Secret),
+		on:  func(snowflake.ID) bool { return true },
+		api: newBnet(&http.Client{Timeout: 15 * time.Second}, cfg.ID, cfg.Secret),
+		link: &link{
+			hooks: cfg.HooksURL, secret: cfg.HooksSecret, used: map[string]time.Time{},
+			authorize: "https://oauth.battle.net/authorize", token: "https://oauth.battle.net/token",
+		},
 		chars: st.chars, claims: st.claims, guilds: st.guilds, health: map[string]health{},
-		days: st.days, dayOf: st.dayOf, icons: icons{have: map[int]image.Image{}},
+		days: st.days, dayOf: st.dayOf, icons: icons{have: map[int]image.Image{}}, screens: screens{have: map[key]drawn{}},
 	}, nil
 }
 
@@ -124,16 +136,17 @@ func (m *Module) Gate(on func(guild snowflake.ID) bool) { m.on = on }
 // Want is guilds, for leaving one.
 func (*Module) Want() intents.Want { return intents.Want{Required: gateway.IntentGuilds} }
 
-// Perms is posting the feed and handing out the forever role.
+// Perms is posting the feed and shared armories, and handing out the
+// forever role.
 func (*Module) Perms() discord.Permissions {
-	return discord.PermissionViewChannel | discord.PermissionSendMessages | discord.PermissionManageRoles
+	return discord.PermissionViewChannel | discord.PermissionSendMessages | discord.PermissionAttachFiles | discord.PermissionManageRoles
 }
 
 func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorNotice,
 		Line:  "this server's wow forever ladder, every region on one board",
-		About: "run /forever me and add the characters you play with their name, surname and region. blizzard's armory only shows a character from level 10, once it has logged out, so she finds yours after your first logout past 10. your card shows each one's level, place here and legacy track: forever's account checkpoints she can read, a class at 25, 45 and 60 and a crafting profession at 150, 225 and 300. /forever ladder is who in the server is highest right now, every region on one board, a tie going to whoever got there first, with each place's move since the day began. she checks every character every five minutes and tells the server's forever channel about tens levels and legacy checkpoints, a ✦ when it earns someone a legacy point. a 60 or a first in the server gets a card of its own. /forever who shows who plays where, to find people on your side. the first character added makes the server's forever role, and everyone who lists a character gets it",
+		About: "run /forever me and add the characters you play with their name, surname and region. blizzard's armory only shows a character from level 10, once it has logged out, so she finds yours after your first logout past 10. your card shows each one's level, place here and legacy track: forever's account checkpoints she can read, a class at 25, 45 and 60 and a crafting profession at 150, 225 and 300. /forever ladder is who in the server is highest right now, every region on one board, a tie going to whoever got there first, with each place's move since the day began. she checks every character every five minutes and tells the server's forever channel about tens levels and legacy checkpoints, a ✦ when it earns someone a legacy point. a 60 or a first in the server gets a card of its own. pick a character under armory for and she draws their armory, the game's character pane in her pixels with what they wear, and share posts it here. link battle.net signs you in once so she adds every forever character on your account, in every region, marked as yours, and nobody else can list them. /forever who shows who plays where, to find people on your side. the first character added makes the server's forever role, and everyone who lists a character gets it",
 	}
 }
 

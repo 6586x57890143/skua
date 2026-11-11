@@ -30,7 +30,10 @@ type bnet struct {
 	oauth      string                     // token endpoint
 	api        func(region string) string // https://<region>.api.blizzard.com
 	id, secret string
-	pace       <-chan time.Time // a tick a call, 100 a second
+	// render is the only host skua fetches pictures from: what Blizzard's
+	// API links to.
+	render string
+	pace   <-chan time.Time // a tick a call, 100 a second
 
 	mu    sync.Mutex
 	token string
@@ -40,8 +43,9 @@ type bnet struct {
 func newBnet(c *http.Client, id, secret string) *bnet {
 	return &bnet{
 		c: c, id: id, secret: secret,
-		oauth: "https://oauth.battle.net/token",
-		api:   func(r string) string { return "https://" + r + ".api.blizzard.com" },
+		oauth:  "https://oauth.battle.net/token",
+		render: "https://render.worldofwarcraft.com/",
+		api:    func(r string) string { return "https://" + r + ".api.blizzard.com" },
 		// ponytail: a fixed 100/s pace, under Blizzard's 100/s and 36k/h for
 		// the polls we make; a token bucket if bursts ever need more.
 		pace: time.Tick(10 * time.Millisecond),
@@ -125,6 +129,30 @@ func (b *bnet) get(ctx context.Context, region, kind, path, since string, v any)
 		return since, false, fmt.Errorf("forever: %s %s: %w", region, path, err)
 	}
 	return res.Header.Get("Last-Modified"), true, nil
+}
+
+// getAs reads path in region's profile namespace with a member's own
+// token: their account, which skua's app token can't see.
+func (b *bnet) getAs(ctx context.Context, tok, region, path string, v any) error {
+	select {
+	case <-b.pace:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.api(region)+path+"?namespace=profile-forever-"+region+"&locale=en_US", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	res, err := b.c.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("forever: %s %s", region, res.Status)
+	}
+	return json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(v)
 }
 
 // named is a reference Blizzard hands out with its name in en_US.

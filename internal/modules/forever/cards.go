@@ -75,6 +75,15 @@ func (m *Module) click(ctx context.Context, e *events.ComponentInteractionCreate
 		return m.toggleRole(ctx, e, *guild)
 	case "drop":
 		return m.drop(ctx, e, *guild)
+	case "link":
+		return m.linkCard(e, *guild)
+	case "armory":
+		return m.showArmory(ctx, e, *guild)
+	case "share":
+		if len(f) != 3 {
+			return core.Tell("that card is out of date; run /forever again")
+		}
+		return m.share(ctx, e, *guild, f[2])
 	case "page":
 		page := 0
 		if len(f) == 3 {
@@ -124,7 +133,7 @@ func (m *Module) add(ctx context.Context, e *events.ModalSubmitInteractionCreate
 	}
 	user := e.User().ID
 	m.mu.Lock()
-	err := m.claimable(*guild, user, char{})
+	err := m.claimable(*guild, user, char{}, false)
 	m.mu.Unlock()
 	if err != nil {
 		return err
@@ -134,7 +143,7 @@ func (m *Module) add(ctx context.Context, e *events.ModalSubmitInteractionCreate
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 	defer cancel()
-	note, err := m.list(ctx, *guild, user, region, name, surname)
+	note, err := m.list(ctx, *guild, user, region, name, surname, false)
 	if err != nil {
 		var t core.Tell
 		if !errors.As(err, &t) {
@@ -153,7 +162,7 @@ func (m *Module) add(ctx context.Context, e *events.ModalSubmitInteractionCreate
 // A character another server lists already keeps the record skua has, so
 // the next round still sees its climb for everyone. A new one's reach time
 // is unknown: skua didn't see it get there.
-func (m *Module) list(ctx context.Context, guild, user snowflake.ID, region, name, surname string) (string, error) {
+func (m *Module) list(ctx context.Context, guild, user snowflake.ID, region, name, surname string, verified bool) (string, error) {
 	var p profile
 	mod, _, err := m.api.get(ctx, region, "profile", charPath(slug(name, surname)), "", &p)
 	if errors.Is(err, errGone) {
@@ -181,7 +190,7 @@ func (m *Module) list(ctx context.Context, guild, user snowflake.ID, region, nam
 			c.modified = ""
 		}
 	}
-	err = m.claimable(guild, user, c)
+	err = m.claimable(guild, user, c, verified)
 	m.mu.Unlock()
 	if err != nil {
 		return "", err
@@ -193,17 +202,20 @@ func (m *Module) list(ctx context.Context, guild, user snowflake.ID, region, nam
 	if err := saveChar(ctx, m.db, c); err != nil {
 		return "", err
 	}
-	cl := claim{guild: guild, user: user, k: c.key, at: m.now()}
+	cl := claim{guild: guild, user: user, k: c.key, at: m.now(), verified: verified}
 	m.mu.Lock()
 	// Asked again: another add may have taken the place while Blizzard
 	// answered.
-	if err := m.claimable(guild, user, c); err != nil {
+	if err := m.claimable(guild, user, c, verified); err != nil {
 		m.mu.Unlock()
 		return "", err
 	}
 	if _, ok := m.chars[c.key]; !ok {
 		m.chars[c.key] = &c
 	}
+	// A verified claim replaces any other on the character here: theirs
+	// unverified, or the member's own.
+	m.claims = slices.DeleteFunc(m.claims, func(x claim) bool { return x.guild == guild && x.k == c.key })
 	m.claims = append(m.claims, cl)
 	m.mu.Unlock()
 	if err := saveClaim(ctx, m.db, cl); err != nil {
@@ -215,8 +227,10 @@ func (m *Module) list(ctx context.Context, guild, user snowflake.ID, region, nam
 	return "✓ added " + classMark(c.class) + "**" + c.name + " " + c.surname + "**, lv " + itoa(c.level), nil
 }
 
-// claimable is why user can't list c in guild, or nil. m.mu held.
-func (m *Module) claimable(guild, user snowflake.ID, c char) error {
+// claimable is why user can't list c in guild, or nil. A verified claim
+// may take a character someone listed by name, or verify the member's
+// own. m.mu held.
+func (m *Module) claimable(guild, user snowflake.ID, c char, verified bool) error {
 	n, all := 0, map[key]bool{}
 	for _, cl := range m.claims {
 		if cl.guild != guild {
@@ -227,6 +241,10 @@ func (m *Module) claimable(guild, user snowflake.ID, c char) error {
 			n++
 		}
 		if c.id != 0 && cl.k == c.key {
+			if verified && !cl.verified || verified && cl.user == user {
+				n -= btoi(cl.user == user)
+				continue
+			}
 			if cl.user == user {
 				return core.Tell("you've added " + c.name + " " + c.surname + " already")
 			}
@@ -240,6 +258,13 @@ func (m *Module) claimable(guild, user snowflake.ID, c char) error {
 		return core.Tell("this server lists " + itoa(perGuild) + " characters, as many as skua keeps")
 	}
 	return nil
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // drop takes the picked characters off the member's list.
