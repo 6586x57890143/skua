@@ -95,7 +95,7 @@ func (m *Module) test(ctx context.Context, e *events.ComponentInteractionCreate,
 	if err := m.guard.Allow(guild, guard.MessageSend); err != nil {
 		return core.Tell("too many cards here this hour; try again in a bit")
 	}
-	_, err := r.CreateMessage(to, testCard(f, m.canGrant(withCtx{r, ctx}, guild, f.role)), rest.WithCtx(ctx))
+	_, err := r.CreateMessage(to, testCard(f, m.canGrant(withCtx{R: r, Ctx: ctx}, guild, f.role)), rest.WithCtx(ctx))
 	m.guard.Report(guild, struggling(err))
 	if err != nil {
 		return core.Tell(why(err))
