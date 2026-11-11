@@ -246,12 +246,12 @@ func TestListLadderAndDrop(t *testing.T) {
 		t.Fatalf("unknown: %v", err)
 	}
 	board := text(m.ladder(3, 0))
-	if !strings.Contains(board, "**1** `new` **Jaina Proud** · lv 44 · 🇺🇸 normal") || !strings.Contains(board, "**2** `new` **Thrall Earthcaller** · lv 30 · 🇪🇺 normal") {
+	if !strings.Contains(board, "**1** `new` Jaina Proud · lv 44 · 🇺🇸 normal") || !strings.Contains(board, "**2** `new` Thrall Earthcaller · lv 30 · 🇪🇺 normal") {
 		t.Fatalf("ladder:\n%s", board)
 	}
 	m.turnDay(time.Date(2026, 11, 12, 0, 1, 0, 0, time.UTC))
 	m.chars[key{"eu", 1}].level = 50
-	if moved := text(m.ladder(3, 0)); !strings.Contains(moved, "**1** `▲1` **Thrall") || !strings.Contains(moved, "**2** `▼1` **Jaina") {
+	if moved := text(m.ladder(3, 0)); !strings.Contains(moved, "**1** `▲1` Thrall") || !strings.Contains(moved, "**2** `▼1` Jaina") {
 		t.Fatalf("moves:\n%s", moved)
 	}
 	if paged := text(m.ladder(3, 9)); !strings.Contains(paged, "page 1 of 1") {
@@ -312,10 +312,10 @@ func TestPollDingsLegacyAndFeed(t *testing.T) {
 	all := rest + "\n" + rexCard
 	// Thrall's 25 isn't his player's first shaman at 25 (rexxar was past
 	// it), and garrosh got there first; rexxar's 60 is a first on both.
-	if !strings.Contains(all, "**Thrall Earthcaller** reached 25") || strings.Contains(strings.Split(all, "\n")[1], "✦") {
+	if !strings.Contains(all, "Thrall Earthcaller reached 25") || strings.Contains(strings.Split(all, "\n")[1], "✦") {
 		t.Fatalf("thrall's line:\n%s", all)
 	}
-	rex := all[strings.Index(all, "**Rexxar"):]
+	rex := all[strings.Index(all, "Rexxar"):]
 	if !strings.Contains(rex, "reached 60") || !strings.Contains(rex, "✦ legacy point") || !strings.Contains(rex, "first in the server") || !strings.Contains(rex, "after launch") {
 		t.Fatalf("rexxar's line:\n%s", all)
 	}

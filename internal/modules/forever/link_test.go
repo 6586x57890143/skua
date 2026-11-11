@@ -174,7 +174,7 @@ func TestLinkConfirm(t *testing.T) {
 	if len(f.added) != 1 || len(f.removed) != 1 {
 		t.Fatalf("roles: added %v, removed %v", f.added, f.removed)
 	}
-	if !strings.Contains(text(m.hub(3, 5, "")), "✓ linked") {
+	if !strings.Contains(text(m.hub(3, 5, "")), "**A B** ✓") {
 		t.Fatal("the card doesn't say linked")
 	}
 	if w := post(m, id); w.Code != http.StatusBadRequest {
