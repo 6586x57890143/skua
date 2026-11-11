@@ -269,7 +269,7 @@ func (m *Module) dings(was, now char) map[snowflake.ID][]moment {
 		if c.k != now.key || m.guilds[c.guild].feed == 0 || !m.on(c.guild) {
 			continue
 		}
-		who := classMark(now.class) + "**" + fullName(now) + "**"
+		who := classMark(now.class) + shown(now, c.verified)
 		tail := " · <@" + c.user.String() + ">"
 		if top > 0 {
 			line := who + " reached " + itoa(top) + " · " + where(now)

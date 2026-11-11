@@ -94,7 +94,9 @@ too fast; try again in a couple of minutes`).
 - A forever card about a character is accented in its class's colour, Blizzard's own
   (`classColor`), the way the game colours a name, and its region is its flag (`🇪🇺`):
   the one place skua puts emoji in text, because a ladder of four regions reads by
-  flag faster than by code. A character's name keeps the case the game gives it. The
+  flag faster than by code. A character's name keeps the case the game gives it, and
+  reads by how it was added: linked through a battle.net sign-in it is bold with the
+  verified badge (`fv_verified`), added by name it is plain, a shade quieter. The
   ladder's move is a code span beside the place (`▲2`, `▼1`, `=`, `new`), read against
   the server's ladder as the day began in utc. A level 60, or a server's first to a
   tens level from 20, posts as its own card with the character's portrait; the rest of

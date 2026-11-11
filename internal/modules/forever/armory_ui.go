@@ -109,19 +109,21 @@ func options(chars []*char) []discord.StringSelectMenuOption {
 	return out
 }
 
-// listed is the character v names ("eu.7177273"), if guild lists it.
-func (m *Module) listed(guild snowflake.ID, v string) (char, bool) {
+// listed is the character v names ("eu.7177273"), if guild lists it, and
+// whether it's linked there through a battle.net sign-in.
+func (m *Module) listed(guild snowflake.ID, v string) (char, bool, bool) {
 	k, ok := parseValue(v)
 	if !ok {
-		return char{}, false
+		return char{}, false, false
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ch := m.chars[k]
-	if ch == nil || !slices.ContainsFunc(m.claims, func(c claim) bool { return c.guild == guild && c.k == k }) {
-		return char{}, false
+	at := slices.IndexFunc(m.claims, func(c claim) bool { return c.guild == guild && c.k == k })
+	if ch == nil || at < 0 {
+		return char{}, false, false
 	}
-	return *ch, true
+	return *ch, m.claims[at].verified, true
 }
 
 // value is how a select names c: "eu.7177273".
@@ -134,8 +136,8 @@ func armoryPick(chars []*char) discord.ActionRowComponent {
 
 // armoryCard is the screen in a card: forever's head, who it is, the
 // picture, and the share button until it's shared, in the class's colour.
-func armoryCard(c char, pic []byte, shared bool) (discord.ContainerComponent, *discord.File) {
-	head := discord.NewTextDisplay(headLine("armory") + "\n-# " + fullName(c) + " · lv " + itoa(c.level) + " · " + where(c))
+func armoryCard(c char, verified bool, pic []byte, shared bool) (discord.ContainerComponent, *discord.File) {
+	head := discord.NewTextDisplay(headLine("armory") + "\n" + shown(c, verified) + " · lv " + itoa(c.level) + " · " + where(c))
 	alt := fullName(c) + ", level " + itoa(c.level) + " " + c.race + " " + c.class + ", and what they wear"
 	parts := []discord.ContainerSubComponent{head, discord.NewMediaGallery(discord.MediaGalleryItem{Media: discord.UnfurledMediaItem{URL: "attachment://armory.png"}, Description: alt})}
 	if !shared {
@@ -151,7 +153,7 @@ func (m *Module) showArmory(ctx context.Context, e *events.ComponentInteractionC
 	if len(vals) != 1 {
 		return core.Tell("pick a character")
 	}
-	c, ok := m.listed(guild, vals[0])
+	c, verified, ok := m.listed(guild, vals[0])
 	if !ok {
 		return core.Tell("that character isn't listed here any more")
 	}
@@ -166,7 +168,7 @@ func (m *Module) showArmory(ctx context.Context, e *events.ComponentInteractionC
 		_, err = r.UpdateInteractionResponse(e.ApplicationID(), e.Token(), update(m.undrawn(c, err)), rest.WithCtx(ctx))
 		return err
 	}
-	card, file := armoryCard(c, pic, false)
+	card, file := armoryCard(c, verified, pic, false)
 	_, err = r.UpdateInteractionResponse(e.ApplicationID(), e.Token(), core.Edit(update(card), file), rest.WithCtx(ctx))
 	return err
 }
@@ -174,7 +176,7 @@ func (m *Module) showArmory(ctx context.Context, e *events.ComponentInteractionC
 // share posts a character's armory screen in the channel for everyone, as
 // skua, and tells the member it's there.
 func (m *Module) share(ctx context.Context, e *events.ComponentInteractionCreate, guild snowflake.ID, v string) error {
-	c, ok := m.listed(guild, v)
+	c, verified, ok := m.listed(guild, v)
 	if !ok {
 		return core.Tell("that character isn't listed here any more")
 	}
@@ -199,7 +201,7 @@ func (m *Module) share(ctx context.Context, e *events.ComponentInteractionCreate
 	if err := m.guard.Allow(guild, guard.MessageSend); err != nil {
 		return say(brand.Card(brand.ColorError, Name, "armory", "✗ skua has posted a lot here this hour; try again in a bit"))
 	}
-	card, file := armoryCard(c, pic, true)
+	card, file := armoryCard(c, verified, pic, true)
 	_, err = r.CreateMessage(e.Channel().ID(), discord.MessageCreate{
 		Components: []discord.LayoutComponent{card}, Files: []*discord.File{file},
 		Flags: discord.MessageFlagIsComponentsV2, AllowedMentions: core.NoPings(),
@@ -209,7 +211,7 @@ func (m *Module) share(ctx context.Context, e *events.ComponentInteractionCreate
 		m.log.Warn("forever: sharing an armory", "err", err)
 		return say(brand.Card(brand.ColorError, Name, "armory", "✗ skua couldn't post here; she needs to send messages and attach files in this channel"))
 	}
-	mine, file := armoryCard(c, pic, true)
+	mine, file := armoryCard(c, verified, pic, true)
 	_, err = r.UpdateInteractionResponse(e.ApplicationID(), e.Token(), core.Edit(update(mine), file), rest.WithCtx(ctx))
 	return err
 }

@@ -62,6 +62,32 @@ func where(c char) string {
 // fullName is a character's name as the game writes it.
 func fullName(c char) string { return c.name + " " + c.surname }
 
+// shown is a character name as a card shows it: one linked through a
+// battle.net sign-in is bold with the verified badge, one only added by
+// name is plain, a shade quieter than the bold around it.
+func shown(c char, verified bool) string {
+	if !verified {
+		return fullName(c)
+	}
+	mark := brand.Mention("fv_verified")
+	if mark == "" {
+		mark = "✓"
+	}
+	return "**" + fullName(c) + "** " + mark
+}
+
+// linked is which characters guild lists through a battle.net sign-in.
+// m.mu held.
+func (m *Module) linked(guild snowflake.ID) map[key]bool {
+	out := map[key]bool{}
+	for _, cl := range m.claims {
+		if cl.guild == guild && cl.verified {
+			out[cl.k] = true
+		}
+	}
+	return out
+}
+
 // bar is a level as ten cells to the cap, and how far that is.
 func bar(level int) string {
 	n := min(max(level*10/Cap, 0), 10)
@@ -182,21 +208,13 @@ func (m *Module) hub(guild, user snowflake.ID, note string) discord.ContainerCom
 	m.mu.Lock()
 	chars := m.mine(guild, user)
 	board := m.board(guild)
-	verified := map[key]bool{}
-	for _, cl := range m.claims {
-		if cl.guild == guild && cl.user == user && cl.verified {
-			verified[cl.k] = true
-		}
-	}
+	verified := m.linked(guild)
 	role := m.guilds[guild].role
 	var blocks []string
 	for _, c := range chars {
 		place := slices.IndexFunc(board, func(b *char) bool { return b.key == c.key }) + 1
-		b := classMark(c.class) + "**" + fullName(*c) + "** · lv " + itoa(c.level) + " · " + where(*c) + " · #" + itoa(place) + " here"
+		b := classMark(c.class) + shown(*c, verified[c.key]) + " · lv " + itoa(c.level) + " · " + where(*c) + " · #" + itoa(place) + " here"
 		b += "\n" + bar(c.level) + " · " + c.race + " " + c.class
-		if verified[c.key] {
-			b += " · ✓ linked"
-		}
 		if c.level < Cap {
 			b += " · " + num(c.xp) + " xp into " + itoa(c.level)
 		}
@@ -310,13 +328,14 @@ func (m *Module) ladder(guild snowflake.ID, page int) discord.ContainerComponent
 		}
 	}
 	day := m.days[guild]
+	verified := m.linked(guild)
 	pages := max((len(board)+pageRows-1)/pageRows, 1)
 	page = min(max(page, 0), pages-1)
 	var lines []string
-	shown := board[page*pageRows : min(len(board), (page+1)*pageRows)]
-	for i, c := range shown {
+	rows := board[page*pageRows : min(len(board), (page+1)*pageRows)]
+	for i, c := range rows {
 		n := page*pageRows + i + 1
-		line := "**" + itoa(n) + "** `" + move(day[c.key], n) + "` " + classMark(c.class) + "**" + fullName(*c) + "** · lv " + itoa(c.level) + " · " + where(*c)
+		line := "**" + itoa(n) + "** `" + move(day[c.key], n) + "` " + classMark(c.class) + shown(*c, verified[c.key]) + " · lv " + itoa(c.level) + " · " + where(*c)
 		if c.level >= Cap && !c.reached.IsZero() {
 			line += " · " + core.Duration(c.reached.Sub(Launch))
 		}
@@ -339,12 +358,12 @@ func (m *Module) ladder(guild snowflake.ID, page int) discord.ContainerComponent
 	pb.Disabled = page == 0
 	nb := button(discord.ButtonStyleSecondary, "", fmt.Sprintf("%s:page:%d", id, page+1), "fv_next")
 	nb.Disabled = page >= pages-1
-	if len(shown) > 0 {
-		parts = append(parts, armoryPick(shown))
+	if len(rows) > 0 {
+		parts = append(parts, armoryPick(rows))
 	}
 	parts = append(parts,
 		discord.NewActionRow(pb, nb, button(discord.ButtonStyleSecondary, "who", id+":who", "fv_who")),
-		discord.NewTextDisplay("-# page "+itoa(page+1)+" of "+itoa(pages)+" · a tie goes to whoever got there first"),
+		discord.NewTextDisplay("-# page "+itoa(page+1)+" of "+itoa(pages)+" · a tie goes to whoever got there first · bold with a check is linked with battle.net, plain is added by name"),
 	)
 	return discord.NewContainer(parts...).WithAccentColor(brand.ColorNotice)
 }
@@ -354,13 +373,14 @@ func (m *Module) ladder(guild snowflake.ID, page int) discord.ContainerComponent
 func (m *Module) who(guild snowflake.ID) discord.ContainerComponent {
 	m.mu.Lock()
 	groups := map[string][]string{}
+	verified := m.linked(guild)
 	for _, c := range m.claims {
 		ch := m.chars[c.k]
 		if c.guild != guild || ch == nil {
 			continue
 		}
 		g := where(*ch)
-		groups[g] = append(groups[g], classMark(ch.class)+"**"+fullName(*ch)+"** · lv "+itoa(ch.level)+" · <@"+c.user.String()+">")
+		groups[g] = append(groups[g], classMark(ch.class)+shown(*ch, verified[c.k])+" · lv "+itoa(ch.level)+" · <@"+c.user.String()+">")
 	}
 	m.mu.Unlock()
 	names := make([]string, 0, len(groups))
