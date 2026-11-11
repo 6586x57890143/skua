@@ -7,6 +7,7 @@ package forever
 
 import (
 	"context"
+	"image"
 	"log/slog"
 	"net/http"
 	"os"
@@ -72,6 +73,7 @@ type Module struct {
 	guard *guard.Guard
 	db    DB
 	api   *bnet
+	icons icons // every item icon rebuilt, by media id
 	admin func(discord.Interaction) bool
 	// on is whether a server has forever switched on: the rounds skip the
 	// characters and feeds of one that doesn't.
@@ -109,7 +111,7 @@ func New(ctx context.Context, log *slog.Logger, g *guard.Guard, db DB, cfg Confi
 		on:    func(snowflake.ID) bool { return true },
 		api:   newBnet(&http.Client{Timeout: 15 * time.Second}, cfg.ID, cfg.Secret),
 		chars: st.chars, claims: st.claims, guilds: st.guilds, health: map[string]health{},
-		days: st.days, dayOf: st.dayOf,
+		days: st.days, dayOf: st.dayOf, icons: icons{have: map[int]image.Image{}},
 	}, nil
 }
 
