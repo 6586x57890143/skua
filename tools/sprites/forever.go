@@ -123,6 +123,10 @@ func foreverIcons(out string) {
 		glyphCentred("fv_"+name, g)
 	}
 	tiles(out, "fv_", map[string][]string{"role": foreverGlyphs["role"]}, map[string]color.NRGBA{"role": foreverGold})
+	// verified: the tick on its tile in a clear blue, the colour a check
+	// next to a name reads as on Discord.
+	glyphCentred("fv_verified", buttonGlyphs["done"])
+	tiles(out, "fv_", map[string][]string{"verified": buttonGlyphs["done"]}, map[string]color.NRGBA{"verified": {0x58, 0xA6, 0xF0, 0xFF}})
 	for _, name := range []string{"ladder", "next", "prev", "armory", "share"} {
 		bare(out, "fv_"+name, foreverGlyphs[name])
 	}
