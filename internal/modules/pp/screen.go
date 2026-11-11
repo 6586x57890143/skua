@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/6586x57890143/skua/internal/core"
 	"github.com/6586x57890143/skua/internal/pixel"
 )
 
@@ -97,13 +98,7 @@ func rightLabelled(c *pixel.Canvas, x, y int, value string, ink uint8, after str
 }
 
 // grouped writes n with a comma every three digits.
-func grouped(n int64) string {
-	s := strconv.FormatInt(n, 10)
-	for i := len(s) - 3; i > 0 && s[i-1] != '-'; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	return s
-}
+func grouped(n int64) string { return core.Grouped(n) }
 
 // ordinal is 1st, 2nd, 3rd, 4th and so on.
 func ordinal(n int) string {
