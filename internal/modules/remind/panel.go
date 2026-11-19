@@ -386,6 +386,7 @@ func (m *Module) create(ctx context.Context, e *events.ModalSubmitInteractionCre
 	if err := m.aim(ctx, &r, strings.Join(to, ""), said, e.Member()); err != nil {
 		return err
 	}
+	noFallback(&r, e.Member())
 	if r, err = m.keep(ctx, r); err != nil {
 		return err
 	}

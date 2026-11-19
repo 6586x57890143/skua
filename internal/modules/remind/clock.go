@@ -196,7 +196,7 @@ func (m *Module) fire(ctx context.Context, r reminder) {
 		return
 	}
 	m.log.Warn("remind: sending", "id", r.id, "err", err)
-	if r.r.once() && refused(err) {
+	if (r.r.once() && refused(err)) || errors.Is(err, errGone) {
 		if err := settle(ctx, m.db, r.id, time.Time{}); err != nil {
 			m.log.Warn("remind: dropping a refused send", "id", r.id, "err", err)
 		}
@@ -288,7 +288,10 @@ func (m *Module) send(ctx context.Context, r reminder, late time.Duration) (time
 				return msg.ID.Time(), nil
 			}
 		}
-		if !closed(err) {
+		if gone(err) {
+			return time.Time{}, errGone
+		}
+		if !closed(err) || r.channel == 0 {
 			return time.Time{}, err
 		}
 		m.mu.Lock()
@@ -337,11 +340,22 @@ func (m *Module) group(ctx context.Context, p Poster, r reminder, late time.Dura
 	return p.CreateMessage(to, called(r, late, who, 0), rest.WithCtx(ctx))
 }
 
-// closed is whether err is Discord refusing a dm: the member turned them
-// off, or shares no server with skua any more.
+// closed is whether err is Discord refusing a dm because the member turned
+// them off. Only then does a reminder fall back to its channel.
 func closed(err error) bool {
 	var re *rest.Error
-	return errors.As(err, &re) && (re.Code == rest.JSONErrorCodeCannotSendMessagesToThisUser || re.Code == rest.JSONErrorCodeCannotSendMessagesToThisUserDueToHavingNoMutualGuilds)
+	return errors.As(err, &re) && re.Code == rest.JSONErrorCodeCannotSendMessagesToThisUser
+}
+
+// errGone is a reminder whose owner shares no server with skua any more:
+// left or banned. It is dropped, repeat or not, rather than posted where
+// they can no longer post themselves.
+var errGone = errors.New("remind: its owner is gone")
+
+// gone is whether err is Discord refusing a dm for want of a shared server.
+func gone(err error) bool {
+	var re *rest.Error
+	return errors.As(err, &re) && re.Code == rest.JSONErrorCodeCannotSendMessagesToThisUserDueToHavingNoMutualGuilds
 }
 
 // warm is user's dm channel, opened and kept ahead of time so a fire is
