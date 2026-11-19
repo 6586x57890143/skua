@@ -461,6 +461,7 @@ func run(log *slog.Logger) error {
 
 	client, err = disgo.New(token,
 		bot.WithLogger(log),
+		bot.WithRestConfigOpts(core.Quiet()),
 		// Every REST call's rate limit wait and round trip, for /perf, and a
 		// route's 429 waited out to the millisecond rather than the second.
 		bot.WithRestClientConfigOpts(
