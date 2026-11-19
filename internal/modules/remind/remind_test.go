@@ -990,8 +990,8 @@ func TestAGoneOwnersReminderIsDropped(t *testing.T) {
 	if s := p.all(); len(s) != 0 {
 		t.Fatalf("posted %+v", s)
 	}
-	if got := m.row(t, r.id).state; got != "done" {
-		t.Fatalf("state %s, want done", got)
+	if _, ok, err := get(context.Background(), m.db, r.id); err != nil || ok {
+		t.Fatalf("still kept: %v %v", ok, err)
 	}
 }
 

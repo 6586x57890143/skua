@@ -196,7 +196,13 @@ func (m *Module) fire(ctx context.Context, r reminder) {
 		return
 	}
 	m.log.Warn("remind: sending", "id", r.id, "err", err)
-	if (r.r.once() && refused(err)) || errors.Is(err, errGone) {
+	if errors.Is(err, errGone) {
+		if _, err := m.db.Exec(ctx, "delete from remind where id = $1", r.id); err != nil {
+			m.log.Warn("remind: dropping a gone owner's reminder", "id", r.id, "err", err)
+		}
+		return
+	}
+	if r.r.once() && refused(err) {
 		if err := settle(ctx, m.db, r.id, time.Time{}); err != nil {
 			m.log.Warn("remind: dropping a refused send", "id", r.id, "err", err)
 		}
