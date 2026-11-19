@@ -465,7 +465,9 @@ func run(log *slog.Logger) error {
 		// route's 429 waited out to the millisecond rather than the second.
 		bot.WithRestClientConfigOpts(
 			rest.WithRateLimiter(obs.Limiter(ratelimit.Precise(rest.NewRateLimiter(rest.WithRateLimiterLogger(log)), userReset), obs.Default)),
-			rest.WithHTTPClient(&http.Client{Timeout: 20 * time.Second, Transport: perms.Watch(nil, refused)}),
+			rest.WithHTTPClient(&http.Client{Timeout: 20 * time.Second, Transport: guard.Brake(perms.Watch(nil, refused), func(n int) {
+				log.Error("discord: braked, too many refused requests; holding off so the ip isn't banned", "count", n)
+			})}),
 		),
 		bot.WithGatewayConfigOpts(
 			gateway.WithIntents(identify),
