@@ -476,3 +476,12 @@ func Edit(u discord.MessageUpdate, files ...*discord.File) discord.MessageUpdate
 func NoPings() *discord.AllowedMentions {
 	return &discord.AllowedMentions{Parse: []discord.AllowedMentionType{}}
 }
+
+// Quiet makes NoPings the REST client's default, for every send and edit
+// that sets no mentions of its own. disgo's default parses users, roles and
+// everyone, and an edit without allowed_mentions lets Discord read every
+// mention in the text afresh: a reminder's done button turned the tags its
+// owner wrote into real pings.
+func Quiet() rest.ConfigOpt {
+	return rest.WithDefaultAllowedMentions(*NoPings())
+}
