@@ -97,12 +97,20 @@ type Module struct {
 	whole map[snowflake.ID]time.Time
 	// retry is the first wait between removal attempts; tests shorten it.
 	retry time.Duration
+	// refused, under mu, is the channels where Discord said no (a 403: she
+	// can't manage messages or react there) and until when preen leaves
+	// them be. Without it every self-react there is another 403, which a
+	// member can repeat toward the IP's invalid request limit.
+	refused map[snowflake.ID]time.Time
 }
+
+// refuseFor is how long a channel that answered 403 is left alone.
+const refuseFor = time.Hour
 
 // New takes the guard, the recorder and, optionally, the whispers: nil
 // leaves whispers alone.
 func New(g *guard.Guard, rec *obs.Recorder, w Whispers) *Module {
-	return &Module{guard: g, rec: rec, whispers: w, order: rand.Perm, retry: firstRetry, flocked: newFlocked(remember), whole: map[snowflake.ID]time.Time{}}
+	return &Module{guard: g, rec: rec, whispers: w, order: rand.Perm, retry: firstRetry, flocked: newFlocked(remember), whole: map[snowflake.ID]time.Time{}, refused: map[snowflake.ID]time.Time{}}
 }
 
 // birds is how many go up for user now: Few inside their spree window,
@@ -187,6 +195,10 @@ func (m *Module) OnEvent(ev bot.Event) {
 		m.mu.Unlock()
 		return
 	}
+	if until, ok := m.refused[e.ChannelID]; ok && time.Now().Before(until) {
+		m.mu.Unlock()
+		return
+	}
 	m.removing.Add(1)
 	m.mu.Unlock()
 	go m.react(e.Client().Rest, e.GuildID, e.ChannelID, e.MessageID, e.UserID, e.Emoji.Reaction())
@@ -219,7 +231,7 @@ func (m *Module) takeOff(r rest.Rest, guild, channel, msg, user snowflake.ID, em
 	defer cancel()
 	for wait := m.retry; ; wait *= 2 {
 		err := r.RemoveUserReaction(channel, msg, emoji, user, rest.WithCtx(ctx))
-		m.report(guild, err)
+		m.report(guild, channel, err)
 		if err == nil || !transient(err) {
 			return
 		}
@@ -300,7 +312,7 @@ func (m *Module) preen(r rest.Rest, guild, channel, msg snowflake.ID, n int) err
 			return errGuard
 		}
 		err := r.AddReaction(channel, msg, bird, rest.WithCtx(ctx))
-		m.report(guild, err)
+		m.report(guild, channel, err)
 		return err
 	})
 	// Only a whole flock says how fast a fill is.
@@ -313,9 +325,20 @@ func (m *Module) preen(r rest.Rest, guild, channel, msg snowflake.ID, n int) err
 // report feeds a call's outcome to the breaker. A call cut off by a
 // deadline or a sibling's failure says nothing about Discord, so it is not
 // reported.
-func (m *Module) report(guild snowflake.ID, err error) {
+func (m *Module) report(guild, channel snowflake.ID, err error) {
 	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 		m.guard.Report(guild, struggling(err))
+	}
+	if re, ok := errors.AsType[*rest.Error](err); ok && re.Response != nil && re.Response.StatusCode == 403 {
+		now := time.Now()
+		m.mu.Lock()
+		for ch, until := range m.refused {
+			if now.After(until) {
+				delete(m.refused, ch)
+			}
+		}
+		m.refused[channel] = now.Add(refuseFor)
+		m.mu.Unlock()
 	}
 }
 
