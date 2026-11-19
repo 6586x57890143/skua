@@ -5,13 +5,13 @@ go 1.27.2
 require (
 	github.com/6586x57890143/cygnet/link v0.9.0
 	github.com/HugoSmits86/nativewebp v1.3.0
-	github.com/bluenviron/mediacommon/v2 v2.9.7
+	github.com/bluenviron/mediacommon/v2 v2.10.0
 	github.com/btcsuite/btcd/btcec/v2 v2.5.1
 	github.com/disgoorg/disgo v0.20.0
 	github.com/disgoorg/omit v1.0.0
 	github.com/disgoorg/snowflake/v2 v2.0.3
 	github.com/gorilla/websocket v1.5.3
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/nbd-wtf/go-nostr v0.52.3
 	golang.org/x/image v0.48.0
 	golang.org/x/net v0.62.0
@@ -21,9 +21,9 @@ require (
 
 require (
 	github.com/ImVexed/fasturl v0.0.0-20230304231329-4e41488060f3 // indirect
-	github.com/abema/go-mp4 v1.7.3 // indirect
+	github.com/abema/go-mp4 v1.7.4 // indirect
 	github.com/asticode/go-astikit v0.30.0 // indirect
-	github.com/asticode/go-astits v1.16.0 // indirect
+	github.com/asticode/go-astits v1.17.0 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.5 // indirect
 	github.com/btcsuite/btcd/chainhash/v2 v2.0.0 // indirect
 	github.com/bytedance/sonic v1.13.1 // indirect
