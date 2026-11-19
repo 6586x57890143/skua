@@ -338,8 +338,8 @@ func (m *Module) submit(ctx context.Context, e *events.ModalSubmitInteractionCre
 	now := m.now()
 	if e.Data.Text("when") == typed(r) {
 		// Left as filled in: the exact time stands, seconds and all.
-		if r.text = oneLine(e.Data.Text("what")); r.text == "" {
-			return core.Tell("say what to remind you of")
+		if r.text, err = screened(e.Data.Text("what")); err != nil {
+			return err
 		}
 		if _, err := reschedule(ctx, m.db, r); err != nil {
 			return err
@@ -354,8 +354,8 @@ func (m *Module) submit(ctx context.Context, e *events.ModalSubmitInteractionCre
 	if !rs[0].at.After(now) || rs[0].at.Sub(now) > horizonYr {
 		return core.Tell("pick a time between now and a year from now")
 	}
-	if r.text = oneLine(e.Data.Text("what")); r.text == "" {
-		return core.Tell("say what to remind you of")
+	if r.text, err = screened(e.Data.Text("what")); err != nil {
+		return err
 	}
 	r.due, r.r, r.state = rs[0].at, rs[0].r, "pending"
 	if _, err := reschedule(ctx, m.db, r); err != nil {
