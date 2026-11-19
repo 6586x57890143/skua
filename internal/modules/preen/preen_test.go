@@ -283,11 +283,11 @@ func TestACutOffCallIsNotReported(t *testing.T) {
 	g := guard.New()
 	m := New(g, obs.New(), nil)
 	for range 4 {
-		m.report(3, &rest.Error{Response: &http.Response{StatusCode: 503}})
+		m.report(3, 4, &rest.Error{Response: &http.Response{StatusCode: 503}})
 	}
-	m.report(3, context.DeadlineExceeded)
-	m.report(3, context.Canceled)
-	m.report(3, &rest.Error{Response: &http.Response{StatusCode: 503}})
+	m.report(3, 4, context.DeadlineExceeded)
+	m.report(3, 4, context.Canceled)
+	m.report(3, 4, &rest.Error{Response: &http.Response{StatusCode: 503}})
 	if g.Allow(3, guard.Reaction) == nil {
 		t.Fatal("a cut-off call reset the breaker's count")
 	}
@@ -468,5 +468,26 @@ func TestASpreeGetsFewerBirds(t *testing.T) {
 	}
 	if m.birds(7, now.Add(spree+time.Second)) != Few || len(m.whole) != 1 {
 		t.Fatalf("whole %v, want only member 7's new window", m.whole)
+	}
+}
+
+// A channel that answered 403 is left alone for refuseFor: a member
+// self-reacting over and over where skua can't manage messages costs one
+// refused request, not one each.
+func TestARefusedChannelIsLeftAlone(t *testing.T) {
+	r := &fakeRest{removeErrs: []error{status(403)}, addErr: status(403)}
+	m := New(guard.New(), obs.New(), nil)
+	m.OnEvent(reaction(r, 7, 7, false))
+	m.removing.Wait()
+	n := len(r.inOrder())
+	if n == 0 {
+		t.Fatal("the first self-react was never answered")
+	}
+	for range 5 {
+		m.OnEvent(reaction(r, 7, 7, false))
+	}
+	m.removing.Wait()
+	if got := len(r.inOrder()); got != n {
+		t.Fatalf("%d more calls in a refused channel", got-n)
 	}
 }
