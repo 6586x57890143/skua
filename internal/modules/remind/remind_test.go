@@ -877,7 +877,7 @@ func TestModuleFacts(t *testing.T) {
 	if ms(1500*time.Microsecond) != "1.5 ms" {
 		t.Fatal(ms(1500 * time.Microsecond))
 	}
-	if !closed(&rest.Error{Code: rest.JSONErrorCodeCannotSendMessagesToThisUserDueToHavingNoMutualGuilds}) || closed(errors.New("x")) {
+	if !closed(&rest.Error{Code: rest.JSONErrorCodeCannotSendMessagesToThisUser}) || closed(errors.New("x")) {
 		t.Fatal("closed")
 	}
 }
@@ -956,5 +956,53 @@ func TestEditKeepsSeconds(t *testing.T) {
 	})
 	if err := m.submit(context.Background(), e); err == nil {
 		t.Fatal("emptied the text")
+	}
+}
+
+// A member who couldn't post where they set a reminder gets no channel to
+// fall back to: with their dms closed it isn't posted for them.
+func TestNoFallbackWhereTheOwnerCantPost(t *testing.T) {
+	m, _, p, g, u := fresh(t)
+	p.dmErr = &rest.Error{Code: rest.JSONErrorCodeCannotSendMessagesToThisUser}
+	r := m.add(t, reminder{guild: g, owner: u, due: now})
+	noFallback(&r, &discord.ResolvedMember{Permissions: discord.PermissionViewChannel})
+	if r.channel != 0 {
+		t.Fatalf("channel %d kept for a member who can't send", r.channel)
+	}
+	m.fire(context.Background(), r)
+	if s := p.all(); len(s) != 0 {
+		t.Fatalf("posted %+v", s)
+	}
+	ok := reminder{target: "dm", channel: 4}
+	noFallback(&ok, &discord.ResolvedMember{Permissions: discord.PermissionViewChannel | discord.PermissionSendMessages})
+	if ok.channel != 4 {
+		t.Fatal("a member who can post lost their fallback")
+	}
+}
+
+// An owner who shares no server with skua any more (left or banned) has
+// their reminder dropped, repeat or not, and nothing posted for them.
+func TestAGoneOwnersReminderIsDropped(t *testing.T) {
+	m, _, p, g, u := fresh(t)
+	p.dmErr = &rest.Error{Code: rest.JSONErrorCodeCannotSendMessagesToThisUserDueToHavingNoMutualGuilds}
+	r := m.add(t, reminder{guild: g, owner: u, due: now, r: rule{mask: everyDay, at: 9 * 60}})
+	m.fire(context.Background(), r)
+	if s := p.all(); len(s) != 0 {
+		t.Fatalf("posted %+v", s)
+	}
+	if _, ok, err := get(context.Background(), m.db, r.id); err != nil || ok {
+		t.Fatalf("still kept: %v %v", ok, err)
+	}
+}
+
+func TestScreenedText(t *testing.T) {
+	if _, err := screened("   "); err == nil {
+		t.Fatal("empty text accepted")
+	}
+	if _, err := screened("free nitro https://grabify.link/abc"); err == nil {
+		t.Fatal("an ip grabber link went through")
+	}
+	if got, err := screened("ship the release"); err != nil || got != "ship the release" {
+		t.Fatalf("%q %v", got, err)
 	}
 }

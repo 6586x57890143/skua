@@ -21,6 +21,7 @@ import (
 
 	"github.com/6586x57890143/skua/internal/brand"
 	"github.com/6586x57890143/skua/internal/core"
+	"github.com/6586x57890143/skua/internal/filter"
 	"github.com/6586x57890143/skua/internal/guard"
 	"github.com/6586x57890143/skua/internal/intents"
 )
@@ -324,6 +325,7 @@ func (m *Module) remind(ctx context.Context, e *events.ApplicationCommandInterac
 			return err
 		}
 	}
+	noFallback(&r, e.Member())
 	if r, err = m.keep(ctx, r); err != nil {
 		return err
 	}
@@ -351,9 +353,9 @@ func (m *Module) draft(ctx context.Context, guild, user, channel snowflake.ID, w
 	if !rd.at.After(now) || rd.at.Sub(now) > horizonYr {
 		return reminder{}, core.Tell("pick a time between now and a year from now")
 	}
-	what = oneLine(what)
-	if what == "" {
-		return reminder{}, core.Tell("say what to remind you of")
+	what, err := screened(what)
+	if err != nil {
+		return reminder{}, err
 	}
 	if tz == "" {
 		tz = "UTC"
@@ -384,6 +386,31 @@ func (m *Module) aim(ctx context.Context, r *reminder, to string, said bool, mem
 	r.target = "channel"
 	return nil
 }
+
+// noFallback keeps a dm reminder from falling back to a channel its owner
+// can't post in: with their dms closed it would have skua post their text
+// there for them. Channel 0 means no fallback.
+func noFallback(r *reminder, mem *discord.ResolvedMember) {
+	if r.target == "dm" && (mem == nil || !mem.Permissions.Has(discord.PermissionViewChannel|discord.PermissionSendMessages)) {
+		r.channel = 0
+	}
+}
+
+// screened is what, on one line and through skua's filter: rewritten where
+// it can be, refused where it can't.
+func screened(what string) (string, error) {
+	what = oneLine(what)
+	if what == "" {
+		return "", core.Tell("say what to remind you of")
+	}
+	v := screen.Check(what)
+	if v.Block != "" {
+		return "", core.Tell("skua won't post that: it contains " + v.Block)
+	}
+	return v.Text, nil
+}
+
+var screen = filter.Default()
 
 // keep stores r and starts its clock, within the member's cap.
 func (m *Module) keep(ctx context.Context, r reminder) (reminder, error) {
