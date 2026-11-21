@@ -1,4 +1,4 @@
-// Command foreverart rebuilds Blizzard's WoW Forever class icons on skua's
+// Command foreverart rebuilds Blizzard's WoW Forever class icons and faction crests on skua's
 // 24 cell grid and writes them as text grids to
 // tools/sprites/forever_icons.go, which go run ./tools/sprites draws. Only
 // the rebuilt grids are kept: the icons themselves are fetched each run
@@ -6,7 +6,7 @@
 //
 //	go run ./tools/foreverart
 //
-// The icon ids are what /data/wow/media/playable-class/{id} answers in the
+// The class icon ids are what /data/wow/media/playable-class/{id} answers in the
 // static-forever namespace; they are public on Blizzard's render host.
 package main
 
@@ -26,10 +26,13 @@ import (
 	"github.com/6586x57890143/skua/internal/pixel"
 )
 
-// classIcons is each class's icon on render.worldofwarcraft.com.
-var classIcons = map[string]string{
+// icons is each class's icon on render.worldofwarcraft.com, and each
+// faction's crest: the honour achievements' blue and gold lion and red
+// horde banner, which the host serves by name.
+var icons = map[string]string{
 	"warrior": "626008", "paladin": "626003", "hunter": "626000", "rogue": "626005", "priest": "626004",
 	"shaman": "626006", "mage": "626001", "warlock": "626007", "druid": "625999",
+	"alliance": "achievement_pvp_a_a", "horde": "achievement_pvp_h_h",
 }
 
 const (
@@ -50,13 +53,13 @@ package main
 
 import "image/color"
 
-// foreverClassIcons are Blizzard's WoW Forever class icons rebuilt on the
+// foreverBlizzard are Blizzard's WoW Forever class icons and faction crests rebuilt on the
 // 24 cell grid: quantised to 8 inks, resampled by majority, the outer ring
 // pp's dark outline. Each cell is an index into ink.
-var foreverClassIcons = map[string]inkGrid{
+var foreverBlizzard = map[string]inkGrid{
 `)
-	for _, name := range slices.Sorted(keys(classIcons)) {
-		img := fetch(c, "https://render.worldofwarcraft.com/forever-us/icons/56/"+classIcons[name]+".jpg")
+	for _, name := range slices.Sorted(keys(icons)) {
+		img := fetch(c, "https://render.worldofwarcraft.com/forever-us/icons/56/"+icons[name]+".jpg")
 		ink, grid := rebuild(img)
 		fmt.Fprintf(&out, "\t%q: {\n\t\tink: []color.NRGBA{", name)
 		for i, k := range ink {

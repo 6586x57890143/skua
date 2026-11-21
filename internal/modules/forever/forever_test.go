@@ -223,6 +223,12 @@ func TestBarMovesNumbers(t *testing.T) {
 	if where(char{key: key{region: "eu"}, ruleset: "hardcore"}) != "🇪🇺 hardcore" || accent("nope") != accent("") || accent("mage") != 0x3FC7EB {
 		t.Fatal("where or accent")
 	}
+	// Every character on a side shows it, by name before the emoji sync.
+	for race, want := range map[string]string{"orc": "🇪🇺 horde hardcore", "night elf": "🇪🇺 alliance hardcore", "pandaren": "🇪🇺 hardcore"} {
+		if got := where(char{key: key{region: "eu"}, race: race, ruleset: "hardcore"}); got != want {
+			t.Errorf("where for %s = %q", race, got)
+		}
+	}
 }
 
 func TestListLadderAndDrop(t *testing.T) {
@@ -246,7 +252,7 @@ func TestListLadderAndDrop(t *testing.T) {
 		t.Fatalf("unknown: %v", err)
 	}
 	board := text(m.ladder(3, 0))
-	if !strings.Contains(board, "**1** `new` Jaina Proud · lv 44 · 🇺🇸 normal") || !strings.Contains(board, "**2** `new` Thrall Earthcaller · lv 30 · 🇪🇺 normal") {
+	if !strings.Contains(board, "**1** `new` Jaina Proud · lv 44 · 🇺🇸 horde normal") || !strings.Contains(board, "**2** `new` Thrall Earthcaller · lv 30 · 🇪🇺 horde normal") {
 		t.Fatalf("ladder:\n%s", board)
 	}
 	m.turnDay(time.Date(2026, 11, 12, 0, 1, 0, 0, time.UTC))
@@ -261,7 +267,7 @@ func TestListLadderAndDrop(t *testing.T) {
 		t.Fatal(empty)
 	}
 	who := coretest.Text("", []discord.LayoutComponent{m.who(3)})
-	if !strings.Contains(who, "**🇪🇺 normal** · 1") || !strings.Contains(who, "**🇺🇸 normal** · 1") {
+	if !strings.Contains(who, "**🇪🇺 horde normal** · 1") || !strings.Contains(who, "**🇺🇸 horde normal** · 1") {
 		t.Fatalf("who:\n%s", who)
 	}
 	if !strings.Contains(coretest.Text("", []discord.LayoutComponent{m.who(9)}), "nobody here yet") {

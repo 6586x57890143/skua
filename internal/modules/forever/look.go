@@ -47,11 +47,37 @@ func classMark(class string) string {
 	return ""
 }
 
-// where is a character's region flag and ruleset: "🇪🇺 hardcore".
+// sides are each race's faction. A race on both, or one skua doesn't
+// know, has none.
+var sides = map[string]string{
+	"human": "alliance", "dwarf": "alliance", "night elf": "alliance", "gnome": "alliance",
+	"draenei": "alliance", "worgen": "alliance",
+	"orc": "horde", "undead": "horde", "tauren": "horde", "troll": "horde",
+	"blood elf": "horde", "goblin": "horde",
+}
+
+// sideMark is a race's faction crest, or its name before the sync, or
+// nothing for a race on no side.
+func sideMark(race string) string {
+	side := sides[race]
+	if side == "" {
+		return ""
+	}
+	if e := brand.Mention("fv_" + side); e != "" {
+		return e
+	}
+	return side
+}
+
+// where is a character's region flag, faction and ruleset: "🇪🇺 <horde>
+// hardcore".
 func where(c char) string {
 	w := flags[c.region]
 	if w == "" {
 		w = c.region
+	}
+	if s := sideMark(c.race); s != "" {
+		w += " " + s
 	}
 	if c.ruleset != "" {
 		w += " " + c.ruleset
