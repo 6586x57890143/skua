@@ -232,7 +232,10 @@ func markerFor(who string) image.Image {
 
 // tableFrames are a table's frames and their beats: the room with its
 // birds and their stakes, the candles flickering and the glass running;
-// once thrown, the bones tumbling over each bird first, then landing.
+// once thrown, the bones at rest showing the throw, then tumbling over
+// each bird and landing again. The rest comes first because a client that
+// doesn't play the WebP (Discord on a phone) shows only its first frame,
+// and that has to be the throw.
 func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 	base := pixel.New(screenW, screenH)
 	taproom(base, t.Bell)
@@ -270,8 +273,7 @@ func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 			sand(c, f)
 		}
 	}
-	var frames []*pixel.Canvas
-	var beats []int
+	var tumbling []*pixel.Canvas
 	if t.Thrown {
 		for k, at := range tumble {
 			c := base.Copy()
@@ -282,10 +284,12 @@ func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 				tens, ones := faces(n)
 				pair(c, diceAt(i).Add(image.Pt(at.dx, at.dy)), tens, ones, k%2 == 1)
 			}
-			frames, beats = append(frames, c), append(beats, tumbleBeat)
+			tumbling = append(tumbling, c)
 		}
 		chalk(base, t.Seats[t.best()].Name)
 	}
+	var frames []*pixel.Canvas
+	var beats []int
 	for f := range 6 {
 		c := base.Copy()
 		draw(c, f)
@@ -299,6 +303,9 @@ func tableFrames(t Table) ([]*pixel.Canvas, []int) {
 			}
 		}
 		frames, beats = append(frames, c), append(beats, flickerBeat)
+	}
+	for _, c := range tumbling {
+		frames, beats = append(frames, c), append(beats, tumbleBeat)
 	}
 	return frames, beats
 }
