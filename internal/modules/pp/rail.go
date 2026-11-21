@@ -111,8 +111,9 @@ func RailScreen(r Rail) ([]byte, error) {
 }
 
 // railFrames are the rail's frames and their beats: the sump moving
-// beyond the rail with the birds on the deck; once thrown, the bones
-// tumbling over each bird first, then landing.
+// beyond the rail with the birds on the deck; once thrown, the bones at
+// rest first, then tumbling over each bird: a phone shows only the first
+// frame (see tableFrames).
 func railFrames(r Rail) ([]*pixel.Canvas, []int) {
 	art := railArts[r.Light]()
 	base := pixel.New(screenW, screenH)
@@ -132,8 +133,7 @@ func railFrames(r Rail) ([]*pixel.Canvas, []int) {
 	if thick := fogThick[r.Light]; thick > 0 {
 		fog(base, art, 0, thick)
 	}
-	var frames []*pixel.Canvas
-	var beats []int
+	var tumbling []*pixel.Canvas
 	if r.Thrown {
 		for k, at := range tumble {
 			c := base.Copy()
@@ -142,16 +142,15 @@ func railFrames(r Rail) ([]*pixel.Canvas, []int) {
 				tens, ones := faces(n)
 				pair(c, railDice(i).Add(image.Pt(at.dx, at.dy)), tens, ones, k%2 == 1)
 			}
-			frames, beats = append(frames, c), append(beats, tumbleBeat)
-		}
-		for i, p := range r.Seats {
-			tens, ones := faces(p.Throw)
-			pair(base, railDice(i), tens, ones, false)
+			tumbling = append(tumbling, c)
 		}
 	}
+	var frames []*pixel.Canvas
+	var beats []int
 	// What's alive: the harbour water swelling slowly, the lantern on the
 	// rail, the windows up the gut and on the customs house burning a
-	// little unevenly, and the dyes coming down the runnel.
+	// little unevenly, and the dyes coming down the runnel. The dice at
+	// rest go over them, so no window flickers through a die.
 	for _, c := range ambient(base,
 		func(c *pixel.Canvas, f int) { swell(c, art, f) },
 		func(c *pixel.Canvas, f int) { lanternFlame(c, art, (f/2)%3) },
@@ -159,7 +158,16 @@ func railFrames(r Rail) ([]*pixel.Canvas, []int) {
 		func(c *pixel.Canvas, f int) { windows(c, art.img, railCustoms, f) },
 		func(c *pixel.Canvas, f int) { runnelFlow(c, art, f, runnelTop, runnelFoot, runnelFan) },
 	) {
+		if r.Thrown {
+			for i, p := range r.Seats {
+				tens, ones := faces(p.Throw)
+				pair(c, railDice(i), tens, ones, false)
+			}
+		}
 		frames, beats = append(frames, c), append(beats, sumpBeat)
+	}
+	for _, c := range tumbling {
+		frames, beats = append(frames, c), append(beats, tumbleBeat)
 	}
 	return frames, beats
 }
