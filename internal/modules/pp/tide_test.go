@@ -307,7 +307,7 @@ func TestSlatesOverCandles(t *testing.T) {
 		seats = append(seats, TableSeat{Name: "x", Class: Classes[i], Stake: stakes[0].pp, Throw: 100})
 	}
 	frames, _ := tableFrames(Table{Seats: seats, Thrown: true})
-	landed := frames[len(tumble):]
+	landed := frames[:len(frames)-len(tumble)]
 	for i := range seats {
 		r := slate(i, pixel.Bold.Width("100"))
 		for y := r.Min.Y; y < r.Max.Y; y++ {
@@ -609,4 +609,38 @@ func TestShutOpenTable(t *testing.T) {
 	if mem.purse != staked+stakes[0].pp {
 		t.Errorf("the next boot gave back again: %d", mem.purse)
 	}
+}
+
+// A phone shows a moving screen's first frame only, so on a thrown table
+// and at a thrown rail that frame has the bones at rest showing the throw,
+// the same as the last frame before they're thrown again.
+func TestThrowFirstFrame(t *testing.T) {
+	var seats []TableSeat
+	for i := range 2 {
+		seats = append(seats, TableSeat{Name: "x", Class: Classes[i], Stake: stakes[0].pp, Throw: 37 + i})
+	}
+	same := func(name string, frames []*pixel.Canvas, at func(int) image.Point) {
+		t.Helper()
+		rest := frames[len(frames)-len(tumble)-1]
+		// Only the dice's own cells: the scene moves round them.
+		for i := range seats {
+			for _, p := range []image.Point{at(i), at(i).Add(pairOffset)} {
+				for gy, row := range dieFace {
+					for gx := range len(row) {
+						if row[gx] == '.' {
+							continue
+						}
+						x, y := p.X+gx*dieScale, p.Y+gy*dieScale
+						if frames[0].Palette[frames[0].ColorIndexAt(x, y)] != rest.Palette[rest.ColorIndexAt(x, y)] {
+							t.Fatalf("%s: seat %d's dice aren't at rest in the first frame", name, i)
+						}
+					}
+				}
+			}
+		}
+	}
+	tf, _ := tableFrames(Table{Seats: seats, Thrown: true})
+	same("table", tf, diceAt)
+	rf, _ := railFrames(Rail{Seats: seats, Thrown: true})
+	same("rail", rf, railDice)
 }
