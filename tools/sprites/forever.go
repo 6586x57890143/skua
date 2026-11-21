@@ -105,11 +105,11 @@ var foreverGlyphs = map[string][]string{
 	}),
 }
 
-// foreverIcons writes forever's emoji: each class's own icon, rebuilt from
+// foreverIcons writes forever's emoji: each class's icon and each faction's crest, rebuilt from
 // Blizzard's (forever_icons.go), the role's crest in foreverGold, the module's
 // buttons, and the add and who buttons borrowed from remind's set.
 func foreverIcons(out string) {
-	for name, ig := range foreverClassIcons {
+	for name, ig := range foreverBlizzard {
 		img := image.NewNRGBA(image.Rect(0, 0, emojiSize, emojiSize))
 		off := (emojiSize - glyphCells*emojiCell) / 2
 		inks := map[byte]color.NRGBA{}
