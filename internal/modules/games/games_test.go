@@ -167,7 +167,7 @@ func (tb *table) count(to int) {
 
 func TestModuleShape(t *testing.T) {
 	m, _ := New(context.Background(), slog.New(slog.DiscardHandler), guard.New(), nil)
-	if m.Name() != Name || len(m.Commands()) != 0 || len(m.Components()) != 1 {
+	if m.Name() != Name || len(m.Commands()) != 2 || len(m.Components()) != 1 {
 		t.Fatal("shape")
 	}
 	if m.Want().Required == 0 || m.Perms()&discord.PermissionAddReactions == 0 {

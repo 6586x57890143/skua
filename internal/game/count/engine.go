@@ -192,6 +192,25 @@ type Member struct {
 	LastAt    time.Time `json:"last_at"`
 }
 
+// titles are a member's rank as a bird's life, by the level each begins
+// at: a counter grows from the egg to the one who keeps the flock's tally.
+var titles = []struct {
+	level int
+	title string
+}{{0, "egg"}, {1, "hatchling"}, {3, "nestling"}, {5, "fledgling"}, {8, "brancher"}, {12, "flier"},
+	{17, "tallier"}, {23, "reckoner"}, {30, "flockkeeper"}, {40, "skylord"}}
+
+// Title is what a member of rank level is called.
+func Title(level int) string {
+	t := titles[0].title
+	for _, x := range titles {
+		if level >= x.level {
+			t = x.title
+		}
+	}
+	return t
+}
+
 // Who is a member in a server.
 type Who struct{ Guild, User uint64 }
 
@@ -273,6 +292,19 @@ func (en *Engine) Channel(ch uint64) (State, bool) { return en.chans.Get(ch) }
 
 // Channels is every counting channel.
 func (en *Engine) Channels() []uint64 { return en.chans.Keys() }
+
+// Members is every member who has counted in guild, by user.
+func (en *Engine) Members(guild uint64) map[uint64]Member {
+	out := map[uint64]Member{}
+	for _, w := range en.members.Keys() {
+		if w.Guild == guild {
+			if m, ok := en.members.Get(w); ok {
+				out[w.User] = m
+			}
+		}
+	}
+	return out
+}
 
 // Member is a copy of a member's counting.
 func (en *Engine) Member(w Who) Member { m, _ := en.members.Get(w); return m }

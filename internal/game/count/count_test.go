@@ -815,6 +815,21 @@ func TestNewBestOnABreak(t *testing.T) {
 	}
 }
 
+func TestTitlesAndMembers(t *testing.T) {
+	for lvl, want := range map[int]string{0: "egg", 1: "hatchling", 2: "hatchling", 5: "fledgling", 39: "flockkeeper", 40: "skylord", 99: "skylord"} {
+		if got := Title(lvl); got != want {
+			t.Errorf("Title(%d) = %s, want %s", lvl, got, want)
+		}
+	}
+	tb := newTable(t, Standard())
+	tb.run(4)
+	tb.en.RestoreMember(Who{guild + 1, 9}, Member{Counts: 1})
+	got := tb.en.Members(guild)
+	if len(got) != 2 || got[100].Counts != 2 || got[101].Counts != 2 {
+		t.Fatalf("%+v", got)
+	}
+}
+
 func TestOpenChangesRules(t *testing.T) {
 	tb := newTable(t, Standard())
 	tb.run(10)

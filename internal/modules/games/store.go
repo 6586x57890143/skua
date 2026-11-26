@@ -177,6 +177,8 @@ func (m *Module) Run(ctx context.Context) {
 // flush writes every changed channel and member and the journal in one
 // transaction. On failure everything is kept for the next try.
 func (m *Module) flush(ctx context.Context) (err error) {
+	m.fmu.Lock()
+	defer m.fmu.Unlock()
 	chans, members, j := m.chans.Take(), m.members.Take(), m.take()
 	if len(chans) == 0 && len(members) == 0 && len(j.logs) == 0 && len(j.runs) == 0 && len(j.seasons) == 0 {
 		return nil

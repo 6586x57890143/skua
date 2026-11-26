@@ -63,6 +63,7 @@ type Module struct {
 	chans   game.Dirty[uint64]
 	members game.Dirty[count.Who]
 	mu      sync.Mutex // the journal and setup changes
+	fmu     sync.Mutex // one write at a time, so an older one never lands last
 	journal journal
 
 	reactors sync.Map // channel -> *reactor
@@ -106,12 +107,10 @@ func (*Module) Help() core.Help {
 		Color: brand.ColorInfo,
 		Line:  "counting together, and the games to come",
 		About: "an admin picks up to three channels on this page for counting, each with its own rules. members count up one number a message and nobody counts twice in a row. a wrong number ends the run unless a save covers it: everyone earns one for every hundred of their own counts, and the channel earns one for every 250 in a run. two people sending the same number at once is a tie, not a miss, and she reads back whatever was counted while she was away.\n\n" +
-			"the rulesets are standard, hardcore with no saves, lives with three misses a run, solo where one member may count alone with a cooldown, brain where every count is a sum, and fizzbuzz, binary, hex and roman. the arcade layer adds combos, a hidden bounty number after every hundred, a boss stretch of ten different members before every thousand and levels. it never changes the count. a run can also time out whoever breaks it, doubling with each break in a week, for anyone discord lets her time out. every run is a sha256 chain, so a result can be checked",
+			"the rulesets are standard, hardcore with no saves, lives with three misses a run, solo where one member may count alone with a cooldown, brain where every count is a sum, and fizzbuzz, binary, hex and roman. the arcade layer adds combos, a hidden bounty number after every hundred, a boss stretch of ten different members before every thousand and levels. it never changes the count. a run can also time out whoever breaks it, doubling with each break in a week, for anyone discord lets her time out. every run is a sha256 chain, so a result can be checked.\n\n" +
+			"**/count** shows the run, the board for the month and all time and where you stand, with a proof that checks the run link by link. **/recount** starts a channel from a number, for a server moving from another bot",
 	}
 }
-
-// Commands is none yet: counting is set up from the games /help page.
-func (*Module) Commands() []core.Command { return nil }
 
 func (m *Module) Components() []core.Component {
 	return []core.Component{{ID: "games", Run: m.press}}
@@ -129,13 +128,17 @@ var options = []struct{ value, label, about string }{
 	{"timeout", "timeouts", "the breaker sits out 10m, doubling; needs moderate members"},
 }
 
-// press is a control on the games /help page, admins only.
+// press is a button on a /count card, anyone's, or a control on the
+// games /help page, admins only.
 func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate) error {
+	parts := strings.Split(e.Data.CustomID(), ":")
+	if len(parts) >= 3 && slices.Contains([]string{"view", "board", "proof", "file"}, parts[1]) {
+		return m.open(ctx, e, parts)
+	}
 	guild := e.GuildID()
 	if guild == nil || m.Admin == nil || !m.Admin(e) {
 		return errNotAdmin
 	}
-	parts := strings.Split(e.Data.CustomID(), ":")
 	var said string
 	switch {
 	case len(parts) == 2 && parts[1] == "channels":
