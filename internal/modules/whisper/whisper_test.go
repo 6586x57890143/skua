@@ -124,7 +124,7 @@ func (f *fake) CreateWebhookMessage(id snowflake.ID, _ string, m discord.Webhook
 	}
 	f.sent = append(f.sent, m)
 	f.sentHookID = append(f.sentHookID, id)
-	return &discord.Message{ID: snowflake.ID(800 + len(f.sent))}, nil
+	return &discord.Message{ID: snowflake.ID(800 + len(f.sent)), WebhookID: &id, Content: m.Content}, nil
 }
 
 // newWhisper is whisper as main builds it: one guard, shared with the poster.
