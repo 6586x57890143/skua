@@ -72,6 +72,14 @@ func TestRead(t *testing.T) {
 	}{
 		{"42", dec, true, 42, ""},
 		{"  42 is the answer", dec, true, 42, ""},
+		{"2 3", dec, false, 0, ""},
+		{"2\n3", dec, false, 0, ""},
+		{"42 after 41!", dec, false, 0, ""},
+		{"42 or 6*7", dec, false, 0, ""},
+		{"42 <@175928847299117063> <:skua:123> <t:1700000000:R>", dec, true, 42, ""},
+		{"42 lol 2nd try", dec, true, 42, ""},
+		{"xlii xliii", Ruleset{Format: Roman}.Normal(), true, 42, ""},
+		{"2a 2b", Ruleset{Format: Hex}.Normal(), false, 0, ""},
 		{"42\nnext line", dec, true, 42, ""},
 		{"**42**", dec, true, 42, ""},
 		{"42!", dec, true, 42, ""},
@@ -238,6 +246,18 @@ func TestCountMsgAndSays(t *testing.T) {
 	tb.say(2, "5")
 	if s := tb.state(); s.CountMsg != 0 {
 		t.Fatal("a broken run kept its count message")
+	}
+}
+
+// "2 3" is chat: read as 2 it would fail whoever counts 3 next.
+func TestTwoNumbersAreChat(t *testing.T) {
+	tb := newTable(t, Ruleset{Fail: Hardcore}.Normal())
+	tb.say(1, "1")
+	if v := tb.say(2, "2 3"); v.Kind != Ignore {
+		t.Fatalf("%+v", v)
+	}
+	if v := tb.say(3, "2"); v.Kind != Accept {
+		t.Fatalf("%+v", v)
 	}
 }
 
