@@ -75,6 +75,11 @@ type Module struct {
 	// slowmode) if that ever shows up in a heap profile.
 	last sync.Map // slow -> time.Time of their last whisper there
 	now  func() time.Time
+
+	// Translate puts a whisper into English (translate.go); nil without a
+	// translator on the link.
+	Translate Translator
+	wg        sync.WaitGroup
 }
 
 // New takes the process's one guard, for the per-member cap, the poster
@@ -99,7 +104,7 @@ func (*Module) Help() core.Help {
 	return core.Help{
 		Color: brand.ColorInfo,
 		Line:  "posts for you under your name when the chat won't let you",
-		About: "/whisper posts your message in the channel under your own name and avatar. it goes out through a webhook, so a small line underneath says it came through her. use it when you can't post there as yourself. every whisper is screened first: slurs are swapped for something daft and credentials or bad links are refused. it still follows the channel's slowmode. to edit or delete one, right click it and look under apps",
+		About: "/whisper posts your message in the channel under your own name and avatar. it goes out through a webhook, so a small line underneath says it came through her. use it when you can't post there as yourself. every whisper is screened first: slurs are swapped for something daft and credentials or bad links are refused. where the server translates its members, a whisper in another language is put into english a moment after it goes up. it still follows the channel's slowmode. to edit or delete one, right click it and look under apps",
 	}
 }
 
@@ -248,6 +253,7 @@ func (m *Module) whisper(ctx context.Context, e *events.ApplicationCommandIntera
 	if posted != nil {
 		m.writers.add(posted.ID, e.User().ID)
 	}
+	m.translate(r, *guild, ch.ID(), e.ApplicationID(), posted, member.User.ID, text, msg.Flags)
 	// The whisper is up. If the delete fails, the member alone is left with a
 	// stale "thinking"; failing here would undo their slowmode and report an
 	// error for a whisper that went out.

@@ -66,7 +66,7 @@ func (m *Module) byMember(msg discord.Message, user snowflake.ID) (string, bool)
 		return "", false
 	}
 	line := msg.Content[at:]
-	if line == marker(user) || strings.HasPrefix(line, "\n-# whispered through skua by [@") &&
+	if line == marker(user) || translated(line, user) || strings.HasPrefix(line, "\n-# whispered through skua by [@") &&
 		strings.HasSuffix(line, "](<https://discord.com/users/"+user.String()+">)") {
 		return msg.Content[:at], true
 	}
@@ -216,6 +216,8 @@ func (m *Module) submitEdit(ctx context.Context, e *events.ModalSubmitInteractio
 	if err := m.post.Edit(ctx, r, *guild, ch, app, hookID, msgID, update); err != nil {
 		return failed(errNotChanged, err)
 	}
+	msg.Content = content
+	m.translate(r, *guild, ch, app, msg, member.User.ID, v.Text, flagsOf(update))
 	_ = r.DeleteInteractionResponse(app, e.Token(), rest.WithCtx(ctx))
 	return nil
 }
@@ -228,4 +230,12 @@ func parseEdit(customID string) (hook, msg snowflake.ID, ok bool) {
 	h, err1 := snowflake.Parse(parts[1])
 	m, err2 := snowflake.Parse(parts[2])
 	return h, m, err1 == nil && err2 == nil
+}
+
+// flagsOf is the flags an update sets, none if it sets none.
+func flagsOf(u discord.WebhookMessageUpdate) discord.MessageFlags {
+	if u.Flags == nil {
+		return 0
+	}
+	return *u.Flags
 }

@@ -30,6 +30,11 @@ a code block grid (`core.Readout`), art on an exact pixel grid.
 - `internal/modules/*`: features. `status` is the reference module.
 - `internal/roles`: whether a self-pick role is safe to hand out (no permissions, below
   skua, no channel overwrites). notify's ping me and forever's role both ask it.
+- `internal/game`: the bird game library, no Discord in it, so any bird can carry it:
+  per-key state (`Table`), a write-behind (`Dirty`), a sha256 chain (`Link`), ranks,
+  seasons, levels and combos. `internal/game/count` is the counting engine. Every game,
+  peregrine's included once they move, lives in `internal/modules/games` on it; a new game
+  is a package beside `count`, never a new module.
 - `internal/concord`: the slice of Armada's Concord protocol the `armada` bridge needs,
   ported from armada-discord-bridge's concord-core. `testdata/upstream.json` is made by
   upstream's own TypeScript; regenerate it rather than edit it. Changing what the fold
@@ -112,6 +117,7 @@ worktree removal takes them. Never print the token, and never put it in `.env.ex
 set -a; . ../bench.env; set +a       # from inside a worktree
 go run ./tools/reactbench -trials 5  # every preen.Strategies entry, interleaved
 go run ./tools/reactbench -compare policy -trials 6   # serial under each 429 wait policy
+go run ./tools/countbench -channels 111,222 -for 10m  # watch-only: each bot's reaction to a person's count
 ```
 
 The 429 wait policy is `userReset` in `cmd/skua/main.go` (see `internal/ratelimit`): a

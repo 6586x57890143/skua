@@ -14,6 +14,32 @@ import (
 // and kept here as text so a change is reviewable. The source icon is
 // named beside each.
 var moduleGlyphs = map[string][]string{
+	"games": { // drawn on the grid: a gamepad
+		"........................",
+		"........................",
+		"........................",
+		"........................",
+		"....wwwwwwwwwwwwwwww....",
+		"....wwwwwwwwwwwwwwww....",
+		"..ww................ww..",
+		"..ww................ww..",
+		"ww....ww........ww....ww",
+		"ww....ww........ww....ww",
+		"ww..wwwwww....ww..ww..ww",
+		"ww..wwwwww....ww..ww..ww",
+		"ww....ww........ww....ww",
+		"ww....ww........ww....ww",
+		"ww....................ww",
+		"ww....................ww",
+		"ww......wwwwwwww......ww",
+		"ww......wwwwwwww......ww",
+		"..wwwwww........wwwwww..",
+		"..wwwwww........wwwwww..",
+		"........................",
+		"........................",
+		"........................",
+		"........................",
+	},
 	"fix": { // drawn on the grid: two links
 		"........................",
 		"........................",
@@ -986,12 +1012,18 @@ func writeEmoji(b *image.NRGBA) {
 }
 
 // gameIcons writes /pp's item icons as they are drawn on its screens, one
-// cell eight pixels, so a button and a screen show the same picture.
+// cell eight pixels, so a button and a screen show the same picture, and
+// the counting game's reactions the same way.
 func gameIcons(out string) {
 	for name, g := range pixel.Icons {
 		img := image.NewNRGBA(image.Rect(0, 0, emojiSize, emojiSize))
 		drawScaled(img, g, 0, 0, pixel.IconInks, emojiSize/pixel.IconCells)
 		mustWrite(filepath.Join(out, "pp_"+name+".png"), img)
+	}
+	for name, g := range pixel.Reactions {
+		img := image.NewNRGBA(image.Rect(0, 0, emojiSize, emojiSize))
+		drawScaled(img, g, 0, 0, pixel.IconInks, emojiSize/pixel.IconCells)
+		mustWrite(filepath.Join(out, "cnt_"+name+".png"), img)
 	}
 }
 
