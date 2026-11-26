@@ -77,8 +77,8 @@ type watcher struct {
 	mu     sync.Mutex
 	counts map[snowflake.ID]*count
 	names  map[snowflake.ID]string
-	took   map[snowflake.ID][]time.Duration // bot -> latencies
-	where  map[snowflake.ID]snowflake.ID    // bot -> channel
+	took   map[snowflake.ID][]time.Duration       // bot -> latencies
+	where  map[snowflake.ID]map[snowflake.ID]bool // bot -> the channels it answers in
 	member int
 }
 
@@ -103,13 +103,16 @@ func (w *watcher) reaction(e *events.GuildMessageReactionAdd) {
 	}
 	c.by[e.UserID] = true
 	w.names[e.UserID] = e.Member.User.Username
-	w.where[e.UserID] = c.channel
+	if w.where[e.UserID] == nil {
+		w.where[e.UserID] = map[snowflake.ID]bool{}
+	}
+	w.where[e.UserID][c.channel] = true
 	w.took[e.UserID] = append(w.took[e.UserID], now.Sub(c.at))
 }
 
 func run(token string, watch map[snowflake.ID]bool, d time.Duration) error {
 	w := &watcher{watch: watch, counts: map[snowflake.ID]*count{}, names: map[snowflake.ID]string{},
-		took: map[snowflake.ID][]time.Duration{}, where: map[snowflake.ID]snowflake.ID{}}
+		took: map[snowflake.ID][]time.Duration{}, where: map[snowflake.ID]map[snowflake.ID]bool{}}
 	client, err := disgo.New(token,
 		bot.WithLogger(slog.New(slog.DiscardHandler)),
 		bot.WithGatewayConfigOpts(gateway.WithIntents(gateway.IntentGuilds|gateway.IntentGuildMessages|gateway.IntentGuildMessageReactions)),
@@ -154,7 +157,7 @@ func (w *watcher) report() {
 		slices.Sort(took)
 		seen := 0
 		for _, c := range w.counts {
-			if c.channel == w.where[b] {
+			if w.where[b][c.channel] {
 				seen++
 			}
 		}
