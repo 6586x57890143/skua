@@ -104,7 +104,11 @@ type Verdict struct {
 	// broke.
 	Run    int64
 	Length int64
-	Best   int64
+	// Start is where a broken run began, for checking its chain.
+	Start int64
+	// NewBest is a broken run that went past the channel's best.
+	NewBest bool
+	Best    int64
 	// Hash is the accepted count's link, or a broken run's head.
 	Hash game.Hash
 
@@ -126,23 +130,25 @@ type Verdict struct {
 // State is one counting channel. It is plain data so a caller can store it
 // whole and give it back.
 type State struct {
-	Guild   uint64     `json:"guild"`
-	Rules   Ruleset    `json:"rules"`
-	Run     int64      `json:"run"`
-	N       int64      `json:"n"`
-	Start   int64      `json:"start,omitempty"` // where an imported run began
-	Head    game.Hash  `json:"head"`
-	Last    uint64     `json:"last,omitempty"`
-	LastMsg uint64     `json:"last_msg,omitempty"`
-	LastAt  time.Time  `json:"last_at"`
-	Best    int64      `json:"best"`
-	Beat    int64      `json:"beat,omitempty"` // the best when this run began
-	Saves   int        `json:"saves"`
-	Lives   int        `json:"lives,omitempty"`
-	Total   int64      `json:"total"`
-	Bounty  int64      `json:"bounty,omitempty"`
-	Seen    []uint64   `json:"seen,omitempty"` // who counted in this boss stretch
-	Combo   game.Combo `json:"combo"`
+	Guild   uint64    `json:"guild"`
+	Rules   Ruleset   `json:"rules"`
+	Run     int64     `json:"run"`
+	N       int64     `json:"n"`
+	Start   int64     `json:"start,omitempty"` // where an imported run began
+	Head    game.Hash `json:"head"`
+	Last    uint64    `json:"last,omitempty"`
+	LastMsg uint64    `json:"last_msg,omitempty"`
+	// CountMsg is the message that made the last accepted count.
+	CountMsg uint64     `json:"count_msg,omitempty"`
+	LastAt   time.Time  `json:"last_at"`
+	Best     int64      `json:"best"`
+	Beat     int64      `json:"beat,omitempty"` // the best when this run began
+	Saves    int        `json:"saves"`
+	Lives    int        `json:"lives,omitempty"`
+	Total    int64      `json:"total"`
+	Bounty   int64      `json:"bounty,omitempty"`
+	Seen     []uint64   `json:"seen,omitempty"` // who counted in this boss stretch
+	Combo    game.Combo `json:"combo"`
 	// Waits is when each member last counted here, while their cooldown
 	// runs.
 	Waits map[uint64]time.Time `json:"waits,omitempty"`
@@ -166,6 +172,13 @@ func (s *State) wait(user uint64, at time.Time) {
 
 // Next is the number due next, as written.
 func (s State) Next() string { return Say((s.N+1)*s.Rules.Step, s.Rules) }
+
+// Says is whether text still says the last number counted, for a count
+// that was edited.
+func (s State) Says(text string) bool {
+	in := read(text, s.Rules)
+	return in.counted && matches(in, s.N*s.Rules.Step, s.Rules)
+}
 
 // Member is one member's counting in one server.
 type Member struct {
@@ -219,11 +232,19 @@ func Verify(guild, ch uint64, run, start int64, entries []Entry, head game.Hash)
 
 // Open makes ch a counting channel under r, or changes its rules. A change
 // to what the next number is starts a new run.
-func (en *Engine) Open(guild, ch uint64, r Ruleset) {
+func (en *Engine) Open(guild, ch uint64, r Ruleset) { en.OpenAfter(guild, ch, r, 0) }
+
+// OpenAfter is Open for a channel that counted before, whose last run was
+// lastRun: a new one numbers its first run after it, so no two runs of a
+// channel share a number.
+func (en *Engine) OpenAfter(guild, ch uint64, r Ruleset, lastRun int64) {
 	r = r.Normal()
 	en.chans.Upsert(ch, func(s *State, fresh bool) {
 		old := s.Rules
 		s.Guild, s.Rules = guild, r
+		if fresh {
+			s.Run = max(lastRun, 0)
+		}
 		if fresh || old.shapes(r) {
 			s.restart(ch, 0)
 		}
@@ -268,12 +289,29 @@ func (en *Engine) Set(ch uint64, number int64) (State, bool) {
 	return out, ok
 }
 
+// Anchor is Submit for a channel that lost track, after skua was away
+// longer than she could read back: the first count in it, whatever its
+// number, is taken as right and the run goes on from it, recorded as a run
+// that began there. Anything that isn't a plain count is Ignore.
+func (en *Engine) Anchor(ch uint64, m Move) Verdict {
+	v := Verdict{Kind: Ignore}
+	en.chans.Do(ch, func(s *State) {
+		in := read(m.Text, s.Rules)
+		if !in.counted || in.word != "" || in.fuzzy || in.letters && !in.strict || in.value < s.Rules.Step || m.Msg <= s.LastMsg {
+			return
+		}
+		s.restart(ch, in.value/s.Rules.Step-1)
+		v = en.submit(ch, s, m)
+	})
+	return v
+}
+
 // restart begins the next run at start.
 func (s *State) restart(ch uint64, start int64) {
 	s.Run++
 	s.N, s.Start, s.Beat, s.Recorded = start, start, s.Best, false
 	s.Head = Genesis(s.Guild, ch, s.Run, start)
-	s.Last, s.Bounty, s.Seen, s.Waits = 0, 0, nil, nil
+	s.Last, s.Bounty, s.Seen, s.Waits, s.CountMsg = 0, 0, nil, nil, 0
 	s.Combo = game.Combo{}
 	if s.Rules.Fail == Lives {
 		s.Lives = s.Rules.Lives
@@ -360,7 +398,7 @@ func (en *Engine) accept(s *State, mem *Member, m Move, n int64, stretch bool, v
 	r := s.Rules
 	e := Entry{N: n, User: m.User, Msg: m.Msg}
 	s.Head = link(s.Head, s.Run, e)
-	s.N, s.Last, s.LastAt = n, m.User, m.At
+	s.N, s.Last, s.LastAt, s.CountMsg = n, m.User, m.At, m.Msg
 	s.Total++
 	mem.Counts++
 	v.Kind, v.N, v.Hash = Accept, n, s.Head
@@ -440,7 +478,7 @@ func (en *Engine) miss(ch uint64, s *State, mem *Member, v *Verdict) {
 	if r.Arcade {
 		mem.XP = max(mem.XP-breakXP, 0)
 	}
-	v.Kind, v.Length, v.Hash, v.Timeout = Broken, s.N-s.Start, s.Head, r.Timeout
+	v.Kind, v.Length, v.Start, v.Hash, v.Timeout, v.NewBest = Broken, s.N-s.Start, s.Start, s.Head, r.Timeout, s.Recorded
 	s.restart(ch, 0)
 	v.N = s.N
 }

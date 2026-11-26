@@ -30,6 +30,11 @@ a code block grid (`core.Readout`), art on an exact pixel grid.
 - `internal/modules/*`: features. `status` is the reference module.
 - `internal/roles`: whether a self-pick role is safe to hand out (no permissions, below
   skua, no channel overwrites). notify's ping me and forever's role both ask it.
+- `internal/game`: the bird game library, no Discord in it, so any bird can carry it:
+  per-key state (`Table`), a write-behind (`Dirty`), a sha256 chain (`Link`), ranks,
+  seasons, levels and combos. `internal/game/count` is the counting engine. Every game,
+  peregrine's included once they move, lives in `internal/modules/games` on it; a new game
+  is a package beside `count`, never a new module.
 - `internal/concord`: the slice of Armada's Concord protocol the `armada` bridge needs,
   ported from armada-discord-bridge's concord-core. `testdata/upstream.json` is made by
   upstream's own TypeScript; regenerate it rather than edit it. Changing what the fold

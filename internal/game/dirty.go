@@ -62,7 +62,11 @@ func (d *Dirty[K]) Run(ctx context.Context, every, last time.Duration, flush fun
 			cancel()
 			return
 		case <-t.C:
-			turn(ctx)
+			// A tick can win the race with the end; the end's write goes
+			// on a live context, so leave this one to it.
+			if ctx.Err() == nil {
+				turn(ctx)
+			}
 		}
 	}
 }
