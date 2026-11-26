@@ -105,3 +105,21 @@ func (m *Module) parent(r rest.Rest, ch snowflake.ID) snowflake.ID {
 	m.parents.Store(ch, parentAt{p, m.now()})
 	return p
 }
+
+// ranBy is who ran the app that posted m, when the app is one a member
+// installed on their own account: the post is theirs as much as anything
+// they typed, though Discord names the app as its author. 0 for everything
+// else, server-installed bots' replies included.
+func ranBy(m discord.Message) snowflake.ID {
+	md := m.InteractionMetadata
+	if md == nil || md.User.ID == 0 || md.User.ID == m.Author.ID {
+		return 0
+	}
+	if _, user := md.AuthorizingIntegrationOwners[discord.ApplicationIntegrationTypeUserInstall]; !user {
+		return 0
+	}
+	if _, guild := md.AuthorizingIntegrationOwners[discord.ApplicationIntegrationTypeGuildInstall]; guild {
+		return 0
+	}
+	return md.User.ID
+}
