@@ -84,12 +84,17 @@ func (m *Module) OnEvent(ev bot.Event) {
 		if m.liveN.Load() == 0 {
 			return
 		}
-		v, ok := m.live.Load(target{e.GuildID, e.Message.Author.ID})
+		author := e.Message.Author.ID
+		v, ok := m.live.Load(target{e.GuildID, author})
+		if u := ranBy(e.Message); !ok && u != 0 {
+			author = u
+			v, ok = m.live.Load(target{e.GuildID, u})
+		}
 		if !ok {
 			return
 		}
 		set, r, ch := v.(liveSet), e.Client().Rest, e.Message.ChannelID
-		id, at := msg{e.Message.ID, e.Message.Author.ID}, m.now().Add(set.d)
+		id, at := msg{e.Message.ID, author}, m.now().Add(set.d)
 		if len(set.in) == 0 || slices.Contains(set.in, ch) {
 			m.enqueueLive(r, e.GuildID, ch, id, at, set.version)
 			return

@@ -164,19 +164,19 @@ func (m *Module) Commands() []core.Command {
 			Description: "delete your own messages in this server",
 			Contexts:    []discord.InteractionContextType{discord.InteractionContextTypeGuild},
 			Options: []discord.ApplicationCommandOption{
-				discord.ApplicationCommandOptionSubCommand{Name: "now", Description: "delete every message you've sent here", Options: []discord.ApplicationCommandOption{member, in}},
+				discord.ApplicationCommandOptionSubCommand{Name: "now", Description: "delete every message you've sent here", Options: []discord.ApplicationCommandOption{member, byID, in}},
 				discord.ApplicationCommandOptionSubCommand{Name: "stop", Description: "stop deleting", Options: forMember()},
 				discord.ApplicationCommandOptionSubCommand{
 					Name: "live", Description: "delete each message you send here a while after you send it",
 					Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionString{
 						Name: "after", Description: "how long each message stays up", Required: true, Choices: choices(delays),
-					}, member, in},
+					}, member, byID, in},
 				},
 				discord.ApplicationCommandOptionSubCommand{
 					Name: "every", Description: "sweep your messages here on a schedule",
 					Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionString{
 						Name: "every", Description: "how often", Required: true, Choices: choices(everyChoices),
-					}, member, in},
+					}, member, byID, in},
 				},
 				discord.ApplicationCommandOptionSubCommand{Name: "status", Description: "what's set up here and how your last sweep went", Options: forMember()},
 				discord.ApplicationCommandOptionSubCommand{Name: "jobs", Description: "break-glass admin only: every purge running or coming up, in every server"},
@@ -249,11 +249,19 @@ func (m *Module) purge(ctx context.Context, e *events.ApplicationCommandInteract
 		return m.jobsCmd(ctx, e)
 	}
 	user, behalf := e.User().ID, false
-	if id, ok := data.OptSnowflake("member"); ok && id != user {
-		if err := m.breakGlass(user, id, *guild, sub); err != nil {
+	who, ok := data.OptSnowflake("member")
+	if raw, typed := data.OptString("id"); typed && !ok {
+		var err error
+		if who, err = snowflake.Parse(strings.TrimSpace(raw)); err != nil {
+			return core.Tell("that isn't an ID: copy one with Developer Mode on")
+		}
+		ok = true
+	}
+	if ok && who != user {
+		if err := m.breakGlass(user, who, *guild, sub); err != nil {
 			return err
 		}
-		user, behalf = id, true
+		user, behalf = who, true
 	}
 	var where scope
 	if ch, ok := data.OptSnowflake("in"); ok {
@@ -310,8 +318,15 @@ var in = discord.ApplicationCommandOptionChannel{
 	},
 }
 
+// byID is member for whoever can't be picked: someone who left, or an app a
+// member installed on their own account, whose posts are authored by the
+// app. member wins when both are given.
+var byID = discord.ApplicationCommandOptionString{Name: "id", Description: "break-glass admin only: a user or app ID, for someone you can't pick", MaxLength: ptr(20)}
+
+func ptr[T any](v T) *T { return &v }
+
 func forMember() []discord.ApplicationCommandOption {
-	return []discord.ApplicationCommandOption{member}
+	return []discord.ApplicationCommandOption{member, byID}
 }
 
 var errNotYours = core.Tell("only skua's break-glass admin can do that for someone else; leave member out to do it for yourself")

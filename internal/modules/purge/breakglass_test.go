@@ -158,3 +158,52 @@ func TestBreakGlassSetsTheMembersRow(t *testing.T) {
 		t.Fatalf("status:\n%s", got)
 	}
 }
+
+// id reaches who member can't: it's held to break-glass, opens the box for
+// that ID, and refuses what isn't one.
+func TestBreakGlassByID(t *testing.T) {
+	byID := func(m *Module, v string) string {
+		return command(t, m, "now", func(p map[string]any) {
+			p["member"].(map[string]any)["permissions"] = administrator
+			p["data"].(map[string]any)["options"] = []any{map[string]any{"name": "now", "type": 1, "options": []any{
+				map[string]any{"name": "id", "type": 3, "value": v},
+			}}}
+		})
+	}
+	m := newModule()
+	if got := byID(m, them.String()); got != "✗ "+string(errNotYours) {
+		t.Errorf("a server admin by id: %q", got)
+	}
+	m.bootstrap = core.Admins{me}
+	if got := byID(m, " "+them.String()+" "); got != "modal" {
+		t.Errorf("break-glass by id: %q", got)
+	}
+	if got := byID(m, "someone"); !strings.Contains(got, "isn't an ID") {
+		t.Errorf("not an id: %q", got)
+	}
+}
+
+// A post from an app a member installed on their own account is theirs; a
+// server bot's reply to their command is not.
+func TestRanBy(t *testing.T) {
+	app := snowflake.ID(77)
+	post := func(owners map[discord.ApplicationIntegrationType]snowflake.ID) discord.Message {
+		return discord.Message{Author: discord.User{ID: app}, InteractionMetadata: &discord.InteractionMetadata{
+			User: discord.User{ID: them}, AuthorizingIntegrationOwners: owners,
+		}}
+	}
+	user := map[discord.ApplicationIntegrationType]snowflake.ID{discord.ApplicationIntegrationTypeUserInstall: them}
+	both := map[discord.ApplicationIntegrationType]snowflake.ID{discord.ApplicationIntegrationTypeUserInstall: them, discord.ApplicationIntegrationTypeGuildInstall: 1}
+	guild := map[discord.ApplicationIntegrationType]snowflake.ID{discord.ApplicationIntegrationTypeGuildInstall: 1}
+	for name, c := range map[string]struct {
+		m    discord.Message
+		want snowflake.ID
+	}{
+		"user app": {post(user), them}, "installed both ways": {post(both), 0}, "server bot": {post(guild), 0},
+		"typed": {discord.Message{Author: discord.User{ID: them}}, 0},
+	} {
+		if got := ranBy(c.m); got != c.want {
+			t.Errorf("%s: %d, want %d", name, got, c.want)
+		}
+	}
+}

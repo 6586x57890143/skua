@@ -307,6 +307,9 @@ func (s *scan) read(ctx context.Context, sp spot, from snowflake.ID) error {
 		for _, m := range msgs {
 			after = max(after, m.ID)
 			found[m.Author.ID] = append(found[m.Author.ID], m.ID)
+			if u := ranBy(m); u != 0 {
+				found[u] = append(found[u], m.ID)
+			}
 		}
 		s.scanned.Add(int64(len(msgs)))
 		if len(msgs) < page || after >= s.cutoff {
