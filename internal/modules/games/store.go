@@ -109,6 +109,22 @@ func (m *Module) load(ctx context.Context) error {
 	return nil
 }
 
+// lastRun is the highest run a channel kept history for, so one counting
+// again after it was dropped never reuses a run's number.
+func (m *Module) lastRun(ctx context.Context, ch uint64) (int64, error) {
+	if m.db == nil {
+		return 0, nil
+	}
+	rows, _ := m.db.Query(ctx, `select greatest(
+		(select coalesce(max(run), 0) from count_log where channel_id = $1),
+		(select coalesce(max(run), 0) from count_run where channel_id = $1))`, int64(ch))
+	last, err := pgx.CollectExactlyOneRow(rows, pgx.RowTo[int64])
+	if err != nil {
+		return 0, fmt.Errorf("games: reading a channel's runs: %w", err)
+	}
+	return last, nil
+}
+
 // saveChannel writes one channel now, for a change an admin made.
 func (m *Module) saveChannel(ctx context.Context, ch uint64) error {
 	if m.db == nil {
@@ -148,6 +164,9 @@ func (m *Module) Run(ctx context.Context) {
 			cancel()
 			return
 		case <-t.C:
+			if ctx.Err() != nil {
+				continue // the end's write, next turn, takes it
+			}
 			if err := m.flush(ctx); err != nil {
 				m.log.Warn("games: writing what was played; trying again", "err", err)
 			}

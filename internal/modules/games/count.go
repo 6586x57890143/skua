@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,7 +90,16 @@ func (m *Module) message(r rest.Rest, guild snowflake.ID, msg discord.Message) {
 // see it, said.
 func (m *Module) play(r rest.Rest, guild snowflake.ID, msg discord.Message, forgive bool) count.Verdict {
 	ch := uint64(msg.ChannelID)
-	v := m.en.Submit(ch, count.Move{User: uint64(msg.Author.ID), Msg: uint64(msg.ID), Text: msg.Content, At: msg.ID.Time(), Forgive: forgive})
+	move := count.Move{User: uint64(msg.Author.ID), Msg: uint64(msg.ID), Text: msg.Content, At: msg.ID.Time(), Forgive: forgive}
+	var v count.Verdict
+	if _, lost := m.lost.Load(msg.ChannelID); lost && !forgive {
+		// She lost track while away: the next count is taken as right.
+		if v = m.en.Anchor(ch, move); v.Kind == count.Accept {
+			m.lost.Delete(msg.ChannelID)
+		}
+	} else {
+		v = m.en.Submit(ch, move)
+	}
 	if v.Kind == count.Ignore || v.Kind == count.Stale {
 		return v
 	}
@@ -211,12 +221,15 @@ func (m *Module) broken(r rest.Rest, guild snowflake.ID, msg discord.Message, v 
 	}
 	rows := [][2]string{{"run", fmt.Sprintf("%d", v.Length)}, {"best", fmt.Sprintf("%d", v.Best)}}
 	body := "✗ " + line + "\n" + core.Readout(rows)
-	if v.Length > 0 && v.Length == v.Best {
+	if v.NewBest {
 		body += "that was a new best\n"
 	}
 	if v.Timeout > 0 {
-		if d, ok := m.timeout(r, guild, msg, v.Timeout); ok {
+		switch d, err := m.timeout(r, guild, msg, v.Timeout); {
+		case err == nil && d > 0:
 			body += fmt.Sprintf("%s sits out %s\n", who, core.Duration(d))
+		case forbidden(err):
+			body += "-# she couldn't time them out: that takes moderate members and a role above theirs\n"
 		}
 	}
 	body += fmt.Sprintf("-# run %d ended on %s. start again at **%s**", v.Run, v.Hash.Short(), s.Next())
@@ -229,22 +242,23 @@ func (m *Module) broken(r rest.Rest, guild snowflake.ID, msg discord.Message, v 
 //
 // ponytail: the week's breaks are kept in memory, so a restart forgets
 // them; a column on count_member is the upgrade if that ever matters.
-func (m *Module) timeout(r rest.Rest, guild snowflake.ID, msg discord.Message, base time.Duration) (time.Duration, bool) {
+//
+// Only a timeout served counts toward the next.
+func (m *Module) timeout(r rest.Rest, guild snowflake.ID, msg discord.Message, base time.Duration) (time.Duration, error) {
 	who := count.Who{Guild: uint64(guild), User: uint64(msg.Author.ID)}
 	now := m.now()
 	l := ladder(base)
-	var priors []time.Time
-	if v, ok := m.breaks.Load(who); ok {
-		for _, t := range v.([]time.Time) {
-			if now.Sub(t) < l.Window {
-				priors = append(priors, t)
-			}
+	m.bmu.Lock()
+	served := 0
+	for _, t := range m.breaks[who] {
+		if now.Sub(t) < l.Window {
+			served++
 		}
 	}
-	m.breaks.Store(who, append(priors, now))
-	d := l.For(len(priors))
+	m.bmu.Unlock()
+	d := l.For(served)
 	if m.guard.Allow(guild, guard.CountTimeout) != nil {
-		return 0, false
+		return 0, nil
 	}
 	until := now.Add(d)
 	ctx, cancel := context.WithTimeout(context.Background(), callBy)
@@ -254,10 +268,38 @@ func (m *Module) timeout(r rest.Rest, guild snowflake.ID, msg discord.Message, b
 	m.guard.Done(guild, err)
 	if err != nil {
 		m.log.Info("games: couldn't time out a breaker", "guild", guild, "user", msg.Author.ID, "err", err)
-		return 0, false
+		return 0, err
 	}
-	return d, true
+	m.bmu.Lock()
+	defer m.bmu.Unlock()
+	if m.breaks == nil {
+		m.breaks = map[count.Who][]time.Time{}
+	}
+	// Forget whoever has served nothing in the window, so the map holds
+	// only the week's breakers.
+	for w, ts := range m.breaks {
+		ts = slices.DeleteFunc(ts, func(t time.Time) bool { return now.Sub(t) >= l.Window })
+		if len(ts) == 0 {
+			delete(m.breaks, w)
+		} else {
+			m.breaks[w] = ts
+		}
+	}
+	m.breaks[who] = append(m.breaks[who], now)
+	return d, nil
 }
+
+// forbidden is Discord saying skua lacks the permission or the reach for
+// a call: missing access, missing permissions, or any other 403 but a
+// member blocking her.
+func forbidden(err error) bool {
+	re, ok := errors.AsType[*rest.Error](err)
+	return ok && re.Response != nil && re.Response.StatusCode == http.StatusForbidden && re.Code != reactionBlocked
+}
+
+// reactionBlocked is the 403 Discord gives for a reaction on the message
+// of a member who blocked skua: one member's choice, not the channel's.
+const reactionBlocked = 90001
 
 // edited calls out the last count edited into something else, once.
 func (m *Module) edited(r rest.Rest, guild snowflake.ID, msg discord.Message) {
@@ -280,15 +322,22 @@ func (m *Module) deleted(r rest.Rest, guild, channel, id snowflake.ID) {
 // callOut says what the last count was after it went, so nobody is fooled
 // into a miss.
 func (m *Module) callOut(r rest.Rest, guild, channel, id snowflake.ID, s count.State, how string) {
-	if _, seen := m.noticed.LoadOrStore(id, struct{}{}); seen {
+	// One per count: only the last count is ever called out, so a channel
+	// keeps one id.
+	if prev, seen := m.noticed.Swap(channel, id); seen && prev.(snowflake.ID) == id {
 		return
 	}
 	last := count.Say(s.N*s.Rules.Step, s.Rules)
 	m.say(r, guild, channel, fmt.Sprintf("-# <@%d> %s their **%s**. the next number is **%s**", s.Last, how, last, s.Next()), nil)
 }
 
-// say posts text or a card in channel, pinging nobody.
+// say posts text or a card in channel, pinging nobody, off the caller's
+// goroutine: the gateway never waits on a post.
 func (m *Module) say(r rest.Rest, guild, channel snowflake.ID, text string, card *discord.ContainerComponent) {
+	m.wg.Go(func() { m.post(r, guild, channel, text, card) })
+}
+
+func (m *Module) post(r rest.Rest, guild, channel snowflake.ID, text string, card *discord.ContainerComponent) {
 	if m.guard.Allow(guild, guard.MessageSend) != nil {
 		return
 	}
@@ -373,7 +422,7 @@ func (m *Module) add(r rest.Rest, guild, channel snowflake.ID, j job) {
 	defer cancel()
 	err := r.AddReaction(channel, j.msg, brand.Reaction(j.key, j.fallback), rest.WithCtx(ctx))
 	m.guard.Done(guild, err)
-	if re, ok := errors.AsType[*rest.Error](err); ok && re.Response != nil && re.Response.StatusCode == http.StatusForbidden {
+	if forbidden(err) {
 		m.refused.Store(channel, m.now().Add(refuseFor))
 	}
 }
@@ -417,13 +466,14 @@ func (m *Module) catchChannel(r rest.Rest, guild, channel snowflake.ID, b *backl
 
 	after := snowflake.ID(s.LastMsg)
 	var last discord.Message
-	caught, full := 0, false
+	caught, full, failed := 0, false, false
 	for page := 0; page < catchPages; page++ {
 		ctx, cancel := context.WithTimeout(context.Background(), callBy)
 		msgs, err := r.GetMessages(channel, 0, 0, after, 100, rest.WithCtx(ctx))
 		cancel()
 		if err != nil {
 			m.log.Info("games: couldn't read back a counting channel", "guild", guild, "channel", channel, "err", err)
+			failed = true
 			break
 		}
 		slices.SortFunc(msgs, func(a, b discord.Message) int { return cmp.Compare(a.ID, b.ID) })
@@ -439,6 +489,15 @@ func (m *Module) catchChannel(r rest.Rest, guild, channel snowflake.ID, b *backl
 			break
 		}
 	}
+	// Read back only in part, she can't know the number: the next count
+	// anyone makes is taken as right, rather than judging it against where
+	// she lost track.
+	if full || failed {
+		m.lost.Store(channel, struct{}{})
+		m.say(r, guild, channel, "-# skua was away longer than she could read back, so she picks up from the next count", nil)
+	}
+	// Plays only touch the engine; every post and reaction is queued, so
+	// holding the backlog here never holds a call to Discord.
 	b.mu.Lock()
 	for _, msg := range b.msgs {
 		m.play(r, guild, msg, false)
@@ -448,10 +507,6 @@ func (m *Module) catchChannel(r rest.Rest, guild, channel snowflake.ID, b *backl
 
 	if caught > 0 {
 		m.react(r, guild, channel, last.ID, reactOK)
-	}
-	if full {
-		s, _ := m.en.Channel(uint64(channel))
-		m.say(r, guild, channel, fmt.Sprintf("-# skua was away longer than she can read back, so some counts went unseen. the next number is **%s**", s.Next()), nil)
 	}
 }
 
@@ -470,15 +525,10 @@ func (m *Module) Wait(d time.Duration) bool {
 
 // firstWord is what a member said, as the engine read it, for a card.
 func firstWord(s string) string {
-	w := s
-	for i, c := range s {
-		if c == ' ' || c == '\n' {
-			w = s[:i]
-			break
-		}
-	}
-	if len(w) > 24 {
-		w = w[:24] + "..."
+	w, _, _ := strings.Cut(strings.TrimSpace(s), " ")
+	w, _, _ = strings.Cut(w, "\n")
+	if r := []rune(w); len(r) > 24 {
+		w = string(r[:24]) + "..."
 	}
 	return "**" + markdown.Replace(w) + "**"
 }

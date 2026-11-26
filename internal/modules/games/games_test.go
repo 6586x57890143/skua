@@ -18,6 +18,7 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/6586x57890143/skua/internal/core/coretest"
@@ -37,19 +38,20 @@ var t0 = time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
 // fakeRest is the REST the games call.
 type fakeRest struct {
 	rest.Rest
-	mu       sync.Mutex
-	reacts   []string // "message emoji"
-	posts    []discord.MessageCreate
-	timeouts []time.Duration
-	reactErr error
-	postErr  error
-	hold     chan struct{} // when set, the first reaction waits on it
-	held     chan struct{} // closed once that reaction is waiting
-	pages    [][]discord.Message
-	afters   []snowflake.ID
-	getErr   error
-	gate     chan struct{} // when set, reading back waits on it
-	now      time.Time
+	mu        sync.Mutex
+	reacts    []string // "message emoji"
+	posts     []discord.MessageCreate
+	timeouts  []time.Duration
+	reactErr  error
+	memberErr error
+	postErr   error
+	hold      chan struct{} // when set, the first reaction waits on it
+	held      chan struct{} // closed once that reaction is waiting
+	pages     [][]discord.Message
+	afters    []snowflake.ID
+	getErr    error
+	gate      chan struct{} // when set, reading back waits on it
+	now       time.Time
 }
 
 func (f *fakeRest) AddReaction(_, msg snowflake.ID, emoji string, _ ...rest.RequestOpt) error {
@@ -78,7 +80,7 @@ func (f *fakeRest) UpdateMember(_, _ snowflake.ID, u discord.MemberUpdate, _ ...
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.timeouts = append(f.timeouts, (*u.CommunicationDisabledUntil.Value).Sub(f.now).Round(time.Minute))
-	return &discord.Member{}, nil
+	return &discord.Member{}, f.memberErr
 }
 
 func (f *fakeRest) GetMessages(_, _, _, after snowflake.ID, _ int, _ ...rest.RequestOpt) ([]discord.Message, error) {
@@ -328,6 +330,38 @@ func TestRefusedChannelIsLeftAlone(t *testing.T) {
 	}
 }
 
+// A member who blocked skua refuses only their own reaction: the channel
+// goes on getting its ticks.
+func TestBlockedMemberDoesntParkTheChannel(t *testing.T) {
+	tb := newTable(t, count.Standard())
+	tb.r.reactErr = &rest.Error{Response: &http.Response{StatusCode: http.StatusForbidden}, Code: reactionBlocked}
+	tb.say(7, "1")
+	tb.r.reactErr = nil
+	tb.say(8, "2")
+	if n := len(tb.r.reactions()); n != 2 {
+		t.Fatalf("%d reactions", n)
+	}
+}
+
+func TestTimeoutThatCantBeServed(t *testing.T) {
+	r := count.Standard()
+	r.Timeout = baseTimeout
+	tb := newTable(t, r)
+	tb.r.memberErr = &rest.Error{Response: &http.Response{StatusCode: http.StatusForbidden}, Code: 50013}
+	tb.count(2)
+	tb.say(7, "9")
+	if !strings.Contains(tb.r.said(), "takes moderate members") || strings.Contains(tb.r.said(), "sits out") {
+		t.Fatal(tb.r.said())
+	}
+	// Unserved, it doesn't double the next.
+	tb.r.memberErr = nil
+	tb.count(2)
+	tb.say(7, "9")
+	if len(tb.r.timeouts) != 2 || tb.r.timeouts[1] != baseTimeout {
+		t.Fatalf("%v", tb.r.timeouts)
+	}
+}
+
 func TestDeletedOrEditedCountIsCalledOut(t *testing.T) {
 	tb := newTable(t, count.Standard())
 	tb.say(7, "1")
@@ -336,18 +370,21 @@ func TestDeletedOrEditedCountIsCalledOut(t *testing.T) {
 	edit := two
 	edit.Content = "2 (still)"
 	tb.m.OnEvent(&events.GuildMessageUpdate{GenericGuildMessage: &events.GenericGuildMessage{GenericEvent: gen, MessageID: two.ID, Message: edit, ChannelID: chanID, GuildID: guildID}})
+	tb.m.Wait(time.Second)
 	if tb.r.said() != "" {
 		t.Fatal("an edit that still says the count was called out")
 	}
 	edit.Content = "7"
 	tb.m.OnEvent(&events.GuildMessageUpdate{GenericGuildMessage: &events.GenericGuildMessage{GenericEvent: gen, MessageID: two.ID, Message: edit, ChannelID: chanID, GuildID: guildID}})
 	tb.m.OnEvent(&events.GuildMessageDelete{GenericGuildMessage: &events.GenericGuildMessage{GenericEvent: gen, MessageID: two.ID, ChannelID: chanID, GuildID: guildID}})
+	tb.m.Wait(time.Second)
 	said := tb.r.said()
 	if strings.Count(said, "the next number is **3**") != 1 || !strings.Contains(said, "<@8> edited their **2**") {
 		t.Fatalf("%q", said)
 	}
 	// An older message going is nothing to say.
 	tb.m.OnEvent(&events.GuildMessageDelete{GenericGuildMessage: &events.GenericGuildMessage{GenericEvent: gen, MessageID: 1, ChannelID: chanID, GuildID: guildID}})
+	tb.m.Wait(time.Second)
 	if tb.r.said() != said {
 		t.Fatal("called out a message that wasn't the last count")
 	}
@@ -430,17 +467,37 @@ func TestCatchUpTooLong(t *testing.T) {
 		}
 		tb.r.pages = append(tb.r.pages, page)
 	}
-	tb.m.catchChannel(tb.r, guildID, chanID, &backlog{})
+	// Counting went on past what she read: 900 was sent live while she read.
+	live := tb.msg(7, "900")
+	tb.m.catchChannel(tb.r, guildID, chanID, &backlog{msgs: []discord.Message{live}})
 	tb.m.Wait(5 * time.Second)
-	if !strings.Contains(tb.r.said(), "the next number is **502**") || len(tb.r.afters) != catchPages {
+	if !strings.Contains(tb.r.said(), "she picks up from the next count") || len(tb.r.afters) != catchPages {
 		t.Fatalf("%q %v", tb.r.said(), len(tb.r.afters))
 	}
+	s, _ := tb.m.en.Channel(chanID)
+	if s.N != 900 || s.Run != 2 || s.Start != 899 {
+		t.Fatalf("the first live count wasn't taken as right: %+v", s)
+	}
+	tb.say(8, "901")
+	if s, _ := tb.m.en.Channel(chanID); s.N != 901 {
+		t.Fatal("counting didn't go on from the anchor")
+	}
+	// A read that fails can't know the number either.
 	tb2 := newTable(t, count.Standard())
 	tb2.say(7, "1")
 	tb2.r.getErr = errors.New("discord down")
 	tb2.m.catchChannel(tb2.r, guildID, chanID, &backlog{})
-	if tb2.r.said() != "" {
-		t.Fatal("a failed read said something")
+	tb2.m.Wait(time.Second)
+	if !strings.Contains(tb2.r.said(), "picks up from the next count") {
+		t.Fatal(tb2.r.said())
+	}
+	tb2.say(8, "hello")
+	tb2.say(8, "40")
+	if s, _ := tb2.m.en.Channel(chanID); s.N != 40 {
+		t.Fatalf("%+v", s)
+	}
+	if _, lost := tb2.m.lost.Load(snowflake.ID(chanID)); lost {
+		t.Fatal("still lost after a count")
 	}
 	// A channel with nothing counted yet has nothing to read back.
 	tb3 := newTable(t, count.Standard())
@@ -658,6 +715,38 @@ func TestStoreRoundTrip(t *testing.T) {
 	third, _ := New(ctx, slog.New(slog.DiscardHandler), guard.New(), db)
 	if _, ok := third.en.Channel(chanID); ok {
 		t.Fatal("a dropped channel came back")
+	}
+	// Picked again, it numbers its runs after the ones it kept.
+	if err := third.pick(ctx, guildID, []snowflake.ID{chanID}); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := third.en.Channel(chanID); s.Run != 3 {
+		t.Fatalf("run %d reuses a kept run's number", s.Run)
+	}
+}
+
+// failDB refuses every write, for an admin's change that can't be saved.
+type failDB struct{ DB }
+
+func (failDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, errors.New("db down")
+}
+
+// A rules change that can't be saved leaves the channel exactly as it was.
+func TestRulesChangeRollsBack(t *testing.T) {
+	tb := newTable(t, count.Standard())
+	tb.count(5)
+	before, _ := tb.m.en.Channel(chanID)
+	tb.m.db = failDB{}
+	if _, err := tb.m.rules(context.Background(), guildID, chanID, "rules", []string{"binary"}); err == nil {
+		t.Fatal("a failed save said it worked")
+	}
+	after, _ := tb.m.en.Channel(chanID)
+	if after.N != before.N || after.Run != before.Run || after.Head != before.Head || after.Rules != before.Rules {
+		t.Fatalf("%+v, want %+v", after, before)
+	}
+	if err := tb.m.pick(context.Background(), guildID, nil); err == nil {
+		t.Fatal("a failed drop said it worked")
 	}
 }
 

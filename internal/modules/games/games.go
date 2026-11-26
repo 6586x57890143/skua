@@ -68,8 +68,10 @@ type Module struct {
 	reactors sync.Map // channel -> *reactor
 	refused  sync.Map // channel -> time.Time, reactions refused until
 	catching sync.Map // channel -> *backlog, while skua reads what she missed
-	noticed  sync.Map // message -> struct{}, counts already called out
-	breaks   sync.Map // count.Who -> []time.Time, breaks in the last week
+	lost     sync.Map // channel -> struct{}, picking up from the next count
+	noticed  sync.Map // channel -> snowflake.ID, the count last called out
+	bmu      sync.Mutex
+	breaks   map[count.Who][]time.Time // timeouts served in the last week
 	wg       sync.WaitGroup
 }
 
@@ -124,7 +126,7 @@ var (
 var options = []struct{ value, label, about string }{
 	{"arcade", "arcade", "combos, bounties, the boss stretch and levels"},
 	{"solo", "solo", "one member may count twice in a row"},
-	{"timeout", "timeouts", "whoever breaks the run sits out 10m, doubling"},
+	{"timeout", "timeouts", "the breaker sits out 10m, doubling; needs moderate members"},
 }
 
 // press is a control on the games /help page, admins only.
@@ -200,7 +202,11 @@ func (m *Module) pick(ctx context.Context, guild snowflake.ID, channels []snowfl
 		if _, ok := m.en.Channel(uint64(ch)); ok {
 			continue
 		}
-		m.en.Open(uint64(guild), uint64(ch), count.Standard())
+		last, err := m.lastRun(ctx, uint64(ch))
+		if err != nil {
+			return err
+		}
+		m.en.OpenAfter(uint64(guild), uint64(ch), count.Standard(), last)
 		if err := m.saveChannel(ctx, uint64(ch)); err != nil {
 			m.en.Close(uint64(ch))
 			return err
@@ -242,7 +248,9 @@ func (m *Module) rules(ctx context.Context, guild, ch snowflake.ID, what string,
 	}
 	m.en.Open(uint64(guild), uint64(ch), r)
 	if err := m.saveChannel(ctx, uint64(ch)); err != nil {
-		m.en.Open(uint64(guild), uint64(ch), s.Rules)
+		// Back to exactly what it was: reopening under the old rules would
+		// start yet another run.
+		m.en.Restore(uint64(ch), s)
 		return r, err
 	}
 	s, _ = m.en.Channel(uint64(ch))

@@ -753,6 +753,68 @@ func TestSetImportsARun(t *testing.T) {
 	}
 }
 
+func TestOpenAfterNumbersRunsOn(t *testing.T) {
+	en := &Engine{}
+	en.OpenAfter(guild, ch, Standard(), 7)
+	if s, _ := en.Channel(ch); s.Run != 8 || s.Head != Genesis(guild, ch, 8, 0) {
+		t.Fatalf("%+v", s)
+	}
+	// An open channel keeps its run whatever lastRun says.
+	en.OpenAfter(guild, ch, Standard(), 100)
+	if s, _ := en.Channel(ch); s.Run != 8 {
+		t.Fatalf("%+v", s)
+	}
+}
+
+func TestAnchorPicksUpFromTheNextCount(t *testing.T) {
+	tb := newTable(t, Standard())
+	tb.run(5)
+	anchor := func(user uint64, text string) Verdict {
+		tb.msg++
+		tb.at = tb.at.Add(time.Second)
+		return tb.en.Anchor(ch, Move{User: user, Msg: tb.msg, Text: text, At: tb.at})
+	}
+	for _, chat := range []string{"hi", "2026-11-26", "0"} {
+		if v := anchor(1, chat); v.Kind != Ignore {
+			t.Fatalf("%q anchored: %+v", chat, v)
+		}
+	}
+	v := anchor(1, "901")
+	if v.Kind != Accept || v.N != 901 || v.Run != 2 {
+		t.Fatalf("%+v", v)
+	}
+	s := tb.state()
+	if s.Start != 900 || s.Best != 901 || !Verify(guild, ch, 2, 900, []Entry{{901, 1, tb.msg}}, s.Head) {
+		t.Fatalf("%+v", s)
+	}
+	if v := tb.say(2, "902"); v.Kind != Accept {
+		t.Fatalf("%+v", v)
+	}
+	// An older message can't anchor.
+	if v := tb.en.Anchor(ch, Move{User: 3, Msg: 1, Text: "5", At: tb.at}); v.Kind != Ignore {
+		t.Fatalf("%+v", v)
+	}
+	if v := tb.en.Anchor(12345, Move{User: 3, Msg: 99, Text: "5"}); v.Kind != Ignore {
+		t.Fatal("anchored a channel that doesn't count")
+	}
+}
+
+func TestNewBestOnABreak(t *testing.T) {
+	tb := newTable(t, Ruleset{Fail: Hardcore}.Normal())
+	tb.run(10)
+	if v := tb.say(1, "99"); v.NewBest {
+		t.Fatal("the first run beat nothing")
+	}
+	tb.run(10)
+	if v := tb.say(1, "99"); v.NewBest {
+		t.Fatal("a tie is not a new best")
+	}
+	tb.run(11)
+	if v := tb.say(1, "99"); !v.NewBest {
+		t.Fatal("11 beat 10")
+	}
+}
+
 func TestOpenChangesRules(t *testing.T) {
 	tb := newTable(t, Standard())
 	tb.run(10)

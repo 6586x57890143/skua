@@ -106,7 +106,9 @@ type Verdict struct {
 	Length int64
 	// Start is where a broken run began, for checking its chain.
 	Start int64
-	Best  int64
+	// NewBest is a broken run that went past the channel's best.
+	NewBest bool
+	Best    int64
 	// Hash is the accepted count's link, or a broken run's head.
 	Hash game.Hash
 
@@ -230,11 +232,19 @@ func Verify(guild, ch uint64, run, start int64, entries []Entry, head game.Hash)
 
 // Open makes ch a counting channel under r, or changes its rules. A change
 // to what the next number is starts a new run.
-func (en *Engine) Open(guild, ch uint64, r Ruleset) {
+func (en *Engine) Open(guild, ch uint64, r Ruleset) { en.OpenAfter(guild, ch, r, 0) }
+
+// OpenAfter is Open for a channel that counted before, whose last run was
+// lastRun: a new one numbers its first run after it, so no two runs of a
+// channel share a number.
+func (en *Engine) OpenAfter(guild, ch uint64, r Ruleset, lastRun int64) {
 	r = r.Normal()
 	en.chans.Upsert(ch, func(s *State, fresh bool) {
 		old := s.Rules
 		s.Guild, s.Rules = guild, r
+		if fresh {
+			s.Run = max(lastRun, 0)
+		}
 		if fresh || old.shapes(r) {
 			s.restart(ch, 0)
 		}
@@ -277,6 +287,23 @@ func (en *Engine) Set(ch uint64, number int64) (State, bool) {
 		out = *s
 	})
 	return out, ok
+}
+
+// Anchor is Submit for a channel that lost track, after skua was away
+// longer than she could read back: the first count in it, whatever its
+// number, is taken as right and the run goes on from it, recorded as a run
+// that began there. Anything that isn't a plain count is Ignore.
+func (en *Engine) Anchor(ch uint64, m Move) Verdict {
+	v := Verdict{Kind: Ignore}
+	en.chans.Do(ch, func(s *State) {
+		in := read(m.Text, s.Rules)
+		if !in.counted || in.word != "" || in.fuzzy || in.letters && !in.strict || in.value < s.Rules.Step || m.Msg <= s.LastMsg {
+			return
+		}
+		s.restart(ch, in.value/s.Rules.Step-1)
+		v = en.submit(ch, s, m)
+	})
+	return v
 }
 
 // restart begins the next run at start.
@@ -451,7 +478,7 @@ func (en *Engine) miss(ch uint64, s *State, mem *Member, v *Verdict) {
 	if r.Arcade {
 		mem.XP = max(mem.XP-breakXP, 0)
 	}
-	v.Kind, v.Length, v.Start, v.Hash, v.Timeout = Broken, s.N-s.Start, s.Start, s.Head, r.Timeout
+	v.Kind, v.Length, v.Start, v.Hash, v.Timeout, v.NewBest = Broken, s.N-s.Start, s.Start, s.Head, r.Timeout, s.Recorded
 	s.restart(ch, 0)
 	v.N = s.N
 }

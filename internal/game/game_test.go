@@ -135,8 +135,12 @@ func TestDirty(t *testing.T) {
 			if calls.Add(1) == 1 {
 				return errors.New("db down")
 			}
+			// Like a database, a write on a dead context fails.
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			for _, k := range keys {
-				flushed.Store(k, ctx.Err() == nil)
+				flushed.Store(k, true)
 			}
 			return nil
 		}, func(error) { failures.Add(1) })
@@ -156,12 +160,13 @@ func TestDirty(t *testing.T) {
 	if failures.Load() != 1 {
 		t.Fatalf("failures %d", failures.Load())
 	}
-	// What is marked at shutdown is flushed on a live context.
+	// Whatever is marked at shutdown, or caught in a write the shutdown
+	// cut off, lands in the last write.
 	d.Mark("y")
 	cancel()
 	<-done
-	if live, ok := flushed.Load("y"); !ok || !live.(bool) {
-		t.Fatal("the last flush was lost or ran on a dead context")
+	if _, ok := flushed.Load("y"); !ok {
+		t.Fatal("the last flush was lost")
 	}
 }
 
