@@ -141,7 +141,7 @@ type State struct {
 	// CountMsg is the message that made the last accepted count.
 	CountMsg uint64     `json:"count_msg,omitempty"`
 	LastAt   time.Time  `json:"last_at"`
-	Best     int64      `json:"best"`
+	Best     int64      `json:"best"`           // the longest run, in counts
 	Beat     int64      `json:"beat,omitempty"` // the best when this run began
 	Saves    int        `json:"saves"`
 	Lives    int        `json:"lives,omitempty"`
@@ -232,9 +232,12 @@ func Genesis(guild, ch uint64, run, start int64) game.Hash {
 	return game.Genesis(domain, guild, ch, run, start)
 }
 
-func link(prev game.Hash, run int64, e Entry) game.Hash {
+// Next is the link e makes on prev in run.
+func Next(prev game.Hash, run int64, e Entry) game.Hash {
 	return game.Link(prev, run, e.N, e.User, e.Msg)
 }
+
+func link(prev game.Hash, run int64, e Entry) game.Hash { return Next(prev, run, e) }
 
 // Verify walks a run's entries from its genesis and reports whether they
 // arrive at head, in order and with none missing.
@@ -435,10 +438,14 @@ func (en *Engine) accept(s *State, mem *Member, m Move, n int64, stretch bool, v
 	mem.Counts++
 	v.Kind, v.N, v.Hash = Accept, n, s.Head
 
-	if s.Beat > 0 && n > s.Beat && !s.Recorded {
-		v.Record, s.Recorded = true, true
+	// A best is a run's length, never the number it reached, so a run
+	// started from a big number (Set) can't claim one it didn't count.
+	if length := n - s.Start; length > s.Best {
+		if s.Beat > 0 && !s.Recorded {
+			v.Record, s.Recorded = true, true
+		}
+		s.Best = length
 	}
-	s.Best = max(s.Best, n)
 	v.Best = s.Best
 	v.Milestone = n%milestone == 0
 	if r.Fail == Reset {
@@ -452,7 +459,11 @@ func (en *Engine) accept(s *State, mem *Member, m Move, n int64, stretch bool, v
 	if r.Fail == Lives && v.Milestone {
 		s.Lives = r.Lives
 	}
+	// Every count is a point of xp; the arcade layer adds its bonuses and
+	// says when a rank is reached.
+	before := Ranks.Level(mem.XP)
 	if !r.Arcade {
+		mem.XP++
 		return
 	}
 	xp := int64(1)
@@ -479,7 +490,6 @@ func (en *Engine) accept(s *State, mem *Member, m Move, n int64, stretch bool, v
 	if Flock.Level(s.Total) > Flock.Level(s.Total-1) {
 		v.Flock = Flock.Level(s.Total)
 	}
-	before := Ranks.Level(mem.XP)
 	mem.XP += xp
 	if after := Ranks.Level(mem.XP); after > before {
 		v.Rank = after

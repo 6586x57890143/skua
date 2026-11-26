@@ -62,8 +62,11 @@ type Module struct {
 	en      count.Engine
 	chans   game.Dirty[uint64]
 	members game.Dirty[count.Who]
-	mu      sync.Mutex // the journal and setup changes
-	fmu     sync.Mutex // one write at a time, so an older one never lands last
+	mu      sync.Mutex // the journal
+	smu     sync.Mutex // one setup change at a time
+	// fmu is one write at a time, so an older one never lands last; a
+	// setup change's write takes it too. Taken before mu, never after.
+	fmu     sync.Mutex
 	journal journal
 
 	reactors sync.Map // channel -> *reactor
@@ -184,8 +187,8 @@ func (m *Module) press(ctx context.Context, e *events.ComponentInteractionCreate
 // standard rules, ones dropped stop counting and keep their history.
 func (m *Module) pick(ctx context.Context, guild snowflake.ID, channels []snowflake.ID) error {
 	channels = channels[:min(len(channels), maxChannels)]
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.smu.Lock()
+	defer m.smu.Unlock()
 	keep := map[uint64]bool{}
 	for _, ch := range channels {
 		keep[uint64(ch)] = true
@@ -220,8 +223,8 @@ func (m *Module) pick(ctx context.Context, guild snowflake.ID, channels []snowfl
 
 // rules changes a counting channel's preset or its options.
 func (m *Module) rules(ctx context.Context, guild, ch snowflake.ID, what string, values []string) (count.Ruleset, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.smu.Lock()
+	defer m.smu.Unlock()
 	s, ok := m.en.Channel(uint64(ch))
 	if !ok || s.Guild != uint64(guild) {
 		return count.Ruleset{}, errNoGame

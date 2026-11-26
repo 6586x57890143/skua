@@ -9,10 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/6586x57890143/skua/internal/core/coretest"
 	"github.com/6586x57890143/skua/internal/game/count"
@@ -43,6 +45,8 @@ func command(t *testing.T, run func(context.Context, *events.ApplicationCommandI
 func click(t *testing.T, m *Module, customID string) (string, error) {
 	t.Helper()
 	e, _ := coretest.Button(t, customID, nil)
+	f := &fakeRest{}
+	e.GenericEvent = events.NewGenericEvent(&bot.Client{Rest: f}, 0, 0)
 	var got string
 	e.Respond = func(_ discord.InteractionResponseType, d discord.InteractionResponseData, _ ...rest.RequestOpt) error {
 		switch d := d.(type) {
@@ -58,6 +62,14 @@ func click(t *testing.T, m *Module, customID string) (string, error) {
 		return nil
 	}
 	err := m.press(context.Background(), e)
+	// A deferred press answers by editing its response.
+	for _, u := range f.updates {
+		got = coretest.Text("", *u.Components)
+		for _, file := range u.Files {
+			b, _ := io.ReadAll(file.Reader)
+			got += "\nfile " + file.Name + "\n" + string(b)
+		}
+	}
 	return got, err
 }
 
@@ -176,6 +188,14 @@ func TestRecount(t *testing.T) {
 	if s, _ := tb.m.en.Channel(chanID); s.N != 5001 {
 		t.Fatal(s.N)
 	}
+	// A recount is the truth: a channel that lost track has found it.
+	tb.m.lost.Store(snowflake.ID(chanID), struct{}{})
+	if _, _, err := command(t, tb.m.recount, "recount", opts, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, lost := tb.m.lost.Load(snowflake.ID(chanID)); lost {
+		t.Fatal("still lost after a recount")
+	}
 	// A fresh recount on a run with nothing in it records nothing.
 	if _, _, err := command(t, tb.m.recount, "recount", opts, nil); err != nil {
 		t.Fatal(err)
@@ -191,6 +211,27 @@ func TestCommandsShape(t *testing.T) {
 	cmds := m.Commands()
 	if len(cmds) != 2 || cmds[0].Tier == cmds[1].Tier {
 		t.Fatal("tiers")
+	}
+}
+
+// firstMsg is the message that made a run's first count.
+func firstMsg(t *testing.T, db *pgxpool.Pool, run int64) uint64 {
+	t.Helper()
+	var id int64
+	if err := db.QueryRow(context.Background(), "select message_id from count_log where channel_id = 4 and run = $1 and n = 1", run).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return uint64(id)
+}
+
+// A failed read is said plainly, after the press was acknowledged.
+func TestProofOnABrokenDatabase(t *testing.T) {
+	tb := newTable(t, count.Standard())
+	tb.count(2)
+	tb.m.db = failDB{}
+	got, err := click(t, tb.m, "games:proof:4")
+	if err != nil || !strings.Contains(got, "couldn't read the log") {
+		t.Fatalf("%v %q", err, got)
 	}
 }
 
@@ -237,6 +278,22 @@ func TestBoardAndProofWithADatabase(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("lacks %q:\n%s", want, got)
 		}
+	}
+	// A run longer than the file lists its end after the link it follows.
+	proofMost = 2
+	got, _ = click(t, m, "games:file:4")
+	proofMost = 20000
+	prev := count.Next(count.Genesis(guildID, chanID, 2, 0), 2, count.Entry{N: 1, User: 101, Msg: firstMsg(t, db, 2)})
+	if !strings.Contains(got, "prev "+prev.String()) || strings.Contains(got, "\n1 101 ") || !strings.Contains(got, "\n3 101 ") {
+		t.Fatalf("a cut file can't be checked:\n%s", got)
+	}
+	// A run longer than skua checks says so rather than checking it.
+	checkMost = 2
+	got, _ = click(t, m, "games:proof:4")
+	gotFile, _ := click(t, m, "games:file:4")
+	checkMost = 200000
+	if !strings.Contains(got, "longer than skua checks here") || !strings.Contains(got, "it ran 6 counts, longer") || !strings.Contains(gotFile, "longer than skua writes out") {
+		t.Fatalf("%s\n%s", got, gotFile)
 	}
 	// A log that doesn't reach the head is said so.
 	if _, err := db.Exec(ctx, "delete from count_log where channel_id = 4 and run = 2 and n = 2"); err != nil {

@@ -130,6 +130,10 @@ func (m *Module) saveChannel(ctx context.Context, ch uint64) error {
 	if m.db == nil {
 		return nil
 	}
+	// Under the write lock, read inside it: a write already under way can't
+	// land its older copy of the channel after this one.
+	m.fmu.Lock()
+	defer m.fmu.Unlock()
 	s, ok := m.en.Channel(ch)
 	if !ok {
 		return nil

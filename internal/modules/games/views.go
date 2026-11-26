@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/jackc/pgx/v5"
 
@@ -18,14 +20,22 @@ import (
 	"github.com/6586x57890143/skua/internal/game/count"
 )
 
-const (
-	// boardRows is how many members a board shows, the member's own line
-	// in the last place when they're further down.
-	boardRows = 10
-	// proofMost is the longest run a proof file carries; a longer one is
-	// checked all the same, and its file holds the end of it.
+// boardRows is how many members a board shows, the member's own line in
+// the last place when they're further down.
+const boardRows = 10
+
+// Variables so a test can make a run long without counting it.
+var (
+	// checkMost is the longest run a proof checks: a fraction of a second
+	// of reading and hashing. A longer one isn't checked here.
+	checkMost int64 = 200000
+	// proofMost is how many counts a proof file lists: the end of a longer
+	// run, after the link it follows from.
 	proofMost = 20000
 )
+
+// proofBy bounds a proof's work after the press is acknowledged.
+const proofBy = 20 * time.Second
 
 var (
 	errNotCounting = core.Tell("there's no counting here yet; an admin sets it up on the games /help page")
@@ -177,18 +187,38 @@ func (m *Module) open(ctx context.Context, e *events.ComponentInteractionCreate,
 			return err
 		}
 		return e.UpdateMessage(inPlace(c))
-	case parts[1] == "proof":
-		c, err := m.proof(ctx, ch)
+	case parts[1] == "proof", parts[1] == "file":
+		if m.db == nil {
+			return errNoLog
+		}
+		// Reading and hashing a long run can outlast Discord's three
+		// seconds, so the press is acknowledged first.
+		file := parts[1] == "file"
+		var err error
+		if file {
+			err = e.DeferCreateMessage(true)
+		} else {
+			err = e.DeferUpdateMessage()
+		}
 		if err != nil {
 			return err
 		}
-		return e.UpdateMessage(inPlace(c))
-	case parts[1] == "file":
-		msg, err := m.proofFile(ctx, ch)
-		if err != nil {
-			return err
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), proofBy)
+		defer cancel()
+		var u discord.MessageUpdate
+		if file {
+			u, err = m.proofFile(ctx, ch)
+		} else {
+			var c discord.ContainerComponent
+			c, err = m.proof(ctx, ch)
+			u = inPlace(c)
 		}
-		return e.CreateMessage(msg)
+		if err != nil {
+			m.log.Warn("games: a proof failed", "channel", ch, "err", err)
+			u = inPlace(brand.Card(brand.ColorError, Name, "proof", "✗ skua couldn't read the log just now; try again in a moment"))
+		}
+		_, err = e.Client().Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(), u, rest.WithCtx(ctx))
+		return err
 	}
 	return errNotCounting
 }
@@ -279,12 +309,13 @@ func (m *Module) standing(guild uint64) (place, of int) {
 	return place, len(bests)
 }
 
-// runLog is a run's entries from the log, in order, up to most from its
-// end.
-func (m *Module) runLog(ctx context.Context, ch uint64, run int64, most int) ([]count.Entry, error) {
+// runLog is a run's entries from the log up to its count upto, in order,
+// at most most of them from that end.
+func (m *Module) runLog(ctx context.Context, ch uint64, run, upto int64, most int) ([]count.Entry, error) {
 	rows, _ := m.db.Query(ctx, `select n, user_id, message_id from (
-		select n, user_id, message_id from count_log where channel_id = $1 and run = $2 order by n desc limit $3) t order by n`,
-		int64(ch), run, most)
+		select n, user_id, message_id from count_log where channel_id = $1 and run = $2 and n <= $3
+		order by n desc limit $4) t order by n`,
+		int64(ch), run, upto, most)
 	var out []count.Entry
 	var n, u, msg int64
 	_, err := pgx.ForEachRow(rows, []any{&n, &u, &msg}, func() error {
@@ -294,24 +325,51 @@ func (m *Module) runLog(ctx context.Context, ch uint64, run int64, most int) ([]
 	return out, err
 }
 
+// current is ch's run as it stands and its log up to there. The run is
+// read first and the log after what was counted up to it is written, so
+// a count made meanwhile can't put the two out of step; a count between
+// the engine and the journal is waited on briefly.
+func (m *Module) current(ctx context.Context, ch uint64) (count.State, []count.Entry, error) {
+	s, _ := m.en.Channel(ch)
+	length := s.N - s.Start
+	if length > checkMost {
+		return s, nil, nil
+	}
+	var entries []count.Entry
+	for try := range 3 {
+		if err := m.flush(ctx); err != nil {
+			return s, nil, fmt.Errorf("games: writing before a proof: %w", err)
+		}
+		var err error
+		if entries, err = m.runLog(ctx, ch, s.Run, s.N, int(length)); err != nil {
+			return s, nil, fmt.Errorf("games: reading a run's log: %w", err)
+		}
+		if int64(len(entries)) == length || try == 2 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return s, nil, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return s, entries, nil
+}
+
 // proof checks the current run against its log, link by link from its
 // genesis, and the last run that ended against the head it ended on.
 func (m *Module) proof(ctx context.Context, ch uint64) (discord.ContainerComponent, error) {
-	if m.db == nil {
-		return discord.ContainerComponent{}, errNoLog
-	}
-	// What was just counted is written first, so the log is the run.
-	if err := m.flush(ctx); err != nil {
-		return discord.ContainerComponent{}, fmt.Errorf("games: writing before a proof: %w", err)
-	}
-	s, _ := m.en.Channel(ch)
-	entries, err := m.runLog(ctx, ch, s.Run, int(s.N-s.Start)+1)
+	s, entries, err := m.current(ctx, ch)
 	if err != nil {
-		return discord.ContainerComponent{}, fmt.Errorf("games: reading a run's log: %w", err)
+		return discord.ContainerComponent{}, err
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "### run %d\n", s.Run)
-	b.WriteString(verdict(count.Verify(s.Guild, ch, s.Run, s.Start, entries, s.Head), s.N-s.Start))
+	if length := s.N - s.Start; length > checkMost {
+		fmt.Fprintf(&b, "this run is %d counts, longer than skua checks here; the file holds its end\n", length)
+	} else {
+		b.WriteString(verdict(count.Verify(s.Guild, ch, s.Run, s.Start, entries, s.Head), length))
+	}
 	fmt.Fprintf(&b, "```\n%s\n```\n", s.Head)
 
 	rows, _ := m.db.Query(ctx, "select run, start, length, head from count_run where channel_id = $1 order by run desc limit 1", int64(ch))
@@ -325,13 +383,17 @@ func (m *Module) proof(ctx context.Context, ch uint64) (discord.ContainerCompone
 	}
 	if len(last) == 1 {
 		r := last[0]
-		h, _ := game.ParseHash(r.Head)
-		prev, err := m.runLog(ctx, ch, r.Run, int(r.Length)+1)
-		if err != nil {
-			return discord.ContainerComponent{}, fmt.Errorf("games: reading a run's log: %w", err)
-		}
 		fmt.Fprintf(&b, "### run %d, ended\n", r.Run)
-		b.WriteString(verdict(count.Verify(s.Guild, ch, r.Run, r.Start, prev, h), r.Length))
+		if r.Length > checkMost {
+			fmt.Fprintf(&b, "it ran %d counts, longer than skua checks here\n", r.Length)
+		} else {
+			h, _ := game.ParseHash(r.Head)
+			prev, err := m.runLog(ctx, ch, r.Run, r.Start+r.Length, int(r.Length))
+			if err != nil {
+				return discord.ContainerComponent{}, fmt.Errorf("games: reading a run's log: %w", err)
+			}
+			b.WriteString(verdict(count.Verify(s.Guild, ch, r.Run, r.Start, prev, h), r.Length))
+		}
 		fmt.Fprintf(&b, "```\n%s\n```\n", r.Head)
 	}
 	b.WriteString("-# each count is sha256 over the one before, the run, its number, who counted and the message. the file has every link to check it yourself")
@@ -348,18 +410,22 @@ func verdict(ok bool, length int64) string {
 }
 
 // proofFile is the current run as a text file anyone can check: the
-// genesis's fields, then every count, then the head.
-func (m *Module) proofFile(ctx context.Context, ch uint64) (discord.MessageCreate, error) {
-	if m.db == nil {
-		return discord.MessageCreate{}, errNoLog
-	}
-	if err := m.flush(ctx); err != nil {
-		return discord.MessageCreate{}, fmt.Errorf("games: writing before a proof: %w", err)
-	}
-	s, _ := m.en.Channel(ch)
-	entries, err := m.runLog(ctx, ch, s.Run, proofMost)
+// genesis's fields, then every count, then the head. A run longer than
+// the file lists its end after the link that end follows from.
+func (m *Module) proofFile(ctx context.Context, ch uint64) (discord.MessageUpdate, error) {
+	s, entries, err := m.current(ctx, ch)
 	if err != nil {
-		return discord.MessageCreate{}, fmt.Errorf("games: reading a run's log: %w", err)
+		return discord.MessageUpdate{}, err
+	}
+	if s.N-s.Start > checkMost {
+		return inPlace(brand.Card(brand.ColorInfo, Name, "proof", fmt.Sprintf("run %d is %d counts, longer than skua writes out", s.Run, s.N-s.Start))), nil
+	}
+	prev := count.Genesis(s.Guild, ch, s.Run, s.Start)
+	if cut := len(entries) - proofMost; cut > 0 {
+		for _, e := range entries[:cut] {
+			prev = count.Next(prev, s.Run, e)
+		}
+		entries = entries[cut:]
 	}
 	var f bytes.Buffer
 	fmt.Fprintf(&f, "# skua count run, checked as sha256 links. each field is 8 bytes big endian, a string after its length.\n")
@@ -367,7 +433,7 @@ func (m *Module) proofFile(ctx context.Context, ch uint64) (discord.MessageCreat
 	fmt.Fprintf(&f, "# each count = link(previous, run, n, user, message)\n")
 	fmt.Fprintf(&f, "guild %d\nchannel %d\nrun %d\nstart %d\ngenesis %s\n", s.Guild, ch, s.Run, s.Start, count.Genesis(s.Guild, ch, s.Run, s.Start))
 	if int64(len(entries)) < s.N-s.Start {
-		fmt.Fprintf(&f, "# the run is longer than the file: this is its last %d counts\n", len(entries))
+		fmt.Fprintf(&f, "# the run is longer than the file: this is its last %d counts, linked from\nprev %s\n", len(entries), prev)
 	}
 	for _, e := range entries {
 		fmt.Fprintf(&f, "%d %d %d\n", e.N, e.User, e.Msg)
@@ -375,9 +441,9 @@ func (m *Module) proofFile(ctx context.Context, ch uint64) (discord.MessageCreat
 	fmt.Fprintf(&f, "head %s\n", s.Head)
 	name := fmt.Sprintf("count-%d-run-%d.txt", ch, s.Run)
 	c := brand.Card(brand.ColorInfo, Name, "proof", fmt.Sprintf("run %d, %d counts", s.Run, s.N-s.Start), discord.NewFileComponent("attachment://"+name))
-	msg := ephemeral(c)
-	msg.Files = []*discord.File{discord.NewFile(name, "", &f)}
-	return msg, nil
+	u := discord.NewMessageUpdateV2(c)
+	u.AllowedMentions = core.NoPings()
+	return core.Edit(u, discord.NewFile(name, "", &f)), nil
 }
 
 // recount is /recount: a counting channel starts from the number given,
@@ -392,14 +458,23 @@ func (m *Module) recount(ctx context.Context, e *events.ApplicationCommandIntera
 		return err
 	}
 	number := e.SlashCommandInteractionData().Int("number")
-	m.mu.Lock()
+	m.smu.Lock()
+	defer m.smu.Unlock()
 	before, _ := m.en.Channel(ch)
-	s, _ := m.en.Set(ch, int64(number))
+	s, ok := m.en.Set(ch, int64(number))
+	if !ok {
+		return errNotCounting
+	}
+	// The number given is the truth now: a channel that lost track has
+	// found it.
+	m.lost.Delete(snowflake.ID(ch))
 	if before.N > before.Start {
+		m.mu.Lock()
 		m.journal.runs = append(m.journal.runs, runRow{ch: ch, run: before.Run, guild: before.Guild, start: before.Start,
 			length: before.N - before.Start, head: before.Head.String(), at: m.now()})
+		m.mu.Unlock()
 	}
-	m.mu.Unlock()
+	m.chans.Mark(ch)
 	if err := m.saveChannel(ctx, ch); err != nil {
 		return err
 	}
