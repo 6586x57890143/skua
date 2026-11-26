@@ -454,16 +454,23 @@ func TestFizzBuzzSnipe(t *testing.T) {
 	}
 }
 
+// A best is a run's length: an imported run from 5000 has counted one at
+// 5001, and beats a best of 120 only at its 121st count.
 func TestRecordAfterImport(t *testing.T) {
 	tb := newTable(t, Ruleset{Fail: Hardcore}.Normal())
 	tb.run(120)
 	tb.say(1, "5")
-	tb.en.Set(ch, 5000)
-	if v := tb.say(1, "5001"); !v.Record {
-		t.Fatalf("first count past the best after an import %+v", v)
+	s, _ := tb.en.Set(ch, 5000)
+	if v := tb.say(1, "5001"); v.Record || v.Best != 120 {
+		t.Fatalf("one count claimed a best of 5001: %+v", v)
 	}
-	if v := tb.say(2, "5002"); v.Record {
-		t.Fatal("record twice")
+	for n := int64(5002); n <= 5120; n++ {
+		if v := tb.say(uint64(1+(n+1)%2), strconv.FormatInt(n, 10)); v.Record {
+			t.Fatalf("record at %d, a run of %d", n, n-s.Start)
+		}
+	}
+	if v := tb.say(1, "5121"); !v.Record || v.Best != 121 {
+		t.Fatalf("the 121st count of the run %+v", v)
 	}
 }
 
@@ -617,8 +624,8 @@ func TestArcadeOffIsJustCounting(t *testing.T) {
 	if s := tb.state(); s.Bounty != 0 {
 		t.Fatal("bounty without arcade")
 	}
-	if m := tb.en.Member(Who{guild, 100}); m.XP != 0 {
-		t.Fatal("xp without arcade")
+	if m := tb.en.Member(Who{guild, 100}); m.XP != m.Counts {
+		t.Fatalf("without arcade a count is a point of xp, no more: %+v", m)
 	}
 	// The boss rule is arcade too: one member may come back within ten.
 	tb.run(1989)
@@ -784,7 +791,7 @@ func TestAnchorPicksUpFromTheNextCount(t *testing.T) {
 		t.Fatalf("%+v", v)
 	}
 	s := tb.state()
-	if s.Start != 900 || s.Best != 901 || !Verify(guild, ch, 2, 900, []Entry{{901, 1, tb.msg}}, s.Head) {
+	if s.Start != 900 || s.Best != 5 || !Verify(guild, ch, 2, 900, []Entry{{901, 1, tb.msg}}, s.Head) {
 		t.Fatalf("%+v", s)
 	}
 	if v := tb.say(2, "902"); v.Kind != Accept {
@@ -812,6 +819,21 @@ func TestNewBestOnABreak(t *testing.T) {
 	tb.run(11)
 	if v := tb.say(1, "99"); !v.NewBest {
 		t.Fatal("11 beat 10")
+	}
+}
+
+func TestTitlesAndMembers(t *testing.T) {
+	for lvl, want := range map[int]string{0: "egg", 1: "hatchling", 2: "hatchling", 5: "fledgling", 39: "flockkeeper", 40: "skylord", 99: "skylord"} {
+		if got := Title(lvl); got != want {
+			t.Errorf("Title(%d) = %s, want %s", lvl, got, want)
+		}
+	}
+	tb := newTable(t, Standard())
+	tb.run(4)
+	tb.en.RestoreMember(Who{guild + 1, 9}, Member{Counts: 1})
+	got := tb.en.Members(guild)
+	if len(got) != 2 || got[100].Counts != 2 || got[101].Counts != 2 {
+		t.Fatalf("%+v", got)
 	}
 }
 

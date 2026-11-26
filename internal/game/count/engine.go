@@ -141,7 +141,7 @@ type State struct {
 	// CountMsg is the message that made the last accepted count.
 	CountMsg uint64     `json:"count_msg,omitempty"`
 	LastAt   time.Time  `json:"last_at"`
-	Best     int64      `json:"best"`
+	Best     int64      `json:"best"`           // the longest run, in counts
 	Beat     int64      `json:"beat,omitempty"` // the best when this run began
 	Saves    int        `json:"saves"`
 	Lives    int        `json:"lives,omitempty"`
@@ -192,6 +192,25 @@ type Member struct {
 	LastAt    time.Time `json:"last_at"`
 }
 
+// titles are a member's rank as a bird's life, by the level each begins
+// at: a counter grows from the egg to the one who keeps the flock's tally.
+var titles = []struct {
+	level int
+	title string
+}{{0, "egg"}, {1, "hatchling"}, {3, "nestling"}, {5, "fledgling"}, {8, "brancher"}, {12, "flier"},
+	{17, "tallier"}, {23, "reckoner"}, {30, "flockkeeper"}, {40, "skylord"}}
+
+// Title is what a member of rank level is called.
+func Title(level int) string {
+	t := titles[0].title
+	for _, x := range titles {
+		if level >= x.level {
+			t = x.title
+		}
+	}
+	return t
+}
+
 // Who is a member in a server.
 type Who struct{ Guild, User uint64 }
 
@@ -213,9 +232,12 @@ func Genesis(guild, ch uint64, run, start int64) game.Hash {
 	return game.Genesis(domain, guild, ch, run, start)
 }
 
-func link(prev game.Hash, run int64, e Entry) game.Hash {
+// Next is the link e makes on prev in run.
+func Next(prev game.Hash, run int64, e Entry) game.Hash {
 	return game.Link(prev, run, e.N, e.User, e.Msg)
 }
+
+func link(prev game.Hash, run int64, e Entry) game.Hash { return Next(prev, run, e) }
 
 // Verify walks a run's entries from its genesis and reports whether they
 // arrive at head, in order and with none missing.
@@ -273,6 +295,19 @@ func (en *Engine) Channel(ch uint64) (State, bool) { return en.chans.Get(ch) }
 
 // Channels is every counting channel.
 func (en *Engine) Channels() []uint64 { return en.chans.Keys() }
+
+// Members is every member who has counted in guild, by user.
+func (en *Engine) Members(guild uint64) map[uint64]Member {
+	out := map[uint64]Member{}
+	for _, w := range en.members.Keys() {
+		if w.Guild == guild {
+			if m, ok := en.members.Get(w); ok {
+				out[w.User] = m
+			}
+		}
+	}
+	return out
+}
 
 // Member is a copy of a member's counting.
 func (en *Engine) Member(w Who) Member { m, _ := en.members.Get(w); return m }
@@ -403,10 +438,14 @@ func (en *Engine) accept(s *State, mem *Member, m Move, n int64, stretch bool, v
 	mem.Counts++
 	v.Kind, v.N, v.Hash = Accept, n, s.Head
 
-	if s.Beat > 0 && n > s.Beat && !s.Recorded {
-		v.Record, s.Recorded = true, true
+	// A best is a run's length, never the number it reached, so a run
+	// started from a big number (Set) can't claim one it didn't count.
+	if length := n - s.Start; length > s.Best {
+		if s.Beat > 0 && !s.Recorded {
+			v.Record, s.Recorded = true, true
+		}
+		s.Best = length
 	}
-	s.Best = max(s.Best, n)
 	v.Best = s.Best
 	v.Milestone = n%milestone == 0
 	if r.Fail == Reset {
@@ -420,7 +459,11 @@ func (en *Engine) accept(s *State, mem *Member, m Move, n int64, stretch bool, v
 	if r.Fail == Lives && v.Milestone {
 		s.Lives = r.Lives
 	}
+	// Every count is a point of xp; the arcade layer adds its bonuses and
+	// says when a rank is reached.
+	before := Ranks.Level(mem.XP)
 	if !r.Arcade {
+		mem.XP++
 		return
 	}
 	xp := int64(1)
@@ -447,7 +490,6 @@ func (en *Engine) accept(s *State, mem *Member, m Move, n int64, stretch bool, v
 	if Flock.Level(s.Total) > Flock.Level(s.Total-1) {
 		v.Flock = Flock.Level(s.Total)
 	}
-	before := Ranks.Level(mem.XP)
 	mem.XP += xp
 	if after := Ranks.Level(mem.XP); after > before {
 		v.Rank = after

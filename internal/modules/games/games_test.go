@@ -18,6 +18,7 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -51,6 +52,7 @@ type fakeRest struct {
 	afters    []snowflake.ID
 	getErr    error
 	gate      chan struct{} // when set, reading back waits on it
+	updates   []discord.MessageUpdate
 	now       time.Time
 }
 
@@ -96,6 +98,13 @@ func (f *fakeRest) GetMessages(_, _, _, after snowflake.ID, _ int, _ ...rest.Req
 	p := f.pages[0]
 	f.pages = f.pages[1:]
 	return p, nil
+}
+
+func (f *fakeRest) UpdateInteractionResponse(_ snowflake.ID, _ string, u discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.updates = append(f.updates, u)
+	return &discord.Message{}, nil
 }
 
 func (f *fakeRest) reactions() []string {
@@ -167,7 +176,7 @@ func (tb *table) count(to int) {
 
 func TestModuleShape(t *testing.T) {
 	m, _ := New(context.Background(), slog.New(slog.DiscardHandler), guard.New(), nil)
-	if m.Name() != Name || len(m.Commands()) != 0 || len(m.Components()) != 1 {
+	if m.Name() != Name || len(m.Commands()) != 2 || len(m.Components()) != 1 {
 		t.Fatal("shape")
 	}
 	if m.Want().Required == 0 || m.Perms()&discord.PermissionAddReactions == 0 {
@@ -731,6 +740,8 @@ type failDB struct{ DB }
 func (failDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
 	return pgconn.CommandTag{}, errors.New("db down")
 }
+
+func (failDB) Begin(context.Context) (pgx.Tx, error) { return nil, errors.New("db down") }
 
 // A rules change that can't be saved leaves the channel exactly as it was.
 func TestRulesChangeRollsBack(t *testing.T) {
