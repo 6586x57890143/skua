@@ -52,3 +52,18 @@ func TestArt(t *testing.T) {
 		t.Fatal("art")
 	}
 }
+
+func TestReaction(t *testing.T) {
+	unsynced(t)
+	if got := Reaction("cnt_ok", "✅"); got != "✅" {
+		t.Errorf("unsynced %q", got)
+	}
+	ids := map[string]emojiRef{"cnt_ok": {9, "cnt_ok_cd", false}}
+	emojiIDs.Store(&ids)
+	if got := Reaction("cnt_ok", "✅"); got != "cnt_ok_cd:9" {
+		t.Errorf("synced %q", got)
+	}
+	if got := Reaction("cnt_nope", "x"); got != "x" {
+		t.Errorf("missing %q", got)
+	}
+}

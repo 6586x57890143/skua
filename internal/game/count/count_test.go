@@ -225,6 +225,22 @@ func TestChatAndTheBasics(t *testing.T) {
 	}
 }
 
+func TestCountMsgAndSays(t *testing.T) {
+	tb := newTable(t, Standard())
+	tb.say(1, "1")
+	tb.say(2, "hello")
+	s := tb.state()
+	if s.CountMsg != 1 || !s.Says("1 yes") || !s.Says("2-1") || s.Says("2") || s.Says("hello") {
+		t.Fatalf("%+v", s)
+	}
+	tb.say(2, "5")
+	tb.say(2, "5")
+	tb.say(2, "5")
+	if s := tb.state(); s.CountMsg != 0 {
+		t.Fatal("a broken run kept its count message")
+	}
+}
+
 func TestStaleMovesChangeNothing(t *testing.T) {
 	tb := newTable(t, Standard())
 	tb.say(1, "1")

@@ -71,6 +71,11 @@ const (
 	RoleWrite
 	// MemberRole is one role added to or taken from a member.
 	MemberRole
+	// Count is one reaction on a counting game's message. Its own budget,
+	// so a busy counting channel can't starve preen's or the reverse.
+	Count
+	// CountTimeout is one member timed out for breaking a count.
+	CountTimeout
 	opCount
 )
 
@@ -101,8 +106,9 @@ var caps = [opCount]int64{
 	// Discord allows 200 command creates a guild a day.
 	CommandSync: 8,
 	// A fresh install uploads the complete icon set in one hour; later boots
-	// upload only missing art. brand's tests keep the set under this cap.
-	EmojiCreate: 128,
+	// upload only missing art. brand's tests keep the set under this cap,
+	// and Discord holds 2000 an app.
+	EmojiCreate: 256,
 	// One per bridged message with a pasted link: WebhookExecute's pace.
 	AttachmentRefresh: 300,
 	// Up to three cards and one preview flag per message with links.
@@ -112,6 +118,12 @@ var caps = [opCount]int64{
 	RoleWrite: 60,
 	// A lease starts and ends with one each.
 	MemberRole: 120,
+	// A channel counting flat out manages about two a second; a run's
+	// milestones and records add a few more. Four channels at that pace
+	// for an hour would be a runaway, not a game.
+	Count: 7200,
+	// One per broken run, and a run takes more than a few seconds to break.
+	CountTimeout: 120,
 }
 
 const (

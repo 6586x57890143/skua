@@ -90,6 +90,17 @@ func ComponentEmoji(key string) *discord.ComponentEmoji {
 	return &discord.ComponentEmoji{ID: r.id, Name: r.name, Animated: r.animated}
 }
 
+// Reaction is key's emoji as a reaction takes it (name:id), or fallback,
+// a unicode emoji, until the sync has one, so a game reacts from its first
+// message.
+func Reaction(key, fallback string) string {
+	r, ok := emoji(key)
+	if !ok {
+		return fallback
+	}
+	return r.name + ":" + r.id.String()
+}
+
 // emojiURL is the CDN address of key's emoji, for a thumbnail. PNG, not
 // WebP: Discord does not take WebP in every image slot.
 func emojiURL(key string) (string, bool) {

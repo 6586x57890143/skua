@@ -41,6 +41,7 @@ import (
 	"github.com/6586x57890143/skua/internal/modules/bird"
 	"github.com/6586x57890143/skua/internal/modules/fix"
 	"github.com/6586x57890143/skua/internal/modules/forever"
+	"github.com/6586x57890143/skua/internal/modules/games"
 	"github.com/6586x57890143/skua/internal/modules/help"
 	"github.com/6586x57890143/skua/internal/modules/notify"
 	"github.com/6586x57890143/skua/internal/modules/pace"
@@ -306,6 +307,28 @@ func run(log *slog.Logger) error {
 			all = append(all, fv)
 		}
 	}
+	// games keeps what was played in the purge pool, or in memory without
+	// one; it writes behind on its own loop, drained at shutdown.
+	var player *games.Module
+	if gm, err := games.New(ctx, log, g, purgeDB); err != nil {
+		log.Error("games is off: it couldn't load", "err", err)
+	} else {
+		gm.Admin = func(i discord.Interaction) bool { return router.Admin(i) }
+		player = gm
+		all = append(all, gm)
+	}
+	// Its last write waits for the gateway to close, so no count lands
+	// after it.
+	playCtx, stopPlaying := context.WithCancel(context.WithoutCancel(ctx))
+	playing := make(chan struct{})
+	// Any way out writes what was played first; the database closes after.
+	defer func() { stopPlaying(); <-playing }()
+	go func() {
+		defer close(playing)
+		if player != nil {
+			player.Run(playCtx)
+		}
+	}()
 	// remind keeps every reminder in the database, so it runs only with one.
 	if purgeDB != nil {
 		all = append(all, remind.New(log, g, purgeDB, func(i discord.Interaction) bool { return router.Admin(i) }))
@@ -508,6 +531,11 @@ func run(log *slog.Logger) error {
 			if !preener.Drain(drainBy) {
 				log.Warn("shutting down with preen work still owed")
 			}
+			if player != nil && !player.Wait(5*time.Second) {
+				log.Warn("shutting down with game reactions still owed")
+			}
+			stopPlaying()
+			<-playing
 			if pot != nil {
 				shut, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				pot.Shut(shut)

@@ -10,6 +10,7 @@ Written 2026-10-02. Read this with `CLAUDE.md` and `SPEC.md`.
 | `ci/deploy-foundry` | The CI/CD pipeline and repo hygiene. PR #1. |
 | `feat/fix-embeds` | social Components V2 cards, Reddit audio/video recovery, upstream tracking and /perf timing tables with p99 budgets; reviewed by gpt-6 astra |
 | `feat/pp-open-warm` | Launch M1 (draft until 11-02, merge after M0 #186): a one-shot "open /pp to everyone" switch on /help, the warm side (+10% labour for a member's first 14 days, first day read from the ledger), and a second, good talk quest on a first deal. Balance 0.14.0. |
+| `feat/games-count` | Milestone 12, the games module's counting channels on `internal/game` (engine merged in #248). Boards, ranks, proofs and `/count` come next, then a live benchmark against the Counting bot. |
 | `feat/notify` | Milestone 8, `/notify`: creator alerts for youtube, x, tiktok, twitch and kick. Not yet run against Discord. |
 
 ## What M0 did

@@ -14,6 +14,9 @@ func TestIconsSitOnTheirGrid(t *testing.T) {
 	}
 	all := maps.Clone(Icons)
 	maps.Copy(all, screenIcons)
+	for name, g := range Reactions {
+		all["reaction "+name] = g
+	}
 	for name, g := range all {
 		if len(g) != IconCells {
 			t.Errorf("%s: %d rows", name, len(g))

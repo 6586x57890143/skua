@@ -104,7 +104,9 @@ type Verdict struct {
 	// broke.
 	Run    int64
 	Length int64
-	Best   int64
+	// Start is where a broken run began, for checking its chain.
+	Start int64
+	Best  int64
 	// Hash is the accepted count's link, or a broken run's head.
 	Hash game.Hash
 
@@ -126,23 +128,25 @@ type Verdict struct {
 // State is one counting channel. It is plain data so a caller can store it
 // whole and give it back.
 type State struct {
-	Guild   uint64     `json:"guild"`
-	Rules   Ruleset    `json:"rules"`
-	Run     int64      `json:"run"`
-	N       int64      `json:"n"`
-	Start   int64      `json:"start,omitempty"` // where an imported run began
-	Head    game.Hash  `json:"head"`
-	Last    uint64     `json:"last,omitempty"`
-	LastMsg uint64     `json:"last_msg,omitempty"`
-	LastAt  time.Time  `json:"last_at"`
-	Best    int64      `json:"best"`
-	Beat    int64      `json:"beat,omitempty"` // the best when this run began
-	Saves   int        `json:"saves"`
-	Lives   int        `json:"lives,omitempty"`
-	Total   int64      `json:"total"`
-	Bounty  int64      `json:"bounty,omitempty"`
-	Seen    []uint64   `json:"seen,omitempty"` // who counted in this boss stretch
-	Combo   game.Combo `json:"combo"`
+	Guild   uint64    `json:"guild"`
+	Rules   Ruleset   `json:"rules"`
+	Run     int64     `json:"run"`
+	N       int64     `json:"n"`
+	Start   int64     `json:"start,omitempty"` // where an imported run began
+	Head    game.Hash `json:"head"`
+	Last    uint64    `json:"last,omitempty"`
+	LastMsg uint64    `json:"last_msg,omitempty"`
+	// CountMsg is the message that made the last accepted count.
+	CountMsg uint64     `json:"count_msg,omitempty"`
+	LastAt   time.Time  `json:"last_at"`
+	Best     int64      `json:"best"`
+	Beat     int64      `json:"beat,omitempty"` // the best when this run began
+	Saves    int        `json:"saves"`
+	Lives    int        `json:"lives,omitempty"`
+	Total    int64      `json:"total"`
+	Bounty   int64      `json:"bounty,omitempty"`
+	Seen     []uint64   `json:"seen,omitempty"` // who counted in this boss stretch
+	Combo    game.Combo `json:"combo"`
 	// Waits is when each member last counted here, while their cooldown
 	// runs.
 	Waits map[uint64]time.Time `json:"waits,omitempty"`
@@ -166,6 +170,13 @@ func (s *State) wait(user uint64, at time.Time) {
 
 // Next is the number due next, as written.
 func (s State) Next() string { return Say((s.N+1)*s.Rules.Step, s.Rules) }
+
+// Says is whether text still says the last number counted, for a count
+// that was edited.
+func (s State) Says(text string) bool {
+	in := read(text, s.Rules)
+	return in.counted && matches(in, s.N*s.Rules.Step, s.Rules)
+}
 
 // Member is one member's counting in one server.
 type Member struct {
@@ -273,7 +284,7 @@ func (s *State) restart(ch uint64, start int64) {
 	s.Run++
 	s.N, s.Start, s.Beat, s.Recorded = start, start, s.Best, false
 	s.Head = Genesis(s.Guild, ch, s.Run, start)
-	s.Last, s.Bounty, s.Seen, s.Waits = 0, 0, nil, nil
+	s.Last, s.Bounty, s.Seen, s.Waits, s.CountMsg = 0, 0, nil, nil, 0
 	s.Combo = game.Combo{}
 	if s.Rules.Fail == Lives {
 		s.Lives = s.Rules.Lives
@@ -360,7 +371,7 @@ func (en *Engine) accept(s *State, mem *Member, m Move, n int64, stretch bool, v
 	r := s.Rules
 	e := Entry{N: n, User: m.User, Msg: m.Msg}
 	s.Head = link(s.Head, s.Run, e)
-	s.N, s.Last, s.LastAt = n, m.User, m.At
+	s.N, s.Last, s.LastAt, s.CountMsg = n, m.User, m.At, m.Msg
 	s.Total++
 	mem.Counts++
 	v.Kind, v.N, v.Hash = Accept, n, s.Head
@@ -440,7 +451,7 @@ func (en *Engine) miss(ch uint64, s *State, mem *Member, v *Verdict) {
 	if r.Arcade {
 		mem.XP = max(mem.XP-breakXP, 0)
 	}
-	v.Kind, v.Length, v.Hash, v.Timeout = Broken, s.N-s.Start, s.Head, r.Timeout
+	v.Kind, v.Length, v.Start, v.Hash, v.Timeout = Broken, s.N-s.Start, s.Start, s.Head, r.Timeout
 	s.restart(ch, 0)
 	v.N = s.N
 }
