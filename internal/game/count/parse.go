@@ -38,10 +38,36 @@ type said struct {
 	decimal bool
 }
 
-// read is what text says under r.
+// read is what text says under r: its first word, unless another word
+// in it says a number too ("2 3"), which makes the message chat. Read as
+// its first, it would count a number the channel didn't mean and fail
+// whoever counts the right one next.
 func read(text string, r Ruleset) said {
-	tok, _, _ := strings.Cut(strings.TrimSpace(text), " ")
-	tok, _, _ = strings.Cut(tok, "\n")
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return said{}
+	}
+	first := word(words[0], r)
+	if !first.counted {
+		return first
+	}
+	for _, w := range words[1:] {
+		// Only a word with a digit can be a second count: a mention, a
+		// custom emoji or a timestamp (<...>) is not, and a word of
+		// letters is left alone, or in hex and roman every sentence
+		// after a count would make it chat.
+		if strings.HasPrefix(w, "<") || !strings.ContainsAny(w, "0123456789") {
+			continue
+		}
+		if word(w, r).counted {
+			return said{}
+		}
+	}
+	return first
+}
+
+// word is what one word says under r.
+func word(tok string, r Ruleset) said {
 	tok = strings.Trim(tok, "*_`~|")
 	tok = strings.TrimRight(tok, ".!?,")
 	if tok == "" || len(tok) > maxToken {
