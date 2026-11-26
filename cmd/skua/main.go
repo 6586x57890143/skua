@@ -228,6 +228,15 @@ func run(log *slog.Logger) error {
 	hooks := webhook.New(g)
 	// preen asks whisper who wrote a whisper, so its writer gets the flock.
 	whispers := whisper.New(g, hooks, filter.Default())
+	// A whisper in another language is put into English by the bird that
+	// translates the server's members, where it does.
+	if fleetLink != nil {
+		whispers.Translate = func(ctx context.Context, req whisper.TranslateRequest) (whisper.TranslateReply, error) {
+			var out whisper.TranslateReply
+			err := fleetLink.Call(ctx, whisper.TranslateMethod, req, &out)
+			return out, err
+		}
+	}
 	// Shutdown waits on preen, so a self-react's removal is never lost to a
 	// deploy.
 	preener := preen.New(g, obs.Default, whispers)
