@@ -12,7 +12,7 @@ import (
 // A count is the first word of a message. Anything else in it is chat.
 const (
 	maxToken    = 64 // bytes in the word read as a count
-	maxDigits   = 18 // in one number, so a literal fits int64
+	maxDigits   = 18 // in one number of an expression
 	maxLiterals = 12 // numbers in one expression
 	maxDepth    = 8  // nesting of one expression
 )
@@ -24,10 +24,18 @@ type said struct {
 	value   int64
 	// word is set for a fizzbuzz word, whose value is the word.
 	word string
-	// fuzzy is true for a word that could be chat: one with no digit (hex,
-	// roman) or an expression (a date, a score). A wrong one is only a miss
-	// when it lands near the number; far off it is chat.
+	// fuzzy is true for an expression, which could be chat (a date, a
+	// score): a wrong one is only a miss when it lands near the number.
 	fuzzy bool
+	// letters is a word with no digit (hex, roman), which could be a word
+	// of chat ("I", "add"): a wrong one is chat, unless strict.
+	letters bool
+	// strict is a letters word that can't be chat: an uppercase numeral of
+	// two letters or more ("XIV"). A wrong one near the number is a miss.
+	strict bool
+	// decimal is digits in a roman channel, which count only past 3999,
+	// where numerals stop.
+	decimal bool
 }
 
 // read is what text says under r.
@@ -42,13 +50,20 @@ func read(text string, r Ruleset) said {
 	switch r.Format {
 	case Binary:
 		t := strings.TrimPrefix(strings.ToLower(tok), "0b")
-		return plain(t, 2, false)
+		return plain(t, 2)
 	case Hex:
 		t := strings.TrimPrefix(strings.ToLower(tok), "0x")
-		return plain(t, 16, !strings.ContainsAny(t, "0123456789"))
+		out := plain(t, 16)
+		out.letters = !strings.ContainsAny(t, "0123456789")
+		return out
 	case Roman:
+		if digits(tok) {
+			out := plain(tok, 10)
+			out.decimal = true
+			return out
+		}
 		v, ok := roman(strings.ToUpper(tok))
-		return said{counted: ok, value: v, fuzzy: true}
+		return said{counted: ok, value: v, letters: true, strict: tok == strings.ToUpper(tok) && len(tok) > 1}
 	case FizzBuzz:
 		switch w := strings.ToLower(tok); w {
 		case "fizz", "buzz", "fizzbuzz":
@@ -59,7 +74,7 @@ func read(text string, r Ruleset) said {
 		if r.Math == MathOnly {
 			return said{}
 		}
-		return plain(tok, 10, false)
+		return plain(tok, 10)
 	}
 	if r.Math == MathOff {
 		return said{}
@@ -68,16 +83,17 @@ func read(text string, r Ruleset) said {
 	return said{counted: ok, value: v, fuzzy: true}
 }
 
-// plain reads t as a whole number in base, chat when it isn't one.
-func plain(t string, base int, fuzzy bool) said {
-	if t == "" || len(t) > maxDigits {
+// plain reads t as a whole number in base, chat when it isn't one or is
+// past int64.
+func plain(t string, base int) said {
+	if t == "" || t[0] == '+' || t[0] == '-' {
 		return said{}
 	}
 	v, err := strconv.ParseInt(t, base, 64)
-	if err != nil || v < 0 {
+	if err != nil {
 		return said{}
 	}
-	return said{counted: true, value: v, fuzzy: fuzzy}
+	return said{counted: true, value: v}
 }
 
 func digits(s string) bool {
@@ -96,7 +112,7 @@ func eval(s string) (int64, bool) {
 	if !strings.ContainsAny(s, "0123456789") || !strings.ContainsAny(s, "+-*/%") {
 		return 0, false
 	}
-	e, err := parser.ParseExpr(s)
+	e, err := parser.ParseExpr(unzero(s))
 	if err != nil {
 		return 0, false
 	}
@@ -115,6 +131,21 @@ func eval(s string) (int64, bool) {
 	return out, true
 }
 
+// unzero drops each number's leading zeros, which Go would read as octal
+// or refuse ("08").
+func unzero(s string) string {
+	digit := func(c byte) bool { return c >= '0' && c <= '9' }
+	b := make([]byte, 0, len(s))
+	for i := range len(s) {
+		starts := len(b) == 0 || !digit(b[len(b)-1])
+		if s[i] == '0' && starts && i+1 < len(s) && digit(s[i+1]) {
+			continue
+		}
+		b = append(b, s[i])
+	}
+	return string(b)
+}
+
 func walk(e ast.Expr, depth int, literals *int) (constant.Value, bool) {
 	if depth > maxDepth {
 		return nil, false
@@ -125,7 +156,12 @@ func walk(e ast.Expr, depth int, literals *int) (constant.Value, bool) {
 		if e.Kind != token.INT || !digits(e.Value) || len(e.Value) > maxDigits || *literals > maxLiterals {
 			return nil, false
 		}
-		return constant.MakeFromLiteral(e.Value, token.INT, 0), true
+		// Decimal always: Go would read a leading zero as octal.
+		v, err := strconv.ParseInt(e.Value, 10, 64)
+		if err != nil {
+			return nil, false
+		}
+		return constant.MakeInt64(v), true
 	case *ast.ParenExpr:
 		return walk(e.X, depth+1, literals)
 	case *ast.UnaryExpr:

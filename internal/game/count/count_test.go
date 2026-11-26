@@ -78,7 +78,15 @@ func TestRead(t *testing.T) {
 		{"042", dec, true, 42, ""},
 		{"hello", dec, false, 0, ""},
 		{"", dec, false, 0, ""},
-		{"1234567890123456789", dec, false, 0, ""},
+		{"1234567890123456789", dec, true, 1234567890123456789, ""},
+		{"12345678901234567890", dec, false, 0, ""},
+		{"010+1", dec, true, 11, ""},
+		{"08+1", dec, true, 9, ""},
+		{"007*6", dec, true, 42, ""},
+		{"100+0", dec, true, 100, ""},
+		{"0+42", dec, true, 42, ""},
+		{"1111111111111111111111111111111111111111", Ruleset{Format: Binary}.Normal(), true, 1<<40 - 1, ""},
+		{"4000", Ruleset{Format: Roman}.Normal(), true, 4000, ""},
 		{"6*7", dec, true, 42, ""},
 		{"(40+4)/2*2-2", dec, true, 42, ""},
 		{"85/2", dec, false, 0, ""}, // not whole
@@ -231,6 +239,36 @@ func TestStaleMovesChangeNothing(t *testing.T) {
 	}
 }
 
+// Moves read back after skua was away: the right counts stand, the misses
+// change nothing.
+func TestForgivenMoves(t *testing.T) {
+	tb := newTable(t, Ruleset{Fail: Hardcore}.Normal())
+	tb.run(5)
+	back := func(user uint64, text string) Verdict {
+		tb.msg++
+		tb.at = tb.at.Add(time.Second)
+		return tb.en.Submit(ch, Move{User: user, Msg: tb.msg, Text: text, At: tb.at, Forgive: true})
+	}
+	if v := back(1, "6"); v.Kind != Accept {
+		t.Fatalf("%+v", v)
+	}
+	if v := back(1, "7"); v.Kind != Ignore || v.Miss != Twice {
+		t.Fatalf("twice %+v", v)
+	}
+	if v := back(2, "70"); v.Kind != Ignore || v.Miss != Wrong {
+		t.Fatalf("wrong %+v", v)
+	}
+	if v := back(2, "7"); v.Kind != Accept {
+		t.Fatalf("%+v", v)
+	}
+	if s := tb.state(); s.N != 7 || s.Run != 1 {
+		t.Fatalf("%+v", s)
+	}
+	if m := tb.en.Member(Who{guild, 2}); m.Misses != 0 {
+		t.Fatal("a forgiven miss counted")
+	}
+}
+
 func TestSnipeIsATieNotAMiss(t *testing.T) {
 	tb := newTable(t, Standard())
 	tb.say(1, "1")
@@ -314,6 +352,105 @@ func TestFuzzyWordsFarOffAreChat(t *testing.T) {
 	}
 }
 
+func TestFormatsNeverStall(t *testing.T) {
+	tb := newTable(t, Ruleset{Fail: Hardcore, Format: Binary, Step: 1000}.Normal())
+	tb.run(300) // past 2^18, 19 binary digits
+	rr := newTable(t, Ruleset{Fail: Hardcore, Format: Roman, Step: 10}.Normal())
+	rr.run(410) // past 3999 the count goes on in decimal
+	if s := rr.state(); s.Next() != "4110" {
+		t.Fatalf("roman past 3999 %s", s.Next())
+	}
+	// Under 3999 a roman channel wants its numeral, not the digits.
+	ro := newTable(t, Ruleset{Fail: Hardcore, Format: Roman}.Normal())
+	ro.run(3)
+	if v := ro.say(9, "4"); v.Kind != Broken {
+		t.Fatalf("digits for a numeral %+v", v)
+	}
+	if s, _ := rr.en.Set(ch, 5000); s.Next() != "5010" {
+		t.Fatalf("set past 3999 %s", s.Next())
+	}
+	if v := rr.say(1, "5010"); v.Kind != Accept {
+		t.Fatalf("%+v", v)
+	}
+}
+
+func TestLetterWordsAreChat(t *testing.T) {
+	ro := newTable(t, Ruleset{Fail: Hardcore, Format: Roman}.Normal())
+	ro.run(3)
+	for _, chat := range []string{"I think so", "i", "mix", "vi"} {
+		if v := ro.say(9, chat); v.Kind != Ignore {
+			t.Fatalf("%q %+v", chat, v)
+		}
+	}
+	if v := ro.say(9, "iv"); v.Kind != Accept {
+		t.Fatalf("a right numeral in lowercase %+v", v)
+	}
+	if v := ro.say(8, "VI"); v.Kind != Broken {
+		t.Fatalf("an uppercase numeral near the count is a miss %+v", v)
+	}
+	hx := newTable(t, Ruleset{Fail: Hardcore, Format: Hex}.Normal())
+	hx.run(5)
+	for _, chat := range []string{"a lot", "add", "be", "fed"} {
+		if v := hx.say(9, chat); v.Kind != Ignore {
+			t.Fatalf("%q %+v", chat, v)
+		}
+	}
+	if v := hx.say(9, "12"); v.Kind != Broken {
+		t.Fatalf("hex digits miss %+v", v)
+	}
+}
+
+func TestCooldownIsPerChannel(t *testing.T) {
+	en := &Engine{}
+	free, slow := Standard(), Standard()
+	slow.Cooldown = time.Hour
+	en.Open(guild, 1, free)
+	en.Open(guild, 2, slow)
+	en.Submit(1, Move{User: 5, Msg: 1, Text: "1", At: t0})
+	if v := en.Submit(2, Move{User: 5, Msg: 2, Text: "1", At: t0.Add(time.Minute)}); v.Kind != Accept {
+		t.Fatalf("another channel's count started the cooldown %+v", v)
+	}
+	if v := en.Submit(2, Move{User: 6, Msg: 3, Text: "2", At: t0.Add(2 * time.Minute)}); v.Kind != Accept {
+		t.Fatal(v)
+	}
+	if v := en.Submit(2, Move{User: 5, Msg: 4, Text: "3", At: t0.Add(3 * time.Minute)}); v.Kind != Early {
+		t.Fatalf("%+v", v)
+	}
+	if s, _ := en.Channel(2); len(s.Waits) != 2 {
+		t.Fatalf("waits %v", s.Waits)
+	}
+	if v := en.Submit(2, Move{User: 7, Msg: 5, Text: "3", At: t0.Add(2 * time.Hour)}); v.Kind != Accept {
+		t.Fatal(v)
+	}
+	if s, _ := en.Channel(2); len(s.Waits) != 1 {
+		t.Fatalf("old waits kept: %v", s.Waits)
+	}
+}
+
+func TestFizzBuzzSnipe(t *testing.T) {
+	tb := newTable(t, Ruleset{Fail: Hardcore, Format: FizzBuzz, Grace: time.Second}.Normal())
+	tb.run(3)
+	if v := tb.sayAfter(200*time.Millisecond, 9, "fizz"); v.Kind != Sniped {
+		t.Fatalf("a fizz tie %+v", v)
+	}
+	if v := tb.sayAfter(200*time.Millisecond, 8, "3"); v.Kind != Broken {
+		t.Fatalf("the number where fizz was due is no tie %+v", v)
+	}
+}
+
+func TestRecordAfterImport(t *testing.T) {
+	tb := newTable(t, Ruleset{Fail: Hardcore}.Normal())
+	tb.run(120)
+	tb.say(1, "5")
+	tb.en.Set(ch, 5000)
+	if v := tb.say(1, "5001"); !v.Record {
+		t.Fatalf("first count past the best after an import %+v", v)
+	}
+	if v := tb.say(2, "5002"); v.Record {
+		t.Fatal("record twice")
+	}
+}
+
 func TestFizzBuzz(t *testing.T) {
 	tb := newTable(t, Ruleset{Fail: Hardcore, Format: FizzBuzz}.Normal())
 	tb.run(2)
@@ -368,7 +505,7 @@ func TestSavesMemberThenChannel(t *testing.T) {
 		t.Fatal("a save moved the count")
 	}
 	v = tb.say(101, "7")
-	if v.Kind != Broken || v.Length != 250 || v.Best != 250 {
+	if v.Kind != Broken || v.Length != 250 || v.Best != 250 || v.N != 0 || v.Run != 1 {
 		t.Fatalf("no saves left %+v", v)
 	}
 	if m := tb.en.Member(Who{guild, 101}); m.SavesUsed != 2 || m.Misses != 3 || m.Breaks != 1 {
@@ -695,7 +832,7 @@ func FuzzRead(f *testing.F) {
 	f.Fuzz(func(t *testing.T, s string) {
 		for _, r := range rules {
 			got := read(s, r.Normal())
-			if got.counted && got.word == "" && r.Format == Roman && (got.value < 1 || got.value > 3999) {
+			if got.counted && got.letters && r.Format == Roman && (got.value < 1 || got.value > 3999) {
 				t.Fatalf("roman %q = %d", s, got.value)
 			}
 		}

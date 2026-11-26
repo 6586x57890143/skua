@@ -45,6 +45,10 @@ type Move struct {
 	Text string
 	// At is the time in the message's id, never when it arrived.
 	At time.Time
+	// Forgive is a move nobody saw answered, read back after skua was
+	// away: a correct count stands and a miss changes nothing, since the
+	// channel couldn't know it had missed.
+	Forgive bool
 }
 
 // Kind is what a move did.
@@ -91,7 +95,8 @@ const (
 type Verdict struct {
 	Kind Kind
 	Miss Miss
-	// N is the count's place in the run after the move.
+	// N is the count's place in its run after the move: 0 once a run
+	// breaks, since the next run has begun. Run is the run it was in.
 	N int64
 	// Expected is the number that was due, as written.
 	Expected string
@@ -138,6 +143,25 @@ type State struct {
 	Bounty  int64      `json:"bounty,omitempty"`
 	Seen    []uint64   `json:"seen,omitempty"` // who counted in this boss stretch
 	Combo   game.Combo `json:"combo"`
+	// Waits is when each member last counted here, while their cooldown
+	// runs.
+	Waits map[uint64]time.Time `json:"waits,omitempty"`
+	// Recorded is whether this run has passed Beat yet.
+	Recorded bool `json:"recorded,omitempty"`
+}
+
+// wait notes when user last counted here, for the cooldown, forgetting
+// anyone whose cooldown is over.
+func (s *State) wait(user uint64, at time.Time) {
+	if s.Waits == nil {
+		s.Waits = map[uint64]time.Time{}
+	}
+	for u, t := range s.Waits {
+		if at.Sub(t) >= s.Rules.Cooldown {
+			delete(s.Waits, u)
+		}
+	}
+	s.Waits[user] = at
 }
 
 // Next is the number due next, as written.
@@ -212,7 +236,7 @@ func (en *Engine) Open(guild, ch uint64, r Ruleset) {
 // Close stops counting in ch.
 func (en *Engine) Close(ch uint64) { en.chans.Delete(ch) }
 
-// Restore puts back a stored channel and its members.
+// Restore puts back a stored channel.
 func (en *Engine) Restore(ch uint64, s State) {
 	s.Rules = s.Rules.Normal()
 	en.chans.Upsert(ch, func(d *State, _ bool) { *d = s })
@@ -232,12 +256,13 @@ func (en *Engine) Channels() []uint64 { return en.chans.Keys() }
 // Member is a copy of a member's counting.
 func (en *Engine) Member(w Who) Member { m, _ := en.members.Get(w); return m }
 
-// Set starts a new run in ch at n, for a server moving from another bot.
-// The run's genesis records where it began.
-func (en *Engine) Set(ch uint64, n int64) (State, bool) {
+// Set starts a new run in ch from number, the last one counted, for a
+// server moving from another bot; a number between steps rounds down. The
+// run's genesis records where it began.
+func (en *Engine) Set(ch uint64, number int64) (State, bool) {
 	var out State
 	ok := en.chans.Do(ch, func(s *State) {
-		s.restart(ch, max(n, 0))
+		s.restart(ch, max(number, 0)/s.Rules.Step)
 		out = *s
 	})
 	return out, ok
@@ -246,9 +271,9 @@ func (en *Engine) Set(ch uint64, n int64) (State, bool) {
 // restart begins the next run at start.
 func (s *State) restart(ch uint64, start int64) {
 	s.Run++
-	s.N, s.Start, s.Beat = start, start, s.Best
+	s.N, s.Start, s.Beat, s.Recorded = start, start, s.Best, false
 	s.Head = Genesis(s.Guild, ch, s.Run, start)
-	s.Last, s.Bounty, s.Seen = 0, 0, nil
+	s.Last, s.Bounty, s.Seen, s.Waits = 0, 0, nil, nil
 	s.Combo = game.Combo{}
 	if s.Rules.Fail == Lives {
 		s.Lives = s.Rules.Lives
@@ -276,17 +301,15 @@ func (en *Engine) submit(ch uint64, s *State, m Move) Verdict {
 	}
 	due := (s.N + 1) * r.Step
 	v.Expected = Say(due, r)
-	right := in.word == "" && in.value == due || in.word != "" && in.word == fizz(due)
-	if in.word == "" && fizz(due) != "" && r.Format == FizzBuzz {
-		// A number where a word is due is a miss, even the right number.
-		right = false
-	}
-	prev := s.N * r.Step
-	if !right && s.N > s.Start && in.word == "" && in.value == prev && m.User != s.Last && m.At.Sub(s.LastAt) <= r.Grace {
+	right := matches(in, due, r)
+	if !right && s.N > s.Start && matches(in, s.N*r.Step, r) && m.User != s.Last && m.At.Sub(s.LastAt) <= r.Grace {
 		v.Kind = Sniped
 		return v
 	}
-	if !right && in.fuzzy && abs(in.value-due) > fuzzSteps*r.Step {
+	if !right && (in.fuzzy || in.strict) && abs(in.value-due) > fuzzSteps*r.Step {
+		return Verdict{Kind: Ignore}
+	}
+	if !right && in.letters && !in.strict {
 		return Verdict{Kind: Ignore}
 	}
 	en.members.Upsert(Who{s.Guild, m.User}, func(mem *Member, _ bool) {
@@ -298,9 +321,12 @@ func (en *Engine) submit(ch uint64, s *State, m Move) Verdict {
 // decide settles a count under the channel's lock and the member's.
 func (en *Engine) decide(ch uint64, s *State, mem *Member, m Move, right bool, v Verdict) Verdict {
 	r := s.Rules
-	if r.Cooldown > 0 && !mem.LastAt.IsZero() && m.At.Sub(mem.LastAt) < r.Cooldown {
+	if last, ok := s.Waits[m.User]; r.Cooldown > 0 && ok && m.At.Sub(last) < r.Cooldown {
 		v.Kind = Early
 		return v
+	}
+	if r.Cooldown > 0 {
+		s.wait(m.User, m.At)
 	}
 	mem.LastAt = m.At
 	s.LastMsg = m.Msg
@@ -317,6 +343,10 @@ func (en *Engine) decide(ch uint64, s *State, mem *Member, m Move, right bool, v
 		v.Miss = Twice
 	case stretch && contains(s.Seen, m.User):
 		v.Miss = Boss
+	}
+	if v.Miss != 0 && m.Forgive {
+		v.Kind = Ignore
+		return v
 	}
 	if v.Miss != 0 {
 		en.miss(ch, s, mem, &v)
@@ -335,7 +365,9 @@ func (en *Engine) accept(s *State, mem *Member, m Move, n int64, stretch bool, v
 	mem.Counts++
 	v.Kind, v.N, v.Hash = Accept, n, s.Head
 
-	v.Record = s.Beat > 0 && n == s.Beat+1
+	if s.Beat > 0 && n > s.Beat && !s.Recorded {
+		v.Record, s.Recorded = true, true
+	}
 	s.Best = max(s.Best, n)
 	v.Best = s.Best
 	v.Milestone = n%milestone == 0
@@ -410,6 +442,24 @@ func (en *Engine) miss(ch uint64, s *State, mem *Member, v *Verdict) {
 	}
 	v.Kind, v.Length, v.Hash, v.Timeout = Broken, s.N-s.Start, s.Head, r.Timeout
 	s.restart(ch, 0)
+	v.N = s.N
+}
+
+// matches is whether what was said is v written under r: the word where
+// fizzbuzz has one, a numeral where roman can write one.
+func matches(in said, v int64, r Ruleset) bool {
+	if in.word != "" {
+		return r.Format == FizzBuzz && in.word == fizz(v)
+	}
+	switch {
+	case in.value != v:
+		return false
+	case r.Format == FizzBuzz && fizz(v) != "":
+		return false
+	case r.Format == Roman && in.decimal && toRoman(v) != "":
+		return false
+	}
+	return true
 }
 
 func abs(x int64) int64 {
