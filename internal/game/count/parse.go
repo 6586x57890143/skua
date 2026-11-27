@@ -51,9 +51,10 @@ type said struct {
 func read(text string, r Ruleset) said {
 	var first said
 	line, rest, _ := strings.Cut(strings.TrimSpace(text), "\n")
-	line = strings.TrimRight(strings.Trim(line, "*_`~| \t"), ".?,")
+	line = strings.TrimSpace(strings.TrimRight(strings.Trim(line, "*_`~| \t"), ".?,"))
 	words := strings.Fields(rest)
-	if r.Math != MathOff && (r.Format == Decimal || r.Format == FizzBuzz) && len(line) <= maxLine && strings.ContainsAny(line, " \t") {
+	// Only a line with an operator in it: "3 !" is 3 said loudly.
+	if r.Math != MathOff && (r.Format == Decimal || r.Format == FizzBuzz) && len(line) <= maxLine && strings.ContainsAny(line, " \t") && strings.ContainsFunc(line, sign("!")) {
 		if v, ok := eval(line); ok {
 			first = said{counted: true, value: v, fuzzy: true}
 		}
@@ -162,9 +163,10 @@ func digits(s string) bool {
 // a whole number. The usual typed signs count too: × · ÷ −. It works at
 // 512 bits and takes a result within 2^-200 of a whole number as that
 // number, so √720·√5 is 60. Anything else, a fraction, a division by zero,
-// a value past 2^256 or a result past int64 is not a count.
+// a value past 2^128 or a result past int64 is not a count.
 func eval(s string) (int64, bool) {
-	if !strings.ContainsAny(s, "0123456789") {
+	// A number in brackets ("(3)") is no sum.
+	if !strings.ContainsAny(s, "0123456789") || !strings.ContainsFunc(s, sign("")) {
 		return 0, false
 	}
 	c := &calc{s: []rune(strings.ToLower(s))}
@@ -181,10 +183,18 @@ func eval(s string) (int64, bool) {
 
 const (
 	prec    = 512 // bits a value is worked at
-	maxBits = 256 // a value is under 2^maxBits
+	maxBits = 128 // a value is under 2^maxBits, and 0 or over 2^-maxBits
 	maxRoot = 12  // the largest root a fractional power takes (x^(1/12))
-	maxFact = 60  // the largest factorial
+	maxFact = 34  // the largest factorial under 2^maxBits
 )
+
+// sign is a predicate for a rune that does maths: anything but a digit, a
+// space, a bracket or one of plain.
+func sign(plain string) func(rune) bool {
+	return func(r rune) bool {
+		return !unicode.IsDigit(r) && !unicode.IsSpace(r) && r != '(' && r != ')' && !strings.ContainsRune(plain, r)
+	}
+}
 
 // calc reads an expression by recursive descent, lowest binding first.
 type calc struct {
@@ -333,13 +343,14 @@ func (c *calc) primary() (*big.Float, bool) {
 		}
 		return x, true
 	case c.eat("√", "sqrt"):
-		x, ok := c.primary()
+		// Its operand takes its factorials first: √4! is √24.
+		x, ok := c.postfix()
 		if !ok || x.Sign() < 0 {
 			return nil, false
 		}
 		return num().Sqrt(x), true
 	case c.eat("γ", "gamma"): // Γ, lowered
-		x, ok := c.primary()
+		x, ok := c.postfix()
 		if !ok {
 			return nil, false
 		}
@@ -367,7 +378,14 @@ func num() *big.Float { return new(big.Float).SetPrec(prec) }
 
 // fit is x, unless it's past what an expression may reach.
 func fit(x *big.Float) (*big.Float, bool) {
-	return x, !x.IsInf() && x.MantExp(nil) <= maxBits
+	// The work is good to about 2^-384 at this size: under 2^-300 is a
+	// zero that rounding left ((√2)²-2), and a true value is at least
+	// 2^-128, which keeps a fraction far from whole's 2^-200.
+	e := x.MantExp(nil)
+	if x.Sign() != 0 && e < -300 {
+		return x.SetInt64(0), true
+	}
+	return x, !x.IsInf() && e <= maxBits && (x.Sign() == 0 || e > -maxBits)
 }
 
 // whole is the whole number x is, to within the rounding of the work.

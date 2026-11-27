@@ -134,9 +134,21 @@ func TestRead(t *testing.T) {
 		{"Γ(0)", dec, false, 0, ""},
 		{"Γ(1/2)", dec, false, 0, ""},
 		{"(1/2)!", dec, false, 0, ""},
-		{"61!/61!", dec, false, 0, ""}, // past the largest factorial
-		{"2^300/2^299", dec, false, 0, ""},
-		{"2^255/2^254", dec, true, 2, ""},
+		{"35!/35!", dec, false, 0, ""}, // past the largest factorial
+		{"34!/33!", dec, true, 34, ""},
+		{"2^130/2^129", dec, false, 0, ""},
+		{"2^127/2^126", dec, true, 2, ""},
+		{"1+2^-127", dec, false, 0, ""},
+		{"1+1/2^100/2^100", dec, false, 0, ""}, // a true fraction, however small
+		{"(√2)²-2+42", dec, true, 42, ""},      // a zero rounding left
+		{"√4!", dec, false, 0, ""},             // √24
+		{"√5²", dec, true, 5, ""},
+		{"3 !", dec, true, 3, ""}, // said loudly, never 6
+		{"5 !!", dec, true, 5, ""},
+		{"42 (3)", dec, true, 42, ""},
+		{"(42)", Ruleset{Math: MathOnly}.Normal(), false, 0, ""},
+		{"42 ?", Ruleset{Math: MathOnly}.Normal(), false, 0, ""},
+		{"(3!)", Ruleset{Math: MathOnly}.Normal(), true, 6, ""},
 		{"1^999999999999999999", dec, true, 1, ""},
 		{"0^-1", dec, false, 0, ""},
 		{"√-4", dec, false, 0, ""},
