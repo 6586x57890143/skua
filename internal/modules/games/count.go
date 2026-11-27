@@ -35,14 +35,15 @@ const (
 	// catchPages is how many pages of a hundred she reads back per channel
 	// after being away.
 	catchPages = 5
-	// baseTimeout is the first timeout for breaking a run.
-	baseTimeout = 10 * time.Minute
+	// baseTimeout is the first timeout for breaking a run, and the least:
+	// a channel switched on when it was 10m gets 30m too.
+	baseTimeout = 30 * time.Minute
 )
 
-// ladder is a breaker's timeout: the base, doubled for each break of theirs
-// in the last week, up to a day.
+// ladder is a breaker's timeout: the base, at least baseTimeout, doubled
+// for each break of theirs in the last week, up to a day.
 func ladder(base time.Duration) sanction.Ladder {
-	return sanction.Ladder{Base: base, Doublings: 7, Max: 24 * time.Hour, Window: 7 * 24 * time.Hour}
+	return sanction.Ladder{Base: max(base, baseTimeout), Doublings: 7, Max: 24 * time.Hour, Window: 7 * 24 * time.Hour}
 }
 
 // OnEvent plays a message in a counting channel, calls out a count deleted

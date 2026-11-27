@@ -233,18 +233,18 @@ func TestBreakPostsACardAndTimesOut(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 	said := tb.r.said()
-	for _, want := range []string{"<@7> said **\\*\\*5\\*\\***, but it was **4**", "run", "3", "sits out 10m", "start again at **1**"} {
+	for _, want := range []string{"<@7> said **\\*\\*5\\*\\***, but it was **4**", "run", "3", "sits out 30m", "start again at **1**"} {
 		if !strings.Contains(said, want) {
 			t.Fatalf("card lacks %q:\n%s", want, said)
 		}
 	}
-	if len(tb.r.timeouts) != 1 || tb.r.timeouts[0] != 10*time.Minute {
+	if len(tb.r.timeouts) != 1 || tb.r.timeouts[0] != 30*time.Minute {
 		t.Fatalf("timeouts %v", tb.r.timeouts)
 	}
 	// Breaking again in the week doubles it.
 	tb.say(7, "1")
 	tb.say(7, "2")
-	if tb.r.timeouts[1] != 20*time.Minute {
+	if tb.r.timeouts[1] != time.Hour {
 		t.Fatalf("timeouts %v", tb.r.timeouts)
 	}
 	if !strings.Contains(tb.r.said(), "counted twice in a row") {
@@ -789,5 +789,15 @@ func TestFailedFlushKeepsTheJournal(t *testing.T) {
 	_ = db.QueryRow(ctx, "select count(*) from count_log where channel_id = $1", chanID).Scan(&logs)
 	if logs != 3 {
 		t.Fatal(logs)
+	}
+}
+
+// A channel that switched timeouts on at the old 10m gets the 30m floor.
+func TestOldTimeoutTakesTheFloor(t *testing.T) {
+	if l := ladder(10 * time.Minute); l.Base != 30*time.Minute {
+		t.Fatalf("%v", l.Base)
+	}
+	if l := ladder(time.Hour); l.Base != time.Hour {
+		t.Fatalf("%v", l.Base)
 	}
 }
