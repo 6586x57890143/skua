@@ -532,7 +532,7 @@ func matches(in said, v int64, r Ruleset) bool {
 		return r.Format == FizzBuzz && in.word == fizz(v)
 	}
 	switch {
-	case in.value != v:
+	case in.value != v && in.also != v: // v is never 0, nor is also when set
 		return false
 	case r.Format == FizzBuzz && fizz(v) != "":
 		return false
