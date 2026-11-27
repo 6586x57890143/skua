@@ -105,7 +105,45 @@ func TestRead(t *testing.T) {
 		{"3/2%1", dec, false, 0, ""},
 		{"1/0", dec, false, 0, ""},
 		{"5%0", dec, false, 0, ""},
-		{"2^5", dec, false, 0, ""},
+		{"2^5", dec, true, 32, ""},
+		// What a counting channel actually types.
+		{"Γ(7)/Γ(5)", dec, true, 30, ""},
+		{"(√(6!) × √5)/2", dec, true, 30, ""},
+		{"(sqrt(6!)*sqrt(5))/2", dec, true, 30, ""},
+		{"((6!)^(1/2)*5^(1/2))/2", dec, true, 30, ""},
+		{"((6!)**(1/2)*5**(1/2))/2", dec, true, 30, ""},
+		{"3!!/4!", dec, true, 30, ""},
+		{"((3!)! + 4!)/4!", dec, true, 31, ""},
+		{"((3!)! + 4!)/4!\nthat's disappointing", dec, true, 31, ""},
+		{"6 * 7 is 42", dec, false, 0, ""}, // not one expression, and two numbers
+		{"6 × 7", dec, true, 42, ""},
+		{"84 ÷ 2", dec, true, 42, ""},
+		{"43 − 1", dec, true, 42, ""},
+		{"6·7", dec, true, 42, ""},
+		{"2^-1*84", dec, true, 42, ""},
+		{"-2^2+46", dec, true, 42, ""}, // a sign binds looser than a power
+		{"2^3^2", dec, true, 512, ""},  // right to left
+		{"8^(1/3)*21", dec, true, 42, ""},
+		{"(-8)^(1/3)+44", dec, true, 42, ""},
+		{"(-4)^(1/2)", dec, false, 0, ""},
+		{"2^(1/2)", dec, false, 0, ""},
+		{"7²-7", dec, true, 42, ""},
+		{"3³+15", dec, true, 42, ""},
+		{"(0)!", dec, true, 1, ""},
+		{"gamma(1)", dec, true, 1, ""},
+		{"Γ(0)", dec, false, 0, ""},
+		{"Γ(1/2)", dec, false, 0, ""},
+		{"(1/2)!", dec, false, 0, ""},
+		{"61!/61!", dec, false, 0, ""}, // past the largest factorial
+		{"2^300/2^299", dec, false, 0, ""},
+		{"2^255/2^254", dec, true, 2, ""},
+		{"1^999999999999999999", dec, true, 1, ""},
+		{"0^-1", dec, false, 0, ""},
+		{"√-4", dec, false, 0, ""},
+		{"6!", dec, true, 6, ""}, // excitement; 720 too, below
+		{"6!", Ruleset{Math: MathOnly}.Normal(), true, 720, ""},
+		{"42!", Ruleset{Math: MathOnly}.Normal(), false, 0, ""},
+		{"6!", Ruleset{Math: MathOff}.Normal(), true, 6, ""},
 		{"1<<62", dec, false, 0, ""},
 		{"0x2a+0", dec, false, 0, ""},
 		{"1_0+1", dec, false, 0, ""},
@@ -258,6 +296,22 @@ func TestTwoNumbersAreChat(t *testing.T) {
 	}
 	if v := tb.say(3, "2"); v.Kind != Accept {
 		t.Fatalf("%+v", v)
+	}
+}
+
+// "5!" at 5 is a count said loudly, and at 120 a factorial: either is right.
+func TestBangIsLoudOrFactorial(t *testing.T) {
+	tb := newTable(t, Ruleset{Fail: Hardcore}.Normal())
+	tb.en.Set(ch, 4)
+	if v := tb.say(1, "5!"); v.Kind != Accept {
+		t.Fatalf("5! at 5 %+v", v)
+	}
+	tb.en.Set(ch, 119)
+	if v := tb.say(2, "5!"); v.Kind != Accept {
+		t.Fatalf("5! at 120 %+v", v)
+	}
+	if !tb.state().Says("5!") {
+		t.Fatal("an edit to the same 5! no longer says 120")
 	}
 }
 
@@ -945,7 +999,7 @@ func TestConcurrentChannels(t *testing.T) {
 }
 
 func FuzzRead(f *testing.F) {
-	for _, s := range []string{"42", "6*7", "(1+2)*3", "xlii", "0x2a", "fizz", "-1", "1/0", "((((1))))"} {
+	for _, s := range []string{"42", "6*7", "(1+2)*3", "xlii", "0x2a", "fizz", "-1", "1/0", "((((1))))", "3!!/4!", "(√(6!) × √5)/2", "8^(1/3)", "Γ(7)"} {
 		f.Add(s)
 	}
 	rules := []Ruleset{Standard(), {Math: MathOnly}, {Format: Binary}, {Format: Hex}, {Format: Roman}, {Format: FizzBuzz}}
